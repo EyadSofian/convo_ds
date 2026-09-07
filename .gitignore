@@ -1,0 +1,34 @@
+# dependencies
+node_modules/
+.pnpm-store/
+.venv/
+__pycache__/
+
+# build output
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# test + evidence artifacts (generated, not committed raw)
+coverage/
+playwright-report/
+test-results/
+.tmp/
+tmp/
+docs/evidence/**/raw/
+
+# local runtime state
+.env
+.env.*
+!.env.example
+*.local
+.data/
+pgdata/
+
+# research cache: a 22MB read-only clone of chatwoot at a pinned commit, used as
+# reference evidence only. Not part of this product's source. See docs/research/.
+.research-cache/
+
+# os
+.DS_Store
