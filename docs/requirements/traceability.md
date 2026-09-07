@@ -22,7 +22,9 @@ Rules enforced on this file:
 - Every row must eventually name its migration/route/component/test path in `Evidence`.
 - No row is deleted to make the registry look complete. Descoped rows move to `descoped` with an ADR link.
 
-At P0 close, every row below is `Impl=planned`, `Test=not_run` — that is the honest baseline, not a gap to hide.
+At P0 close, every row below was `Impl=planned`, `Test=not_run` — that was the honest baseline, not a gap to hide.
+
+**P1-T1 (2026-09-07)** moved the first rows. Verified by `pnpm test:integration` → exit 0, 18 tests passing against a real PostgreSQL 17.4: TEN-01, TEN-02, TEN-03, TEN-04, TEN-05 and (partially) IAM-08, DEP-02. The **coverage gate DEP-14 is currently `failing`, not passed**: measured 14.51% lines / 28.57% functions / 53.33% branches. Two causes, both real: `cli.ts` has no test, and `bootstrap.ts`/`migrate.ts` execute inside Vitest's global-setup process, which the v8 provider does not instrument. Closing this is task P1-T2. The threshold is not being lowered.
 
 ## Family index
 
@@ -80,11 +82,11 @@ At P0 close, every row below is `Impl=planned`, `Test=not_run` — that is the h
 
 | ID | Requirement | Phase | Acceptance | Impl | Test | Live | Dep | Evidence |
 |---|---|---|---|---|---|---|---|---|
-| TEN-01 | Every tenant-owned table has non-null `tenant_id` | P1 | Migration lint fails on a tenant table without it | planned | not_run | n/a | n/a | |
-| TEN-02 | Composite FKs `(tenant_id, x_id) → (tenant_id, id)` on all cross-entity links | P1 | DB rejects a cross-tenant relationship insert | planned | not_run | n/a | n/a | |
-| TEN-03 | RLS enabled with both USING and WITH CHECK; FORCE RLS where owner writes | P1 | Direct SQL as runtime role cannot read/write other tenant | planned | not_run | n/a | n/a | |
-| TEN-04 | Runtime DB role is not owner/superuser/BYPASSRLS; migration role separate | P1 | `pg_roles` assertion test | planned | not_run | n/a | n/a | |
-| TEN-05 | Transaction-local tenant context is set and verified, pooling-safe | P1 | Pool reuse test: context does not leak between transactions | planned | not_run | n/a | n/a | |
+| TEN-01 | Every tenant-owned table has non-null `tenant_id` | P1 | Migration lint fails on a tenant table without it | implemented | passed | n/a | n/a | packages/database/migrations/0001_foundation.sql |
+| TEN-02 | Composite FKs `(tenant_id, x_id) → (tenant_id, id)` on all cross-entity links | P1 | DB rejects a cross-tenant relationship insert | implemented | passed | n/a | n/a | tests/integration/tenant-isolation.test.ts |
+| TEN-03 | RLS enabled with both USING and WITH CHECK; FORCE RLS where owner writes | P1 | Direct SQL as runtime role cannot read/write other tenant | implemented | passed | n/a | n/a | packages/database/migrations/0002_rls.sql; tests/integration/tenant-isolation.test.ts |
+| TEN-04 | Runtime DB role is not owner/superuser/BYPASSRLS; migration role separate | P1 | `pg_roles` assertion test | implemented | passed | n/a | n/a | packages/database/src/bootstrap.ts; tests/integration/runtime-role.test.ts |
+| TEN-05 | Transaction-local tenant context is set and verified, pooling-safe | P1 | Pool reuse test: context does not leak between transactions | implemented | passed | n/a | n/a | packages/database/src/context.ts; tests/integration/tenant-isolation.test.ts |
 | TEN-06 | Tenant scoping in cache keys | P1 | Key prefix assertion + cross-tenant cache read test | planned | not_run | n/a | n/a | |
 | TEN-07 | Tenant scoping in WebSocket subscriptions; no global wildcard broadcast | P2 | Subscribe to other tenant topic denied | planned | not_run | n/a | n/a | |
 | TEN-08 | Tenant scoping in object storage paths + signed access | P2 | Signed URL for other tenant's object denied | planned | not_run | n/a | n/a | |
@@ -104,7 +106,7 @@ At P0 close, every row below is `Impl=planned`, `Test=not_run` — that is the h
 | IAM-05 | Session inventory and revocation (`GET/DELETE /auth/sessions/{id}`) | P1 | Revoked session's next request fails | planned | not_run | n/a | n/a | |
 | IAM-06 | Invitations: create, expire, single-use accept, revoke | P1 | Expired/reused token rejected | planned | not_run | n/a | n/a | |
 | IAM-07 | Tenant switching lists only active memberships | P1 | Suspended membership hidden and denied | planned | not_run | n/a | n/a | |
-| IAM-08 | Permission keys (not role-name checks) — the 28 keys in master §17 | P1 | Registry test asserts every key exists and is used | planned | not_run | n/a | n/a | |
+| IAM-08 | Permission keys (not role-name checks) — the 28 keys in master §17 | P1 | Registry test asserts every key exists and is used | partial | passed | n/a | n/a | packages/database/migrations/0003_permission_catalogue.sql; tests/integration/permission-catalogue.test.ts |
 | IAM-09 | Seven built-in roles matching the master §17 matrix exactly | P1 | Table-driven allow/deny test per role per key per scope | planned | not_run | n/a | n/a | |
 | IAM-10 | Scope model: Tenant / Scoped(team,inbox) / Own / No; effective access = intersection | P1 | Intersection unit + property tests | planned | not_run | n/a | n/a | |
 | IAM-11 | `conversation.unassigned.preview` returns projected queue card only | P2 | Response schema has no snippet/timeline/notes/media/contact PII | planned | not_run | n/a | n/a | |
@@ -391,7 +393,7 @@ Each ID here maps 1:1 to the mandatory test matrix. These are release gates.
 | ID | Requirement | Phase | Acceptance | Impl | Test | Live | Dep | Evidence |
 |---|---|---|---|---|---|---|---|---|
 | DEP-01 | Separately scalable process roles: api, ingress, realtime, workers (inbound/interactive/campaign/integration), ai | P1 | Each role has own concurrency/queue/resource config | planned | not_run | n/a | n/a | |
-| DEP-02 | Expand/backfill/contract migrations; cancellable throttled backfills; idempotent migrate command | P1 | Rollback drill | planned | not_run | n/a | n/a | |
+| DEP-02 | Expand/backfill/contract migrations; cancellable throttled backfills; idempotent migrate command | P1 | Rollback drill | partial | passed | n/a | n/a | packages/database/src/migrate.ts (checksum drift guard) |
 | DEP-03 | Readiness/liveness separation, graceful drain, deterministic rollback | P8 | Drain test loses no accepted work | planned | not_run | n/a | not_deployed | |
 | DEP-04 | OpenTelemetry traces/metrics/log correlation with redaction; no unbounded label cardinality | P1→P8 | Label cardinality test | planned | not_run | n/a | n/a | |
 | DEP-05 | Dashboards + burn-rate alerts on symptoms with runbook links | P8 | Alert rules reviewed | planned | not_run | n/a | not_deployed | |

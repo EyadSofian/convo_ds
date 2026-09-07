@@ -32,3 +32,6 @@ pgdata/
 
 # os
 .DS_Store
+
+# generated build output of workspace packages
+packages/*/dist/

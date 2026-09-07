@@ -33,9 +33,14 @@ user_recovery_codes      (id, user_id, code_hash, used_at)
 
 memberships              (id, tenant_id, user_id, role_id, status, created_at, revoked_at)
                           UNIQUE (tenant_id, user_id)
-roles                    (id, tenant_id NULLABLE, key, name, is_builtin, version)
-                          -- tenant_id NULL = built-in role shared by all tenants
-role_permissions         (role_id, permission_key)          PK (role_id, permission_key)
+roles                    (id, tenant_id NOT NULL, key, name, is_builtin, version)
+                          -- Built-in roles are seeded PER TENANT at provisioning.
+                          -- A shared global role row would need a nullable tenant_id,
+                          -- which under MATCH SIMPLE would silently disable every
+                          -- composite FK that references it. Decided during P1-T1.
+                          UNIQUE (tenant_id, id), UNIQUE (tenant_id, key)
+role_permissions         (tenant_id, role_id, permission_key) PK (tenant_id, role_id, permission_key)
+                          FK (tenant_id, role_id) -> roles (tenant_id, id)
 permissions              (key PK, description, delegable bool)
 
 teams                    (id, tenant_id, name)              UNIQUE (tenant_id, name)

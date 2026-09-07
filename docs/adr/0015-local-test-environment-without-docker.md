@@ -30,7 +30,7 @@ This is a *real* PostgreSQL, so it exercises migrations, constraints, composite 
 
 ## Consequences
 
-- `embedded-postgres` ships an x86_64 binary that runs under Rosetta on this arm64 Mac: correct, but slower. Fine for correctness tests; not a performance measurement.
+- The shipped `postgres` binary is a **universal Mach-O** containing both `x86_64` and `arm64` slices. `select version()` reports `x86_64-apple-darwin23.6.0` because that is the compile-time triple, so the version string alone does not tell us which slice executes. Either way this is a correctness harness, **not** a performance measurement.
 - The pinned `embedded-postgres` version is a beta tag; it is pinned exactly and re-evaluated if it misbehaves.
 - CI still uses standard service containers, so we are not betting the pipeline on this package.
 
@@ -43,4 +43,5 @@ This is a *real* PostgreSQL, so it exercises migrations, constraints, composite 
 ## How this is verified
 
 - Harness smoke test: start → migrate → assert `pg_roles` (runtime role has no superuser/BYPASSRLS) → run the cross-tenant RLS denial suite → stop.
+- **Executed 2026-09-07:** `pnpm test:integration` → exit 0, 3 files / 18 tests passed against PostgreSQL 17.4, 3 migrations applied. See `docs/execution/current-task.md`.
 - Every test artifact records which substitute it used, alongside the source revision and seed.
