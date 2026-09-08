@@ -1,5 +1,11 @@
-import { Client } from 'pg';
+import pg from 'pg';
+import type { Client as PgClient } from 'pg';
 import type { ClusterCredentials, DatabaseNames } from './types.js';
+
+// `pg` is CommonJS. Under plain Node ESM a named import of `Client` throws
+// at module load -- which the real `convo-db` process does and Vitest's
+// transform hides. Import the default and destructure.
+const { Client } = pg;
 
 /**
  * Cluster bootstrap. Runs once, as a superuser, before any migration.
@@ -52,7 +58,11 @@ export async function bootstrapCluster(
   }
 }
 
-async function createRoleIfMissing(admin: Client, role: string, password: string): Promise<void> {
+async function createRoleIfMissing(
+  admin: PgClient,
+  role: string,
+  password: string,
+): Promise<void> {
   const found = await admin.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role]);
   if (found.rowCount === 0) {
     await admin.query(

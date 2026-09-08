@@ -18,6 +18,38 @@ Reference: <https://www.figma.com/community/file/1514208352310179359/customer-su
 
 Secondary inspiration (layout only — **no artwork, icons or logos are reused**): Dribbble shots *Unified Inbox* (Arafat Ovi), *Cosmo* (Royhan Darmawan / Flow Forge), *Closr* (Filllo).
 
+## 1a. Superseded by the Milestone A token layer (2026-09-09)
+
+**§4 below is historical.** The palette, type scale and several layout values in that section were
+replaced during the Milestone A rebuild. The binding source is now:
+
+- `apps/web/src/theme.ts` — both palettes as data, with the WCAG requirement list.
+- `apps/web/src/styles/tokens.css` — what the browser reads.
+- `apps/web/src/theme.test.ts` — fails the build if the two disagree, and re-checks every contrast
+  pair on both themes.
+
+What changed, and why:
+
+| §4 value | Replaced by | Reason |
+|---|---|---|
+| `--surface-app: #F7F8FA` and the light greys around it | `#eef1f5` ground with a darker `--text-muted: #5e6980` | `#68738a`-class muted text measured **4.21:1** on the grey ground — below AA. The whole neutral ramp was re-derived from contrast arithmetic rather than adjusted by eye. |
+| "Dark theme: **not yet defined**" | A complete dark palette | It is defined now, and every pair is tested. This was the largest honest gap in §4. |
+| `--font-sans: Inter, "IBM Plex Sans Arabic", …` | `'Readex Pro'` + system fallback, self-hosted | One Arabic-first family carrying both scripts, so Arabic and Latin share one metric instead of two faces disagreeing at the same size. Shipped with its SIL OFL 1.1 licence; no third-party font host is contacted. |
+| `--text-sm: 13px` used for body copy | body 14–15px, conversation copy 15px | The brief's readable band. Nothing primary sits below 12px, asserted in `tests/e2e/layout.spec.ts`. |
+| `--list-width: 320px`, `--row-height-compact: 64px` | `--list-width: 332px` (resizable 300–380), `--row-height: 68px` | Measured against the eight-visible-rows requirement at 1366×768. |
+| Provenance labels | unchanged in spirit | Still **zero** `measured` values. The Figma file is still 403 to automated fetch (§1). Nothing here may be described as pixel-matching it. |
+
+The **layout contract in §3 is superseded too**: the drawer/overlay thresholds are now arithmetic
+derived from the 640px timeline floor (1260 / 1364 / 1596px promotion, 1027 / 719px drawer), and they
+are documented at the top of `apps/web/src/styles/shell.css` and asserted in
+`tests/e2e/layout.spec.ts`.
+
+The §6 component state contract and the §5 bidirectionality rules are **not** superseded — they were
+implemented, and both are now enforced by tests (`theme.test.ts` forbids physical `left`/`right` in
+layout CSS; `layout.spec.ts` asserts a mixed Arabic/Latin message keeps its own base direction).
+
+---
+
 ## 2. Observed structure (from the visual inspection, not measured)
 
 A light, compact, information-dense working environment:

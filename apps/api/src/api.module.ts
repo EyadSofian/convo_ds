@@ -1,0 +1,66 @@
+import {
+  Inject,
+  Injectable,
+  Module,
+  type DynamicModule,
+  type OnModuleDestroy,
+} from '@nestjs/common';
+import argon2 from 'argon2';
+import type { Pool } from 'pg';
+import type { ApiConfig } from './config.js';
+import { AuthController } from './auth/auth.controller.js';
+import { AuthRateLimiter } from './auth/auth-rate-limiter.js';
+import { AuthService } from './auth/auth.service.js';
+import { PermissionController } from './authorization/permission.controller.js';
+import { PermissionService } from './authorization/permission.service.js';
+import { IdempotencyService } from './idempotency/idempotency.service.js';
+import { InstanceController } from './instance/instance.controller.js';
+import { InstanceService } from './instance/instance.service.js';
+import { MembershipController } from './memberships/membership.controller.js';
+import { MembershipService } from './memberships/membership.service.js';
+import { API_CONFIG, API_POOL, PASSWORD_HASHER, type PasswordHasher } from './tokens.js';
+
+@Injectable()
+class PoolLifecycle implements OnModuleDestroy {
+  constructor(@Inject(API_POOL) private readonly pool: Pool) {}
+
+  async onModuleDestroy(): Promise<void> {
+    await this.pool.end();
+  }
+}
+
+const ARGON2ID_HASHER: PasswordHasher = {
+  hash(plaintext) {
+    return argon2.hash(plaintext, {
+      type: argon2.argon2id,
+      memoryCost: 19_456,
+      timeCost: 2,
+      parallelism: 1,
+    });
+  },
+  verify(hash, plaintext) {
+    return argon2.verify(hash, plaintext);
+  },
+};
+
+@Module({})
+export class ApiModule {
+  static register(config: ApiConfig, pool: Pool): DynamicModule {
+    return {
+      module: ApiModule,
+      controllers: [InstanceController, AuthController, MembershipController, PermissionController],
+      providers: [
+        { provide: API_CONFIG, useValue: config },
+        { provide: API_POOL, useValue: pool },
+        { provide: PASSWORD_HASHER, useValue: ARGON2ID_HASHER },
+        IdempotencyService,
+        InstanceService,
+        AuthRateLimiter,
+        AuthService,
+        MembershipService,
+        PermissionService,
+        PoolLifecycle,
+      ],
+    };
+  }
+}

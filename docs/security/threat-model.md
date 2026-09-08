@@ -19,6 +19,8 @@ Method: STRIDE over the trust boundaries below, cross-checked against OWASP API 
 
 Customer message content and media; contact PII; **consent and suppression records**; provider credentials and app secrets; API key material; webhook signing secrets; audit events; campaign audiences; idempotency records; backups.
 
+The pre-auth installation bootstrap is authenticated with an installer-provisioned secret of at least 32 bytes, compared through fixed-length digests and never stored in PostgreSQL. Idempotency request fingerprints use a separate server-side HMAC secret, so a database snapshot does not expose a reusable verifier for guessing bootstrap passwords.
+
 Consent/suppression deserves special mention: losing it is not a privacy inconvenience, it is a regulatory and reputational event, which is why ADR-0014 refuses to auto-resume outbound after a restore.
 
 ## 3. STRIDE by boundary

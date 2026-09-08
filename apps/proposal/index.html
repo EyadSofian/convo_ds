@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f4f3ee" />
+    <meta name="description" content="خطة تنفيذ وتشغيل منصة خدمة عملاء Digital School من الإعداد إلى اختبار وإطلاق الـMVP" />
+    <meta property="og:title" content="Digital School — خطة التنفيذ والتشغيل" />
+    <meta property="og:description" content="رحلة تنفيذ واضحة خلال 12 يوم عمل، تشمل الاختبار الوظيفي وUAT لإطلاق الـMVP." />
+    <link rel="icon" href="/favicon.svg" />
+    <title>Digital School — خطة التنفيذ والتشغيل</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">انتقل للمحتوى</a>
+    <div class="noise" aria-hidden="true"></div>
+    <div class="reading-progress" aria-hidden="true"><i data-page-progress></i></div>
+
+    <header class="site-header" data-header>
+      <a class="brand" href="#top" aria-label="CONVO">
+        <span class="brand-signal" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>CONVO</span>
+      </a>
+
+      <nav aria-label="التنقل الرئيسي">
+        <a href="#journey">مراحل التنفيذ</a>
+        <a href="#workflow">طريقة التشغيل</a>
+        <a href="#requirements">المطلوب</a>
+        <a href="#schedule">الجدول</a>
+        <a href="#commercial">التكلفة</a>
+      </nav>
+
+      <a class="header-link" href="/Digital-School-Proposal.pdf" target="_blank" rel="noreferrer">
+        العرض التفصيلي
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3h7l3 3v11H5zM12 3v4h4M8 11h4M8 14h4"/></svg>
+      </a>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-main">
+          <div class="overline hero-in" style="--delay:80ms">
+            <span>DIGITAL SCHOOL</span>
+            <i></i>
+            <span>VERSION 1.0</span>
+          </div>
+
+          <h1 class="hero-in" style="--delay:150ms">
+            منصة خدمة عملاء<br />
+            <em>Digital School</em>
+          </h1>
+
+          <p class="hero-summary hero-in" style="--delay:230ms">
+            مسار واضح يبدأ من البنية الحالية، وينتهي بنسخة MVP جاهزة للاستخدام:
+            إعداد الحساب، الفريق، القنوات، التشغيل، ثم الاختبار والاعتماد.
+          </p>
+
+          <div class="hero-actions hero-in" style="--delay:310ms">
+            <a class="button button-primary" href="#journey">
+              ابدأ رحلة التنفيذ
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12M11 5l5 5-5 5"/></svg>
+            </a>
+            <a class="button button-secondary" href="/Digital-School-Proposal.pdf" target="_blank" rel="noreferrer">
+              فتح التفاصيل الكاملة
+            </a>
+          </div>
+        </div>
+
+        <aside class="hero-brief hero-in" style="--delay:260ms" aria-label="ملخص المشروع">
+          <div class="brief-head">
+            <span>DELIVERY BRIEF</span>
+            <span class="status"><i></i> جاهز للبدء</span>
+          </div>
+          <dl>
+            <div>
+              <dt>مدة التنفيذ</dt>
+              <dd><strong data-count="12">0</strong> يوم عمل</dd>
+            </div>
+            <div>
+              <dt>ما بعد التنفيذ</dt>
+              <dd>Testing → UAT → MVP</dd>
+            </div>
+            <div>
+              <dt>القنوات</dt>
+              <dd>WhatsApp · Facebook · Instagram</dd>
+            </div>
+            <div>
+              <dt>نموذج الحساب</dt>
+              <dd>مساحة مستقلة داخل المنصة</dd>
+            </div>
+          </dl>
+          <div class="brief-route" aria-hidden="true">
+            <span class="is-done">Scope</span><i></i>
+            <span>Build</span><i></i>
+            <span>Test</span><i></i>
+            <span>MVP</span>
+          </div>
+        </aside>
+
+        <div class="hero-foot hero-in" style="--delay:390ms">
+          <span>01</span>
+          <p>هذه الصفحة تشرح ما سنفعله، وما نحتاجه، وكيف نصل إلى أول إطلاق فعلي.</p>
+          <a href="#journey">تابع الخطة <i>↓</i></a>
+        </div>
+      </section>
+
+      <section class="starting-point">
+        <div class="section-label reveal"><span>00</span> نقطة البداية</div>
+        <div class="starting-grid">
+          <div class="starting-title reveal">
+            <p class="eyebrow">WHERE WE START</p>
+            <h2>نبدأ من الأساس الموجود.<br />ونكمل رحلة التشغيل.</h2>
+          </div>
+          <div class="starting-copy reveal">
+            <p>
+              سيتم تجهيز مساحة مستقلة لـDigital School داخل CONVO،
+              وتطبيق احتياجات التشغيل الأساسية عليها، ثم ربطها بالقنوات واختبارها.
+            </p>
+            <div class="starting-facts">
+              <span><b>01</b> بيانات معزولة</span>
+              <span><b>02</b> إعداد مخصص</span>
+              <span><b>03</b> إطلاق مرحلي</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="journey section-dark" id="journey">
+        <div class="journey-intro">
+          <div class="section-label reveal"><span>01</span> مراحل التنفيذ</div>
+          <div class="sticky-title reveal">
+            <p class="eyebrow">DELIVERY FUNNEL</p>
+            <h2>كل مرحلة لها<br />مدخلات ونتيجة.</h2>
+            <p>لا ننتقل للمرحلة التالية قبل اكتمال المطلوب واعتماد الناتج.</p>
+            <div class="journey-progress" aria-hidden="true">
+              <i data-journey-progress></i>
+            </div>
+          </div>
+        </div>
+
+        <div class="journey-steps">
+          <article class="journey-step reveal" data-journey-step>
+            <div class="step-number">01</div>
+            <div class="step-body">
+              <header>
+                <span>Scope Lock</span>
+                <h3>تثبيت نطاق التشغيل</h3>
+              </header>
+              <p>نحدد القنوات، المستخدمين، الفرق، حالات المحادثة، وقواعد التعيين المطلوبة للنسخة الأولى.</p>
+              <div class="step-columns">
+                <div><span>سننفذ</span><b>خريطة تشغيل معتمدة</b></div>
+                <div><span>المطلوب منكم</span><b>مسؤول اعتماد واحد</b></div>
+                <div><span>الناتج</span><b>Scope ثابت للـMVP</b></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="journey-step reveal" data-journey-step>
+            <div class="step-number">02</div>
+            <div class="step-body">
+              <header>
+                <span>Workspace Setup</span>
+                <h3>إعداد المساحة والهوية</h3>
+              </header>
+              <p>إنشاء مساحة مستقلة، وضبط الاسم والهوية والمنطقة الزمنية وساعات العمل والإعدادات الأساسية.</p>
+              <div class="step-columns">
+                <div><span>سننفذ</span><b>الحساب والإعدادات</b></div>
+                <div><span>المطلوب منكم</span><b>الشعار وساعات العمل</b></div>
+                <div><span>الناتج</span><b>مساحة جاهزة للفريق</b></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="journey-step reveal" data-journey-step>
+            <div class="step-number">03</div>
+            <div class="step-body">
+              <header>
+                <span>People & Access</span>
+                <h3>المستخدمون والصلاحيات</h3>
+              </header>
+              <p>إضافة الفريق وتوزيع Owner وAdmin وSupervisor وAgent وربط كل مستخدم بالـInbox المناسب.</p>
+              <div class="step-columns">
+                <div><span>سننفذ</span><b>الأدوار وحدود الوصول</b></div>
+                <div><span>المطلوب منكم</span><b>قائمة الفريق والأدوار</b></div>
+                <div><span>الناتج</span><b>وصول منظم وآمن</b></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="journey-step reveal" data-journey-step>
+            <div class="step-number">04</div>
+            <div class="step-body">
+              <header>
+                <span>Channel Onboarding</span>
+                <h3>ربط قنوات Meta</h3>
+              </header>
+              <p>ربط WhatsApp Business وFacebook Messenger وInstagram، والتحقق من الاستقبال والإرسال لكل قناة.</p>
+              <div class="step-columns">
+                <div><span>سننفذ</span><b>الربط والاختبارات</b></div>
+                <div><span>المطلوب منكم</span><b>حسابات Meta والصلاحيات</b></div>
+                <div><span>الناتج</span><b>قنوات جاهزة للتشغيل</b></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="journey-step reveal" data-journey-step>
+            <div class="step-number">05</div>
+            <div class="step-body">
+              <header>
+                <span>Inbox Operations</span>
+                <h3>تجهيز دورة المحادثة</h3>
+              </header>
+              <p>تفعيل الفلاتر والتعيين والحالات والأولوية والملاحظات الداخلية والردود الجاهزة وسجل العميل.</p>
+              <div class="step-columns">
+                <div><span>سننفذ</span><b>Inbox وFilters وRouting</b></div>
+                <div><span>المطلوب منكم</span><b>سياسة التوزيع والردود</b></div>
+                <div><span>الناتج</span><b>تشغيل يومي واضح</b></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="journey-step reveal" data-journey-step>
+            <div class="step-number">06</div>
+            <div class="step-body">
+              <header>
+                <span>Growth & Visibility</span>
+                <h3>Broadcasts والتقارير</h3>
+              </header>
+              <p>إعداد الجمهور والقوالب والجدولة وحالات الإرسال، ثم تجهيز مؤشرات المحادثات والاستجابة والفريق.</p>
+              <div class="step-columns">
+                <div><span>سننفذ</span><b>الحملات والتقارير الأساسية</b></div>
+                <div><span>المطلوب منكم</span><b>Opt-in وقوالب معتمدة</b></div>
+                <div><span>الناتج</span><b>إرسال قابل للمتابعة</b></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="journey-step step-final reveal" data-journey-step>
+            <div class="step-number">07</div>
+            <div class="step-body">
+              <header>
+                <span>Quality Gate</span>
+                <h3>Testing وUAT ثم الـMVP</h3>
+              </header>
+              <p>نختبر السيناريوهات المتفق عليها، نعالج الملاحظات المؤثرة، ثم نسلّم نسخة الاستخدام الفعلي.</p>
+              <div class="step-columns">
+                <div><span>سننفذ</span><b>Functional Testing وإصلاح العيوب</b></div>
+                <div><span>المطلوب منكم</span><b>اختبار وقبول مجمع</b></div>
+                <div><span>الناتج</span><b>MVP معتمد وجاهز</b></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="workflow" id="workflow">
+        <div class="section-label reveal"><span>02</span> طريقة التشغيل</div>
+        <div class="workflow-head reveal">
+          <div>
+            <p class="eyebrow">DAILY OPERATION</p>
+            <h2>من أول رسالة<br />إلى إغلاق المحادثة.</h2>
+          </div>
+          <p>الـInbox هو مركز العمل. كل رسالة تمر بمسار واضح ويحفظ النظام المسؤول والحالة والتاريخ.</p>
+        </div>
+
+        <div class="operation-flow reveal" aria-label="رحلة المحادثة">
+          <article class="is-active">
+            <span>01</span>
+            <i></i>
+            <h3>Receive</h3>
+            <p>تصل الرسالة من القناة.</p>
+          </article>
+          <article>
+            <span>02</span>
+            <i></i>
+            <h3>Filter</h3>
+            <p>Unread أو Mine أو موظف محدد.</p>
+          </article>
+          <article>
+            <span>03</span>
+            <i></i>
+            <h3>Assign</h3>
+            <p>تُعيّن لفريق أو Agent.</p>
+          </article>
+          <article>
+            <span>04</span>
+            <i></i>
+            <h3>Respond</h3>
+            <p>رد، مرفق، أو Private Note.</p>
+          </article>
+          <article>
+            <span>05</span>
+            <i></i>
+            <h3>Resolve</h3>
+            <p>إغلاق أو Snooze للمتابعة.</p>
+          </article>
+          <div class="flow-line" aria-hidden="true"><b data-flow-progress></b></div>
+        </div>
+
+        <div class="feature-matrix">
+          <article class="reveal">
+            <span>INBOX CONTROL</span>
+            <h3>فلترة فعلية</h3>
+            <p>All · Unread · Read · Mine · Unassigned · Employee · Team · Channel · Status · Priority.</p>
+          </article>
+          <article class="reveal">
+            <span>TEAM CONTROL</span>
+            <h3>مسؤولية واضحة</h3>
+            <p>اسم الموظف، الفريق، وقت الانتظار، الحالة، الأولوية، وسجل كل تغيير.</p>
+          </article>
+          <article class="reveal">
+            <span>CUSTOMER CONTEXT</span>
+            <h3>صورة العميل</h3>
+            <p>بيانات الاتصال، التصنيفات، الملاحظات، الموافقات، وتاريخ المحادثات.</p>
+          </article>
+          <article class="reveal">
+            <span>OUTREACH</span>
+            <h3>Broadcast مضبوط</h3>
+            <p>جمهور محدد، Template معتمد، Preview، Schedule، ونتيجة إرسال واضحة.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="requirements section-blue" id="requirements">
+        <div class="section-label reveal"><span>03</span> المطلوب قبل البدء</div>
+        <div class="requirements-grid">
+          <div class="requirements-title reveal">
+            <p class="eyebrow">CLIENT INPUTS</p>
+            <h2>ما نحتاجه<br />حتى لا يتوقف التنفيذ.</h2>
+            <p>مدة الـ12 يوم تبدأ بعد استلام هذه العناصر واعتماد النطاق.</p>
+          </div>
+
+          <div class="requirements-list">
+            <article class="reveal">
+              <span class="check">01</span>
+              <div><h3>مسؤول اعتماد</h3><p>شخص واحد يجمّع الملاحظات ويعتمد القرارات.</p></div>
+              <b>Required</b>
+            </article>
+            <article class="reveal">
+              <span class="check">02</span>
+              <div><h3>بيانات الفريق</h3><p>الأسماء والبريد والأدوار والفرق وساعات العمل.</p></div>
+              <b>Required</b>
+            </article>
+            <article class="reveal">
+              <span class="check">03</span>
+              <div><h3>Meta Assets</h3><p>Business Portfolio وWABA والرقم والصفحة وحساب Instagram.</p></div>
+              <b>Required</b>
+            </article>
+            <article class="reveal">
+              <span class="check">04</span>
+              <div><h3>قواعد التشغيل</h3><p>التوزيع، الأولوية، حالات المحادثة، والردود الجاهزة.</p></div>
+              <b>Required</b>
+            </article>
+            <article class="reveal">
+              <span class="check">05</span>
+              <div><h3>Broadcast Inputs</h3><p>الجمهور، إثبات الموافقة، والقوالب المعتمدة من Meta.</p></div>
+              <b>Before launch</b>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="schedule" id="schedule">
+        <div class="section-label reveal"><span>04</span> الجدول التنفيذي</div>
+        <div class="schedule-head reveal">
+          <div>
+            <p class="eyebrow">12 WORKING DAYS</p>
+            <h2>12 يومًا للتنفيذ.<br />تشمل الاختبار والإطلاق.</h2>
+          </div>
+          <p>الجدول مرتبط بوصول المدخلات وصلاحيات Meta في الموعد.</p>
+        </div>
+
+        <div class="day-map reveal" data-day-map>
+          <div class="day-line"><i data-day-progress></i></div>
+          <article><time>01</time><h3>Scope</h3><p>اعتماد المدخلات والنطاق</p></article>
+          <article><time>02—03</time><h3>Setup</h3><p>الحساب والفريق والصلاحيات</p></article>
+          <article><time>04—06</time><h3>Channels</h3><p>الربط والـInbox والفلاتر</p></article>
+          <article><time>07—08</time><h3>Operations</h3><p>Contacts وBroadcasts</p></article>
+          <article><time>09</time><h3>Reporting</h3><p>التقارير وضبط التجربة</p></article>
+          <article><time>10—12</time><h3>Secure & Launch</h3><p>الصلاحيات وUAT والنشر</p></article>
+        </div>
+
+        <div class="quality-gate reveal">
+          <div class="quality-icon" aria-hidden="true"><i></i></div>
+          <div>
+            <span>QUALITY GATE · DAY 11</span>
+            <h3>Integration & Functional Testing</h3>
+          </div>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M14 7l5 5-5 5"/></svg>
+          <div>
+            <span>CLIENT REVIEW · DAY 11</span>
+            <h3>User Acceptance Testing</h3>
+          </div>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M14 7l5 5-5 5"/></svg>
+          <div>
+            <span>APPROVED RELEASE · DAY 12</span>
+            <h3>MVP Go Live</h3>
+          </div>
+        </div>
+      </section>
+
+      <section class="scope">
+        <div class="section-label reveal"><span>05</span> حدود النسخة الأولى</div>
+        <div class="scope-grid">
+          <div class="scope-title reveal">
+            <p class="eyebrow">MVP BOUNDARY</p>
+            <h2>نطلق الأساس.<br />ثم نتوسع بقرار.</h2>
+          </div>
+          <div class="scope-panel reveal">
+            <div>
+              <span class="pill pill-in">Included</span>
+              <ul>
+                <li>حساب مستقل وبيانات معزولة</li>
+                <li>المستخدمون حسب القائمة المعتمدة</li>
+                <li>WhatsApp وMessenger وInstagram والموقع</li>
+                <li>Inbox وفلاتر وتعيين وصلاحيات</li>
+                <li>Contacts وBroadcasts وتقارير أساسية</li>
+                <li>ربط الـCRM الحالي عبر API أو Webhooks موثقة</li>
+                <li>واجهة عربية وإنجليزية</li>
+              </ul>
+            </div>
+            <div>
+              <span class="pill pill-later">Separate Scope</span>
+              <ul>
+                <li>قناة جديدة غير معتمدة تحتاج Connector خاص</li>
+                <li>AI Agent أو Chatbot</li>
+                <li>Automation متقدم</li>
+                <li>SSO وEnterprise SLA</li>
+                <li>White Label أو نقل ملكية المنتج</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="commercial" id="commercial">
+        <div class="commercial-head reveal">
+          <div class="section-label"><span>06</span> الاتفاق التجاري</div>
+          <p>يشمل نطاق الـMVP الموضح في هذه الصفحة.</p>
+        </div>
+
+        <div class="commercial-grid">
+          <div class="main-price reveal">
+            <span>تجهيز وتفعيل مرة واحدة</span>
+            <div><sup>$</sup><strong>700</strong></div>
+            <p>40% عند البدء · 30% بعد اعتماد النسخة التشغيلية · 30% عند التسليم النهائي</p>
+          </div>
+
+          <div class="running-cost reveal">
+            <span>الاستضافة والتشغيل</span>
+            <strong>$30–40 <small>/ شهر</small></strong>
+            <ul>
+              <li>لا يوجد اشتراك لكل مستخدم</li>
+              <li>رسوم Meta وWhatsApp على العميل</li>
+              <li>أي تطوير إضافي يُسعّر بعد تحديد نطاقه</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="commercial-actions reveal">
+          <button class="button button-dark" type="button" data-copy-summary>نسخ ملخص الاتفاق</button>
+          <a class="button button-line" href="/Digital-School-Proposal.pdf" target="_blank" rel="noreferrer">تحميل العرض التفصيلي</a>
+          <a class="button button-line" href="/CONVO-BRD.pdf" target="_blank" rel="noreferrer">تحميل وثيقة الـBRD</a>
+        </div>
+        <div class="copy-toast" role="status" aria-live="polite" data-toast>تم نسخ ملخص الاتفاق</div>
+      </section>
+    </main>
+
+    <footer>
+      <a class="brand brand-footer" href="#top"><span class="brand-signal"><i></i><i></i><i></i></span><span>CONVO</span></a>
+      <p>Project Scope · Delivery Journey · Commercial Terms</p>
+      <span>Prepared by Eyad Sofian · 2026</span>
+    </footer>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,214 @@
+/* ==========================================================================
+   Layer 1 — tokens
+
+   The ONLY place a raw colour, size or duration is written. Every later layer
+   consumes `var(--token)`. There is exactly one `:root` colour block per theme;
+   the previous stylesheet had three stacked token blocks overriding each other,
+   which is what made the palette impossible to reason about.
+
+   Colour values are mirrored in `src/theme.ts` and enforced by `theme.test.ts`:
+   that test fails if this file and the module disagree, and re-checks every
+   WCAG pair on both themes. Do not edit a colour here without editing there.
+   The `@tokens` marker comments below are the anchors that test parses.
+   ========================================================================== */
+
+@layer tokens {
+  /* @tokens light */
+  :root {
+    --surface-app: #eef1f5;
+    --surface-panel: #ffffff;
+    --surface-sunken: #f4f6f9;
+    --surface-hover: #f1f4f8;
+    --surface-active: #e6edfb;
+    --border-subtle: #dfe4ec;
+    --border-strong: #7d879a;
+    --text-primary: #101828;
+    --text-secondary: #4a5567;
+    --text-muted: #5e6980;
+    --text-disabled: #98a1b2;
+    --accent: #1d4ed8;
+    --accent-strong: #1a43ba;
+    --accent-soft: #e6edfb;
+    --on-accent: #ffffff;
+    --success: #04693e;
+    --success-soft: #e2f4ea;
+    --warning: #8a5100;
+    --warning-soft: #fbf0dd;
+    --danger: #b3261e;
+    --danger-soft: #fceceb;
+    --unknown: #5b45c9;
+    --unknown-soft: #eeeaff;
+    --focus-ring: #1d4ed8;
+    --rail-surface: #101828;
+    --rail-text: #a8b3c7;
+    --rail-active: #ffffff;
+
+    /* Derived, theme-specific, not contrast-bearing. */
+    --rail-hover: #1e2942;
+    --scrim: rgba(16, 24, 40, 0.44);
+    --shadow-panel: 0 1px 2px rgba(16, 24, 40, 0.06);
+    --shadow-raised: 0 2px 6px rgba(16, 24, 40, 0.08);
+    --shadow-overlay: 0 12px 32px rgba(16, 24, 40, 0.18);
+    --glass-tint: rgba(255, 255, 255, 0.72);
+    --bubble-in: #ffffff;
+    --bubble-out: #e6edfb;
+    --bubble-note: #fbf0dd;
+
+    color-scheme: light;
+  }
+
+  /* @tokens dark */
+  :root[data-theme='dark'] {
+    --surface-app: #0a0f1a;
+    --surface-panel: #141c2b;
+    --surface-sunken: #0f1624;
+    --surface-hover: #1c2536;
+    --surface-active: #1e2c4a;
+    --border-subtle: #263144;
+    --border-strong: #5f6e8f;
+    --text-primary: #e9eef7;
+    --text-secondary: #b6c2d6;
+    --text-muted: #93a0b6;
+    --text-disabled: #6d7a8f;
+    --accent: #7aa5ff;
+    --accent-strong: #9bbaff;
+    --accent-soft: #1e2c4a;
+    --on-accent: #08111f;
+    --success: #5cd0a0;
+    --success-soft: #102a22;
+    --warning: #e8b35c;
+    --warning-soft: #2c2317;
+    --danger: #ff8f85;
+    --danger-soft: #33191a;
+    --unknown: #b3a2ff;
+    --unknown-soft: #221e3d;
+    --focus-ring: #8fb4ff;
+    --rail-surface: #0f1624;
+    --rail-text: #9aa7bd;
+    --rail-active: #ffffff;
+
+    --rail-hover: #1c2536;
+    --scrim: rgba(3, 6, 12, 0.62);
+    --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.45);
+    --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.55);
+    --glass-tint: rgba(20, 28, 43, 0.76);
+    --bubble-in: #1a2333;
+    --bubble-out: #1e2c4a;
+    --bubble-note: #2c2317;
+
+    color-scheme: dark;
+  }
+
+  /*
+   * Pre-boot safety net only. `app.ts` always stamps an explicit `data-theme`,
+   * so this matters for the first paint before the script runs. Guarded with
+   * `:not([data-theme='light'])` so an explicit light choice still wins.
+   */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --surface-app: #0a0f1a;
+      --surface-panel: #141c2b;
+      --surface-sunken: #0f1624;
+      --surface-hover: #1c2536;
+      --surface-active: #1e2c4a;
+      --border-subtle: #263144;
+      --border-strong: #5f6e8f;
+      --text-primary: #e9eef7;
+      --text-secondary: #b6c2d6;
+      --text-muted: #93a0b6;
+      --text-disabled: #6d7a8f;
+      --accent: #7aa5ff;
+      --accent-strong: #9bbaff;
+      --accent-soft: #1e2c4a;
+      --on-accent: #08111f;
+      --success: #5cd0a0;
+      --success-soft: #102a22;
+      --warning: #e8b35c;
+      --warning-soft: #2c2317;
+      --danger: #ff8f85;
+      --danger-soft: #33191a;
+      --unknown: #b3a2ff;
+      --unknown-soft: #221e3d;
+      --focus-ring: #8fb4ff;
+      --rail-surface: #0f1624;
+      --rail-text: #9aa7bd;
+      --rail-active: #ffffff;
+
+      --rail-hover: #1c2536;
+      --scrim: rgba(3, 6, 12, 0.62);
+      --glass-tint: rgba(20, 28, 43, 0.76);
+      --bubble-in: #1a2333;
+      --bubble-out: #1e2c4a;
+      --bubble-note: #2c2317;
+
+      color-scheme: dark;
+    }
+  }
+
+  /* @tokens scale — theme-independent. No colours below this line. */
+  :root {
+    /*
+     * One family, Arabic-first, self-hosted (see base.css `@font-face`). The
+     * previous Alexandria / IBM Plex Sans Arabic / Manrope mixture is gone:
+     * Readex Pro carries both scripts, so Arabic and Latin share one metric.
+     */
+    --font-sans: 'Readex Pro', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', monospace;
+
+    /* Body 14–15px, conversation copy 14–16px, no UI label under 12px. */
+    --text-xs: 12px;
+    --text-sm: 13px;
+    --text-base: 14px;
+    --text-md: 15px;
+    --text-lg: 16px;
+    --text-xl: 18px;
+
+    --weight-regular: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+
+    /* Arabic needs more leading than Latin at the same size. */
+    --leading-tight: 1.4;
+    --leading-normal: 1.6;
+    --leading-relaxed: 1.7;
+
+    --space-1: 2px;
+    --space-2: 4px;
+    --space-3: 6px;
+    --space-4: 8px;
+    --space-5: 12px;
+    --space-6: 16px;
+    --space-7: 20px;
+    --space-8: 24px;
+    --space-9: 32px;
+
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 12px;
+    --radius-full: 9999px;
+
+    /* Shell geometry. The acceptance ranges live in
+       docs/execution/CLAUDE-LIVE-MVP-TASK.md §3 and are asserted by
+       tests/e2e/layout.spec.ts against a real browser. */
+    --rail-width: 56px;
+    --topbar-height: 48px;
+    --views-width: 232px;
+    --list-width: 332px;
+    --list-width-min: 300px;
+    --list-width-max: 380px;
+    --panel-width: 336px;
+    --thread-min-width: 640px;
+    --row-height: 68px;
+    --thread-header-height: 64px;
+    --control-height: 30px;
+    --control-height-lg: 34px;
+    --composer-min-height: 44px;
+    --composer-max-height: 88px;
+
+    --motion-fast: 110ms;
+    --motion-base: 170ms;
+    --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}

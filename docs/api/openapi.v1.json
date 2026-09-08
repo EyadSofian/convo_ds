@@ -1,0 +1,613 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CONVO API",
+    "version": "1.0.0",
+    "description": "The pinned contract for the implemented CONVO v1 HTTP surface."
+  },
+  "servers": [
+    { "url": "/api/v1" }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "operationId": "login",
+        "summary": "Create a durable local session",
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" },
+              "example": { "email": "owner@acme.example", "password": "correct horse battery staple" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authenticated session; returns hardened session and CSRF cookies",
+            "headers": {
+              "X-Request-ID": { "$ref": "#/components/headers/RequestId" },
+              "Set-Cookie": { "$ref": "#/components/headers/SessionCookies" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CurrentSessionResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "summary": "Revoke the current session",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "responses": {
+          "204": { "description": "Session revoked and cookies cleared" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/auth/session": {
+      "get": {
+        "operationId": "getCurrentSession",
+        "summary": "Read the current authenticated principal and session",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": {
+          "200": {
+            "description": "Current session",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CurrentSessionResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/auth/sessions": {
+      "get": {
+        "operationId": "listSessions",
+        "summary": "List active sessions owned by the current user",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": {
+          "200": {
+            "description": "Session inventory",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionListResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/auth/sessions/{id}": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "Read an active session owned by the current user",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/SessionId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session detail",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "operationId": "revokeSession",
+        "summary": "Revoke an active session owned by the current user",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/SessionId" },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "responses": {
+          "204": { "description": "Session revoked; current-session cookies are cleared when applicable" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/instance": {
+      "get": {
+        "operationId": "getInstance",
+        "summary": "Read the public installation descriptor",
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sanitized public installation capabilities",
+            "headers": {
+              "X-Request-ID": { "$ref": "#/components/headers/RequestId" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/InstanceDescriptor" },
+                "example": {
+                  "apiVersion": "v1",
+                  "deploymentMode": "self_hosted_single",
+                  "installationName": "CONVO",
+                  "defaultLocale": "ar",
+                  "supportedLocales": ["ar", "en"],
+                  "bootstrapRequired": true,
+                  "capabilities": {
+                    "multiTenant": false,
+                    "selfServiceSignup": false,
+                    "ssoConfigured": false,
+                    "mfaAvailable": true
+                  }
+                }
+              }
+            }
+          },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/instance/bootstrap": {
+      "post": {
+        "operationId": "bootstrapInstallation",
+        "summary": "Create the first company and Owner exactly once",
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/BootstrapToken" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BootstrapRequest" },
+              "example": {
+                "companyName": "Acme Support",
+                "companySlug": "acme-support",
+                "ownerEmail": "owner@acme.example",
+                "ownerPassword": "correct horse battery staple"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The installation was bootstrapped synchronously",
+            "headers": {
+              "X-Request-ID": { "$ref": "#/components/headers/RequestId" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BootstrapResponse" },
+                "example": {
+                  "data": {
+                    "tenantId": "11111111-1111-4111-8111-111111111111",
+                    "ownerUserId": "22222222-2222-4222-8222-222222222222",
+                    "ownerRoleId": "33333333-3333-4333-8333-333333333333",
+                    "membershipId": "44444444-4444-4444-8444-444444444444"
+                  },
+                  "request_id": "request-123"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/me/memberships": {
+      "get": {
+        "operationId": "listMyMemberships",
+        "summary": "List the current user's active company memberships",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }],
+        "responses": {
+          "200": {
+            "description": "Active memberships resolved through tenant RLS",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MembershipListResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/tenants/{tenantId}/permissions": {
+      "get": {
+        "operationId": "listPermissions",
+        "summary": "List the immutable permission catalogue for an authorized company admin",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission catalogue after role.manage authorization by key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PermissionListResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "SessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "convo_session"
+      }
+    },
+    "parameters": {
+      "RequestId": {
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "BootstrapToken": {
+        "name": "X-Bootstrap-Token",
+        "in": "header",
+        "required": true,
+        "description": "Installer-provisioned secret accepted only by the one-time bootstrap operation.",
+        "schema": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 512
+        }
+      },
+      "CsrfToken": {
+        "name": "X-CSRF-Token",
+        "in": "header",
+        "required": true,
+        "description": "Must equal the convo_csrf cookie value for state-changing authenticated requests.",
+        "schema": { "type": "string", "minLength": 1, "maxLength": 256 }
+      },
+      "SessionId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "TenantId": {
+        "name": "tenantId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      }
+    },
+    "headers": {
+      "RequestId": {
+        "description": "The accepted or server-generated request identifier.",
+        "schema": { "type": "string" }
+      },
+      "SessionCookies": {
+        "description": "convo_session is HttpOnly; convo_csrf is readable by the same-origin client. Both are Secure in HTTPS deployments and SameSite=Strict.",
+        "schema": { "type": "string" }
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "A safe typed failure. HTTP status carries failure semantics.",
+        "headers": {
+          "X-Request-ID": { "$ref": "#/components/headers/RequestId" }
+        },
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": {
+                "code": "invalid_input",
+                "message": "The installation bootstrap request is not valid.",
+                "request_id": "request-123",
+                "details": [
+                  {
+                    "field": "ownerEmail",
+                    "code": "malformed",
+                    "message": "A valid owner email is required."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "The shared database login limit was exceeded.",
+        "headers": {
+          "X-Request-ID": { "$ref": "#/components/headers/RequestId" },
+          "Retry-After": { "description": "Seconds until the current window expires.", "schema": { "type": "integer", "minimum": 1 } }
+        },
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } }
+        }
+      }
+    },
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "password": { "type": "string", "minLength": 1, "maxLength": 128, "writeOnly": true }
+        }
+      },
+      "UserSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "email"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "created_at", "last_seen_at", "expires_at", "current"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "last_seen_at": { "type": "string", "format": "date-time" },
+          "expires_at": { "type": "string", "format": "date-time" },
+          "current": { "type": "boolean" }
+        }
+      },
+      "CurrentSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "created_at", "last_seen_at", "expires_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "last_seen_at": { "type": "string", "format": "date-time" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CurrentSessionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["user", "session"],
+            "properties": {
+              "user": { "$ref": "#/components/schemas/UserSummary" },
+              "session": { "$ref": "#/components/schemas/CurrentSession" }
+            }
+          },
+          "request_id": { "type": "string" }
+        }
+      },
+      "SessionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/Session" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "Page": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["next_cursor", "has_more"],
+        "properties": {
+          "next_cursor": { "type": ["string", "null"] },
+          "has_more": { "type": "boolean" }
+        }
+      },
+      "SessionListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "page", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Session" } },
+          "page": { "$ref": "#/components/schemas/Page" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "Membership": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "tenant", "role"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "tenant": {
+            "type": "object", "additionalProperties": false, "required": ["id", "name", "slug"],
+            "properties": { "id": { "type": "string", "format": "uuid" }, "name": { "type": "string" }, "slug": { "type": "string" } }
+          },
+          "role": {
+            "type": "object", "additionalProperties": false, "required": ["id", "key", "name"],
+            "properties": { "id": { "type": "string", "format": "uuid" }, "key": { "type": "string" }, "name": { "type": "string" } }
+          }
+        }
+      },
+      "MembershipListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "page", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Membership" } },
+          "page": { "$ref": "#/components/schemas/Page" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "Permission": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "description", "delegable"],
+        "properties": {
+          "key": { "type": "string" },
+          "description": { "type": "string" },
+          "delegable": { "type": "boolean" }
+        }
+      },
+      "PermissionListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "page", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Permission" } },
+          "page": { "$ref": "#/components/schemas/Page" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "InstanceDescriptor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "apiVersion",
+          "deploymentMode",
+          "installationName",
+          "defaultLocale",
+          "supportedLocales",
+          "bootstrapRequired",
+          "capabilities"
+        ],
+        "properties": {
+          "apiVersion": { "const": "v1" },
+          "deploymentMode": {
+            "type": "string",
+            "enum": ["saas", "self_hosted_single"]
+          },
+          "installationName": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "defaultLocale": { "type": "string", "enum": ["ar", "en"] },
+          "supportedLocales": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "enum": ["ar", "en"] }
+          },
+          "bootstrapRequired": { "type": "boolean" },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "multiTenant",
+              "selfServiceSignup",
+              "ssoConfigured",
+              "mfaAvailable"
+            ],
+            "properties": {
+              "multiTenant": { "type": "boolean" },
+              "selfServiceSignup": { "type": "boolean" },
+              "ssoConfigured": { "type": "boolean" },
+              "mfaAvailable": { "type": "boolean" }
+            }
+          }
+        }
+      },
+      "BootstrapRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["companyName", "companySlug", "ownerEmail", "ownerPassword"],
+        "properties": {
+          "companyName": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "companySlug": {
+            "type": "string",
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$"
+          },
+          "ownerEmail": { "type": "string", "format": "email", "maxLength": 254 },
+          "ownerPassword": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        }
+      },
+      "BootstrapResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tenantId", "ownerUserId", "ownerRoleId", "membershipId"],
+            "properties": {
+              "tenantId": { "type": "string", "format": "uuid" },
+              "ownerUserId": { "type": "string", "format": "uuid" },
+              "ownerRoleId": { "type": "string", "format": "uuid" },
+              "membershipId": { "type": "string", "format": "uuid" }
+            }
+          },
+          "request_id": { "type": "string" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["error"],
+        "properties": {
+          "error": { "$ref": "#/components/schemas/ErrorEnvelope" }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "request_id", "details"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "request_id": { "type": ["string", "null"] },
+          "details": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ErrorDetail" }
+          }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "code", "message"],
+        "properties": {
+          "field": { "type": "string" },
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  }
+}

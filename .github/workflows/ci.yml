@@ -37,12 +37,21 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Unit tests
+        run: pnpm test:unit
+
       # The integration project starts a real PostgreSQL through
       # embedded-postgres (ADR-0015), so no service container is needed yet.
       # A RabbitMQ and a MinIO service are added here in P2, when the broker
       # and object-store adapters land and their contract tests become runnable.
       - name: Integration tests
         run: pnpm test:integration
+
+      # DEP-14. This step fails the build when coverage drops below the gates in
+      # docs/testing/strategy.md. Lowering a threshold to make it pass is
+      # forbidden by that document; see docs/testing/coverage-exclusions.md.
+      - name: Coverage gate
+        run: pnpm test:coverage
 
       - name: Upload test artifacts
         if: always()

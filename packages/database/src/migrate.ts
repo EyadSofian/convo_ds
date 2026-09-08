@@ -2,10 +2,22 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { Client } from 'pg';
+import pg from 'pg';
 import type { AppliedMigration, ClusterCredentials, DatabaseNames } from './types.js';
 
-const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations', import.meta.url));
+// See the note in bootstrap.ts: `pg` is CommonJS and has no ESM named export.
+const { Client } = pg;
+
+export const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations', import.meta.url));
+
+export interface MigrateOptions {
+  /**
+   * Directory to read `.sql` files from. Overridden only by tests, which need
+   * to prove that a failing migration rolls back and records nothing -- a fact
+   * that cannot be demonstrated with the real, working migration set.
+   */
+  readonly migrationsDir?: string;
+}
 
 /**
  * Forward-only SQL migrations, applied as the migration role.
@@ -17,7 +29,9 @@ const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations', import.meta.url));
 export async function migrate(
   cluster: ClusterCredentials,
   names: DatabaseNames,
+  options: MigrateOptions = {},
 ): Promise<AppliedMigration[]> {
+  const directory = options.migrationsDir ?? MIGRATIONS_DIR;
   const client = new Client({
     host: cluster.host,
     port: cluster.port,
@@ -35,7 +49,7 @@ export async function migrate(
       )
     `);
 
-    const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith('.sql')).sort();
+    const files = (await readdir(directory)).filter((f) => f.endsWith('.sql')).sort();
     const previous = await client.query<{ name: string; checksum: string }>(
       'SELECT name, checksum FROM schema_migrations',
     );
@@ -43,7 +57,7 @@ export async function migrate(
 
     const results: AppliedMigration[] = [];
     for (const name of files) {
-      const sql = await readFile(path.join(MIGRATIONS_DIR, name), 'utf8');
+      const sql = await readFile(path.join(directory, name), 'utf8');
       const checksum = createHash('sha256').update(sql).digest('hex');
       const known = applied.get(name);
 

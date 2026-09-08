@@ -1,0 +1,836 @@
+/* ==========================================================================
+   Layer 5a — inbox screen
+
+   The daily operator surface: views column, queue list, timeline, composer and
+   customer panel. Density here is a contract, not a preference — the numbers
+   are asserted in tests/e2e/layout.spec.ts at 1440×900 and 1366×768, in both
+   directions and both themes.
+   ========================================================================== */
+
+@layer screens {
+  /* ------------------------------------------------------- views column -- */
+
+  .views {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    padding: var(--space-5) var(--space-4) var(--space-7);
+  }
+
+  .viewgroup {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .viewgroup__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding-inline: var(--space-4);
+  }
+
+  .viewgroup__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    padding: var(--space-2) 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.02em;
+    text-align: start;
+  }
+
+  .viewgroup__bar:hover {
+    color: var(--text-primary);
+  }
+
+  .viewgroup__chevron {
+    display: grid;
+    place-items: center;
+    flex: none;
+    transition: rotate var(--motion-fast) var(--ease-out);
+  }
+
+  .viewgroup[data-collapsed='true'] .viewgroup__chevron {
+    rotate: -90deg;
+  }
+
+  /* Chevrons are navigational, so they mirror; nothing else in the rail does. */
+  [dir='rtl'] .viewgroup[data-collapsed='true'] .viewgroup__chevron {
+    rotate: 90deg;
+  }
+
+  .viewgroup__spacer {
+    flex: 1 1 auto;
+  }
+
+  .viewgroup__add {
+    flex: none;
+  }
+
+  .viewgroup__list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .viewgroup[data-collapsed='true'] .viewgroup__list {
+    display: none;
+  }
+
+  .viewrow {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .viewitem {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    block-size: 30px;
+    padding-inline: var(--space-4);
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    text-align: start;
+  }
+
+  .viewitem:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  .viewitem[aria-current='true'] {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: var(--weight-medium);
+  }
+
+  .viewitem__icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    color: var(--text-muted);
+  }
+
+  .viewitem[aria-current='true'] .viewitem__icon {
+    color: var(--accent);
+  }
+
+  .viewitem__label {
+    flex: 1 1 auto;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .viewitem__scope {
+    flex: none;
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .viewitem__action {
+    flex: none;
+    opacity: 0;
+  }
+
+  .viewrow:hover .viewitem__action,
+  .viewitem__action:focus-visible {
+    opacity: 1;
+  }
+
+  /* --------------------------------------------------------- list column --
+     Chrome above the rows is capped so at least 8 rows stay visible at 768px:
+       768 − topbar 48 = 720 available
+       header 40 + tools 76 + meta 28            = 144
+       720 − 144 = 576 → 576 / 68 = 8.4 rows
+     -------------------------------------------------------------------- */
+
+  .listtools {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    flex: none;
+    padding: var(--space-3) var(--space-5);
+    border-block-end: 1px solid var(--border-subtle);
+  }
+
+  /*
+   * The filter row scrolls sideways instead of wrapping. Wrapping cost a second
+   * 30px band in the chrome, and the queue needs that height for a row.
+   */
+  .listtools .filterbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-block-end: 1px;
+  }
+
+  .listtools .filterbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .listtools .filterbar {
+    mask-image: linear-gradient(to left, transparent 0, #000 20px);
+  }
+
+  [dir='ltr'] .listtools .filterbar {
+    mask-image: linear-gradient(to right, transparent 0, #000 20px);
+  }
+
+  .listtools .filterbar > * {
+    flex: none;
+  }
+
+  .listtools__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+
+  .listtools__row > .searchbox {
+    flex: 1 1 auto;
+  }
+
+  .listtools .input,
+  .listtools .select {
+    block-size: var(--control-height);
+    font-size: var(--text-xs);
+  }
+
+  .listtools .segment {
+    inline-size: 100%;
+  }
+
+  /* Now an inline count inside the list header, not a strip of its own. */
+  .listmeta {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+  }
+
+  .listmeta__spacer {
+    flex: 1 1 auto;
+  }
+
+  .convlist {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Carries the list semantics; the row inside it carries the interaction. */
+  .convlist__item {
+    display: flex;
+    flex: none;
+  }
+
+  /* ------------------------------------------------------ conversation row --
+     Fixed 68px so the visible-row count is deterministic rather than
+     content-dependent. Three lines: identity, one-line preview, essentials.
+     -------------------------------------------------------------------- */
+
+  .convrow {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    inline-size: 100%;
+    block-size: var(--row-height);
+    flex: none;
+    padding-inline: var(--space-5);
+    border: 0;
+    border-block-end: 1px solid var(--border-subtle);
+    border-inline-start: 2px solid transparent;
+    background: transparent;
+    color: var(--text-primary);
+    text-align: start;
+    overflow: hidden;
+    transition: background var(--motion-fast) var(--ease-out);
+  }
+
+  .convrow:hover {
+    background: var(--surface-hover);
+  }
+
+  .convrow[aria-current='true'] {
+    background: var(--surface-active);
+    border-inline-start-color: var(--accent);
+  }
+
+  .convrow:focus-visible {
+    outline-offset: -2px;
+  }
+
+  .convrow__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    flex: 1 1 auto;
+    min-inline-size: 0;
+  }
+
+  .convrow__top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+
+  .convrow__dot {
+    flex: none;
+    inline-size: 6px;
+    block-size: 6px;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+  }
+
+  .convrow__name {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    line-height: 17px;
+  }
+
+  .convrow--unread .convrow__name {
+    font-weight: var(--weight-semibold);
+  }
+
+  .convrow__time {
+    flex: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 17px;
+  }
+
+  .convrow__preview {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-inline-size: 0;
+    block-size: 17px;
+  }
+
+  .convrow__dir {
+    display: grid;
+    place-items: center;
+    flex: none;
+    color: var(--text-muted);
+  }
+
+  .convrow__dir--out {
+    color: var(--accent);
+  }
+
+  /* One line, always. A wrapping preview is what makes a queue unscannable. */
+  .convrow__snippet {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    line-height: 17px;
+    /* Same rule as the bubble: the preview is customer content. */
+    unicode-bidi: plaintext;
+    text-align: start;
+  }
+
+  .convrow--unread .convrow__snippet {
+    color: var(--text-primary);
+  }
+
+  /* Projected queue card: no transcript exists to show (business-rules §4.1). */
+  .convrow__snippet--masked {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .convrow__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-inline-size: 0;
+    block-size: 20px;
+    overflow: hidden;
+    flex-wrap: nowrap;
+    /* A clipped pill should read as "more, off-screen", not as a broken glyph. */
+    mask-image: linear-gradient(to left, transparent 0, #000 18px);
+  }
+
+  [dir='ltr'] .convrow__meta {
+    mask-image: linear-gradient(to right, transparent 0, #000 18px);
+  }
+
+  .convrow__meta > * {
+    flex: none;
+  }
+
+  .convrow__assignee {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    max-inline-size: 15ch;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  /* ---------------------------------------------------------------- thread -- */
+
+  .thread {
+    display: flex;
+    flex-direction: column;
+    min-block-size: 0;
+  }
+
+  /* One compact row, ≤64px. Secondary metadata wraps only when it must. */
+  .thread__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    flex: none;
+    min-block-size: 48px;
+    max-block-size: var(--thread-header-height);
+    padding: var(--space-4) var(--space-6);
+    border-block-end: 1px solid var(--border-subtle);
+    background: var(--surface-panel);
+    overflow: hidden;
+  }
+
+  .thread__ident {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    min-inline-size: 0;
+    /* Identity is the header's job; the toolbar gives way, not the name. */
+    flex: 1 1 240px;
+  }
+
+  .thread__names {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-inline-size: 0;
+  }
+
+  .thread__name {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-tight);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .thread__sub {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: var(--leading-tight);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .thread__primary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: none;
+  }
+
+  .thread__toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: none;
+  }
+
+  .thread__toolspacer {
+    flex: 1 1 auto;
+  }
+
+  .thread__body {
+    display: flex;
+    flex-direction: column;
+    /* 4px between groups: enough to separate speakers, cheap enough that the
+       seeded conversation still shows seven groups at 768px. */
+    gap: var(--space-2);
+    flex: 1 1 auto;
+    min-block-size: 0;
+    padding: var(--space-4) var(--space-6);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--surface-sunken);
+  }
+
+  /* A date rule is a landmark, not a section break — it earns 14px, not 26. */
+  .daysep {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin-block: 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  .daysep::before,
+  .daysep::after {
+    content: '';
+    flex: 1 1 auto;
+    block-size: 1px;
+    background: var(--border-subtle);
+  }
+
+  .eventline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding-block: var(--space-1);
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
+  }
+
+  /* ------------------------------------------------------------- message --
+     Compact enough that a normal seeded conversation shows ≥7 groups at
+     1366×768 before scrolling: ~78px per inbound/outbound group.
+     -------------------------------------------------------------------- */
+
+  .msg {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    align-items: flex-start;
+    max-inline-size: min(72ch, 86%);
+  }
+
+  .msg--out {
+    align-self: flex-end;
+    align-items: flex-end;
+  }
+
+  .msg__author {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  .msg__bubble {
+    padding: var(--space-3) var(--space-5);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--bubble-in);
+    color: var(--text-primary);
+    /* Conversation copy sits at the top of the 14–16px band. */
+    font-size: var(--text-md);
+    line-height: var(--leading-normal);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    /*
+     * Customer content carries its own direction. `plaintext` takes the base
+     * direction from the first strong character of each paragraph, so an Arabic
+     * message reads correctly in the English UI and vice versa. Without it a
+     * mixed Arabic/Latin sentence visually reorders around the Latin run.
+     */
+    unicode-bidi: plaintext;
+    text-align: start;
+  }
+
+  .msg--out .msg__bubble {
+    background: var(--bubble-out);
+    border-color: var(--accent-soft);
+  }
+
+  /* A private note never reaches a provider (I11) — it must never look sent. */
+  .msg--note .msg__bubble {
+    background: var(--bubble-note);
+    border-color: var(--warning);
+    border-style: dashed;
+  }
+
+  .msg--event {
+    align-self: center;
+    align-items: center;
+    max-inline-size: 100%;
+  }
+
+  .msg__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  .msg__attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-block-start: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--surface-panel);
+    font-size: var(--text-xs);
+  }
+
+  /* ------------------------------------------------------------ composer --
+     Sticky inside the thread. Normal reply mode:
+       tabs 28 + textarea 44 + toolbar 30 + padding 12 = 114px  (cap 118)
+     The textarea grows to 88px; nothing else grows with it.
+     -------------------------------------------------------------------- */
+
+  /*
+   * Normal reply mode adds up to 116px, inside the 118px cap:
+   *   padding 5 + tabs 26 + gap 3 + textarea 44 + gap 3 + toolbar 30 + padding 5
+   * Only the textarea grows (to 88px); no other row moves with it.
+   */
+  .composer {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: none;
+    position: sticky;
+    inset-block-end: 0;
+    padding: 5px var(--space-6);
+    border-block-start: 1px solid var(--border-subtle);
+    background: var(--surface-panel);
+  }
+
+  .composer__tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    block-size: 26px;
+    flex: none;
+  }
+
+  .composer__tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    block-size: 24px;
+    padding-inline: var(--space-4);
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+  }
+
+  .composer__tab:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+  }
+
+  .composer__tab[aria-pressed='true'] {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .composer__tab--note[aria-pressed='true'] {
+    background: var(--warning-soft);
+    color: var(--warning);
+  }
+
+  .composer__tabspacer {
+    flex: 1 1 auto;
+  }
+
+  /* Column, not row: the toolbar sits under the textarea, not beside it. */
+  .composer__area {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-block-size: 0;
+  }
+
+  .composer__input {
+    inline-size: 100%;
+    /* Resting height is exact; app.ts grows it to fit content up to the max. */
+    block-size: var(--composer-min-height);
+    min-block-size: var(--composer-min-height);
+    max-block-size: var(--composer-max-height);
+    flex: none;
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--surface-panel);
+    color: var(--text-primary);
+    font-size: var(--text-md);
+    line-height: var(--leading-normal);
+    resize: none;
+    overflow-y: auto;
+  }
+
+  .composer__toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    block-size: 30px;
+    flex: none;
+  }
+
+  .composer__toolspacer {
+    flex: 1 1 auto;
+  }
+
+  .composer__hint {
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Expired provider window: the composer is blocked, the draft is untouched. */
+  .composer__blocked {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    border: 1px dashed var(--warning);
+    border-radius: var(--radius-md);
+    background: var(--warning-soft);
+    color: var(--warning);
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+  }
+
+  .composer__window {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-inline-size: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 11px;
+  }
+
+  /* -------------------------------------------------------- customer panel -- */
+
+  .panel__identity {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    padding: var(--space-6) var(--space-6) var(--space-5);
+  }
+
+  .panel__identitytext {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-inline-size: 0;
+  }
+
+  .panel__name {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .panel__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-5) var(--space-6);
+    border-block-start: 1px solid var(--border-subtle);
+  }
+
+  .panel__sectiontitle {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.02em;
+  }
+
+  .attrgrid {
+    display: grid;
+    grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+    gap: var(--space-3) var(--space-4);
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+  }
+
+  .attrgrid > dt {
+    color: var(--text-muted);
+  }
+
+  .attrgrid > dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .consent {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    font-size: var(--text-xs);
+  }
+
+  .consent__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    line-height: var(--leading-normal);
+  }
+
+  .history {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .history__item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding-inline-start: var(--space-5);
+    border-inline-start: 2px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: var(--leading-normal);
+  }
+
+  .history__title {
+    color: var(--text-primary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+  }
+}

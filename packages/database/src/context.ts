@@ -2,6 +2,15 @@ import type { Pool, PoolClient } from 'pg';
 
 export class TenantContextError extends Error {}
 
+const UUID_PATTERN =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+export function assertTenantContextId(tenantId: string): void {
+  if (!UUID_PATTERN.test(tenantId)) {
+    throw new TenantContextError(`Refusing to set a non-uuid tenant context: ${tenantId}`);
+  }
+}
+
 /**
  * Runs `work` inside a transaction whose tenant context is set and verified.
  *
@@ -14,10 +23,9 @@ export async function withTenant<T>(
   tenantId: string,
   work: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
-  if (!/^[0-9a-fA-F-]{36}$/.test(tenantId)) {
-    throw new TenantContextError(`Refusing to set a non-uuid tenant context: ${tenantId}`);
-  }
+  assertTenantContextId(tenantId);
   const client = await pool.connect();
+  let result: T;
   try {
     await client.query('BEGIN');
     await client.query('SELECT set_config($1, $2, true)', ['convo.tenant_id', tenantId]);
@@ -29,13 +37,18 @@ export async function withTenant<T>(
       throw new TenantContextError('Tenant context did not take effect in this transaction');
     }
 
-    const result = await work(client);
+    result = await work(client);
     await client.query('COMMIT');
-    return result;
   } catch (error) {
+    // A rollback on an already-broken connection throws too. The caller's
+    // failure is the one worth reporting; the cleanup error would only hide it.
     await client.query('ROLLBACK').catch(() => undefined);
     throw error;
   } finally {
     client.release();
   }
+  // Returning after the block rather than inside it keeps the success path
+  // flowing through `finally` to a single exit, which is both easier to read
+  // and the only shape in which coverage can observe every path out of here.
+  return result;
 }

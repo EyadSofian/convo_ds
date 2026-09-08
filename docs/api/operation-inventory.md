@@ -19,7 +19,7 @@ Every operation below needs: one `operationId`, request/response/error schemas, 
 | Group | Method + path | operationId | Permission / scope | Phase |
 |---|---|---|---|---|
 | Bootstrap | `GET /instance` | `getInstance` | public, sanitized | P1 |
-| Bootstrap | `POST /installation/bootstrap` | `bootstrapInstallation` | one-use local bootstrap secret | P1 |
+| Bootstrap | `POST /instance/bootstrap` | `bootstrapInstallation` | one-use local bootstrap secret | P1 |
 | Session | `POST /auth/login` | `login` | public + abuse protection | P1 |
 | Session | `POST /auth/logout` | `logout` | session | P1 |
 | Session | `POST /auth/recovery` | `startRecovery` | public, generic response | P1 |

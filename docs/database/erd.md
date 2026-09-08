@@ -13,15 +13,23 @@ Conventions:
 ## 1. Installation and tenancy
 
 ```
-installations            (id, deployment_mode, bootstrap_state, recovery_hold bool, dispatch_epoch int, created_at)
+installations            (id, singleton bool UNIQUE, deployment_mode, bootstrap_state,
+                          single_tenant_id uuid NULL, recovery_hold bool, dispatch_epoch int, created_at)
 tenants                  (id, name, slug, status, placement, created_at, suspended_at, deletion_requested_at)
                           status ∈ provisioning|active|suspended|deletion_pending|deleted
 tenant_entitlements      (tenant_id PK, seats, channels, active_contacts, storage_bytes,
                           campaign_recipients_month, api_rate, features jsonb, updated_at)
 tenant_usage_counters    (tenant_id, period, metric, value)  -- reservation-safe
+idempotency_records      (tenant_id NULL, principal_id, operation, idempotency_key,
+                          request_hash, state, response_status, response_body, expires_at)
+                          UNIQUE NULLS NOT DISTINCT (tenant_id, principal_id, operation, idempotency_key)
 ```
 
-`installations` holds exactly one row. `recovery_hold` is mirrored here for visibility but is **authoritatively enforced outside the application snapshot** (ADR-0014).
+`installations` holds exactly one row, enforced by `UNIQUE (singleton)`. `recovery_hold` is mirrored here for visibility but is **authoritatively enforced outside the application snapshot** (ADR-0014).
+
+`single_tenant_id` is how MODE-04 is enforced *below* the service layer. A `BEFORE INSERT` trigger on `tenants` (`enforce_installation_tenancy`, migration `0004`) reads the singleton row `FOR UPDATE`; in `self_hosted_single` it claims the first company and rejects every later one with `unique_violation`. In `saas` it does nothing and the column stays NULL. The trigger also refuses **any** company while no installation row exists, so a database that never had boot configuration applied fails closed rather than silently accepting tenants of unknown mode.
+
+Migration `0005` adds `idempotency_records`. The first request inserts a pending row, performs its business effect, and stores the HTTP result inside the same PostgreSQL transaction. A conflicting insert waits for that transaction; it then replays the completed JSON result for the same canonical keyed-HMAC request fingerprint or returns a typed conflict for another fingerprint. The server-side HMAC secret prevents a database reader from using the stored fingerprint as a password-guessing oracle. Bootstrap uses a NULL tenant scope because it runs before a tenant or principal exists, and `UNIQUE NULLS NOT DISTINCT` keeps that pre-auth scope unique. FORCE RLS exposes tenant rows only to the matching tenant context; NULL installation rows require an explicit transaction-local installation scope and are invisible from ordinary tenant transactions. The bootstrap transaction switches to and verifies the generated tenant context before inserting tenant-owned rows, without losing access to its pre-auth idempotency record.
 
 ## 2. Identity and access
 
@@ -147,9 +155,12 @@ normalized_events        (id, tenant_id, raw_event_id, schema_version, type, ded
                           UNIQUE (tenant_id, dedupe_key)
 outbox_events            (id, tenant_id, aggregate, aggregate_id, type, payload jsonb,
                           created_at, published_at, confirm_id)
-idempotency_records      (id, tenant_id, principal_id, operation, key, request_hash,
-                          state, result jsonb, created_at, expires_at)
-                          UNIQUE (tenant_id, principal_id, operation, key)
+idempotency_records      (id, tenant_id NULL, principal_id, operation, idempotency_key,
+                          request_hash, state, response_status, response_body,
+                          created_at, expires_at)
+                          state ∈ pending|completed
+                          UNIQUE NULLS NOT DISTINCT
+                          (tenant_id, principal_id, operation, idempotency_key)
 
 send_commands            (id, tenant_id, conversation_id NULLABLE, campaign_id NULLABLE,
                           recipient_identity_id, connection_id, kind, payload jsonb,

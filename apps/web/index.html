@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#eef1f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0f1a" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="CONVO — مساحة عمل موحّدة لخدمة العملاء: صندوق وارد، قنوات، فرق، حملات وتقارير"
+    />
+    <title>CONVO — Customer Operations</title>
+    <!--
+      Readex Pro is self-hosted from /fonts (SIL OFL 1.1, licence beside the
+      files). No third-party font host is contacted: a self-hosted install must
+      open with no outbound call, and the inbox must not wait on fonts.gstatic.
+    -->
+    <link
+      rel="preload"
+      href="/fonts/readex-pro-arabic.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/readex-pro-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+  </head>
+  <body>
+    <div id="app" class="app-boot" role="status" aria-live="polite">
+      <span class="app-boot__dot"></span>
+      <span>جارٍ تحميل مساحة العمل…</span>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

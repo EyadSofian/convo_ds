@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    // Playwright's `page.evaluate` callbacks are serialised and run inside the
+    // browser, so this project needs the DOM lib even though the runner itself
+    // is Node. Keeping it separate from tsconfig.tests.json stops DOM globals
+    // leaking into the Node-only integration tests, where using `document`
+    // would be a real mistake rather than a typing detail.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["tests/e2e/**/*.ts", "playwright.config.ts"]
+}
