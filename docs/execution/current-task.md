@@ -4,7 +4,64 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T6 (Milestone A: the daily operator UI)
+## Last completed task — P1-T5 first slice (Milestone B: the role boundary)
+
+**Task / requirement IDs:** IAM-09, IAM-10, IAM-15 closed. IAM-14, IAM-16, IAM-17 moved to `partial` with the enforced half named. IAM-03 and IAM-06 remain `planned` — see "Honest remaining scope".
+
+### Behavior delivered
+
+**The matrix exists once.** `packages/domain/src/iam/roles.ts` holds the seven built-in roles as data, transcribed from `business-rules.md` §7. `roles.test.ts` asserts every cell against that table *and* parses `packages/database/migrations/0007_role_matrix.sql`, so the module, the document and the database are held together by two mechanical checks rather than by discipline. Platform Super Admin is deliberately not one of the seven.
+
+**Authorization is an intersection, and it can only narrow.** `packages/domain/src/iam/authorize.ts` implements invariant I3 as five sequential terms: active membership ∩ tenant status ∩ action grant ∩ delegation ceiling ∩ resource scope. No branch widens a decision. A `Principal` carries grants by key, not a role label, so there is nowhere to write `if (role === 'admin')`. 41 unit tests cover each term, `own` reached by assignment and by prior participation, lost inbox access overriding assignment, an empty ceiling meaning "nothing", and a 7-role × 29-key sweep.
+
+**A defect the tests found.** The denial reason was originally derived from the grant level, so an agent who had lost inbox access was reported as `not_own_resource`. It now names the term that actually failed — the operator's next step and the audit line differ between "ask for the inbox back" and "this is not your conversation".
+
+**Scope levels are stored.** Migration 0007 adds `scope_level` to `role_permissions`; until now a grant carried no scope and every grant behaved as tenant-wide. `none` is absent from the CHECK on purpose: a denial is the absence of a row.
+
+**The last Owner is protected by the database.** `memberships_keep_an_owner` is a DEFERRABLE INITIALLY DEFERRED constraint trigger, not a service check — two concurrent transactions each removing "the other" Owner would both pass an application check. Deferring to commit is what makes a legitimate transfer (demote A, promote B) legal while committing with no Owner is not.
+
+**One HTTP entry point to the engine.** `apps/api/src/authorization/authorization.service.ts` loads the principal inside the same RLS transaction the work runs in, so a membership revoked between check and write cannot be used. Non-membership, revoked membership and inactive tenant all conceal as 404; 403 is reserved for a member whose action is denied. `PermissionService` previously inlined its own `role.manage` query — correct for one route, and the start of a per-endpoint copy of the rules.
+
+**Three routes, documented and drift-checked:** `GET /tenants/{tenantId}/roles`, `/people`, `/teams`. The pinned OpenAPI now also pins that `scope_level` admits only `tenant|scoped|own`.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/domain/src/iam/permissions.ts` | the 29 keys and the non-delegable set, checked against migration 0003 |
+| `packages/domain/src/iam/roles.ts` | the seven roles as data, checked against §7 and migration 0007 |
+| `packages/domain/src/iam/authorize.ts` | the I3 intersection, field projection, queue-card allowlist |
+| `packages/database/migrations/0007_role_matrix.sql` | `scope_level`, reference matrix, per-tenant seeding, last-Owner trigger |
+| `packages/domain/src/installation/bootstrap.ts` | seeds all seven roles at company creation |
+| `apps/api/src/authorization/authorization.service.ts` | principal loading and the single decision point |
+| `apps/api/src/authorization/permission.service.ts` | permissions / roles / people / teams read models |
+| `tests/integration/api-authorization.test.ts` | the database half: seeding, gating, concealment, last-Owner, pooled isolation |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | four projects |
+| `pnpm build` | **0** | all packages and the web bundle |
+| `pnpm test:unit` | **0** | 46 files, **664 tests** |
+| `pnpm test:integration` | **0** | 14 files, **98 tests** against real PostgreSQL 17.4 |
+| `pnpm test:coverage` | **0** | 60 files, **762 tests**, **100% lines / statements / functions**, 99.02% branches |
+| `pnpm test:e2e` | **0** | 146 tests, unchanged |
+| `pnpm test:a11y` | **0** | 22 tests, unchanged |
+
+### Honest remaining scope after this slice
+
+- **Password recovery (IAM-03) is still `planned`.** The hash-only schema from 0006 exists; there is no start/complete HTTP behaviour and no delivery port.
+- **Invitations (IAM-06) are still `planned`.** No table, no routes.
+- **Custom-role creation is not implemented.** The delegation ceiling is *enforced* by the engine, but there is no write path that mints a custom role, so IAM-14 is `partial`.
+- **Ownership transfer is half done.** The transactional guarantee is proven; recipient acceptance, decline, expiry and the fresh-MFA gate are not built (IAM-16 `partial`, IAM-04 `planned`).
+- **There is no People/Roles/Teams UI.** `apps/web` is still the demo from Milestone A and is not wired to these endpoints. UX-09 stays `planned`.
+- `delegationCeiling` is `null` for every session principal, because API keys do not exist yet (P5).
+
+---
+
+## Previously completed — P1-T6 (Milestone A: the daily operator UI)
 
 **Task / requirement IDs:** UX-01, UX-02, UX-03, UX-04, UX-05, UX-06, UX-07, UX-08, UX-10. UX-09 is deliberately **not** claimed — see "Honest remaining scope".
 
@@ -177,9 +234,9 @@ These block only the named live/deployment checks. Independent implementation co
 
 ---
 
-## Next task — P1-T5 (Milestone B: identity, roles, people and teams)
+## Next task — P1-T5 remainder (Milestone B: recovery, invitations and the People UI)
 
-**Task:** recovery/invitations and the complete built-in tenant role boundary.
+**Task:** the parts of Milestone B the role-boundary slice did not cover.
 
 **Requirement IDs:** IAM-03, IAM-06, IAM-09, IAM-10, IAM-14, IAM-15, API-02 (incremental), API-05, DEP-14.
 
@@ -187,8 +244,8 @@ These block only the named live/deployment checks. Independent implementation co
 
 1. Complete generic password-recovery start/complete with single-use HMAC-only challenges, shared abuse limits, transactional password update plus session revocation, and an injectable delivery port whose production implementation never returns the token in HTTP.
 2. Add tenant-scoped invitations with hashed single-use tokens, expiry, revoke and atomic accept. Known/unknown recovery and invite failures must not expose hidden account or tenant state.
-3. Seed the seven built-in tenant roles and their exact permission-key matrices; implement Tenant/Scoped/Own/No intersection without role-name authorization.
-4. Add protected People/Roles/Teams APIs with delegation ceilings and last-active-Owner protection. All mutations use CSRF and idempotency where replay would otherwise duplicate an effect.
+3. ~~Seed the seven built-in tenant roles and their exact permission-key matrices; implement Tenant/Scoped/Own/No intersection without role-name authorization.~~ **Done** in the slice above (IAM-09, IAM-10).
+4. **Partly done:** protected People/Roles/Teams *read* APIs and last-active-Owner protection are in place. Still open: the mutation surface (invite, change role, change scopes, create/edit a custom role within the delegation ceiling, ownership transfer with acceptance), all of it behind CSRF and idempotency where replay would otherwise duplicate an effect — plus the UI for these screens.
 5. Exercise recovery, invite accept/reuse/expiry/revoke, every role/permission decision, privilege escalation attempts and concurrent last-Owner changes against real PostgreSQL and FORCE RLS.
 
 **Exit checks:** the same six commands above, with coverage staying at 100/100/100/100. No open dependency blocks the internal implementation; real email delivery can remain behind the port until credentials exist.

@@ -134,23 +134,37 @@ async function writeFirstCompany(
     [write.tenantId, write.companyName, write.companySlug],
   );
 
-  const role = await sql.query<{ id: string }>(
+  // All seven built-in roles, seeded from the reference matrix in
+  // `builtin_role_definitions` / `builtin_role_grants` (migration 0007). The
+  // company gets its full role set at creation: seeding only Owner left nothing
+  // to invite anybody into, and a later "fix it up" path is a second source of
+  // truth waiting to drift.
+  await sql.query(
     `INSERT INTO roles (tenant_id, key, name, is_builtin)
-     VALUES ($1, 'owner', 'Owner', true)
-     RETURNING id`,
+     SELECT $1, role_key, name, true FROM builtin_role_definitions`,
+    [write.tenantId],
+  );
+
+  // Grants are written by KEY with their scope level, never by role name
+  // (IAM-08). The join is on the reference table, so the tenant's matrix is the
+  // matrix, not a copy of it made at some point in the past.
+  await sql.query(
+    `INSERT INTO role_permissions (tenant_id, role_id, permission_key, scope_level)
+     SELECT r.tenant_id, r.id, g.permission_key, g.scope_level
+     FROM roles r
+     JOIN builtin_role_grants g ON g.role_key = r.key
+     WHERE r.tenant_id = $1 AND r.is_builtin IS TRUE`,
+    [write.tenantId],
+  );
+
+  const role = await sql.query<{ id: string }>(
+    `SELECT id FROM roles WHERE tenant_id = $1 AND key = 'owner'`,
     [write.tenantId],
   );
   const ownerRoleId = role.rows[0]?.id;
   if (ownerRoleId === undefined) {
     throw new Error('Owner role insert returned no id');
   }
-
-  // The Owner holds the catalogue by key, never by role name (IAM-08).
-  await sql.query(
-    `INSERT INTO role_permissions (tenant_id, role_id, permission_key)
-     SELECT $1, $2, key FROM permissions`,
-    [write.tenantId, ownerRoleId],
-  );
 
   const membership = await sql.query<{ id: string }>(
     `INSERT INTO memberships (tenant_id, user_id, role_id, status)

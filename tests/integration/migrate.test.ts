@@ -41,6 +41,7 @@ describe('migrate', () => {
       '0004_installation_mode.sql',
       '0005_idempotency.sql',
       '0006_auth_sessions.sql',
+      '0007_role_matrix.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -51,6 +52,8 @@ describe('migrate', () => {
     );
     expect(tables.rows.map((r) => r.table_name)).toEqual([
       'auth_rate_limits',
+      'builtin_role_definitions',
+      'builtin_role_grants',
       'idempotency_records',
       'installations',
       'membership_scopes',
@@ -76,7 +79,7 @@ describe('migrate', () => {
     const recorded = await pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM schema_migrations',
     );
-    expect(recorded.rows[0]?.count).toBe('6');
+    expect(recorded.rows[0]?.count).toBe('7');
   });
 
   /**

@@ -293,13 +293,22 @@ describe('local authentication and permission boundary', () => {
       [agentId, passwordHash],
     );
     await withTenant(api.pool, api.tenantId, async (client) => {
-      await client.query(
-        "INSERT INTO roles (id, tenant_id, key, name) VALUES ($1, $2, 'agent', 'Agent')",
-        [roleId, api.tenantId],
+      // Use the Agent role the tenant was seeded with (migration 0007), not a
+      // hand-made empty one: the point of the test is that the *real* matrix
+      // denies this, and an ad-hoc role with no grants would pass trivially.
+      const seeded = await client.query<{ id: string }>(
+        "SELECT id::text FROM roles WHERE key = 'agent'",
       );
+      expect(seeded.rows).toHaveLength(1);
+      const agentRoleId = seeded.rows[0]?.id ?? roleId;
       await client.query(
         'INSERT INTO memberships (id, tenant_id, user_id, role_id) VALUES ($1, $2, $3, $4)',
-        [membershipId, api.tenantId, agentId, roleId],
+        [membershipId, api.tenantId, agentId, agentRoleId],
+      );
+      await client.query(
+        `INSERT INTO membership_scopes (tenant_id, membership_id, scope_type, scope_id)
+         VALUES ($1, $2, 'tenant', NULL)`,
+        [api.tenantId, membershipId],
       );
     });
     const loggedIn = await login(api.server, 'agent@auth.test', AGENT_PASSWORD, 'agent-login');
@@ -312,6 +321,19 @@ describe('local authentication and permission boundary', () => {
     });
     expect(denied.statusCode).toBe(403);
     expect(denied.json()).toMatchObject({ error: { code: 'permission_denied' } });
+
+    // The whole administration surface is gated by key, not by one route
+    // remembering to check. An Agent holds neither `role.manage` nor
+    // `member.manage`, so all four refuse identically.
+    for (const path of ['roles', 'people', 'teams']) {
+      const refused = await api.server.inject({
+        method: 'GET',
+        url: `/api/v1/tenants/${api.tenantId}/${path}`,
+        headers: { cookie: agent.cookie },
+      });
+      expect(refused.statusCode, path).toBe(403);
+      expect(refused.json()).toMatchObject({ error: { code: 'permission_denied' } });
+    }
 
     const hidden = await api.server.inject({
       method: 'GET',

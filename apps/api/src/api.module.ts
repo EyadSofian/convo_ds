@@ -11,6 +11,7 @@ import type { ApiConfig } from './config.js';
 import { AuthController } from './auth/auth.controller.js';
 import { AuthRateLimiter } from './auth/auth-rate-limiter.js';
 import { AuthService } from './auth/auth.service.js';
+import { AuthorizationService } from './authorization/authorization.service.js';
 import { PermissionController } from './authorization/permission.controller.js';
 import { PermissionService } from './authorization/permission.service.js';
 import { IdempotencyService } from './idempotency/idempotency.service.js';
@@ -57,6 +58,7 @@ export class ApiModule {
         InstanceService,
         AuthRateLimiter,
         AuthService,
+        AuthorizationService,
         MembershipService,
         PermissionService,
         PoolLifecycle,

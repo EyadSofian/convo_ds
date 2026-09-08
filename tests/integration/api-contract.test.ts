@@ -23,7 +23,14 @@ interface OpenApiDocument {
   readonly paths: Readonly<Record<string, Readonly<Record<string, OpenApiOperation>>>>;
   readonly components: {
     readonly schemas: Readonly<
-      Record<string, { readonly additionalProperties?: boolean; readonly required?: readonly string[] }>
+      Record<
+        string,
+        {
+          readonly additionalProperties?: boolean;
+          readonly required?: readonly string[];
+          readonly properties?: Readonly<Record<string, { readonly enum?: readonly string[] }>>;
+        }
+      >
     >;
   };
 }
@@ -103,7 +110,10 @@ describe('pinned OpenAPI contract', () => {
       'getInstance',
       'bootstrapInstallation',
       'listMyMemberships',
+      'listPeople',
       'listPermissions',
+      'listRoles',
+      'listTeams',
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);
@@ -114,6 +124,16 @@ describe('pinned OpenAPI contract', () => {
     expect(SPEC.components.schemas['SessionListResponse']?.additionalProperties).toBe(false);
     expect(SPEC.components.schemas['MembershipListResponse']?.additionalProperties).toBe(false);
     expect(SPEC.components.schemas['PermissionListResponse']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['RoleListResponse']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['PersonListResponse']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['TeamListResponse']?.additionalProperties).toBe(false);
+    // A denial is the absence of a grant, never a grant that says `none`. The
+    // wire contract has to say so too, or a client will render a "none" chip.
+    expect(SPEC.components.schemas['RoleGrant']?.properties?.['scope_level']?.enum).toEqual([
+      'tenant',
+      'scoped',
+      'own',
+    ]);
     expect(SPEC.components.schemas['ErrorEnvelope']?.required).toContain('request_id');
     expect(SPEC.paths['/instance/bootstrap']?.['post']?.parameters).toContainEqual({
       $ref: '#/components/parameters/BootstrapToken',

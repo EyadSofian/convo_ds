@@ -87,10 +87,22 @@ describe('one-time installation bootstrap (MODE-03)', () => {
       );
       expect(tenant.rows).toEqual([{ name: 'Acme Support', slug: 'acme', status: 'active' }]);
 
+      // All seven built-in roles land at creation, so there is something to
+      // invite people into. Platform Super Admin is not among them: it lives
+      // outside tenant membership (business-rules.md §7).
       const role = await client.query<{ key: string; is_builtin: boolean }>(
-        'SELECT key, is_builtin FROM roles',
+        'SELECT key, is_builtin FROM roles ORDER BY key',
       );
-      expect(role.rows).toEqual([{ key: 'owner', is_builtin: true }]);
+      expect(role.rows.map((row) => row.key)).toEqual([
+        'admin',
+        'agent',
+        'analyst',
+        'campaign_manager',
+        'integration_developer',
+        'owner',
+        'supervisor',
+      ]);
+      expect(role.rows.every((row) => row.is_builtin)).toBe(true);
 
       const granted = await client.query<{ count: string }>(
         'SELECT count(*)::text AS count FROM role_permissions WHERE role_id = $1',
@@ -101,6 +113,38 @@ describe('one-time installation bootstrap (MODE-03)', () => {
       );
       expect(granted.rows[0]?.count).toBe(catalogue.rows[0]?.count);
       expect(Number(catalogue.rows[0]?.count)).toBeGreaterThan(0);
+
+      // Every seeded grant carries a scope level, and the tenant's matrix
+      // matches the reference matrix exactly — this is the database half of
+      // the drift check that packages/domain/src/iam/roles.test.ts does on the
+      // migration text.
+      const drift = await client.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+         FROM roles r
+         JOIN builtin_role_grants g ON g.role_key = r.key
+         FULL OUTER JOIN role_permissions rp
+           ON rp.tenant_id = r.tenant_id
+          AND rp.role_id = r.id
+          AND rp.permission_key = g.permission_key
+         WHERE rp.permission_key IS NULL OR rp.scope_level IS DISTINCT FROM g.scope_level`,
+      );
+      expect(drift.rows[0]?.count).toBe('0');
+
+      // An Agent reads conversations at `own`, never tenant-wide.
+      const agentScope = await client.query<{ scope_level: string }>(
+        `SELECT rp.scope_level FROM role_permissions rp
+         JOIN roles r ON r.tenant_id = rp.tenant_id AND r.id = rp.role_id
+         WHERE r.key = 'agent' AND rp.permission_key = 'conversation.read'`,
+      );
+      expect(agentScope.rows[0]?.scope_level).toBe('own');
+
+      // An Analyst holds exactly one key, and it is not conversation content.
+      const analystKeys = await client.query<{ permission_key: string }>(
+        `SELECT rp.permission_key FROM role_permissions rp
+         JOIN roles r ON r.tenant_id = rp.tenant_id AND r.id = rp.role_id
+         WHERE r.key = 'analyst' ORDER BY rp.permission_key`,
+      );
+      expect(analystKeys.rows.map((row) => row.permission_key)).toEqual(['report.read']);
 
       const membership = await client.query<{ user_id: string; role_id: string; status: string }>(
         'SELECT user_id, role_id, status FROM memberships',

@@ -97,6 +97,7 @@ describe('convo-db entry point', () => {
       'applied 0004_installation_mode.sql',
       'applied 0005_idempotency.sql',
       'applied 0006_auth_sessions.sql',
+      'applied 0007_role_matrix.sql',
     ]);
 
     const second = await runBin(['migrate'], env);

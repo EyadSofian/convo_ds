@@ -11,7 +11,9 @@ const validInput: InstallationBootstrapInput = {
 
 const HAPPY_PATH: FakeSqlRule[] = [
   { match: /UPDATE installations/, rows: [{ id: 'installation-1' }] },
-  { match: /INSERT INTO roles/, rows: [{ id: 'role-1' }] },
+  // The seven built-in roles are inserted in one statement from the reference
+  // matrix, so the Owner's id is read back rather than returned by the insert.
+  { match: /SELECT id FROM roles/, rows: [{ id: 'role-1' }] },
   { match: /INSERT INTO memberships/, rows: [{ id: 'membership-1' }] },
 ];
 
@@ -56,18 +58,31 @@ describe('bootstrapInstallation (MODE-03)', () => {
       'INSERT INTO tenants',
       'INSERT INTO roles',
       'INSERT INTO role_permissions',
+      'SELECT id FROM',
       'INSERT INTO memberships',
       'INSERT INTO membership_scopes',
     ]);
   });
 
-  it('grants the owner every permission by key, not by role name', async () => {
+  it('seeds all seven built-in roles from the reference matrix', async () => {
+    const transaction = fakeTransaction(HAPPY_PATH);
+    await bootstrapInstallation({ transaction: transaction.run, newId: ids() }, validInput);
+
+    const roles = transaction.sql.calls.find((call) => call.text.includes('INSERT INTO roles'));
+    // Seeded by joining the reference table, not by naming roles inline: a
+    // company gets its whole role set at creation, and there is one matrix.
+    expect(roles?.text).toContain('FROM builtin_role_definitions');
+    expect(roles?.values).toEqual(['tenant-1']);
+  });
+
+  it('grants every role its keys with a scope, by key and never by role name', async () => {
     const transaction = fakeTransaction(HAPPY_PATH);
     await bootstrapInstallation({ transaction: transaction.run, newId: ids() }, validInput);
 
     const grant = transaction.sql.calls.find((call) => call.text.includes('role_permissions'));
-    expect(grant?.text).toContain('SELECT $1, $2, key FROM permissions');
-    expect(grant?.values).toEqual(['tenant-1', 'role-1']);
+    expect(grant?.text).toContain('permission_key, scope_level');
+    expect(grant?.text).toContain('JOIN builtin_role_grants g ON g.role_key = r.key');
+    expect(grant?.values).toEqual(['tenant-1']);
   });
 
   it('scopes the owner membership to the whole tenant', async () => {
@@ -75,6 +90,17 @@ describe('bootstrapInstallation (MODE-03)', () => {
     await bootstrapInstallation({ transaction: transaction.run, newId: ids() }, validInput);
     const scope = transaction.sql.calls.find((call) => call.text.includes('membership_scopes'));
     expect(scope?.values).toEqual(['tenant-1', 'membership-1']);
+  });
+
+  it('binds the owner membership to the Owner role it read back', async () => {
+    const transaction = fakeTransaction(HAPPY_PATH);
+    await bootstrapInstallation({ transaction: transaction.run, newId: ids() }, validInput);
+    const lookup = transaction.sql.calls.find((call) => call.text.includes('SELECT id FROM roles'));
+    expect(lookup?.text).toContain("key = 'owner'");
+    const membership = transaction.sql.calls.find((call) =>
+      call.text.includes('INSERT INTO memberships'),
+    );
+    expect(membership?.values).toEqual(['tenant-1', 'user-1', 'role-1']);
   });
 
   it('rejects a second call harmlessly and writes nothing', async () => {
@@ -172,7 +198,7 @@ describe('bootstrapInstallation (MODE-03)', () => {
   });
 
   describe('impossible database responses fail loudly', () => {
-    it('fails if the owner role insert returns no id', async () => {
+    it('fails if the Owner role is missing after seeding', async () => {
       const transaction = fakeTransaction([
         { match: /UPDATE installations/, rows: [{ id: 'installation-1' }] },
       ]);
@@ -184,7 +210,7 @@ describe('bootstrapInstallation (MODE-03)', () => {
     it('fails if the owner membership insert returns no id', async () => {
       const transaction = fakeTransaction([
         { match: /UPDATE installations/, rows: [{ id: 'installation-1' }] },
-        { match: /INSERT INTO roles/, rows: [{ id: 'role-1' }] },
+        { match: /SELECT id FROM roles/, rows: [{ id: 'role-1' }] },
       ]);
       await expect(
         bootstrapInstallation({ transaction: transaction.run, newId: ids() }, validInput),
