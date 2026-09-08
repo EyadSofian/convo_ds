@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ActionContext } from './actions';
-import { runAction, selectedId, windowMinutesLeft } from './actions';
+import { nextTabAfterClose, runAction, selectedId, windowMinutesLeft } from './actions';
 import { CURRENT_MEMBER_ID } from './data';
 import type { AppState } from './state';
 import { createState, findConversation, readDraft, writeDraft } from './state';
@@ -23,9 +23,8 @@ function harness(conversationId: string | null = 'cv-4821'): Harness {
   const context: ActionContext = {
     state,
     navigate: (screen, id) => {
-      const next = id === undefined ? null : id;
-      navigations.push({ screen, id: next });
-      state.route = { screen, conversationId: next, params: {} };
+      navigations.push({ screen, id });
+      state.route = { screen, conversationId: id, params: {} };
       renders += 1;
     },
     refresh: () => {
@@ -226,6 +225,67 @@ describe('chrome', () => {
     expect(app.state.viewsOpen).toBe(true);
     app.run('sidebar');
     expect(app.state.viewsOpen).toBe(false);
+  });
+
+  it('refuses to close the last remaining tab', () => {
+    const app = harness();
+    app.run('nav', 'channels');
+    app.run('close-tab', 'inbox');
+    expect(app.state.openTabs).toEqual(['channels']);
+    app.run('close-tab', 'channels');
+    // The guard is what makes the empty case unreachable through the UI.
+    expect(app.state.openTabs).toEqual(['channels']);
+    expect(app.state.route.screen).toBe('channels');
+  });
+
+  it('asks the inbox for its selected conversation when a tab closes onto it', () => {
+    const app = harness();
+    app.run('nav', 'channels');
+    app.run('close-tab', 'channels');
+    expect(app.state.route.screen).toBe('inbox');
+    // The destination decides what id to carry: only the inbox consults
+    // `selectedId`, and here it is null because navigating away cleared the
+    // route. `mount` is what re-selects a default conversation on arrival —
+    // this harness runs actions without that step.
+    expect(app.state.route.conversationId).toBe(selectedId(app.state));
+    expect(app.state.route.conversationId).toBeNull();
+  });
+
+  it('names the landing tab for every shape of the remaining list', () => {
+    expect(nextTabAfterClose(['inbox', 'channels'], 2)).toBe('channels');
+    expect(nextTabAfterClose(['inbox', 'channels'], 0)).toBe('inbox');
+    expect(nextTabAfterClose(['channels'], 1)).toBe('channels');
+    // Unreachable from the UI, but a total function still answers.
+    expect(nextTabAfterClose([], 0)).toBe('inbox');
+  });
+
+  it('lands on the neighbouring tab, not the inbox, when one is left', () => {
+    const app = harness();
+    app.run('nav', 'channels');
+    app.run('nav', 'people');
+    app.run('close-tab', 'people');
+    expect(app.state.route.screen).toBe('channels');
+    // A non-inbox destination carries no conversation id.
+    expect(app.state.route.conversationId).toBeNull();
+  });
+
+  it('writes saved-view toasts in the active language', () => {
+    const arabic = harness();
+    arabic.state.dialog = { kind: 'save-view', arg: '' };
+    arabic.state.dialogForm = { name: 'عرض', scope: 'private' };
+    arabic.run('save-view');
+    expect(arabic.state.toasts.at(-1)?.text).toBe('تم حفظ العرض');
+    arabic.run('delete-view', arabic.state.views.at(-1)?.id ?? '');
+    expect(arabic.state.toasts.at(-1)?.text).toBe('تم حذف العرض');
+
+    const english = harness();
+    english.run('lang', 'en');
+    english.state.dialog = { kind: 'save-view', arg: '' };
+    english.state.dialogForm = { name: 'Messenger only', scope: 'private' };
+    english.run('save-view');
+    expect(english.state.toasts.at(-1)?.text).toBe('View saved');
+    english.run('delete-view', english.state.views.at(-1)?.id ?? '');
+    expect(english.state.toasts.at(-1)?.text).toBe('View deleted');
   });
 
   it('toggles the theme both ways', () => {

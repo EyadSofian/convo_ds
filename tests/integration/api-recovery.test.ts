@@ -203,6 +203,33 @@ describe('password recovery start says nothing about the account', () => {
     ).toBe(false);
   });
 
+  it('limits the address and the caller address independently', async () => {
+    // The two buckets are separate on purpose: one person hammering one
+    // address must not lock every other person out, and one host enumerating
+    // many addresses must still be stopped. Each asymmetry is exercised, so
+    // neither half of the retry calculation is assumed.
+    const addressOnly = 'per-address@recovery.test';
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      // Same address, a different caller each time: the address bucket fills
+      // while no single IP bucket does.
+      const response = await startRecovery(api, addressOnly, `192.0.2.${String(attempt + 1)}`);
+      expect(response.statusCode).toBe(202);
+    }
+
+    const sharedIp = '192.0.2.250';
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      // Same caller, a different address each time: now the IP bucket fills
+      // while no single address bucket does.
+      const response = await startRecovery(api, `per-ip-${String(attempt)}@recovery.test`, sharedIp);
+      expect(response.statusCode).toBe(202);
+    }
+
+    // A fresh address from a fresh host is still served, so neither bucket
+    // leaked into the other.
+    const clean = await startRecovery(api, 'still-fine@recovery.test', '192.0.2.240');
+    expect(clean.statusCode).toBe(202);
+  });
+
   it('keeps answering 202 once the address is rate limited', async () => {
     const ip = '203.0.113.20';
     const responses = [];

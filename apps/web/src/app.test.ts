@@ -430,6 +430,110 @@ describe('delegated interaction', () => {
   });
 });
 
+describe('focus restoration edge cases', () => {
+  function mountFresh(): { app: AppHandle; root: HTMLElement } {
+    document.body.replaceChildren();
+    const root = document.createElement('div');
+    root.id = 'app';
+    document.body.appendChild(root);
+    const app = mount({ root, host: createHost(), now: NOW });
+    handle = app;
+    return { app, root };
+  }
+
+  it('ignores focus on a non-HTML element, such as an icon glyph', () => {
+    // Icons are inline SVG, which is an Element but not an HTMLElement. Focus
+    // landing there must not produce a focus key, and must not throw on
+    // re-render.
+    const { app, root } = mountFresh();
+    const glyph = root.querySelector('svg');
+    expect(glyph).not.toBeNull();
+    Object.defineProperty(document, 'activeElement', {
+      configurable: true,
+      get: () => glyph,
+    });
+    app.render();
+    expect(root.querySelector('.shell')).not.toBeNull();
+    Reflect.deleteProperty(document, 'activeElement');
+  });
+
+  it('drops restoration when the focused control is gone after the render', () => {
+    const { app, root } = mountFresh();
+    // Focus a control that only exists while the views sidebar is open, then
+    // close the sidebar in the same dispatch: the keyed control disappears.
+    app.dispatch('sidebar');
+    const inside = root.querySelector('.zone--views [data-act="group"]');
+    expect(inside).not.toBeNull();
+    (inside as HTMLElement).focus();
+    app.dispatch('sidebar');
+    expect(root.querySelector('.zone--views')).toBeNull();
+    expect(root.querySelector('.shell')).not.toBeNull();
+  });
+
+  it('keeps the caret when a text control reports no selection range', () => {
+    // `selectionStart` is `number | null` in the DOM: input types that do not
+    // support selection report null. The guard is what stops that becoming NaN.
+    const { app, root } = mountFresh();
+    const search = root.querySelector('[data-act="search"]');
+    expect(search).toBeInstanceOf(HTMLInputElement);
+    const input = search as HTMLInputElement;
+    Object.defineProperty(input, 'selectionStart', { configurable: true, get: () => null });
+    Object.defineProperty(input, 'selectionEnd', { configurable: true, get: () => null });
+    input.focus();
+    app.render();
+    expect(root.querySelector('.shell')).not.toBeNull();
+  });
+});
+
+describe('delegated click targets', () => {
+  function mountFresh(): { app: AppHandle; root: HTMLElement } {
+    document.body.replaceChildren();
+    const root = document.createElement('div');
+    root.id = 'app';
+    document.body.appendChild(root);
+    const app = mount({ root, host: createHost(), now: NOW });
+    handle = app;
+    return { app, root };
+  }
+
+  it('ignores a click on a form control, which reports through input/change', () => {
+    const { app, root } = mountFresh();
+    const before = app.state.preview;
+
+    const select = root.querySelector('select[data-act="preview"]');
+    expect(select).toBeInstanceOf(HTMLSelectElement);
+    (select as HTMLSelectElement).dispatchEvent(new window.Event('click', { bubbles: true }));
+    expect(app.state.preview).toBe(before);
+
+    const textarea = root.querySelector('textarea[data-act="composer-input"]');
+    expect(textarea).toBeInstanceOf(HTMLTextAreaElement);
+    (textarea as HTMLTextAreaElement).dispatchEvent(new window.Event('click', { bubbles: true }));
+    expect(root.querySelector('.composer')).not.toBeNull();
+  });
+
+  it('navigates to a named conversation as well as to a bare screen', () => {
+    const { app, root } = mountFresh();
+    const second = app.state.conversations[1]?.id;
+    expect(second).toBeDefined();
+    click(root, `.convrow[data-arg="${second as string}"]`);
+    expect(app.state.route.conversationId).toBe(second);
+
+    app.dispatch('nav', 'channels');
+    expect(app.state.route.conversationId).toBeNull();
+  });
+
+  it('ignores a pointerdown on a separator that is not inside a list column', () => {
+    const { app, root } = mountFresh();
+    const stray = document.createElement('button');
+    stray.className = 'list-resizer';
+    root.appendChild(stray);
+    const before = app.state.listWidth;
+    stray.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 10 }));
+    expect(app.state.listWidth).toBe(before);
+  });
+});
+
 describe('side zones, focus mode and Escape', () => {
   function mountFresh(): { app: AppHandle; root: HTMLElement } {
     document.body.replaceChildren();

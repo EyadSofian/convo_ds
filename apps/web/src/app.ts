@@ -1,6 +1,6 @@
 import type { ActionContext } from './actions';
 import { runAction } from './actions';
-import { closestWithAttr, h, replace } from './dom';
+import { attrOf, closestWithAttr, h, replace } from './dom';
 import { icon } from './icons';
 import type { IconName } from './icons';
 import { ROLE_LABELS } from './permissions';
@@ -237,14 +237,16 @@ function focusKeyOf(element: Element | null): string | null {
   return `${act}|${arg}`;
 }
 
-function keyedControls(root: ParentNode, key: string): readonly Element[] {
+function keyedControls(root: Element, key: string): readonly Element[] {
   return Array.from(root.querySelectorAll('[data-act]')).filter(
     (element) => focusKeyOf(element) === key,
   );
 }
 
-function captureFocus(root: ParentNode): FocusSnapshot | null {
-  const active = (root.ownerDocument ?? (root as Document)).activeElement;
+function captureFocus(root: Element): FocusSnapshot | null {
+  // `Element.ownerDocument` is non-nullable, and this is only ever called with
+  // the mount element, so there is no "detached root" case to defend against.
+  const active = root.ownerDocument.activeElement;
   const key = focusKeyOf(active);
   if (key === null || active === null) return null;
   const ordinal = keyedControls(root, key).indexOf(active);
@@ -254,7 +256,7 @@ function captureFocus(root: ParentNode): FocusSnapshot | null {
   return { key, ordinal, start: -1, end: -1 };
 }
 
-function restoreFocus(root: ParentNode, snapshot: FocusSnapshot | null): void {
+function restoreFocus(root: Element, snapshot: FocusSnapshot | null): void {
   if (snapshot === null) return;
   const match = keyedControls(root, snapshot.key)[Math.max(snapshot.ordinal, 0)];
   if (!(match instanceof HTMLElement)) return;
@@ -281,14 +283,15 @@ function restoreFocus(root: ParentNode, snapshot: FocusSnapshot | null): void {
 export const COMPOSER_MIN_HEIGHT = 44;
 export const COMPOSER_MAX_HEIGHT = 88;
 
-function growComposer(root: ParentNode): void {
+function growComposer(root: Element): void {
   const input = root.querySelector('.composer__input');
   if (!(input instanceof HTMLTextAreaElement)) return;
   input.style.height = 'auto';
   // `scrollHeight` excludes the border under `box-sizing: border-box`, so a
-  // height set straight from it clips the text by the border width.
+  // height set straight from it clips the text by the border width. Both
+  // operands are always numbers, so the difference is always a number.
   const border = input.offsetHeight - input.clientHeight;
-  const content = input.scrollHeight + (Number.isFinite(border) ? border : 0);
+  const content = input.scrollHeight + border;
   const clamped = Math.min(Math.max(content, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT);
   input.style.height = `${String(clamped)}px`;
 }
@@ -356,7 +359,7 @@ export function mount(options: MountOptions): AppHandle {
     navigate: (screen, conversationId) => {
       state.route = {
         screen,
-        conversationId: conversationId === undefined ? null : conversationId,
+        conversationId,
         params: state.route.params,
       };
       syncUrl();
@@ -387,7 +390,7 @@ export function mount(options: MountOptions): AppHandle {
     // The scrim only closes when the click landed on the scrim itself.
     if (target.hasAttribute('data-scrim') && event.target !== target) return;
     event.preventDefault();
-    dispatch(target.getAttribute('data-act') ?? '', target.getAttribute('data-arg') ?? '');
+    dispatch(attrOf(target, 'data-act'), attrOf(target, 'data-arg'));
   };
 
   const onInput = (event: Event): void => {

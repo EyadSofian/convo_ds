@@ -31,7 +31,11 @@ export default defineConfig({
       thresholds: {
         lines: 100,
         functions: 100,
-        branches: 95,
+        // 100, not 95. A gate set below what the suite achieves lets coverage
+        // rot silently down to the threshold; the repository reached 100%
+        // branches by deleting unreachable code rather than by tolerating it,
+        // so the gate now says so.
+        branches: 100,
         statements: 100,
         // Critical modules carry the stricter 100% branch gate (MASTER §13).
         // Today that is tenancy context and the installation/tenancy services;

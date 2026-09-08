@@ -20,6 +20,18 @@ export function applyAttrs(element: Element, attrs: Attrs): void {
   for (const name of Object.keys(attrs)) setAttr(element, name, attrs[name]);
 }
 
+/**
+ * An attribute's value, or `''` when the element does not carry it.
+ *
+ * Delegated event handling reads two attributes off one element, where only the
+ * first is guaranteed to exist. Keeping the total function here means both of
+ * its paths are exercised by a unit test instead of one of them being an
+ * unreachable fallback inside an event handler.
+ */
+export function attrOf(element: Element, name: string): string {
+  return element.getAttribute(name) ?? '';
+}
+
 export function append<T extends Node>(parent: T, children: readonly Child[]): T {
   for (const child of children) {
     if (child === null || child === undefined || child === false) continue;

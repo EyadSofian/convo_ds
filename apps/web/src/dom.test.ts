@@ -2,7 +2,26 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest';
-import { append, applyAttrs, bdi, closestWithAttr, frag, h, replace, setAttr, svgIcon } from './dom';
+import {
+  append,
+  applyAttrs,
+  attrOf,
+  bdi,
+  closestWithAttr,
+  frag,
+  h,
+  replace,
+  setAttr,
+  svgIcon,
+} from './dom';
+
+describe('attrOf', () => {
+  it('returns the value, or an empty string when the attribute is absent', () => {
+    const element = h('button', { 'data-act': 'theme' });
+    expect(attrOf(element, 'data-act')).toBe('theme');
+    expect(attrOf(element, 'data-arg')).toBe('');
+  });
+});
 
 describe('setAttr', () => {
   it('skips nullish and false, and renders true as an empty attribute', () => {

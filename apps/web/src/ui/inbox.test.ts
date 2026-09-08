@@ -33,7 +33,7 @@ function context(state: AppState): ActionContext {
   return {
     state,
     navigate: (screen, id) => {
-      state.route = { screen, conversationId: id === undefined ? null : id, params: {} };
+      state.route = { screen, conversationId: id, params: {} };
     },
     refresh: () => undefined,
   };
@@ -448,6 +448,52 @@ describe('renderInbox — customer panel without a conversation', () => {
     };
     const panel = renderInbox(state).querySelector('.zone--panel');
     expect(text(panel as HTMLElement)).toContain('غير مسجّلة');
+  });
+});
+
+describe('renderInbox — drawer state and missing identity fields', () => {
+  it('marks the list drawer open and renders its dismiss surface', () => {
+    const state = openState();
+    state.listOpen = true;
+    const element = renderInbox(state);
+    expect(element.getAttribute('data-list')).toBe('open');
+    expect(element.querySelector('.zone-scrim--list')).not.toBeNull();
+  });
+
+  it('says a missing phone, email or handle is not available rather than blank', () => {
+    const state = openState();
+    const conversation = state.conversations.find((entry) => entry.id === 'cv-4821');
+    const contact = state.dataset.contacts.find((entry) => entry.id === conversation?.contactId);
+    if (contact === undefined) throw new Error('seed changed');
+    const stripped = { ...contact, phone: null, email: null, handle: null };
+    state.dataset = {
+      ...state.dataset,
+      contacts: state.dataset.contacts.map((entry) => (entry.id === contact.id ? stripped : entry)),
+    };
+    const panel = renderInbox(state).querySelector('.zone--panel');
+    const grid = (panel as HTMLElement).querySelector('.attrgrid');
+    // Three allowlisted identity fields, all absent, all stated honestly.
+    expect(text(grid as HTMLElement).match(/غير متاح/g)).toHaveLength(3);
+  });
+
+  it('shows each identity field the contact actually carries', () => {
+    const state = openState();
+    const panel = renderInbox(state).querySelector('.zone--panel');
+    const grid = text((panel as HTMLElement).querySelector('.attrgrid') as HTMLElement);
+    // The seeded WhatsApp contact has a phone and an email but no handle, so
+    // exactly one field reports itself missing.
+    expect(grid).toContain('+20 100 234 8190');
+    expect(grid).toContain('mariam.kh');
+    expect(grid.match(/غير متاح/g)).toHaveLength(1);
+  });
+
+  it('shows a social handle when the channel identity has one', () => {
+    // An Instagram contact is reached by handle rather than by phone, so the
+    // same panel has to render the opposite combination.
+    const state = openState('cv-4818');
+    const panel = renderInbox(state).querySelector('.zone--panel');
+    const grid = text((panel as HTMLElement).querySelector('.attrgrid') as HTMLElement);
+    expect(grid).toContain('@rana.style');
   });
 });
 

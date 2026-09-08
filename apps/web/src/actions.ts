@@ -41,7 +41,12 @@ import {
 export interface ActionContext {
   readonly state: AppState;
   /** Applies a route change and re-renders. */
-  navigate(screen: ScreenId, conversationId?: string | null): void;
+  /**
+   * `conversationId` is required, not optional: every call site already passes
+   * it, and an optional parameter invented an `undefined` case no caller could
+   * produce — an unreachable branch in the mount's navigate handler.
+   */
+  navigate(screen: ScreenId, conversationId: string | null): void;
   /** Re-renders from current state. */
   refresh(): void;
 }
@@ -75,6 +80,18 @@ const nav: ActionHandler = (context, arg) => {
   context.navigate(arg, arg === 'inbox' ? selectedId(context.state) : null);
 };
 
+/**
+ * Where to land after closing the tab that was at `closedIndex`.
+ *
+ * The neighbour to its left, or the first remaining tab. Exported and total so
+ * the empty case is exercised directly: `closeTab` refuses to close the last
+ * tab, so an empty list is unreachable through the UI, but a function that
+ * indexes an array should still say what it does when there is nothing there.
+ */
+export function nextTabAfterClose(remaining: readonly ScreenId[], closedIndex: number): ScreenId {
+  return remaining[Math.max(0, closedIndex - 1)] ?? 'inbox';
+}
+
 const closeTab: ActionHandler = (context, arg) => {
   if (!isMember(SCREENS, arg) || context.state.openTabs.length === 1) return;
   const index = context.state.openTabs.indexOf(arg);
@@ -84,7 +101,7 @@ const closeTab: ActionHandler = (context, arg) => {
     context.refresh();
     return;
   }
-  const next = context.state.openTabs[Math.max(0, index - 1)] ?? 'inbox';
+  const next = nextTabAfterClose(context.state.openTabs, index);
   context.navigate(next, next === 'inbox' ? selectedId(context.state) : null);
 };
 

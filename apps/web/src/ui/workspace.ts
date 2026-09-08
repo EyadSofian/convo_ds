@@ -361,42 +361,6 @@ export function renderBroadcasts(state: AppState): HTMLElement {
     dispatch_completed: { ar: 'اكتمل الإرسال', en: 'Dispatch completed' },
     cancelled: { ar: 'ملغاة', en: 'Cancelled' },
   };
-  const examples: Record<string, {
-    objective: [string, string];
-    audience: [string, string];
-    message: [string, string];
-    timing: [string, string];
-    cta: [string, string];
-  }> = {
-    'cm-winter': {
-      objective: ['زيادة تسجيلات دبلومة AI Automation', 'Drive AI Automation Diploma enrollments'],
-      audience: ['مهتمو الذكاء الاصطناعي + موافقة تسويقية نشطة', 'AI-interested leads with active marketing consent'],
-      message: ['جاهز تحول شغلك بالـAI؟ دبلومة AI Automation تبدأ قريبًا. الأماكن محدودة.', 'Ready to transform your work with AI? The new diploma starts soon.'],
-      timing: ['أُرسلت أمس · 7:30 م', 'Sent yesterday · 7:30 PM'],
-      cta: ['احجز مقعدك', 'Reserve your seat'],
-    },
-    'cm-restock': {
-      objective: ['رفع حضور المحاضرة المباشرة', 'Increase live-session attendance'],
-      audience: ['المسجلون في Cohort 12 ممن لم يؤكدوا الحضور', 'Cohort 12 learners who have not confirmed attendance'],
-      message: ['تذكير: الـLive Session اليوم 8 مساءً. اضغط هنا لتأكيد حضورك وفتح رابط Zoom.', 'Reminder: your live session starts today at 8 PM. Confirm attendance to open Zoom.'],
-      timing: ['تُرسل الآن · دفعات كل دقيقة', 'Sending now · minute-by-minute batches'],
-      cta: ['تأكيد الحضور', 'Confirm attendance'],
-    },
-    'cm-vip': {
-      objective: ['إعادة تنشيط الخريجين بحدث حصري', 'Re-engage alumni with an exclusive event'],
-      audience: ['خريجو الدبلومات المتقدمة خلال آخر 12 شهرًا', 'Advanced-diploma alumni from the last 12 months'],
-      message: ['دعوة خاصة لخريجي Digital School: Masterclass مجاني عن AI Agents وتطبيقاتها العملية.', 'Exclusive Digital School alumni invitation: a free practical AI Agents masterclass.'],
-      timing: ['بانتظار اعتماد المدير · الخميس 6 م', 'Awaiting manager approval · Thu 6 PM'],
-      cta: ['سجّل مجانًا', 'Register free'],
-    },
-    'cm-survey': {
-      objective: ['قياس رضا المتدربين وتحسين المحتوى', 'Measure learner satisfaction and improve content'],
-      audience: ['من أنهوا 80٪ أو أكثر من محتوى الكورس', 'Learners who completed at least 80% of the course'],
-      message: ['مبروك إتمام الكورس 🎓 قيّم تجربتك في دقيقة وساعدنا نطور النسخة القادمة.', 'Congratulations on completing the course. Rate your experience in one minute.'],
-      timing: ['مسودة · بعد الإتمام بـ24 ساعة', 'Draft · 24 hours after completion'],
-      cta: ['قيّم تجربتك', 'Rate your experience'],
-    },
-  };
   const totals = state.dataset.campaigns.reduce(
     (sum, campaign) => ({
       audience: sum.audience + campaign.audienceSize,
@@ -487,7 +451,7 @@ export function renderBroadcasts(state: AppState): HTMLElement {
     ]),
     h('div', { class: 'broadcast-grid' }, state.dataset.campaigns.map((campaign) => {
       const total = Math.max(campaign.audienceSize, 1);
-      const example = (examples[campaign.id] ?? examples['cm-survey'])!;
+      const example = campaign.example;
       const campaignCard = card(
         t(state, campaign.name, campaign.nameEn),
         [
