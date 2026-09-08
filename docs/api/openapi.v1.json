@@ -101,6 +101,72 @@
         }
       }
     },
+    "/auth/recovery": {
+      "post": {
+        "operationId": "startPasswordRecovery",
+        "summary": "Start password recovery",
+        "description": "Always returns 202 with the same body, whether or not the address has an account and whether or not the request was rate limited (IAM-03). The token is delivered out of band and never appears in a response.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryStartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted. Says nothing about whether the account exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryAcceptedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/auth/recovery/complete": {
+      "post": {
+        "operationId": "completePasswordRecovery",
+        "summary": "Complete password recovery and revoke every session",
+        "description": "Consumes the single-use challenge, replaces the password and revokes every session for the account in one transaction. Expired, already used and never issued all return the same 400.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryCompleteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Password replaced; all sessions revoked and the caller's cookies cleared."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/auth/session": {
       "get": {
         "operationId": "getCurrentSession",
@@ -1473,6 +1539,76 @@
           },
           "request_id": {
             "type": "string"
+          }
+        }
+      },
+      "RecoveryStartRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "example": "hana@digital-school.example"
+          }
+        }
+      },
+      "RecoveryAcceptedResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "description": "Identical for a known and an unknown address, and identical when rate limited. Any variation here would be an account-existence oracle.",
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "message"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "accepted"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "example": "If that address has an account, a recovery message has been sent."
+              }
+            }
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RecoveryCompleteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "token",
+          "password"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "description": "Delivered out of band. Never returned by any endpoint.",
+            "example": "Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmE"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 512
           }
         }
       }

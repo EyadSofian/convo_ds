@@ -4,7 +4,44 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T5 first slice (Milestone B: the role boundary)
+## Last completed task — P1-T5 second slice (Milestone B: password recovery)
+
+**Task / requirement IDs:** IAM-03 closed. API-02 incremental (two routes documented and drift-checked).
+
+### Behavior delivered
+
+**The start endpoint is not an oracle.** `POST /auth/recovery` always returns 202 with the same body — for a known address, an unknown one, and a rate-limited one. A 429 here would tell an enumerator they had found a real, rate-limited target, so the delay is advertised through the limiter and the existence of the account never is. The integration test compares the **whole response body byte for byte** rather than reading the code.
+
+**A decoy challenge is written for an unknown address**, with a NULL user, so the table's shape and growth do not reveal which addresses are real. Nothing is delivered for it.
+
+**Only fingerprints are stored.** The raw token exists long enough to hand to the delivery port and is never written, logged or returned. The database holds a 64-hex HMAC under a server secret, asserted directly.
+
+**Completion is one transaction.** The challenge is claimed with a conditional UPDATE — two concurrent requests holding the same token cannot both win — then the password is replaced, every session for the account is revoked, and every other outstanding challenge is spent. A password change that leaves an attacker's session alive has changed nothing.
+
+**Delivery is a port, and it is not wired.** `LoggingRecoveryDelivery` logs a redacted address and never the token, and deliberately does not throw: a recovery request must look identical whether or not delivery is configured. It is **not** an email integration and is recorded as unconfigured. `createApiApplication` now takes an `adapters` argument, because the composition root is where an outbound integration is chosen.
+
+**A branch was deleted rather than tested.** The first implementation handled a decoy token in `complete()` with its own branch — code no request could reach, since decoy tokens are never delivered. The requirement moved into the claiming predicate (`AND user_id IS NOT NULL`), so a guessed decoy token is refused by exactly the same path as an unknown one. One path cannot drift from another.
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | four projects |
+| `pnpm build` | **0** | |
+| `pnpm test:unit` | **0** | 46 files, **664 tests** |
+| `pnpm test:integration` | **0** | 15 files, **111 tests** against real PostgreSQL 17.4 |
+| `pnpm test:coverage` | **0** | 61 files, **775 tests**, **100% lines / statements / functions**, 98.95% branches |
+
+### Honest remaining scope
+
+- **No email provider is configured.** The port exists and is exercised by a capturing adapter in tests; in production nothing is sent. A real adapter and its credentials are an open dependency.
+- MFA (IAM-04) is not implemented, so recovery is the only account-recovery path.
+- Invitations (IAM-06) remain `planned`.
+
+---
+
+## Previously completed — P1-T5 first slice (Milestone B: the role boundary)
 
 **Task / requirement IDs:** IAM-09, IAM-10, IAM-15 closed. IAM-14, IAM-16, IAM-17 moved to `partial` with the enforced half named. IAM-03 and IAM-06 remain `planned` — see "Honest remaining scope".
 
@@ -231,10 +268,11 @@ These block only the named live/deployment checks. Independent implementation co
 | 6 | Figma connector authorization or exported reference in `docs/design/reference/` | measured design evidence; current tokens remain `estimated` |
 | 7 | hosting region, domain, TLS and production authorization | deployment verification |
 | 8 | OIDC identity provider | IAM-22 only; local auth proceeds |
+| 9 | Email delivery provider and credentials | password-recovery **delivery** only; the port, the challenge lifecycle and every no-oracle guarantee are implemented and tested without it |
 
 ---
 
-## Next task — P1-T5 remainder (Milestone B: recovery, invitations and the People UI)
+## Next task — P1-T5 remainder (Milestone B: invitations, the mutation surface and the People UI)
 
 **Task:** the parts of Milestone B the role-boundary slice did not cover.
 
@@ -242,7 +280,7 @@ These block only the named live/deployment checks. Independent implementation co
 
 **Scope:**
 
-1. Complete generic password-recovery start/complete with single-use HMAC-only challenges, shared abuse limits, transactional password update plus session revocation, and an injectable delivery port whose production implementation never returns the token in HTTP.
+1. ~~Complete generic password-recovery start/complete with single-use HMAC-only challenges, shared abuse limits, transactional password update plus session revocation, and an injectable delivery port whose production implementation never returns the token in HTTP.~~ **Done** (IAM-03). The delivery port is unwired: a real email adapter and its credentials are an open dependency.
 2. Add tenant-scoped invitations with hashed single-use tokens, expiry, revoke and atomic accept. Known/unknown recovery and invite failures must not expose hidden account or tenant state.
 3. ~~Seed the seven built-in tenant roles and their exact permission-key matrices; implement Tenant/Scoped/Own/No intersection without role-name authorization.~~ **Done** in the slice above (IAM-09, IAM-10).
 4. **Partly done:** protected People/Roles/Teams *read* APIs and last-active-Owner protection are in place. Still open: the mutation surface (invite, change role, change scopes, create/edit a custom role within the delegation ceiling, ownership transfer with acceptance), all of it behind CSRF and idempotency where replay would otherwise duplicate an effect — plus the UI for these screens.

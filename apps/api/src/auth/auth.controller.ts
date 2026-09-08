@@ -6,10 +6,55 @@ import {
   sessionCookieHeaders,
 } from './auth-tokens.js';
 import { AuthService, type AuthenticatedSession } from './auth.service.js';
+import { RecoveryService } from './recovery.service.js';
 
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+  constructor(
+    @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(RecoveryService) private readonly recovery: RecoveryService,
+  ) {}
+
+  /**
+   * Starts password recovery.
+   *
+   * Always 202 with the same body, whether or not the address has an account —
+   * including when the request is rate limited. A different status for a known
+   * address is an account-existence oracle, which is precisely what IAM-03
+   * forbids. The token is delivered out of band and never appears here.
+   */
+  @Post('recovery')
+  async startRecovery(
+    @Body() body: unknown,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    await this.recovery.start(body, request.ip);
+    await reply.status(202).send({
+      data: {
+        status: 'accepted',
+        message: 'If that address has an account, a recovery message has been sent.',
+      },
+      request_id: request.id,
+    });
+  }
+
+  /**
+   * Completes recovery: replaces the password and revokes every session.
+   *
+   * The caller is logged out here too — the cookies are cleared — because the
+   * transaction revoked every session for the account, including this one.
+   */
+  @Post('recovery/complete')
+  async completeRecovery(
+    @Body() body: unknown,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    await this.recovery.complete(body, request.ip);
+    reply.header('set-cookie', clearedSessionCookieHeaders(this.auth.secureCookies));
+    await reply.status(204).send();
+  }
 
   @Post('login')
   async login(

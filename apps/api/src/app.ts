@@ -5,6 +5,7 @@ import { asExecutor } from '@convo/database';
 import { applyInstallationConfig } from '@convo/domain';
 import pg from 'pg';
 import { ApiModule } from './api.module.js';
+import type { RecoveryDeliveryPort } from './auth/recovery-delivery.js';
 import { ApiConfigurationError, parseApiConfig, type ApiConfig } from './config.js';
 import { ApiErrorFilter } from './error.filter.js';
 import { requestIdFor } from './request-id.js';
@@ -22,9 +23,21 @@ export class ApiBootError extends Error {
   }
 }
 
+/**
+ * Adapters chosen at the composition root.
+ *
+ * This is where an outbound integration is selected, which is the only place
+ * that should know which one is in use. Omitted entries fall back to the
+ * default adapter in `ApiModule`.
+ */
+export interface ApiAdapters {
+  readonly recoveryDelivery?: RecoveryDeliveryPort | undefined;
+}
+
 export async function createApiApplication(
   config: ApiConfig,
   pool: InstanceType<typeof Pool>,
+  adapters: ApiAdapters = {},
 ): Promise<NestFastifyApplication> {
   const adapter = new FastifyAdapter({
     bodyLimit: 1_048_576,
@@ -32,7 +45,7 @@ export async function createApiApplication(
   });
   attachRouteInventory(adapter.getInstance());
   const app = await NestFactory.create<NestFastifyApplication>(
-    ApiModule.register(config, pool),
+    ApiModule.register(config, pool, adapters),
     adapter,
     { logger: false },
   );

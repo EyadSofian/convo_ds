@@ -11,6 +11,9 @@ import type { ApiConfig } from './config.js';
 import { AuthController } from './auth/auth.controller.js';
 import { AuthRateLimiter } from './auth/auth-rate-limiter.js';
 import { AuthService } from './auth/auth.service.js';
+import { LoggingRecoveryDelivery } from './auth/recovery-delivery.js';
+import type { RecoveryDeliveryPort } from './auth/recovery-delivery.js';
+import { RecoveryService } from './auth/recovery.service.js';
 import { AuthorizationService } from './authorization/authorization.service.js';
 import { PermissionController } from './authorization/permission.controller.js';
 import { PermissionService } from './authorization/permission.service.js';
@@ -19,7 +22,13 @@ import { InstanceController } from './instance/instance.controller.js';
 import { InstanceService } from './instance/instance.service.js';
 import { MembershipController } from './memberships/membership.controller.js';
 import { MembershipService } from './memberships/membership.service.js';
-import { API_CONFIG, API_POOL, PASSWORD_HASHER, type PasswordHasher } from './tokens.js';
+import {
+  API_CONFIG,
+  API_POOL,
+  PASSWORD_HASHER,
+  RECOVERY_DELIVERY,
+  type PasswordHasher,
+} from './tokens.js';
 
 @Injectable()
 class PoolLifecycle implements OnModuleDestroy {
@@ -46,7 +55,11 @@ const ARGON2ID_HASHER: PasswordHasher = {
 
 @Module({})
 export class ApiModule {
-  static register(config: ApiConfig, pool: Pool): DynamicModule {
+  static register(
+    config: ApiConfig,
+    pool: Pool,
+    adapters: { readonly recoveryDelivery?: RecoveryDeliveryPort | undefined } = {},
+  ): DynamicModule {
     return {
       module: ApiModule,
       controllers: [InstanceController, AuthController, MembershipController, PermissionController],
@@ -54,11 +67,19 @@ export class ApiModule {
         { provide: API_CONFIG, useValue: config },
         { provide: API_POOL, useValue: pool },
         { provide: PASSWORD_HASHER, useValue: ARGON2ID_HASHER },
+        // No email provider is configured. The default adapter logs a redacted
+        // line and never the token; it is not a working integration and the
+        // ledger records it as an unconfigured port.
+        {
+          provide: RECOVERY_DELIVERY,
+          useValue: adapters.recoveryDelivery ?? new LoggingRecoveryDelivery(),
+        },
         IdempotencyService,
         InstanceService,
         AuthRateLimiter,
         AuthService,
         AuthorizationService,
+        RecoveryService,
         MembershipService,
         PermissionService,
         PoolLifecycle,

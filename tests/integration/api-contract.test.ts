@@ -103,6 +103,8 @@ describe('pinned OpenAPI contract', () => {
     expect(operations.map((operation) => operation.operationId)).toEqual([
       'login',
       'logout',
+      'startPasswordRecovery',
+      'completePasswordRecovery',
       'getCurrentSession',
       'listSessions',
       'getSession',

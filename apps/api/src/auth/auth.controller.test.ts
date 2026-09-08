@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthController } from './auth.controller.js';
 import type { AuthService, LoginOutcome } from './auth.service.js';
+import type { RecoveryService } from './recovery.service.js';
 
 describe('AuthController header normalization', () => {
   it('does not persist an ambiguous user-agent header', async () => {
@@ -34,7 +35,12 @@ describe('AuthController header normalization', () => {
       headers: { 'user-agent': ['first', 'second'] },
     } as unknown as FastifyRequest;
 
-    await new AuthController(auth).login(
+    const recovery = {
+      start: vi.fn().mockResolvedValue({ accepted: true }),
+      complete: vi.fn().mockResolvedValue(undefined),
+    } as unknown as RecoveryService;
+
+    await new AuthController(auth, recovery).login(
       { email: 'owner@example.test', password: 'password' },
       request,
       reply,
