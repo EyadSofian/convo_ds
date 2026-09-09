@@ -228,8 +228,14 @@ describe('role boundary over HTTP', () => {
       headers: { cookie: ownerCookie },
     });
     expect(teams.statusCode).toBe(200);
-    expect((teams.json() as { data: readonly { name: string; member_count: number }[] }).data).toEqual([
-      { id: expect.any(String) as unknown as string, name: 'Enrollment', member_count: 1 },
+    expect((teams.json() as { data: readonly Record<string, unknown>[] }).data).toEqual([
+      {
+        id: expect.any(String) as unknown as string,
+        name: 'Enrollment',
+        member_count: 1,
+        archived: false,
+        members: [{ membership_id: expect.any(String) as unknown as string, email: 'supervisor@authz.test' }],
+      },
     ]);
   });
 

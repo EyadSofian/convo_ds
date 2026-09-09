@@ -58,7 +58,15 @@ describe('deployment mode is trusted installation config (MODE-01)', () => {
         offenders.push(path.relative(ROOT, file));
       }
     }
-    expect(offenders.sort()).toEqual(['apps/api/src/main.ts', 'packages/database/src/bin.ts']);
+    // Listed one by one rather than by pattern, so adding a file to this set is
+    // a deliberate edit here. The two process entry points read their own
+    // environment; the Vite config is a build-tool file that runs on the
+    // developer's machine and is not part of any shipped artifact.
+    expect(offenders.sort()).toEqual([
+      'apps/api/src/main.ts',
+      'apps/web/vite.config.ts',
+      'packages/database/src/bin.ts',
+    ]);
   });
 
   it('produces a public descriptor whose mode comes from the parsed config', () => {

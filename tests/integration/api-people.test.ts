@@ -552,6 +552,14 @@ describe('custom roles and the delegation ceiling', () => {
   });
 });
 
+interface TeamBody {
+  readonly id: string;
+  readonly name: string;
+  readonly member_count: number;
+  readonly archived: boolean;
+  readonly members: readonly { readonly membership_id: string; readonly email: string }[];
+}
+
 describe('teams', () => {
   let api: Harness;
   let owner: Browser;
@@ -567,42 +575,55 @@ describe('teams', () => {
     await api.app.close();
   });
 
-  it('creates, renames, fills and empties a team', async () => {
+  it('creates, renames, fills and empties a team, naming its members', async () => {
     const created = await send(api, owner, 'POST', '/teams', { name: 'Enrollment' });
     expect(created.statusCode).toBe(201);
-    const team = (created.json() as { data: { id: string; member_count: number } }).data;
-    expect(team.member_count).toBe(0);
+    const team = (created.json() as { data: TeamBody }).data;
+    expect(team).toMatchObject({ member_count: 0, archived: false, members: [] });
 
     const added = await send(api, owner, 'POST', `/teams/${team.id}/members`, {
       membershipId: membership,
     });
     expect(added.statusCode).toBe(200);
-    expect((added.json() as { data: { member_count: number } }).data.member_count).toBe(1);
+    // The response names who is in the team, not just how many: an
+    // administrator who added the wrong person has to be able to see it.
+    expect((added.json() as { data: TeamBody }).data).toMatchObject({
+      member_count: 1,
+      members: [{ membership_id: membership, email: 'teammate@people.test' }],
+    });
 
     // Adding twice is not an error and does not double-count.
     const again = await send(api, owner, 'POST', `/teams/${team.id}/members`, {
       membershipId: membership,
     });
-    expect((again.json() as { data: { member_count: number } }).data.member_count).toBe(1);
+    expect((again.json() as { data: TeamBody }).data.member_count).toBe(1);
 
     const renamed = await send(api, owner, 'PATCH', `/teams/${team.id}`, { name: 'Enrolment' });
     expect(renamed.statusCode).toBe(200);
-    expect((renamed.json() as { data: { name: string } }).data.name).toBe('Enrolment');
+    const afterRename = (renamed.json() as { data: TeamBody }).data;
+    // A rename leaves the membership alone, because the patch is partial.
+    expect(afterRename).toMatchObject({ name: 'Enrolment', member_count: 1, archived: false });
 
     const removed = await send(api, owner, 'DELETE', `/teams/${team.id}/members/${membership}`);
     expect(removed.statusCode).toBe(200);
-    expect((removed.json() as { data: { member_count: number } }).data.member_count).toBe(0);
+    expect((removed.json() as { data: TeamBody }).data).toMatchObject({
+      member_count: 0,
+      members: [],
+    });
   });
 
-  it('archives a team, keeps its history, and frees its name', async () => {
+  it('archives a team by itself, keeps its history, frees its name, and restores it', async () => {
     const created = await send(api, owner, 'POST', '/teams', { name: 'Seasonal' });
-    const team = (created.json() as { data: { id: string } }).data;
+    const team = (created.json() as { data: TeamBody }).data;
 
-    const archived = await send(api, owner, 'PATCH', `/teams/${team.id}`, {
+    // Archiving does not require resending the name: a patch that made the
+    // caller echo state back is a patch that renames a team by accident.
+    const archived = await send(api, owner, 'PATCH', `/teams/${team.id}`, { archived: true });
+    expect(archived.statusCode).toBe(200);
+    expect((archived.json() as { data: TeamBody }).data).toMatchObject({
       name: 'Seasonal',
       archived: true,
     });
-    expect(archived.statusCode).toBe(200);
 
     // The row is still there — archiving is not deletion.
     const still = await withTenant(api.pool, api.tenantId, (client) =>
@@ -621,6 +642,57 @@ describe('teams', () => {
       membershipId: membership,
     });
     expect(refused.statusCode).toBe(404);
+
+    // The list says which teams are archived rather than showing them as live.
+    const listed = await send(api, owner, 'GET', '/teams');
+    const rows = (listed.json() as { data: TeamBody[] }).data;
+    expect(rows.find((row) => row.id === team.id)?.archived).toBe(true);
+
+    // Restoring it now would put two live teams under one name, which the
+    // partial unique index refuses. That is a conflict, not a server fault.
+    const clash = await send(api, owner, 'PATCH', `/teams/${team.id}`, { archived: false });
+    expect(clash.statusCode).toBe(409);
+    expect(clash.json()).toMatchObject({ error: { code: 'team_exists' } });
+
+    // With the name free again, the restore goes through and the team takes
+    // members exactly as it did before.
+    const successor = (reused.json() as { data: TeamBody }).data;
+    expect(
+      (await send(api, owner, 'PATCH', `/teams/${successor.id}`, { archived: true })).statusCode,
+    ).toBe(200);
+    const restored = await send(api, owner, 'PATCH', `/teams/${team.id}`, { archived: false });
+    expect((restored.json() as { data: TeamBody }).data.archived).toBe(false);
+    expect(
+      (
+        await send(api, owner, 'POST', `/teams/${team.id}/members`, { membershipId: membership })
+      ).statusCode,
+    ).toBe(200);
+  });
+
+  it('refuses a rename onto a live team’s name, and allows one onto an archived one', async () => {
+    const first = await send(api, owner, 'POST', '/teams', { name: 'Renaming A' });
+    const second = await send(api, owner, 'POST', '/teams', { name: 'Renaming B' });
+    const a = (first.json() as { data: TeamBody }).data;
+    const b = (second.json() as { data: TeamBody }).data;
+
+    const clash = await send(api, owner, 'PATCH', `/teams/${a.id}`, { name: 'Renaming B' });
+    expect(clash.statusCode).toBe(409);
+    expect(clash.json()).toMatchObject({ error: { code: 'team_exists' } });
+
+    expect((await send(api, owner, 'PATCH', `/teams/${b.id}`, { archived: true })).statusCode).toBe(
+      200,
+    );
+    const renamed = await send(api, owner, 'PATCH', `/teams/${a.id}`, { name: 'Renaming B' });
+    expect(renamed.statusCode).toBe(200);
+    expect((renamed.json() as { data: TeamBody }).data.name).toBe('Renaming B');
+  });
+
+  it('refuses a team patch that changes nothing', async () => {
+    const created = await send(api, owner, 'POST', '/teams', { name: 'Empty Patch' });
+    const id = (created.json() as { data: TeamBody }).data.id;
+    const empty = await send(api, owner, 'PATCH', `/teams/${id}`, {});
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json()).toMatchObject({ error: { details: [{ field: 'body', code: 'empty' }] } });
   });
 
   it('refuses a duplicate live name, an unknown team and an unknown membership', async () => {
@@ -655,8 +727,14 @@ describe('teams', () => {
   });
 
   it('refuses a malformed team body', async () => {
-    for (const body of [{}, { name: '' }, { name: 'x'.repeat(81) }, { name: 'x', archived: 'yes' }, ['nope']]) {
+    for (const body of [{}, { name: '' }, { name: 'x'.repeat(81) }, ['nope']]) {
       const response = await send(api, owner, 'POST', '/teams', body);
+      expect(response.statusCode, JSON.stringify(body)).toBe(400);
+    }
+    const patched = await send(api, owner, 'POST', '/teams', { name: 'Patch Check' });
+    const patchId = (patched.json() as { data: TeamBody }).data.id;
+    for (const body of [{ name: '' }, { archived: 'yes' }, ['nope']]) {
+      const response = await send(api, owner, 'PATCH', `/teams/${patchId}`, body);
       expect(response.statusCode, JSON.stringify(body)).toBe(400);
     }
     const live = await send(api, owner, 'POST', '/teams', { name: 'Body Check' });

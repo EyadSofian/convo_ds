@@ -237,6 +237,8 @@ export interface SelectOptions {
   readonly form?: string | undefined;
   readonly ariaLabel?: string | undefined;
   readonly style?: string | undefined;
+  /** Disabled while the change it would start is already in flight. */
+  readonly disabled?: boolean | undefined;
 }
 
 /**
@@ -254,6 +256,7 @@ export function selectControl(config: SelectOptions): HTMLSelectElement {
       'data-form': config.form,
       'aria-label': config.ariaLabel,
       style: config.style,
+      disabled: config.disabled,
     },
     config.options.map((option) =>
       h('option', { value: option.value, selected: option.value === config.value }, [option.label]),

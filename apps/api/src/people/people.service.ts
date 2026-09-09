@@ -5,20 +5,30 @@ import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import type { PersonSummary, RoleSummary, TeamSummary } from '../authorization/permission.service.js';
 import { ApiHttpError } from '../http-error.js';
+import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import type {
+  CreateTeamRequest,
   RoleGrantInput,
   ScopeInput,
   UpdateMembershipRequest,
+  UpdateTeamRequest,
   WriteRoleRequest,
-  WriteTeamRequest,
 } from './people-request.js';
 import {
+  parseCreateTeam,
   parseMembershipRef,
   parseUpdateMembership,
+  parseUpdateTeam,
   parseWriteRole,
-  parseWriteTeam,
 } from './people-request.js';
+
+/** The partial unique index that reserves a live team's name. */
+const TEAM_NAME_INDEX = 'teams_tenant_name_live_uq';
+
+function nameTaken(): ApiHttpError {
+  return new ApiHttpError(409, 'team_exists', 'A live team with that name already exists.');
+}
 
 /** Twelve hours. An ownership offer is a decision, not a standing option. */
 const TRANSFER_TTL_SECONDS = 12 * 60 * 60;
@@ -271,11 +281,11 @@ export class PeopleService {
     tenantId: string,
     body: unknown,
   ): Promise<TeamSummary> {
-    const parsed = parseWriteTeam(body);
+    const parsed = parseCreateTeam(body);
     if (!parsed.ok) {
       throw invalid(parsed.details);
     }
-    const request: WriteTeamRequest = parsed.value;
+    const request: CreateTeamRequest = parsed.value;
 
     return this.authorization.authorized(
       session,
@@ -288,7 +298,7 @@ export class PeopleService {
           [tenantId, request.name],
         );
         if (created.rows.length === 0) {
-          throw new ApiHttpError(409, 'team_exists', 'A live team with that name already exists.');
+          throw nameTaken();
         }
         const teamId = requireRow(created.rows, 'team insert returned no id').id;
         await audit(sql, tenantId, principal, session, {
@@ -302,40 +312,59 @@ export class PeopleService {
     );
   }
 
-  /** Renames a team, or archives it. Archiving keeps its history. */
+  /**
+   * Renames a team, archives it, or restores it.
+   *
+   * A genuine partial patch: an absent field is left alone. Archiving a team by
+   * having to resend its name is how a rename gets made by accident, and it
+   * forces every caller to hold a copy of state it did not ask for.
+   */
   async updateTeam(
     session: AuthenticatedSession,
     tenantId: string,
     teamId: string,
     body: unknown,
   ): Promise<TeamSummary> {
-    const parsed = parseWriteTeam(body);
+    const parsed = parseUpdateTeam(body);
     if (!parsed.ok) {
       throw invalid(parsed.details);
     }
-    const request: WriteTeamRequest = parsed.value;
+    const request: UpdateTeamRequest = parsed.value;
 
     return this.authorization.authorized(
       session,
       tenantId,
       'member.manage',
       async ({ sql, principal }) => {
-        const updated = await sql.query<{ id: string }>(
-          `UPDATE teams
-              SET name = $2,
-                  archived_at = CASE WHEN $3 THEN COALESCE(archived_at, now()) ELSE NULL END
-            WHERE id = $1
-            RETURNING id::text`,
-          [teamId, request.name, request.archived],
+        // A name is reserved only while a team is live, so both a rename and a
+        // restore can collide with a live team. The partial unique index is the
+        // decision; this turns its refusal into the same 409 the create path
+        // gives, instead of the 500 an unhandled constraint produces.
+        const updated = await unlessConstraint(TEAM_NAME_INDEX, nameTaken(), () =>
+          sql.query<{ id: string }>(
+            `UPDATE teams
+                SET name = COALESCE($2, name),
+                    archived_at = CASE
+                      WHEN $3::boolean IS NULL THEN archived_at
+                      WHEN $3 THEN COALESCE(archived_at, now())
+                      ELSE NULL
+                    END
+              WHERE id = $1
+              RETURNING id::text`,
+            [teamId, request.name ?? null, request.archived ?? null],
+          ),
         );
         if (updated.rows.length === 0) {
           throw notFound();
         }
         await audit(sql, tenantId, principal, session, {
-          action: request.archived ? 'team.archive' : 'team.update',
+          action: request.archived === true ? 'team.archive' : 'team.update',
           subjectType: 'team',
           subjectId: teamId,
-          detail: { name: request.name, archived: request.archived },
+          detail: {
+            ...(request.name === undefined ? {} : { name: request.name }),
+            ...(request.archived === undefined ? {} : { archived: request.archived }),
+          },
         });
         return readTeam(sql, teamId);
       },
@@ -771,16 +800,28 @@ async function readRole(sql: SqlExecutor, roleId: string): Promise<RoleSummary> 
 }
 
 async function readTeam(sql: SqlExecutor, teamId: string): Promise<TeamSummary> {
-  const rows = await sql.query<{ id: string; name: string; member_count: string }>(
-    `SELECT t.id::text, t.name, count(tm.membership_id)::text AS member_count
-       FROM teams t
-       LEFT JOIN team_members tm ON tm.tenant_id = t.tenant_id AND tm.team_id = t.id
-      WHERE t.id = $1
-      GROUP BY t.id, t.name`,
+  const rows = await sql.query<{ id: string; name: string; archived: boolean }>(
+    `SELECT t.id::text, t.name, (t.archived_at IS NOT NULL) AS archived
+       FROM teams t WHERE t.id = $1`,
     [teamId],
   );
   const team = requireRow(rows.rows, 'the team vanished mid-transaction');
-  return { id: team.id, name: team.name, member_count: Number(team.member_count) };
+  const members = await sql.query<{ membership_id: string; email: string }>(
+    `SELECT tm.membership_id::text, u.email
+       FROM team_members tm
+       JOIN memberships m ON m.id = tm.membership_id
+       JOIN users u ON u.id = m.user_id
+      WHERE tm.team_id = $1
+      ORDER BY u.email`,
+    [teamId],
+  );
+  return {
+    id: team.id,
+    name: team.name,
+    member_count: members.rows.length,
+    archived: team.archived,
+    members: members.rows,
+  };
 }
 
 interface TransferRow {

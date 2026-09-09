@@ -1,13 +1,11 @@
-import type { Campaign, ChannelConnection, RoleId } from '../data';
-import { PERMISSION_KEYS } from '../data';
+import type { Campaign, ChannelConnection } from '../data';
 import { h } from '../dom';
 import { channelLabel } from '../filters';
-import { conversationCount, formatNumber, initials, relativeTime } from '../format';
-import { can, ROLE_GRANTS, ROLE_LABELS } from '../permissions';
+import { conversationCount, formatNumber, relativeTime } from '../format';
+import { can, ROLE_LABELS } from '../permissions';
 import type { AppState } from '../state';
 import { currentActor } from '../state';
 import {
-  avatar,
   barRow,
   button,
   card,
@@ -176,172 +174,6 @@ export function renderChannels(state: AppState): HTMLElement {
           ],
         ),
       ),
-    ),
-  ]);
-}
-
-/* ------------------------------------------------------------------ people -- */
-
-export function renderPeople(state: AppState): HTMLElement {
-  const actor = currentActor(state);
-  const manage = can(actor, 'member.manage');
-  const previewRole = (state.dialogForm.previewRole ?? 'agent') as RoleId;
-  const grants = ROLE_GRANTS[previewRole];
-  return h('div', { class: 'workspace', tabindex: '0', 'data-scroll': 'screen' }, [
-    intro(
-      state,
-      t(state, 'الأفراد والأدوار', 'People & roles'),
-      t(
-        state,
-        'الصلاحية تُفحص بالمفتاح لا باسم الدور. الوصول الفعلي = منحة الإجراء ∩ نطاق المورد ∩ عضوية نشطة ∩ صلاحية الصندوق.',
-        'Permissions are checked by key, never by role name. Effective access = action grant ∩ resource scope ∩ active membership ∩ inbox access.',
-      ),
-      manage
-        ? [
-            button({
-              label: t(state, 'دعوة زميل', 'Invite a colleague'),
-              icon: 'plus',
-              act: 'dialog',
-              arg: 'invite',
-              variant: 'primary',
-            }),
-          ]
-        : [],
-    ),
-    manage
-      ? null
-      : notice(
-          'warning',
-          'lock',
-          t(
-            state,
-            'دورك لا يملك member.manage — يمكنك القراءة فقط.',
-            'Your role lacks member.manage — read-only.',
-          ),
-        ),
-    card(
-      t(state, 'الأعضاء', 'Members'),
-      [pill(`${state.dataset.members.length}`, 'neutral', 'users')],
-      [
-        h('div', { class: 'tablewrap' }, [
-          h('table', { class: 'table' }, [
-            h('thead', {}, [
-              h('tr', {}, [
-                h('th', {}, [t(state, 'العضو', 'Member')]),
-                h('th', {}, [t(state, 'الدور', 'Role')]),
-                h('th', {}, [t(state, 'الفرق', 'Teams')]),
-                h('th', {}, [t(state, 'الصناديق', 'Inboxes')]),
-                h('th', {}, [t(state, 'الحمل المفتوح', 'Open load')]),
-                h('th', {}, [t(state, 'إجراءات', 'Actions')]),
-              ]),
-            ]),
-            h(
-              'tbody',
-              {},
-              state.dataset.members.map((member) =>
-                h('tr', {}, [
-                  h('td', {}, [
-                    h('span', { class: 'convrow__assignee' }, [
-                      avatar({ initials: initials(member.name), size: 'sm' }),
-                      h('span', {}, [state.lang === 'ar' ? member.name : member.nameEn]),
-                      pill(
-                        member.presence === 'online'
-                          ? t(state, 'متاح', 'Online')
-                          : member.presence === 'away'
-                            ? t(state, 'بعيد', 'Away')
-                            : t(state, 'غير متصل', 'Offline'),
-                        member.presence === 'online' ? 'success' : 'neutral',
-                      ),
-                    ]),
-                  ]),
-                  h('td', {}, [ROLE_LABELS[member.role][state.lang]]),
-                  h('td', {}, [String(member.teamIds.length)]),
-                  h('td', {}, [String(member.inboxIds.length)]),
-                  h('td', {}, [isolated(formatNumber(member.openLoad, state.lang))]),
-                  h('td', {}, [
-                    button({
-                      label: t(state, 'تعديل', 'Edit'),
-                      act: 'dialog',
-                      arg: `member:${member.id}`,
-                      small: true,
-                      disabled: !manage,
-                    }),
-                  ]),
-                ]),
-              ),
-            ),
-          ]),
-        ]),
-      ],
-    ),
-    card(
-      t(state, 'معاينة الوصول الفعلي', 'Effective access preview'),
-      [
-        selectControl({
-          value: previewRole,
-          form: 'previewRole',
-          style: 'inline-size:auto',
-          ariaLabel: t(state, 'الدور المعروض', 'Previewed role'),
-          options: (Object.keys(ROLE_GRANTS) as RoleId[]).map((role) => ({
-            value: role,
-            label: ROLE_LABELS[role][state.lang],
-          })),
-        }),
-      ],
-      [
-        notice(
-          'plain',
-          'shield',
-          t(
-            state,
-            'هذه معاينة للواجهة فقط. الخادم يعيد التحقق من كل مفتاح عند كل طلب، وإخفاء زر ليس ضابط تفويض.',
-            'This is a UI preview only. The server re-checks every key on every request; a hidden button is not an authorization control.',
-          ),
-        ),
-        h(
-          'div',
-          { class: 'rolegrid' },
-          PERMISSION_KEYS.flatMap((key) => [
-            h('span', { class: 'rolegrid__key' }, [isolated(key, true)]),
-            grants.includes(key)
-              ? pill(t(state, 'ممنوحة', 'Granted'), 'success', 'check')
-              : pill(t(state, 'مرفوضة', 'Denied'), 'neutral', 'close'),
-          ]),
-        ),
-      ],
-    ),
-    card(
-      t(state, 'الفرق', 'Teams'),
-      [
-        button({
-          label: t(state, 'فريق جديد', 'New team'),
-          icon: 'plus',
-          act: 'dialog',
-          arg: 'team',
-          small: true,
-          disabled: !manage,
-        }),
-      ],
-      [
-        h(
-          'div',
-          { class: 'grid3' },
-          state.dataset.teams.map((team) =>
-            h('div', { class: 'metric' }, [
-              h('span', { class: 'metric__label' }, [state.lang === 'ar' ? team.name : team.nameEn]),
-              h('span', { class: 'metric__value' }, [
-                isolated(
-                  formatNumber(
-                    state.dataset.members.filter((member) => member.teamIds.includes(team.id)).length,
-                    state.lang,
-                  ),
-                ),
-              ]),
-              h('span', { class: 'metric__foot' }, [t(state, 'عضو', 'members')]),
-            ]),
-          ),
-        ),
-      ],
     ),
   ]);
 }

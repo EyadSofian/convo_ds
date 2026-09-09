@@ -4,7 +4,72 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T5 third slice (Milestone B: invitations, and a 100% coverage gate)
+## Last completed task — P1-T5 fifth slice (Milestone B: the People screen, wired to the API)
+
+**Task / requirement IDs:** UX-09 moved from `planned` to `partial` with the unwired screens named. IAM-14, IAM-15, IAM-16, IAM-24 gained their operator surface. API-02 incremental: two read models widened, one patch made genuinely partial.
+
+### Behavior delivered
+
+**The demo People screen was deleted, not left beside the real one.** Two implementations of one screen is how a demo ships by accident. `apps/web/src/ui/people-screen.ts` reads nothing from `data.ts`; the other five screens still do, and say so below.
+
+**A list is a four-state resource**, not `data | null`: not asked, waiting, refused, here it is. "The server said no" and "there is nothing here" are different things to put in front of an operator, and a nullable field collapses them into one blank table. A denial renders as a permission state that says the refusal happened on the server — hiding a control is not an authorization control.
+
+**Every mutation is pending → settle → toast.** Mark the specific control busy and re-render, await the server, then record success or the server's error. Nothing is written optimistically and no toast fires on click, because a toast on click is a claim the server has not made yet. `live.test.ts` holds a response open and asserts that the pending label is on the control, the button refuses a second click, and `state.toasts` is still empty — then that the toast appears only after the response commits. What is on screen after a change is what the reload returned, including fields the browser never asked about.
+
+**Three defects the wiring exposed, all fixed at the cause:**
+
+- Signing in resolved the session and stopped, so the lists sat on a skeleton until the operator reloaded by hand.
+- A form key containing a colon (`teamMember:<id>`) collided with the `"<key>:<value>"` encoding the DOM uses to carry a form value, so the team-member select silently stored the wrong value under the wrong name. Both key builders are now in one place and asserted to contain no separator.
+- `PATCH .../teams/{id}` demanded the team's name in order to archive it — which is how a team gets renamed by accident — and restoring a team whose name had since been reused returned a **500**. The patch is now partial (absent means "leave it alone", empty body is a 400), and the partial unique index's refusal is translated into the same `409 team_exists` the create path gives, by a shared helper that rethrows every other failure untouched.
+
+**Two read models grew, for the same reason in both cases: a control existed with no honest way to reach it.** `GET .../teams` now returns each team's `members` and `archived` flag, so a card that said "3 members" can show who they are and remove one. The custom-role editor offers exactly the **delegable** keys from `GET .../permissions` instead of four hard-coded strings, and is disabled until a key and a scope are chosen — a convenience, not the control, since `canAuthorRole` still refuses on the server.
+
+**One same-origin path in development and in production.** `apps/web/vite.config.ts` proxies `/api` to the running API, so the client only ever knows `/api/v1/...`. A second base URL that exists only locally brings a class of CORS and cookie bugs that never appear in the deployed build.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `apps/web/src/api/client.ts` | the HTTP boundary: results not exceptions, parsed error envelope, CSRF on every mutation |
+| `apps/web/src/api/people.ts` | one named function per documented endpoint, plus `disconnectedApi()` |
+| `apps/web/src/live/store.ts` | four-state resources, session state, `rowsOf` |
+| `apps/web/src/live/actions.ts` | the pending/settle/toast discipline, in one place |
+| `apps/web/src/live/dispatch.ts` | the `live-*` action table and the form-key vocabulary |
+| `apps/web/src/ui/people-screen.ts` | the screen; the demo one is gone |
+| `apps/api/src/pg-error.ts` | one named constraint violation → the API error it means |
+| `apps/web/vite.config.ts` | `/api` proxy, so the browser path is the same in both environments |
+| `apps/web/src/live/live.test.ts` | 37 tests driving the real client, actions and renderer over a scripted server |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web bundle 154.96 kB / 49.18 kB gzip |
+| `pnpm test:coverage` | **0** | 71 files, **1007 tests**, 100% lines / statements / functions / branches |
+| `pnpm test:unit` | **0** | 54 files, 838 tests |
+| `pnpm test:integration` | **0** | 17 files, 169 tests against real PostgreSQL 17.4 |
+| `pnpm test:e2e` | **0** | 146 |
+| `pnpm test:a11y` | **0** | 22, no WCAG 2.1 AA violations |
+
+The pinned OpenAPI still carries **32 operations**; the bidirectional route/spec drift test passes. Coverage reached 100% with no threshold lowered and no exclusion added: the remaining gaps were closed by deleting a dead helper (`scopeList`), replacing three copies of the same `status === 'ready' ? … : []` ternary with one tested `rowsOf`, and moving the untyped-`catch` guard into `pg-error.ts` where all three of its arms are asserted directly.
+
+### Honest remaining scope
+
+- **UX-09 stays `partial`.** Inbox, Channels, Broadcasts, Analytics and Settings are still backed by `data.ts`. A workspace that never opens People makes no request at all — asserted, not assumed.
+- The People screen needs a running API to do anything. With none, it reports a network failure, which is what a page with no server behind it should show.
+- No channel adapters, no webhooks, no realtime, no workers, no broadcasts, no CRM integration, no deployment configuration. No provider-live verification of any kind.
+
+---
+
+## Previously completed — P1-T5 fourth slice (Milestone B: the mutation surface)
+
+Twelve routes behind CSRF: change a membership's role, status or scopes; create, replace and delete a custom role; create, rename, archive a team and move people in and out; offer, accept, decline and cancel ownership. None carries an `Idempotency-Key`, because none duplicates an effect on replay. Migration 0009 makes built-in roles and their grants immutable by admitting exactly the rows that already exist in `builtin_role_grants` — which permits the per-tenant seed, refuses an added key, a widened scope, an edit and a delete, **and** catches a seed that disagrees with the matrix. Ownership transfer is an offer the recipient accepts; offering requires `tenant.delete`, so "only an Owner may transfer" holds without any code naming the role. Every mutation writes an `admin_audit_events` row in the same transaction as its effect. Commit `a590d12`. Gates: 67 files, 940 tests, 100/100/100/100.
+
+---
+
+## Previously completed — P1-T5 third slice (Milestone B: invitations, and a 100% coverage gate)
 
 **Task / requirement IDs:** IAM-06 closed. IAM-14 moved to `partial` with the enforced half named. DEP-14 restored to a real 100/100/100/100 gate.
 
@@ -322,18 +387,19 @@ These block only the named live/deployment checks. Independent implementation co
 
 ---
 
-## Next task — P1-T5 remainder (Milestone B: the mutation surface and the People UI)
+## Next task — Milestone C (channel adapters, webhooks, ingress and workers)
 
-**Task:** the parts of Milestone B the role-boundary slice did not cover.
+**Task:** the first real channel, end to end, and the machinery every later channel reuses.
 
-**Requirement IDs:** IAM-03, IAM-06, IAM-09, IAM-10, IAM-14, IAM-15, API-02 (incremental), API-05, DEP-14.
+**Requirement IDs:** CH-01…CH-08, ING-01…ING-06, RT-01…RT-04, WRK-01…WRK-05, API-02 (incremental), API-08 (202/429), DEP-01.
 
 **Scope:**
 
-1. ~~Complete generic password-recovery start/complete with single-use HMAC-only challenges, shared abuse limits, transactional password update plus session revocation, and an injectable delivery port whose production implementation never returns the token in HTTP.~~ **Done** (IAM-03). The delivery port is unwired: a real email adapter and its credentials are an open dependency.
-2. ~~Add tenant-scoped invitations with hashed single-use tokens, expiry, revoke and atomic accept.~~ **Done** (IAM-06).
-3. ~~Seed the seven built-in tenant roles and their exact permission-key matrices; implement Tenant/Scoped/Own/No intersection without role-name authorization.~~ **Done** in the slice above (IAM-09, IAM-10).
-4. **Partly done:** protected People/Roles/Teams *read* APIs and last-active-Owner protection are in place. Still open: the mutation surface (invite, change role, change scopes, create/edit a custom role within the delegation ceiling, ownership transfer with acceptance), all of it behind CSRF and idempotency where replay would otherwise duplicate an effect — plus the UI for these screens.
-5. Exercise recovery, invite accept/reuse/expiry/revoke, every role/permission decision, privilege escalation attempts and concurrent last-Owner changes against real PostgreSQL and FORCE RLS.
+1. A channel port with adapters for WhatsApp Cloud, Facebook Messenger, Instagram, Website Chat and a Custom Channel — each behind the same interface, none of them special-cased in the domain.
+2. Webhook ingress: raw-byte HMAC verification before parsing, the challenge/verify handshake, replay and duplicate suppression, and a durable inbound record written before any acknowledgement.
+3. Realtime delivery to the browser and the worker roles that drain sends, retries and delivery-status updates, with separate concurrency configuration per role (DEP-01).
+4. `202 Accepted` only after the durable transaction, and `429` with guidance — the first operations that make API-08's remaining halves real.
 
-**Exit checks:** the same six commands above, with coverage staying at 100/100/100/100. No open dependency blocks the internal implementation; real email delivery can remain behind the port until credentials exist.
+**Exit checks:** the same eight commands above, with coverage staying at 100/100/100/100 and no exclusion added.
+
+**Blocked, and stays blocked:** every provider-live check remains `blocked_no_asset` until a Meta app, WABA, test number and authorized recipient exist (open dependencies 1 and 2). Adapters are built and tested against recorded contracts and a local simulator; **a simulator is not a live integration and will not be reported as one.**

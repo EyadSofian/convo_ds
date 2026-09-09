@@ -1,5 +1,11 @@
 import type { ActionContext } from './actions';
 import { runAction } from './actions';
+import { ApiClient, API_BASE_URL, csrfFromCookie, type FetchLike } from './api/client';
+import { disconnectedApi, PeopleApi } from './api/people';
+import type { LiveContext } from './live/actions';
+import { loadPeopleScreen, loadSession } from './live/actions';
+import { runLiveAction } from './live/dispatch';
+import { createLiveState } from './live/store';
 import { attrOf, closestWithAttr, h, replace } from './dom';
 import { icon } from './icons';
 import type { IconName } from './icons';
@@ -24,9 +30,9 @@ import {
   renderAnalytics,
   renderBroadcasts,
   renderChannels,
-  renderPeople,
   renderSettings,
 } from './ui/workspace';
+import { renderPeople } from './ui/people-screen';
 
 function t(state: AppState, ar: string, en: string): string {
   return state.lang === 'ar' ? ar : en;
@@ -309,6 +315,14 @@ export interface MountOptions {
   readonly root: HTMLElement;
   readonly host: RouterHost;
   readonly now?: Date | undefined;
+  /**
+   * The HTTP boundary. Injected so a test drives the real client against the
+   * real API without a browser, and so nothing here reaches for a global.
+   */
+  readonly fetch?: FetchLike | undefined;
+  readonly readCsrfToken?: (() => string | null) | undefined;
+  /** Injected for deterministic idempotency keys in tests. */
+  readonly newKey?: (() => string) | undefined;
 }
 
 /**
@@ -324,13 +338,32 @@ export function boot(document_: Document, host: RouterHost): AppHandle {
   const existing = document_.getElementById('app');
   const root = existing ?? document_.body.appendChild(document_.createElement('div'));
   root.id = 'app';
-  return mount({ root, host });
+  return mount({
+    root,
+    host,
+    fetch: (input, init) => globalThis.fetch(input, init),
+    readCsrfToken: () => csrfFromCookie(document_.cookie),
+  });
 }
 
 export function mount(options: MountOptions): AppHandle {
-  const state = createState(options.now ?? new Date());
+  const transport = options.fetch;
+  const api =
+    transport === undefined
+      ? // No transport was injected, so this page has no API behind it. Every
+        // request fails as a network error, which is what such a screen shows.
+        disconnectedApi()
+      : new PeopleApi(
+          new ApiClient({
+            baseUrl: API_BASE_URL,
+            fetch: transport,
+            readCsrfToken: options.readCsrfToken ?? (() => null),
+          }),
+        );
+  const state = createState(options.now ?? new Date(), createLiveState(api));
   const root = options.root;
   const host = options.host;
+  let sessionRequested = false;
 
   const render = (): void => {
     const snapshot = captureFocus(root);
@@ -371,7 +404,24 @@ export function mount(options: MountOptions): AppHandle {
     },
   };
 
+  const liveContext: LiveContext = {
+    state,
+    live: state.live,
+    refresh: () => {
+      render();
+    },
+    now: () => Date.now(),
+    newKey: options.newKey ?? (() => `${String(Date.now())}-${String(Math.random()).slice(2, 10)}`),
+  };
+
   const dispatch = (name: string, arg = ''): void => {
+    // `live-*` actions reach the server, so they settle later and re-render
+    // themselves. Everything else is the synchronous demo action table.
+    const pending = runLiveAction(liveContext, name, arg);
+    if (pending !== null) {
+      void pending;
+      return;
+    }
     runAction(name, context, arg);
   };
 
@@ -479,6 +529,20 @@ export function mount(options: MountOptions): AppHandle {
     root.ownerDocument.addEventListener('pointercancel', stop);
   };
 
+  /**
+   * The People screen is the only server-backed screen so far, so the session
+   * is resolved when it is first opened rather than on boot. That keeps the
+   * demo screens working with no API reachable, and means a workspace that
+   * never opens People never makes a request.
+   */
+  const ensureLiveSession = (): void => {
+    if (sessionRequested || state.route.screen !== 'people') {
+      return;
+    }
+    sessionRequested = true;
+    void loadSession(liveContext).then(() => loadPeopleScreen(liveContext));
+  };
+
   const handleRoute = (route: Route): void => {
     applyRoute(state, route);
     if (!state.openTabs.includes(state.route.screen)) {
@@ -492,6 +556,7 @@ export function mount(options: MountOptions): AppHandle {
     }
     syncUrl();
     render();
+    ensureLiveSession();
   };
 
   root.addEventListener('click', onClick);

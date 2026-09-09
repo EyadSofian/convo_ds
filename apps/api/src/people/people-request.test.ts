@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   isUuid,
+  parseCreateTeam,
   parseMembershipRef,
   parseUpdateMembership,
+  parseUpdateTeam,
   parseWriteRole,
-  parseWriteTeam,
 } from './people-request.js';
 
 const ID = '11111111-1111-4111-8111-111111111111';
@@ -130,26 +131,54 @@ describe('parseWriteRole', () => {
   });
 });
 
-describe('parseWriteTeam', () => {
-  it('accepts a name, and treats a missing archived flag as false', () => {
-    const result = parseWriteTeam({ name: '  Enrollment ' });
+describe('parseCreateTeam', () => {
+  it('accepts a name and trims it', () => {
+    const result = parseCreateTeam({ name: '  Enrollment ' });
     if (!result.ok) throw new Error('unreachable');
-    expect(result.value).toEqual({ name: 'Enrollment', archived: false });
-  });
-
-  it('accepts an explicit archive flag', () => {
-    const result = parseWriteTeam({ name: 'Seasonal', archived: true });
-    if (!result.ok) throw new Error('unreachable');
-    expect(result.value.archived).toBe(true);
+    expect(result.value).toEqual({ name: 'Enrollment' });
   });
 
   it.each([
     ['a non-object body', ['nope'], ['body']],
     ['a missing name', {}, ['name']],
     ['an over-long name', { name: 'x'.repeat(81) }, ['name']],
-    ['a non-boolean archived', { name: 'x', archived: 'yes' }, ['archived']],
   ])('rejects %s', (_label, body, expected) => {
-    expect(fields(parseWriteTeam(body))).toEqual(expected);
+    expect(fields(parseCreateTeam(body))).toEqual(expected);
+  });
+});
+
+describe('parseUpdateTeam', () => {
+  it('keeps only the fields that were sent', () => {
+    const result = parseUpdateTeam({ archived: true });
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.value).toEqual({ archived: true });
+    // A patch that archives must not also carry a name, or archiving a team
+    // would be a rename nobody asked for.
+    expect('name' in result.value).toBe(false);
+  });
+
+  it('accepts a rename on its own, trimmed', () => {
+    const result = parseUpdateTeam({ name: ' Enrolment ' });
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.value).toEqual({ name: 'Enrolment' });
+  });
+
+  it('accepts a restore', () => {
+    const result = parseUpdateTeam({ archived: false });
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.value).toEqual({ archived: false });
+  });
+
+  it.each([
+    ['a non-object body', ['nope'], ['body']],
+    ['an empty patch', {}, ['body']],
+    ['an empty name', { name: '  ' }, ['name']],
+    ['a non-string name', { name: 7 }, ['name']],
+    ['an over-long name', { name: 'x'.repeat(81) }, ['name']],
+    ['a non-boolean archived', { archived: 'yes' }, ['archived']],
+    ['both fields wrong at once', { name: '', archived: 'yes' }, ['name', 'archived']],
+  ])('rejects %s', (_label, body, expected) => {
+    expect(fields(parseUpdateTeam(body))).toEqual(expected);
   });
 });
 

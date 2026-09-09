@@ -1424,7 +1424,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/WriteTeamRequest"
+                "$ref": "#/components/schemas/CreateTeamRequest"
               }
             }
           }
@@ -1497,7 +1497,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/WriteTeamRequest"
+                "$ref": "#/components/schemas/UpdateTeamRequest"
               }
             }
           }
@@ -1820,106 +1820,22 @@
       }
     },
     "schemas": {
-      "LoginRequest": {
+      "AcceptInvitationRequest": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "email",
           "password"
         ],
+        "description": "The password creates the identity when the address has no account, and proves it when it does. Without it, holding the link would be enough to attach an established account to a company.",
         "properties": {
-          "email": {
-            "type": "string",
-            "format": "email",
-            "maxLength": 254
-          },
           "password": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "writeOnly": true
+            "minLength": 12,
+            "maxLength": 512
           }
         }
       },
-      "UserSummary": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "email"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "email": {
-            "type": "string",
-            "format": "email"
-          }
-        }
-      },
-      "Session": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "created_at",
-          "last_seen_at",
-          "expires_at",
-          "current"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "last_seen_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "current": {
-            "type": "boolean"
-          }
-        }
-      },
-      "CurrentSession": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "created_at",
-          "last_seen_at",
-          "expires_at"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "last_seen_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "CurrentSessionResponse": {
+      "AcceptInvitationResponse": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1931,277 +1847,22 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "user",
-              "session"
+              "tenant_id",
+              "membership_id"
             ],
             "properties": {
-              "user": {
-                "$ref": "#/components/schemas/UserSummary"
-              },
-              "session": {
-                "$ref": "#/components/schemas/CurrentSession"
-              }
-            }
-          },
-          "request_id": {
-            "type": "string"
-          }
-        }
-      },
-      "SessionResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "request_id"
-        ],
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/Session"
-          },
-          "request_id": {
-            "type": "string"
-          }
-        }
-      },
-      "Page": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "next_cursor",
-          "has_more"
-        ],
-        "properties": {
-          "next_cursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "has_more": {
-            "type": "boolean"
-          }
-        }
-      },
-      "SessionListResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "page",
-          "request_id"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Session"
-            }
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          },
-          "request_id": {
-            "type": "string"
-          }
-        }
-      },
-      "Membership": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "tenant",
-          "role"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "tenant": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "name",
-              "slug"
-            ],
-            "properties": {
-              "id": {
+              "tenant_id": {
                 "type": "string",
                 "format": "uuid"
               },
-              "name": {
-                "type": "string"
-              },
-              "slug": {
-                "type": "string"
-              }
-            }
-          },
-          "role": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "key",
-              "name"
-            ],
-            "properties": {
-              "id": {
+              "membership_id": {
                 "type": "string",
                 "format": "uuid"
-              },
-              "key": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
               }
             }
-          }
-        }
-      },
-      "MembershipListResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "page",
-          "request_id"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Membership"
-            }
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
           },
           "request_id": {
             "type": "string"
-          }
-        }
-      },
-      "Permission": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "key",
-          "description",
-          "delegable"
-        ],
-        "properties": {
-          "key": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "delegable": {
-            "type": "boolean"
-          }
-        }
-      },
-      "PermissionListResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "page",
-          "request_id"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Permission"
-            }
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          },
-          "request_id": {
-            "type": "string"
-          }
-        }
-      },
-      "InstanceDescriptor": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "apiVersion",
-          "deploymentMode",
-          "installationName",
-          "defaultLocale",
-          "supportedLocales",
-          "bootstrapRequired",
-          "capabilities"
-        ],
-        "properties": {
-          "apiVersion": {
-            "const": "v1"
-          },
-          "deploymentMode": {
-            "type": "string",
-            "enum": [
-              "saas",
-              "self_hosted_single"
-            ]
-          },
-          "installationName": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 80
-          },
-          "defaultLocale": {
-            "type": "string",
-            "enum": [
-              "ar",
-              "en"
-            ]
-          },
-          "supportedLocales": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": {
-              "type": "string",
-              "enum": [
-                "ar",
-                "en"
-              ]
-            }
-          },
-          "bootstrapRequired": {
-            "type": "boolean"
-          },
-          "capabilities": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "multiTenant",
-              "selfServiceSignup",
-              "ssoConfigured",
-              "mfaAvailable"
-            ],
-            "properties": {
-              "multiTenant": {
-                "type": "boolean"
-              },
-              "selfServiceSignup": {
-                "type": "boolean"
-              },
-              "ssoConfigured": {
-                "type": "boolean"
-              },
-              "mfaAvailable": {
-                "type": "boolean"
-              }
-            }
           }
         }
       },
@@ -2278,15 +1939,123 @@
           }
         }
       },
-      "ErrorResponse": {
+      "CreateInvitationRequest": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "error"
+          "email",
+          "roleId"
         ],
         "properties": {
-          "error": {
-            "$ref": "#/components/schemas/ErrorEnvelope"
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "example": "tarek@digital-school.example"
+          },
+          "roleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scopes": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/InvitationScope"
+            },
+            "description": "Teams and inboxes the invitee will hold. An inviter may only grant scopes they hold themselves."
+          }
+        }
+      },
+      "CreateTeamRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "example": "Enrollment"
+          }
+        }
+      },
+      "CurrentSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "created_at",
+          "last_seen_at",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CurrentSessionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "user",
+              "session"
+            ],
+            "properties": {
+              "user": {
+                "$ref": "#/components/schemas/UserSummary"
+              },
+              "session": {
+                "$ref": "#/components/schemas/CurrentSession"
+              }
+            }
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
           }
         }
       },
@@ -2322,356 +2091,91 @@
           }
         }
       },
-      "ErrorDetail": {
+      "ErrorResponse": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "field",
-          "code",
-          "message"
+          "error"
         ],
         "properties": {
-          "field": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
+          "error": {
+            "$ref": "#/components/schemas/ErrorEnvelope"
           }
         }
       },
-      "RoleGrant": {
+      "InstanceDescriptor": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "permission_key",
-          "scope_level"
+          "apiVersion",
+          "deploymentMode",
+          "installationName",
+          "defaultLocale",
+          "supportedLocales",
+          "bootstrapRequired",
+          "capabilities"
         ],
-        "description": "A permission this role holds, and how far it reaches. A denial is the ABSENCE of a grant, never a grant with scope 'none'.",
         "properties": {
-          "permission_key": {
-            "type": "string",
-            "example": "conversation.read"
+          "apiVersion": {
+            "const": "v1"
           },
-          "scope_level": {
+          "deploymentMode": {
             "type": "string",
             "enum": [
-              "tenant",
-              "scoped",
-              "own"
-            ],
-            "example": "scoped"
-          }
-        }
-      },
-      "Role": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "key",
-          "name",
-          "is_builtin",
-          "grants"
-        ],
-        "description": "A tenant role. Authorization is decided by permission key; `name` is a label for humans and is never used in a decision.",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
+              "saas",
+              "self_hosted_single"
+            ]
           },
-          "key": {
+          "installationName": {
             "type": "string",
-            "example": "supervisor"
+            "minLength": 1,
+            "maxLength": 80
           },
-          "name": {
+          "defaultLocale": {
             "type": "string",
-            "example": "Supervisor"
+            "enum": [
+              "ar",
+              "en"
+            ]
           },
-          "is_builtin": {
+          "supportedLocales": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "ar",
+                "en"
+              ]
+            }
+          },
+          "bootstrapRequired": {
             "type": "boolean"
           },
-          "grants": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RoleGrant"
-            }
-          }
-        }
-      },
-      "MembershipScope": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "type",
-          "id"
-        ],
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "tenant",
-              "team",
-              "inbox"
-            ]
-          },
-          "id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid",
-            "description": "null only for a tenant-wide scope."
-          }
-        }
-      },
-      "Person": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "membership_id",
-          "email",
-          "status",
-          "role",
-          "scopes"
-        ],
-        "description": "One membership in this company. Administrative fields only; this is not a directory of everything known about a person.",
-        "properties": {
-          "membership_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "email": {
-            "type": "string",
-            "format": "email",
-            "example": "hana@digital-school.example"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "active",
-              "suspended",
-              "revoked"
-            ]
-          },
-          "role": {
+          "capabilities": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "id",
-              "key",
-              "name"
+              "multiTenant",
+              "selfServiceSignup",
+              "ssoConfigured",
+              "mfaAvailable"
             ],
             "properties": {
-              "id": {
-                "type": "string",
-                "format": "uuid"
+              "multiTenant": {
+                "type": "boolean"
               },
-              "key": {
-                "type": "string",
-                "example": "agent"
+              "selfServiceSignup": {
+                "type": "boolean"
               },
-              "name": {
-                "type": "string",
-                "example": "Agent"
+              "ssoConfigured": {
+                "type": "boolean"
+              },
+              "mfaAvailable": {
+                "type": "boolean"
               }
             }
-          },
-          "scopes": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/MembershipScope"
-            }
-          }
-        }
-      },
-      "Team": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "name",
-          "member_count"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "name": {
-            "type": "string",
-            "example": "Enrollment"
-          },
-          "member_count": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      },
-      "RoleListResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "page",
-          "request_id"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Role"
-            }
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          },
-          "request_id": {
-            "type": "string"
-          }
-        }
-      },
-      "PersonListResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "page",
-          "request_id"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Person"
-            }
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          },
-          "request_id": {
-            "type": "string"
-          }
-        }
-      },
-      "TeamListResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "page",
-          "request_id"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Team"
-            }
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          },
-          "request_id": {
-            "type": "string"
-          }
-        }
-      },
-      "RecoveryStartRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "email"
-        ],
-        "properties": {
-          "email": {
-            "type": "string",
-            "format": "email",
-            "maxLength": 254,
-            "example": "hana@digital-school.example"
-          }
-        }
-      },
-      "RecoveryAcceptedResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "request_id"
-        ],
-        "description": "Identical for a known and an unknown address, and identical when rate limited. Any variation here would be an account-existence oracle.",
-        "properties": {
-          "data": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "status",
-              "message"
-            ],
-            "properties": {
-              "status": {
-                "type": "string",
-                "enum": [
-                  "accepted"
-                ]
-              },
-              "message": {
-                "type": "string",
-                "example": "If that address has an account, a recovery message has been sent."
-              }
-            }
-          },
-          "request_id": {
-            "type": "string"
-          }
-        }
-      },
-      "RecoveryCompleteRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "token",
-          "password"
-        ],
-        "properties": {
-          "token": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{43}$",
-            "description": "Delivered out of band. Never returned by any endpoint.",
-            "example": "Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmE"
-          },
-          "password": {
-            "type": "string",
-            "minLength": 12,
-            "maxLength": 512
-          }
-        }
-      },
-      "InvitationScope": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "type",
-          "id"
-        ],
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "tenant",
-              "team",
-              "inbox"
-            ]
-          },
-          "id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid",
-            "description": "null only for a tenant scope."
           }
         }
       },
@@ -2800,173 +2304,130 @@
           }
         }
       },
-      "CreateInvitationRequest": {
+      "InvitationScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "id"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "team",
+              "inbox"
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "null only for a tenant scope."
+          }
+        }
+      },
+      "LoginRequest": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "email",
-          "roleId"
+          "password"
         ],
         "properties": {
           "email": {
             "type": "string",
             "format": "email",
-            "maxLength": 254,
-            "example": "tarek@digital-school.example"
+            "maxLength": 254
           },
-          "roleId": {
+          "password": {
             "type": "string",
-            "format": "uuid"
-          },
-          "scopes": {
-            "type": "array",
-            "maxItems": 50,
-            "items": {
-              "$ref": "#/components/schemas/InvitationScope"
-            },
-            "description": "Teams and inboxes the invitee will hold. An inviter may only grant scopes they hold themselves."
+            "minLength": 1,
+            "maxLength": 128,
+            "writeOnly": true
           }
         }
       },
-      "AcceptInvitationRequest": {
+      "Membership": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "password"
+          "id",
+          "tenant",
+          "role"
         ],
-        "description": "The password creates the identity when the address has no account, and proves it when it does. Without it, holding the link would be enough to attach an established account to a company.",
         "properties": {
-          "password": {
+          "id": {
             "type": "string",
-            "minLength": 12,
-            "maxLength": 512
+            "format": "uuid"
+          },
+          "tenant": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "slug"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string"
+              }
+            }
+          },
+          "role": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "key",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
           }
         }
       },
-      "AcceptInvitationResponse": {
+      "MembershipListResponse": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "data",
+          "page",
           "request_id"
         ],
         "properties": {
           "data": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "tenant_id",
-              "membership_id"
-            ],
-            "properties": {
-              "tenant_id": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "membership_id": {
-                "type": "string",
-                "format": "uuid"
-              }
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Membership"
             }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
           },
           "request_id": {
             "type": "string"
-          }
-        }
-      },
-      "RoleGrantWrite": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "permission",
-          "scope"
-        ],
-        "description": "`none` is deliberately not a value: a denial is the absence of a grant, and a second spelling would give every reader two things to check.",
-        "properties": {
-          "permission": {
-            "type": "string",
-            "example": "conversation.read"
-          },
-          "scope": {
-            "type": "string",
-            "enum": [
-              "tenant",
-              "scoped",
-              "own"
-            ]
-          }
-        }
-      },
-      "WriteRoleRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "name",
-          "grants"
-        ],
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 80,
-            "example": "Enrollment Lead"
-          },
-          "description": {
-            "type": "string",
-            "maxLength": 280
-          },
-          "grants": {
-            "type": "array",
-            "maxItems": 64,
-            "items": {
-              "$ref": "#/components/schemas/RoleGrantWrite"
-            }
-          }
-        }
-      },
-      "UpdateMembershipRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "minProperties": 1,
-        "description": "Only the fields present are changed. An empty body is rejected: it means the caller believes it changed something.",
-        "properties": {
-          "roleId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "active",
-              "suspended",
-              "revoked"
-            ]
-          },
-          "scopes": {
-            "type": "array",
-            "maxItems": 50,
-            "items": {
-              "$ref": "#/components/schemas/InvitationScope"
-            }
-          }
-        }
-      },
-      "WriteTeamRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 80,
-            "example": "Enrollment"
-          },
-          "archived": {
-            "type": "boolean",
-            "description": "Archiving keeps the team's history and frees its name."
           }
         }
       },
@@ -2980,6 +2441,32 @@
           "membershipId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "MembershipScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "id"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "team",
+              "inbox"
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "null only for a tenant-wide scope."
           }
         }
       },
@@ -3058,6 +2545,167 @@
           }
         }
       },
+      "OwnershipTransferResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/OwnershipTransfer"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Page": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "next_cursor",
+          "has_more"
+        ],
+        "properties": {
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Permission": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "description",
+          "delegable"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "delegable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PermissionListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Person": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "membership_id",
+          "email",
+          "status",
+          "role",
+          "scopes"
+        ],
+        "description": "One membership in this company. Administrative fields only; this is not a directory of everything known about a person.",
+        "properties": {
+          "membership_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "hana@digital-school.example"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "suspended",
+              "revoked"
+            ]
+          },
+          "role": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "key",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "key": {
+                "type": "string",
+                "example": "agent"
+              },
+              "name": {
+                "type": "string",
+                "example": "Agent"
+              }
+            }
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MembershipScope"
+            }
+          }
+        }
+      },
+      "PersonListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Person"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
       "PersonResponse": {
         "type": "object",
         "additionalProperties": false,
@@ -3068,6 +2716,181 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/Person"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RecoveryAcceptedResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "description": "Identical for a known and an unknown address, and identical when rate limited. Any variation here would be an account-existence oracle.",
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "message"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "accepted"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "example": "If that address has an account, a recovery message has been sent."
+              }
+            }
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RecoveryCompleteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "token",
+          "password"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "description": "Delivered out of band. Never returned by any endpoint.",
+            "example": "Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmE"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 512
+          }
+        }
+      },
+      "RecoveryStartRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "example": "hana@digital-school.example"
+          }
+        }
+      },
+      "Role": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "key",
+          "name",
+          "is_builtin",
+          "grants"
+        ],
+        "description": "A tenant role. Authorization is decided by permission key; `name` is a label for humans and is never used in a decision.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string",
+            "example": "supervisor"
+          },
+          "name": {
+            "type": "string",
+            "example": "Supervisor"
+          },
+          "is_builtin": {
+            "type": "boolean"
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoleGrant"
+            }
+          }
+        }
+      },
+      "RoleGrant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "permission_key",
+          "scope_level"
+        ],
+        "description": "A permission this role holds, and how far it reaches. A denial is the ABSENCE of a grant, never a grant with scope 'none'.",
+        "properties": {
+          "permission_key": {
+            "type": "string",
+            "example": "conversation.read"
+          },
+          "scope_level": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "scoped",
+              "own"
+            ],
+            "example": "scoped"
+          }
+        }
+      },
+      "RoleGrantWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "permission",
+          "scope"
+        ],
+        "description": "`none` is deliberately not a value: a denial is the absence of a grant, and a second spelling would give every reader two things to check.",
+        "properties": {
+          "permission": {
+            "type": "string",
+            "example": "conversation.read"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "scoped",
+              "own"
+            ]
+          }
+        }
+      },
+      "RoleListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
           },
           "request_id": {
             "type": "string"
@@ -3090,6 +2913,154 @@
           }
         }
       },
+      "Session": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "created_at",
+          "last_seen_at",
+          "expires_at",
+          "current"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SessionListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Session"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Session"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Team": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "member_count",
+          "archived",
+          "members"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "Enrollment"
+          },
+          "member_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "An archived team keeps its history and takes no new members."
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamMember"
+            },
+            "description": "Who is in the team, so an administrator can see and undo what they added."
+          }
+        }
+      },
+      "TeamListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Team"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "TeamMember": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "membership_id",
+          "email"
+        ],
+        "properties": {
+          "membership_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
       "TeamResponse": {
         "type": "object",
         "additionalProperties": false,
@@ -3106,19 +3077,93 @@
           }
         }
       },
-      "OwnershipTransferResponse": {
+      "UpdateMembershipRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "Only the fields present are changed. An empty body is rejected: it means the caller believes it changed something.",
+        "properties": {
+          "roleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "suspended",
+              "revoked"
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/InvitationScope"
+            }
+          }
+        }
+      },
+      "UpdateTeamRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "A partial patch: an absent field is left alone. At least one field is required.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "example": "Enrollment"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Archiving keeps the team history and stops it taking new members."
+          }
+        }
+      },
+      "UserSummary": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "data",
-          "request_id"
+          "id",
+          "email"
         ],
         "properties": {
-          "data": {
-            "$ref": "#/components/schemas/OwnershipTransfer"
+          "id": {
+            "type": "string",
+            "format": "uuid"
           },
-          "request_id": {
-            "type": "string"
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
+      "WriteRoleRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "grants"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "example": "Enrollment Lead"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 280
+          },
+          "grants": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/RoleGrantWrite"
+            }
           }
         }
       }

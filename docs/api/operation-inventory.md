@@ -225,6 +225,22 @@ Every operation below needs: one `operationId`, request/response/error schemas, 
 | Probes | `GET /health/live` | `healthLive` | public, minimal | P1 |
 | Probes | `GET /health/ready` | `healthReady` | public, minimal; diagnostics private | P1 |
 
+## Deliberate divergences from the minimum inventory
+
+The rows above are the minimum from MASTER-PROMPT §19. Where the implementation
+differs, it is recorded here rather than by quietly editing the requirement. The
+route/spec drift test (API-02) still holds in both directions for every route
+that exists today.
+
+| Inventory row | As implemented | Why |
+|---|---|---|
+| `DELETE T/teams/{id}` | `PATCH T/teams/{id}` with `{"archived": true}` | A team is the addressee of past routing and assignment. Deleting one would orphan that history or force a cascade that rewrites it; archiving keeps the record and frees the name, and `{"archived": false}` restores it. |
+| `PUT T/teams/{id}/members/{member_id}` | `POST T/teams/{id}/members` with `{"membershipId": …}` | The member is identified by a *membership* id, which is tenant-scoped and not the caller's to choose. Putting it in the path invites a caller to treat it as a name it may create; the body makes it an existing row that is looked up and refused with a 404 when it is not this tenant's. Adding the same membership twice is still idempotent. |
+
+`PATCH T/teams/{id}` is a genuine partial patch: an absent field is left alone
+and an empty body is a 400. Making a caller resend a team's name in order to
+archive it is how a team gets renamed by accident.
+
 ## Canonical send example
 
 ```http

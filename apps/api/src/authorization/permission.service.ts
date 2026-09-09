@@ -26,10 +26,22 @@ export interface PersonSummary {
   readonly scopes: readonly { readonly type: string; readonly id: string | null }[];
 }
 
+export interface TeamMember {
+  readonly membership_id: string;
+  readonly email: string;
+}
+
 export interface TeamSummary {
   readonly id: string;
   readonly name: string;
   readonly member_count: number;
+  readonly archived: boolean;
+  /**
+   * Who is in the team. Returned with the team rather than behind a second
+   * endpoint because a count alone gives an administrator no way to see or
+   * undo a membership they just added.
+   */
+  readonly members: readonly TeamMember[];
 }
 
 /**
@@ -145,20 +157,35 @@ export class PermissionService {
       const teams = await sql.query<{
         id: string;
         name: string;
-        member_count: string;
+        archived: boolean;
       }>(
-        `SELECT t.id::text, t.name,
-                count(tm.membership_id)::text AS member_count
+        `SELECT t.id::text, t.name, (t.archived_at IS NOT NULL) AS archived
            FROM teams t
-           LEFT JOIN team_members tm ON tm.tenant_id = t.tenant_id AND tm.team_id = t.id
-          GROUP BY t.id, t.name
-          ORDER BY t.name`,
+          ORDER BY (t.archived_at IS NOT NULL), t.name`,
       );
-      return teams.rows.map((team) => ({
-        id: team.id,
-        name: team.name,
-        member_count: Number(team.member_count),
-      }));
+      // One query for every team's members rather than one per team: the list
+      // is small, but a per-row query is how a screen with twenty teams starts
+      // taking a second to open.
+      const members = await sql.query<{ team_id: string; membership_id: string; email: string }>(
+        `SELECT tm.team_id::text, tm.membership_id::text, u.email
+           FROM team_members tm
+           JOIN memberships m ON m.id = tm.membership_id
+           JOIN users u ON u.id = m.user_id
+          ORDER BY u.email`,
+      );
+      return teams.rows.map((team) => {
+        const own = members.rows.filter((member) => member.team_id === team.id);
+        return {
+          id: team.id,
+          name: team.name,
+          member_count: own.length,
+          archived: team.archived,
+          members: own.map((member) => ({
+            membership_id: member.membership_id,
+            email: member.email,
+          })),
+        };
+      });
     });
   }
 }

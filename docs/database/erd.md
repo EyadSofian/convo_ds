@@ -51,12 +51,29 @@ role_permissions         (tenant_id, role_id, permission_key) PK (tenant_id, rol
                           FK (tenant_id, role_id) -> roles (tenant_id, id)
 permissions              (key PK, description, delegable bool)
 
-teams                    (id, tenant_id, name)              UNIQUE (tenant_id, name)
+teams                    (id, tenant_id, name, archived_at)
+                          -- A name is reserved only while the team is live, so an archived
+                          -- "Enrollment" does not block a new one. Migration 0009 replaced
+                          -- UNIQUE (tenant_id, name) with a partial unique index:
+                          UNIQUE (tenant_id, id)
+                          UNIQUE INDEX (tenant_id, name) WHERE archived_at IS NULL
 team_members             (tenant_id, team_id, membership_id) PK (tenant_id, team_id, membership_id)
 membership_scopes        (id, tenant_id, membership_id, scope_type, scope_id)
                           scope_type ∈ tenant|team|inbox
-invitations              (id, tenant_id, email, role_id, token_hash, expires_at, accepted_at, revoked_at)
-ownership_transfers      (id, tenant_id, from_membership_id, to_email, token_hash, expires_at, accepted_at)
+invitations              (id, tenant_id, invited_by, email, role_id, token_hash, status,
+                           created_at, expires_at, accepted_at, accepted_membership,
+                           revoked_at, revoked_by)
+                          status ∈ pending|accepted|revoked; token_hash is an HMAC
+                          fingerprint, never a token. One live invitation per address
+                          (partial unique index). RLS admits the row whose token_hash
+                          matches convo.credential_hash, so acceptance can find it before
+                          a tenant context exists.
+invitation_scopes        (tenant_id, invitation_id, scope_type, scope_id)
+ownership_transfers      (id, tenant_id, from_membership, to_membership, status,
+                           created_at, expires_at, settled_at)
+                          status ∈ pending|accepted|declined|cancelled; one live offer per
+                          company (partial unique index). No token: it is an offer the
+                          recipient accepts while signed in, not a link.
 
 platform_admins          (id, user_id, granted_at)          -- no tenant membership
 support_grants           (id, tenant_id, platform_admin_id, scope jsonb, reason, expires_at, revoked_at)

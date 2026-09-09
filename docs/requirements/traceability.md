@@ -122,6 +122,26 @@ Gates: lint / typecheck / build exit 0; `test:coverage` **67 files, 940 tests, 1
 
 **Not delivered:** the People UI. `apps/web` is still the demo and is not wired to any of these endpoints, so UX-09 stays `planned`.
 
+**P1-T5 / Milestone B, fifth slice (2026-09-09)** wired the People, Roles and Teams screen to the API. It is the first screen in `apps/web` that talks to a server.
+
+Nothing on it reads the demo dataset. The demo People screen was **deleted** rather than left beside the real one, because two implementations of one screen is how a demo gets shipped by accident. Every list is a four-state resource — not asked, waiting, refused, here it is — so "the server said no" and "there is nothing here" are different things on screen instead of collapsing into an empty table. A denial is rendered as a permission state that says the refusal happened on the server, because hiding a control is not an authorization control.
+
+Every mutation follows one shape: mark the control busy and re-render, await the server, and only then record success and reload. No toast fires on click and nothing is written optimistically, so what is on screen after a change is what the server stored — including fields the browser never asked about. The rejection is shown beside the form that caused it, with the server's own message, its field details and its request id.
+
+Three defects the wiring exposed, all fixed at the source rather than in the screen:
+
+- Signing in resolved the session and stopped, leaving the lists on a skeleton until the operator reloaded by hand.
+- A form key containing a colon (`teamMember:<id>`) collided with the `"<key>:<value>"` encoding the DOM uses for a form value, so the team-member select silently stored the wrong thing under the wrong name. Both key builders now live in one place and are asserted to contain no separator.
+- `PATCH /tenants/{id}/teams/{id}` required the team's name in order to archive it, which is how a team gets renamed by accident; and restoring a team whose name had since been reused produced a **500**. The patch is now genuinely partial, and the partial unique index's refusal is translated into the same `409 team_exists` the create path gives, by a shared helper that rethrows every other failure untouched.
+
+Two read models grew for the same reason. `GET /tenants/{id}/teams` now returns each team's `members` and its `archived` flag: a card that said "3 members" and offered no way to see or remove them left `removeTeamMember` reachable only from a hand-written request. The custom-role editor now offers exactly the **delegable** keys from `GET /tenants/{id}/permissions` instead of four hard-coded strings, and is disabled until a key and a scope have actually been chosen — a convenience, not the control, since `canAuthorRole` still refuses on the server.
+
+The dev server proxies `/api` to the running API (`apps/web/vite.config.ts`), so the browser uses the same same-origin path in development and in a deployed build; there is no second base URL that exists only locally, and with it no class of CORS and cookie bugs that never appear in production.
+
+Gates: lint / typecheck / build exit 0; `test:coverage` **71 files, 1007 tests, 100% lines / statements / functions / branches**; `test:unit` 54 files, 838 tests; `test:integration` 17 files, 169 tests; `test:e2e` 146; `test:a11y` 22. The pinned OpenAPI still carries **32 operations** and the bidirectional drift test passes.
+
+**Not delivered, and not claimed:** UX-09 stays `planned`. The Inbox, Channels, Broadcasts, Analytics and Settings screens are still backed by the demo dataset in `data.ts` and make no request at all — a workspace that never opens People never calls the API. The People screen is the first evidence for UX-09, not its closure.
+
 ## Family index
 
 | Family | Meaning | Master sections |
@@ -452,7 +472,7 @@ Gates: lint / typecheck / build exit 0; `test:coverage` **67 files, 940 tests, 1
 | UX-06 | WCAG 2.2 AA: keyboard, names, contrast, focus, dialogs, live regions, non-colour status | P2→P8 | axe + manual keyboard evidence | partial | passed | n/a | n/a | tests/e2e/a11y.spec.ts — 22 checks, axe-core 4.10.2 at wcag2a/2aa/21a/21aa across 4 direction×theme combinations, 5 workspace screens, dialog and non-happy states; plus landmarks, heading order, icon-button names, Tab reachability, focus ring, Escape, reduced motion, 200% zoom. Contrast is additionally proved at the token level by apps/web/src/theme.test.ts. `partial` because this is AA-by-axe plus targeted manual assertions, not a full manual AT audit with a screen reader. |
 | UX-07 | Reduced-motion respected; no decorative gradients/oversized KPI cards/marketing hero in-app | P1 | Visual review checklist | implemented | passed | n/a | n/a | apps/web/src/styles/base.css `prefers-reduced-motion` block asserted by tests/e2e/a11y.spec.ts; the broadcasts marketing hero and four oversized stat cards were removed from apps/web/src/ui/workspace.ts in favour of the shared compact `intro()` + `.metric` strip; largest type in the product is 18px. |
 | UX-08 | Realistic synthetic Arabic/English content in all acceptance screenshots (no lorem, no invented stats) | P2 | Fixture review | implemented | passed | n/a | n/a | apps/web/src/data.ts is Digital School course/enrollment/support traffic; no Engosoft reference remains anywhere in the tree; 40 visual baselines under tests/e2e/visual.spec.ts-snapshots/. |
-| UX-09 | Every UI action calls a real endpoint; no setTimeout backend, localStorage DB or premature success toast | P1→P8 | Static rule + e2e assertion | planned | not_run | n/a | n/a | |
+| UX-09 | Every UI action calls a real endpoint; no setTimeout backend, localStorage DB or premature success toast | P1→P8 | Static rule + e2e assertion | partial | passed | n/a | n/a | The People, Roles and Teams screen is wired end to end: every control calls a documented endpoint through `apps/web/src/api/`, the busy state is set before the request and the toast only after the response commits (`live.test.ts` holds a response open and asserts no toast exists while it is in flight). The demo People screen was deleted. The other five screens are still backed by `data.ts` and make no request, so this stays `partial` |
 | UX-10 | Figma attribution retained (CC BY 4.0 observed on the public page; re-verify current licence) | P0 | Attribution file present | partial | not_run | n/a | n/a | docs/design/design-reference.md §1. Still `partial`: the page is 403 to automated fetch, so the current licence could not be re-verified this session. Readex Pro ships with its own SIL OFL 1.1 text at apps/web/public/fonts/Readex-Pro-OFL.txt. |
 
 ## SEC — behavioural security matrix (master §13)

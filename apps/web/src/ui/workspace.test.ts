@@ -9,7 +9,6 @@ import {
   renderAnalytics,
   renderBroadcasts,
   renderChannels,
-  renderPeople,
   renderSettings,
 } from './workspace';
 
@@ -62,40 +61,6 @@ describe('channels', () => {
   });
 });
 
-describe('people and roles', () => {
-  it('lists every member with role, load and an edit control', () => {
-    const element = renderPeople(stateAs('admin'));
-    const rows = element.querySelectorAll('tbody tr');
-    expect(rows).toHaveLength(7);
-    expect(element.querySelector('[data-arg^="member:"]')).not.toBeNull();
-    expect(text(element)).toContain('مسؤول حملات');
-  });
-
-  it('previews effective access for a chosen role', () => {
-    const state = stateAs('admin');
-    const agentView = renderPeople(state);
-    expect(agentView.querySelectorAll('.rolegrid__key')).toHaveLength(16);
-    expect(text(agentView)).toContain('conversation.unassigned.preview');
-    state.dialogForm = { previewRole: 'analyst' };
-    const grid = renderPeople(state).querySelector('.rolegrid') as HTMLElement;
-    expect(grid.querySelectorAll('.pill--success')).toHaveLength(1);
-    expect(grid.querySelectorAll('.pill--neutral')).toHaveLength(15);
-  });
-
-  it('states that the preview is not the authorization control', () => {
-    expect(text(renderPeople(stateAs('admin')))).toContain('ليس ضابط تفويض');
-  });
-
-  it('restricts management without member.manage', () => {
-    const element = renderPeople(stateAs('agent'));
-    expect(text(element)).toContain('member.manage');
-    expect(element.querySelector('[data-arg="invite"]')).toBeNull();
-  });
-
-  it('renders in English', () => {
-    expect(text(renderPeople(stateAs('admin', 'en')))).toContain('Effective access preview');
-  });
-});
 
 describe('broadcasts', () => {
   it('renders one card per campaign with its ledger', () => {

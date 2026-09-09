@@ -11,6 +11,9 @@ import type { FilterState, QueueSegment } from './filters';
 import { createFilter, filterFromView, QUEUE_SEGMENTS, SORT_VALUES } from './filters';
 import type { Lang } from './format';
 import type { Actor } from './permissions';
+import { disconnectedApi } from './api/people';
+import type { LiveState } from './live/store';
+import { createLiveState } from './live/store';
 import type { Route, ScreenId } from './router';
 import { DEFAULT_ROUTE } from './router';
 
@@ -93,9 +96,23 @@ export interface AppState {
   collapsedGroups: string[];
   toasts: Toast[];
   sequence: number;
+  /**
+   * Server-backed state for the People screen. Kept separate from the demo
+   * dataset above so there is never a doubt about which parts of the workspace
+   * are talking to the API and which are still seeded locally.
+   */
+  live: LiveState;
 }
 
-export function createState(now: Date): AppState {
+/**
+ * Builds the workspace state.
+ *
+ * `live` defaults to a state whose API has no transport, because that is the
+ * truthful default for a page with no server behind it: the demo screens still
+ * work, and anything that asks the API reports a network failure rather than
+ * inventing a success. `mount` always passes the real one.
+ */
+export function createState(now: Date, live: LiveState = createLiveState(disconnectedApi())): AppState {
   const dataset = buildDataset(now);
   return {
     lang: 'ar',
@@ -125,6 +142,7 @@ export function createState(now: Date): AppState {
     collapsedGroups: [],
     toasts: [],
     sequence: 0,
+    live,
   };
 }
 

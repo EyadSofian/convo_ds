@@ -214,6 +214,28 @@
     font-size: var(--text-xs);
   }
 
+  /*
+   * A team's members. A plain list rather than a table: two columns of one
+   * email and one control do not need a header row to be read.
+   */
+  .memberlist {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .memberlist__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    min-block-size: 28px;
+    font-size: var(--text-xs);
+  }
+
   .filterbar {
     display: flex;
     align-items: center;

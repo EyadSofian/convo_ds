@@ -37,9 +37,14 @@ export interface WriteRoleRequest {
   readonly grants: readonly RoleGrantInput[];
 }
 
-export interface WriteTeamRequest {
+export interface CreateTeamRequest {
   readonly name: string;
-  readonly archived: boolean;
+}
+
+export interface UpdateTeamRequest {
+  /** Absent means "leave it alone" — the same rule as a membership patch. */
+  readonly name?: string | undefined;
+  readonly archived?: boolean | undefined;
 }
 
 export interface TeamMemberRequest {
@@ -225,32 +230,68 @@ export function parseWriteRole(input: unknown): ParseResult<WriteRoleRequest> {
   return { ok: true, value: { name, description, grants } };
 }
 
-export function parseWriteTeam(input: unknown): ParseResult<WriteTeamRequest> {
+function badName(): ErrorDetail {
+  return {
+    field: 'name',
+    code: 'malformed',
+    message: `Provide a name of 1 to ${String(MAX_NAME)} characters.`,
+  };
+}
+
+export function parseCreateTeam(input: unknown): ParseResult<CreateTeamRequest> {
   const record = asRecord(input);
   if (record === null) {
     return malformedBody();
   }
   const name = typeof record['name'] === 'string' ? record['name'].trim() : '';
   if (name.length === 0 || name.length > MAX_NAME) {
+    return { ok: false, details: [badName()] };
+  }
+  return { ok: true, value: { name } };
+}
+
+/**
+ * The team patch, which is partial in the same sense as the membership patch:
+ * an absent field is left alone, and an empty body is a client bug rather than
+ * a silent no-op.
+ */
+export function parseUpdateTeam(input: unknown): ParseResult<UpdateTeamRequest> {
+  const record = asRecord(input);
+  if (record === null) {
+    return malformedBody();
+  }
+  const details: ErrorDetail[] = [];
+  const result: { name?: string; archived?: boolean } = {};
+
+  if ('name' in record) {
+    const name = typeof record['name'] === 'string' ? record['name'].trim() : '';
+    if (name.length === 0 || name.length > MAX_NAME) {
+      details.push(badName());
+    } else {
+      result.name = name;
+    }
+  }
+  if ('archived' in record) {
+    const archived = record['archived'];
+    if (typeof archived !== 'boolean') {
+      details.push({ field: 'archived', code: 'malformed', message: 'Archived is true or false.' });
+    } else {
+      result.archived = archived;
+    }
+  }
+
+  if (details.length > 0) {
+    return { ok: false, details };
+  }
+  if (result.name === undefined && result.archived === undefined) {
     return {
       ok: false,
       details: [
-        {
-          field: 'name',
-          code: 'malformed',
-          message: `Provide a name of 1 to ${String(MAX_NAME)} characters.`,
-        },
+        { field: 'body', code: 'empty', message: 'Provide at least one of name, archived.' },
       ],
     };
   }
-  const archived = record['archived'];
-  if (archived !== undefined && typeof archived !== 'boolean') {
-    return {
-      ok: false,
-      details: [{ field: 'archived', code: 'malformed', message: 'Archived is true or false.' }],
-    };
-  }
-  return { ok: true, value: { name, archived: archived === true } };
+  return { ok: true, value: result };
 }
 
 /** Shared by team membership and the ownership offer: one membership id. */
