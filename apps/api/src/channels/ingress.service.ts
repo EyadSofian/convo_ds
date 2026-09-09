@@ -1,13 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, CREDENTIAL_SETTINGS, withCredentialResolvedTenant } from '@convo/database';
-import type { ChannelKind, NormalizedBatch, SqlExecutor } from '@convo/domain';
-import { PROVIDER_OF } from '@convo/domain';
+import type { ChannelKind, NormalizedBatch } from '@convo/domain';
+import { answerMetaChallenge, PROVIDER_OF, verifyMetaSignature } from '@convo/domain';
 import type { Pool } from 'pg';
 import type { ApiConfig } from '../config.js';
 import { ApiHttpError } from '../http-error.js';
-import { requireRow } from '../require-row.js';
 import { API_CONFIG, API_POOL } from '../tokens.js';
-import { adapterFor } from './adapters.js';
+import { adapterClaiming, META_KINDS } from './adapters.js';
+import { journalBatch, writeReceipt } from './ingress-journal.js';
 import { assetFingerprint, nodeChannelCrypto, sha256BytesHex } from './node-crypto.js';
 
 /**
@@ -68,12 +68,10 @@ export class ChannelIngressService {
     query: Readonly<Record<string, string | undefined>>,
   ): Promise<string> {
     const app = await this.loadApp(routeKey);
-    const adapter = adapterFor('whatsapp');
-    /* c8 ignore next 3 -- the WhatsApp adapter is registered at module load */
-    if (adapter === null) {
-      throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
-    }
-    const answer = adapter.verifyChallenge(query, app.verify_token_hash, nodeChannelCrypto.sha256Hex);
+    // The handshake belongs to the app, not to a channel: one subscription
+    // covers all three Meta products, so it is answered with the shared scheme
+    // rather than by choosing an adapter that has not been identified yet.
+    const answer = answerMetaChallenge(query, app.verify_token_hash, nodeChannelCrypto);
     if (answer === null) {
       // The same 403 for a wrong token, a wrong mode and a missing challenge.
       // Distinguishing them would let a caller probe for the token's shape.
@@ -99,7 +97,15 @@ export class ChannelIngressService {
       // Configuration is missing, so nothing can be verified. This is our fault
       // and the delivery is worth retrying once it is fixed, so it is a 503 and
       // not a silent 200 that would lose the message forever.
-      await this.writeReceipt(app.id, delivery, bodySha, false, 'signature_invalid', null, 0);
+      await writeReceipt(asExecutor(this.pool), {
+        appId: app.id,
+        delivery,
+        bodySha,
+        signatureValid: false,
+        outcome: 'signature_invalid',
+        tenantId: null,
+        eventCount: 0,
+      });
       throw new ApiHttpError(
         503,
         'channel_secret_unavailable',
@@ -107,20 +113,28 @@ export class ChannelIngressService {
       );
     }
 
-    const adapter = adapterFor('whatsapp');
-    /* c8 ignore next 3 -- the WhatsApp adapter is registered at module load */
-    if (adapter === null) {
-      throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
-    }
-
-    const verdict = adapter.verifySignature({
-      rawBody: delivery.rawBody,
-      headers: delivery.headers,
-      secret,
-      now: delivery.receivedAt,
-    });
+    // Signature first, with the shared Meta scheme: the three Meta channels are
+    // one app registration signing one way, so the *verification* is common
+    // even though nothing built on top of it is.
+    const verdict = verifyMetaSignature(
+      {
+        rawBody: delivery.rawBody,
+        headers: delivery.headers,
+        secret,
+        now: delivery.receivedAt,
+      },
+      nodeChannelCrypto,
+    );
     if (!verdict.valid) {
-      await this.writeReceipt(app.id, delivery, bodySha, false, 'signature_invalid', null, 0);
+      await writeReceipt(asExecutor(this.pool), {
+        appId: app.id,
+        delivery,
+        bodySha,
+        signatureValid: false,
+        outcome: 'signature_invalid',
+        tenantId: null,
+        eventCount: 0,
+      });
       return { status: 'rejected', code: verdict.reason, httpStatus: 401 };
     }
 
@@ -130,22 +144,66 @@ export class ChannelIngressService {
     try {
       payload = JSON.parse(Buffer.from(delivery.rawBody).toString('utf8'));
     } catch {
-      await this.writeReceipt(app.id, delivery, bodySha, true, 'malformed', null, 0);
+      await writeReceipt(asExecutor(this.pool), {
+        appId: app.id,
+        delivery,
+        bodySha,
+        signatureValid: true,
+        outcome: 'malformed',
+        tenantId: null,
+        eventCount: 0,
+      });
       return { status: 'rejected', code: 'malformed_body', httpStatus: 400 };
+    }
+
+    // Which of the three products this delivery is. Meta multiplexes them over
+    // one webhook and distinguishes them only by the envelope's `object`.
+    const adapter = adapterClaiming(payload, META_KINDS);
+    if (adapter === null) {
+      await writeReceipt(asExecutor(this.pool), {
+        appId: app.id,
+        delivery,
+        bodySha,
+        signatureValid: true,
+        outcome: 'unsupported',
+        tenantId: null,
+        eventCount: 0,
+      });
+      return { status: 'rejected', code: 'unknown_envelope', httpStatus: 202 };
     }
 
     const batch = adapter.normalize(payload, delivery.receivedAt);
     if (batch.assetId === null) {
-      await this.writeReceipt(app.id, delivery, bodySha, true, 'unsupported', null, 0);
+      await writeReceipt(asExecutor(this.pool), {
+        appId: app.id,
+        delivery,
+        bodySha,
+        signatureValid: true,
+        outcome: 'unsupported',
+        tenantId: null,
+        eventCount: 0,
+      });
       // A verified delivery with nothing addressable in it. ACKed, because
       // retrying it forever helps nobody, and journaled so it is not invisible.
       return { status: 'rejected', code: 'no_asset_in_payload', httpStatus: 202 };
     }
 
-    const fingerprint = assetFingerprint(PROVIDER_OF['whatsapp'], 'whatsapp', batch.assetId);
+    const fingerprint = assetFingerprint(
+      PROVIDER_OF[adapter.kind],
+      adapter.kind,
+      batch.assetId,
+    );
     const routed = await this.storeRouted(app, delivery, bodySha, fingerprint, batch);
     if (routed === null) {
-      await this.writeReceipt(app.id, delivery, bodySha, true, 'unknown_asset', null, 0);
+      await writeReceipt(asExecutor(this.pool), {
+        appId: app.id,
+        delivery,
+        bodySha,
+        signatureValid: true,
+        outcome: 'unknown_asset',
+        tenantId: null,
+        eventCount: 0,
+      });
       // Signature-valid but for an asset nobody here has connected. ACKed with
       // no content retained: storing a stranger's messages would be worse than
       // dropping them.
@@ -189,68 +247,22 @@ export class ChannelIngressService {
         // The receipt and the events commit together. A receipt saying "routed"
         // with no events behind it would be evidence of something that did not
         // happen.
-        const receiptId = await this.writeReceiptWithin(
-          sql,
-          app.id,
+        const receiptId = await writeReceipt(sql, {
+          appId: app.id,
           delivery,
           bodySha,
-          true,
-          'routed',
-          resolved.tenantId,
-          batch.events.length + batch.quarantined.length,
-        );
-
-        let stored = 0;
-        let duplicates = 0;
-        for (const event of batch.events) {
-          const inserted = await insertEvent(sql, {
-            tenantId: resolved.tenantId,
-            connectionId: resolved.value,
-            receiptId,
-            dedupeKey: event.dedupeKey,
-            eventType: event.eventType,
-            // The provider's element is the evidence; the normalized form is
-            // what the projection is built from. Both are kept.
-            payload: event.source,
-            normalized: event,
-            quarantineReason: null,
-          });
-          if (inserted) stored += 1;
-          else duplicates += 1;
-        }
-        // A poison element does not lose the rest of the batch (EVT-03): it is
-        // stored beside its siblings, marked, with its payload intact.
-        for (const element of batch.quarantined) {
-          const inserted = await insertEvent(sql, {
-            tenantId: resolved.tenantId,
-            connectionId: resolved.value,
-            receiptId,
-            dedupeKey: element.dedupeKey,
-            eventType: element.eventType,
-            payload: element.payload,
-            normalized: null,
-            quarantineReason: element.reason,
-          });
-          if (inserted) stored += 1;
-          else duplicates += 1;
-        }
-
-        // First inbound is evidence, and this is the only place that can
-        // observe it. `coalesce` so a later delivery does not move the mark.
-        await sql.query(
-          `UPDATE channel_connections
-              SET first_inbound_at = coalesce(first_inbound_at, now()),
-                  webhook_subscribed_at = coalesce(webhook_subscribed_at, now())
-            WHERE id = $1`,
-          [resolved.value],
-        );
-
-        const outcome: IngressOutcome = {
-          status: 'accepted',
+          signatureValid: true,
+          outcome: 'routed',
+          tenantId: resolved.tenantId,
+          eventCount: batch.events.length + batch.quarantined.length,
+        });
+        const stored = await journalBatch(sql, {
+          tenantId: resolved.tenantId,
+          connectionId: resolved.value,
           receiptId,
-          stored,
-          duplicates,
-        };
+          batch,
+        });
+        const outcome: IngressOutcome = { status: 'accepted', receiptId, ...stored };
         return outcome;
       },
     );
@@ -271,120 +283,10 @@ export class ChannelIngressService {
     return row;
   }
 
-  private async writeReceipt(
-    appId: string,
-    delivery: IngressDelivery,
-    bodySha: string,
-    signatureValid: boolean,
-    outcome: string,
-    tenantId: string | null,
-    eventCount: number,
-  ): Promise<string> {
-    return this.writeReceiptWithin(
-      asExecutor(this.pool),
-      appId,
-      delivery,
-      bodySha,
-      signatureValid,
-      outcome,
-      tenantId,
-      eventCount,
-    );
-  }
-
-  private async writeReceiptWithin(
-    sql: SqlExecutor,
-    appId: string,
-    delivery: IngressDelivery,
-    bodySha: string,
-    signatureValid: boolean,
-    outcome: string,
-    tenantId: string | null,
-    eventCount: number,
-  ): Promise<string> {
-    const rows = await sql.query<{ id: string }>(
-      `INSERT INTO webhook_receipts
-         (app_id, route_key, body_sha256, body_bytes, signature_valid, outcome, tenant_id, event_count)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id::text`,
-      [
-        appId,
-        delivery.routeKey,
-        bodySha,
-        delivery.rawBody.byteLength,
-        signatureValid,
-        outcome,
-        tenantId,
-        eventCount,
-      ],
-    );
-    return requireRow(rows.rows, 'receipt insert returned no id').id;
-  }
 }
 
 const UUID_PATTERN =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
-interface EventInsert {
-  readonly tenantId: string;
-  readonly connectionId: string;
-  readonly receiptId: string;
-  readonly dedupeKey: string;
-  readonly eventType: string;
-  readonly payload: unknown;
-  readonly normalized: unknown;
-  readonly quarantineReason: string | null;
-}
-
-/**
- * Inserts one event, or reports that it was already here.
- *
- * `ON CONFLICT DO NOTHING` on the per-tenant dedupe key is what makes
- * redelivery safe (DEL-05, EVT-02): the same fact arriving twice, in two
- * differently ordered batches, produces one row and therefore one domain
- * effect — and the duplicate is counted rather than silently ignored, so an
- * operator can see redelivery happening.
- */
-async function insertEvent(sql: SqlExecutor, event: EventInsert): Promise<boolean> {
-  const inserted = await sql.query<{ id: string }>(
-    `INSERT INTO channel_events
-       (tenant_id, connection_id, receipt_id, dedupe_key, event_type, payload, normalized,
-        status, quarantine_reason, processed_at)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, coalesce($8::jsonb, '{}'::jsonb),
-             CASE WHEN $7::text IS NULL THEN 'received' ELSE 'quarantined' END,
-             $7,
-             -- A quarantined element has already been dealt with: it is not
-             -- waiting for a normalizer, so it carries a processing time.
-             CASE WHEN $7::text IS NULL THEN NULL ELSE now() END)
-     ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
-     RETURNING id::text`,
-    [
-      event.tenantId,
-      event.connectionId,
-      event.receiptId,
-      event.dedupeKey,
-      event.eventType,
-      JSON.stringify(event.payload ?? null),
-      event.quarantineReason,
-      event.normalized === null ? null : JSON.stringify(event.normalized),
-    ],
-  );
-  const row = inserted.rows[0];
-  if (row === undefined) {
-    return false;
-  }
-  // The queue entry commits with the event. A quarantined element is already
-  // dealt with and is not queued: there is nothing for a worker to do with it
-  // beyond what the row already records.
-  if (event.quarantineReason === null) {
-    await sql.query(
-      `INSERT INTO channel_event_queue (event_id, tenant_id) VALUES ($1, $2)
-       ON CONFLICT (event_id) DO NOTHING`,
-      [row.id, event.tenantId],
-    );
-  }
-  return true;
-}
 
 /** Re-exported so the ingress controller can name the kind it serves. */
 export const INGRESS_KIND: ChannelKind = 'whatsapp';

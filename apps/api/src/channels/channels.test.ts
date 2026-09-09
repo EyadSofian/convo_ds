@@ -8,7 +8,7 @@ import {
   parseCipherKey,
   type CredentialBinding,
 } from './credential-cipher.js';
-import { adapterFor, implementedKinds } from './adapters.js';
+import { adapterClaiming, adapterFor, implementedKinds, META_KINDS } from './adapters.js';
 import { ChannelCredentialService } from './credential.service.js';
 import { inboundRowFrom } from './inbound-projection.js';
 import { parseSendMessage } from './outbound-request.js';
@@ -195,13 +195,32 @@ describe('the unconfigured transport', () => {
 });
 
 describe('the adapter registry', () => {
-  it('serves the kinds this build implements, and nothing else', () => {
-    expect(implementedKinds()).toEqual(['whatsapp']);
-    expect(adapterFor('whatsapp')?.kind).toBe('whatsapp');
-    // Absent, not mapped to a shared default: a default is how Instagram ends
-    // up handled by WhatsApp's rules.
-    expect(adapterFor('instagram')).toBeNull();
-    expect(adapterFor('messenger')).toBeNull();
+  it('serves every channel kind, each with its own adapter', () => {
+    expect(implementedKinds()).toEqual([
+      'whatsapp',
+      'messenger',
+      'instagram',
+      'web_chat',
+      'custom',
+    ]);
+    for (const kind of implementedKinds()) {
+      expect(adapterFor(kind)?.kind).toBe(kind);
+    }
+  });
+
+  it('picks the Meta adapter that claims a verified envelope', () => {
+    // One app, one webhook, three products, distinguished only by `object`.
+    expect(adapterClaiming({ object: 'page' }, META_KINDS)?.kind).toBe('messenger');
+    expect(adapterClaiming({ object: 'instagram' }, META_KINDS)?.kind).toBe('instagram');
+    expect(adapterClaiming({ object: 'whatsapp_business_account' }, META_KINDS)?.kind).toBe(
+      'whatsapp',
+    );
+  });
+
+  it('claims nothing for an envelope no Meta adapter recognises', () => {
+    expect(adapterClaiming({ object: 'threads' }, META_KINDS)).toBeNull();
+    // Our own channels are not offered on the Meta route at all.
+    expect(adapterClaiming({ object: 'web_chat' }, META_KINDS)).toBeNull();
   });
 });
 
@@ -224,6 +243,7 @@ describe('parseConnectChannel', () => {
       displayName: 'Enrollment line',
       accessToken: 'EAAGabcdef123456',
       appId: null,
+      settings: {},
     });
   });
 

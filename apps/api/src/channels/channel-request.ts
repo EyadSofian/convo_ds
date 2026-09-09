@@ -20,9 +20,29 @@ export interface ConnectChannelRequest {
   readonly kind: ChannelKind;
   readonly externalAssetId: string;
   readonly displayName: string;
-  /** The provider grant. Never returned, never logged. */
+  /**
+   * The credential.
+   *
+   * For a provider channel it is the grant they issued us. For Website Chat and
+   * the Custom Channel API it is the **signing key** the installation will sign
+   * its deliveries with — the same field because it is the same kind of secret,
+   * stored the same encrypted way, and never returned by any operation.
+   */
   readonly accessToken: string;
   readonly appId: string | null;
+  /** Per-connection configuration, only meaningful for the channels we own. */
+  readonly settings: ChannelSettings;
+}
+
+export interface ChannelSettings {
+  /**
+   * Exact origins a widget may deliver from. Empty means "not configured yet",
+   * which the ingress reads as no — an unconfigured allowlist is not an open one.
+   */
+  readonly origins?: readonly string[] | undefined;
+  readonly ratePerMinute?: number | undefined;
+  /** What a Custom Channel's own transport says it can carry. */
+  readonly declaredTypes?: readonly string[] | undefined;
 }
 
 export interface RotateCredentialRequest {
@@ -32,6 +52,7 @@ export interface RotateCredentialRequest {
 const ASSET_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 const UUID_PATTERN =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const NAME = /^[a-z0-9_]{1,40}$/;
 const MAX_NAME = 80;
 const MIN_TOKEN = 8;
 const MAX_TOKEN = 4096;
@@ -131,10 +152,86 @@ export function parseConnectChannel(input: unknown): ParseResult<ConnectChannelR
     }
   }
 
+  const settings = parseSettings(record['settings'], details);
+
   if (details.length > 0 || kind === null) {
     return { ok: false, details };
   }
-  return { ok: true, value: { kind, externalAssetId: assetId, displayName, accessToken, appId } };
+  return {
+    ok: true,
+    value: { kind, externalAssetId: assetId, displayName, accessToken, appId, settings },
+  };
+}
+
+const ORIGIN = /^https?:\/\/[A-Za-z0-9.-]{1,253}(:\d{1,5})?$/;
+const MAX_ORIGINS = 20;
+
+/**
+ * Per-connection settings for the channels we own.
+ *
+ * Origins are matched exactly by the ingress, so they are validated as whole
+ * origins here: a value with a path or a wildcard would never match anything
+ * and would look like a configured allowlist that silently refuses everyone.
+ */
+function parseSettings(raw: unknown, details: ErrorDetail[]): ChannelSettings {
+  if (raw === undefined || raw === null) {
+    return {};
+  }
+  const record = asRecord(raw);
+  if (record === null) {
+    details.push({ field: 'settings', code: 'malformed', message: 'Settings must be an object.' });
+    return {};
+  }
+  const settings: {
+    origins?: readonly string[];
+    ratePerMinute?: number;
+    declaredTypes?: readonly string[];
+  } = {};
+
+  if ('origins' in record) {
+    const origins = record['origins'];
+    if (
+      !Array.isArray(origins) ||
+      origins.length > MAX_ORIGINS ||
+      !origins.every((entry) => typeof entry === 'string' && ORIGIN.test(entry))
+    ) {
+      details.push({
+        field: 'settings.origins',
+        code: 'malformed',
+        message: `Up to ${String(MAX_ORIGINS)} whole origins, e.g. "https://school.example".`,
+      });
+    } else {
+      settings.origins = origins as readonly string[];
+    }
+  }
+
+  if ('ratePerMinute' in record) {
+    const rate = record['ratePerMinute'];
+    if (typeof rate !== 'number' || !Number.isInteger(rate) || rate < 1 || rate > 100_000) {
+      details.push({
+        field: 'settings.ratePerMinute',
+        code: 'malformed',
+        message: 'A rate limit is an integer from 1 to 100000.',
+      });
+    } else {
+      settings.ratePerMinute = rate;
+    }
+  }
+
+  if ('declaredTypes' in record) {
+    const types = record['declaredTypes'];
+    if (!Array.isArray(types) || !types.every((entry) => typeof entry === 'string' && NAME.test(entry))) {
+      details.push({
+        field: 'settings.declaredTypes',
+        code: 'malformed',
+        message: 'Declared types are lowercase names, e.g. ["text"].',
+      });
+    } else {
+      settings.declaredTypes = types as readonly string[];
+    }
+  }
+
+  return settings;
 }
 
 export function parseRotateCredential(input: unknown): ParseResult<RotateCredentialRequest> {

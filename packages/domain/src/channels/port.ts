@@ -165,6 +165,16 @@ export interface ChannelAdapter {
 
   capabilities(): CapabilityMatrix;
 
+  /**
+   * Whether a verified payload belongs to this channel.
+   *
+   * Meta multiplexes WhatsApp, Messenger and Instagram over one app and one
+   * webhook, distinguished only by the envelope's `object`. Asking the adapter
+   * — rather than switching on a string in the ingress — is what keeps the
+   * knowledge of a provider's shapes inside the adapter that owns them.
+   */
+  claims(payload: unknown): boolean;
+
   /** HMAC over the exact raw bytes, constant-time, with a replay window. */
   verifySignature(input: SignatureInput): SignatureVerdict;
 

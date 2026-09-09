@@ -1,7 +1,9 @@
 import { Controller, Get, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { IngressOutcome } from './ingress.service.js';
 import { ChannelIngressService } from './ingress.service.js';
 import { rawBodyOf } from './raw-body.js';
+import { SelfHostedIngressService } from './self-hosted-ingress.service.js';
 
 /**
  * The webhook ingress routes.
@@ -23,7 +25,10 @@ import { rawBodyOf } from './raw-body.js';
  */
 @Controller()
 export class ChannelIngressController {
-  constructor(@Inject(ChannelIngressService) private readonly ingress: ChannelIngressService) {}
+  constructor(
+    @Inject(ChannelIngressService) private readonly ingress: ChannelIngressService,
+    @Inject(SelfHostedIngressService) private readonly selfHosted: SelfHostedIngressService,
+  ) {}
 
   @Get('webhooks/meta/:appConnectionId')
   async challenge(
@@ -51,14 +56,66 @@ export class ChannelIngressController {
       receivedAt: new Date(),
     });
 
+    // The counts in the success answer are the operator's evidence that
+    // redelivery is happening and being absorbed rather than duplicated.
+    await this.answer(reply, request, outcome);
+  }
+
+  /**
+   * The channels we own.
+   *
+   * Two routes rather than one with a kind parameter, because the two contracts
+   * are genuinely different documents: a widget's envelope and a Custom Channel
+   * envelope share nothing but a signature scheme, and an operator reading the
+   * spec should not have to work out which half applies to them.
+   */
+  @Post('webhooks/web-chat/:installationId')
+  async webChat(
+    @Param('installationId') installationId: string,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    await this.answer(
+      reply,
+      request,
+      await this.selfHosted.receive('web_chat', {
+        routeKey: installationId,
+        rawBody: rawBodyOf(request),
+        headers: request.headers as Record<string, string | undefined>,
+        receivedAt: new Date(),
+      }),
+    );
+  }
+
+  @Post('webhooks/custom/:assetId')
+  async custom(
+    @Param('assetId') assetId: string,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    await this.answer(
+      reply,
+      request,
+      await this.selfHosted.receive('custom', {
+        routeKey: assetId,
+        rawBody: rawBodyOf(request),
+        headers: request.headers as Record<string, string | undefined>,
+        receivedAt: new Date(),
+      }),
+    );
+  }
+
+  private async answer(
+    reply: FastifyReply,
+    request: FastifyRequest,
+    outcome: IngressOutcome,
+  ): Promise<void> {
     if (outcome.status === 'rejected') {
       await reply
         .status(outcome.httpStatus)
         .send({ status: 'rejected', reason: outcome.code, request_id: request.id });
       return;
     }
-    // The counts are returned because they are the operator's evidence that
-    // redelivery is happening and being absorbed rather than duplicated.
     await reply.status(200).send({
       status: 'received',
       receipt_id: outcome.receiptId,

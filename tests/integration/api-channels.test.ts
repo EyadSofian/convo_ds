@@ -291,22 +291,27 @@ describe('channel connections', () => {
       'web_chat',
       'custom',
     ]);
-    // Honest about what this build can actually do.
-    expect(entries.filter((entry) => entry.implemented).map((entry) => entry.kind)).toEqual([
-      'whatsapp',
-    ]);
+    // Every kind now has an adapter, and each declares its own matrix.
+    expect(entries.every((entry) => entry.implemented)).toBe(true);
   });
 
-  it('refuses to connect a channel this build has no adapter for', async () => {
-    const response = await send(api, owner, 'POST', '/channels', {
-      kind: 'instagram',
-      externalAssetId: 'ig-1',
-      displayName: 'Instagram',
-      accessToken: 'IGQVJtestaccesstoken1',
-    });
-    // Typed and immediate, not queued to fail at a provider later (CH-01).
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toMatchObject({ error: { code: 'not_supported' } });
+  it('gives each channel its own matrix rather than WhatsApp’s', async () => {
+    const response = await send(api, owner, 'GET', '/channels/catalogue');
+    const entries = (
+      response.json() as {
+        data: { kind: string; capabilities: Record<string, unknown> }[];
+      }
+    ).data;
+    const byKind = new Map(entries.map((entry) => [entry.kind, entry.capabilities]));
+    // The three differences that matter most, asserted through the API rather
+    // than only in the domain unit tests.
+    expect(byKind.get('instagram')?.['host']).toBe('graph.instagram.com');
+    expect(byKind.get('whatsapp')?.['host']).toBe('graph.facebook.com');
+    expect(byKind.get('whatsapp')?.['templates']).toBe(true);
+    expect(byKind.get('messenger')?.['templates']).toBe(false);
+    expect(byKind.get('instagram')?.['templates']).toBe(false);
+    expect(byKind.get('messenger')?.['businessInitiated']).toBe(false);
+    expect(byKind.get('web_chat')?.['windowHours']).toBeNull();
   });
 
   it('connects an asset without claiming it works', async () => {
@@ -1964,5 +1969,404 @@ describe('the outbound path', () => {
       clientMessageId: 'x',
     });
     expect(response.statusCode).toBe(400);
+  });
+});
+
+/* ------------------------------------------------- the other four channels -- */
+
+describe('the channels beyond WhatsApp', () => {
+  let api: Harness;
+  let owner: Browser;
+  let normalizer: ChannelNormalizationService;
+
+  const PAGE_ID = 'page-100000000000001';
+  const IG_ID = 'ig-100000000000002';
+  const WIDGET_ID = 'widget-installation-1';
+  const GATEWAY_ID = 'gateway-1';
+  const WIDGET_KEY = 'widget-signing-key-000000000000001';
+  const GATEWAY_KEY = 'gateway-signing-key-00000000000001';
+
+  beforeAll(async () => {
+    api = await createHarness();
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+    normalizer = api.app.get(ChannelNormalizationService);
+  }, 180_000);
+
+  afterAll(async () => {
+    await api.app.close();
+  });
+
+  async function connectKind(
+    kind: string,
+    assetId: string,
+    token: string,
+    settings?: Record<string, unknown>,
+  ): Promise<string> {
+    const response = await send(api, owner, 'POST', '/channels', {
+      kind,
+      externalAssetId: assetId,
+      displayName: `${kind} line`,
+      accessToken: token,
+      ...(kind === 'whatsapp' || kind === 'messenger' || kind === 'instagram'
+        ? { appId: api.appId }
+        : {}),
+      ...(settings === undefined ? {} : { settings }),
+    });
+    expect(response.statusCode, JSON.stringify(response.json())).toBe(201);
+    return (response.json() as { data: { id: string } }).data.id;
+  }
+
+  /** A delivery signed the way our own channels sign: `v1=` over stamp + body. */
+  function selfSigned(
+    path: string,
+    body: unknown,
+    key: string,
+    options: { origin?: string; stamp?: string } = {},
+  ): Promise<LightMyRequestResponse> {
+    const raw = JSON.stringify(body);
+    const stamp = options.stamp ?? String(Math.floor(Date.now() / 1000));
+    const signature = createHmac('sha256', key).update(`${stamp}.${raw}`).digest('hex');
+    return api.server.inject({
+      method: 'POST',
+      url: `/api/v1/${path}`,
+      headers: {
+        'content-type': 'application/json',
+        'x-convo-signature': `v1=${signature}`,
+        'x-convo-timestamp': stamp,
+        ...(options.origin === undefined ? {} : { origin: options.origin }),
+      },
+      payload: raw,
+    });
+  }
+
+  it('routes a Messenger delivery by its envelope, not by the URL', async () => {
+    const connectionId = await connectKind('messenger', PAGE_ID, 'EAAGpagetoken00001');
+    const response = await deliver(api, {
+      object: 'page',
+      entry: [
+        {
+          id: PAGE_ID,
+          messaging: [
+            {
+              sender: { id: 'psid-1' },
+              recipient: { id: PAGE_ID },
+              timestamp: 1789000000000,
+              message: { mid: 'mid.mg.1', text: 'مرحبا من ماسنجر' },
+            },
+          ],
+        },
+      ],
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ status: 'received', stored: 1 });
+
+    await normalizer.drain(api.tenantId);
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ connection_id: string; peer_identity: string; text_body: string }>(
+        `SELECT connection_id::text, peer_identity, text_body FROM inbound_events
+          WHERE provider_message_id = 'mid.mg.1'`,
+      ),
+    );
+    // The same webhook URL as WhatsApp, and it landed on the Messenger
+    // connection because the envelope said `page`.
+    expect(rows.rows[0]).toMatchObject({
+      connection_id: connectionId,
+      peer_identity: 'psid-1',
+      text_body: 'مرحبا من ماسنجر',
+    });
+  });
+
+  it('routes an Instagram delivery to its own connection', async () => {
+    const connectionId = await connectKind('instagram', IG_ID, 'IGQVJtoken000000001');
+    const response = await deliver(api, {
+      object: 'instagram',
+      entry: [
+        {
+          id: IG_ID,
+          messaging: [
+            {
+              sender: { id: 'igsid-1' },
+              recipient: { id: IG_ID },
+              timestamp: 1789000000000,
+              message: { mid: 'mid.ig.1', text: 'رسالة إنستغرام' },
+            },
+          ],
+        },
+      ],
+    });
+    expect(response.statusCode).toBe(200);
+    await normalizer.drain(api.tenantId);
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ connection_id: string }>(
+        `SELECT connection_id::text FROM inbound_events WHERE provider_message_id = 'mid.ig.1'`,
+      ),
+    );
+    expect(rows.rows[0]?.connection_id).toBe(connectionId);
+  });
+
+  it('acknowledges a verified Meta delivery no adapter claims', async () => {
+    const response = await deliver(api, { object: 'threads', entry: [] });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({ reason: 'unknown_envelope' });
+  });
+
+  it('accepts a signed widget delivery from an allowed origin', async () => {
+    const connectionId = await connectKind('web_chat', WIDGET_ID, WIDGET_KEY, {
+      origins: ['https://school.example'],
+      ratePerMinute: 100,
+    });
+    const response = await selfSigned(
+      `webhooks/web-chat/${WIDGET_ID}`,
+      {
+        object: 'web_chat',
+        installation_id: WIDGET_ID,
+        events: [
+          { id: 'wc.1', session_id: 'sess-1', type: 'message', text: 'أحتاج مساعدة' },
+        ],
+      },
+      WIDGET_KEY,
+      { origin: 'https://school.example' },
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ status: 'received', stored: 1 });
+
+    await normalizer.drain(api.tenantId);
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ connection_id: string; peer_identity: string }>(
+        `SELECT connection_id::text, peer_identity FROM inbound_events
+          WHERE provider_message_id = 'wc.1'`,
+      ),
+    );
+    expect(rows.rows[0]).toMatchObject({ connection_id: connectionId, peer_identity: 'sess-1' });
+  });
+
+  it('refuses a widget delivery from an origin nobody declared', async () => {
+    const response = await selfSigned(
+      `webhooks/web-chat/${WIDGET_ID}`,
+      { object: 'web_chat', installation_id: WIDGET_ID, events: [] },
+      WIDGET_KEY,
+      { origin: 'https://evil-school.example' },
+    );
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ reason: 'origin_not_allowed' });
+  });
+
+  it('refuses a widget delivery signed with the wrong key', async () => {
+    const response = await selfSigned(
+      `webhooks/web-chat/${WIDGET_ID}`,
+      { object: 'web_chat', installation_id: WIDGET_ID, events: [] },
+      'not-the-widget-key-0000000000000001',
+      { origin: 'https://school.example' },
+    );
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ reason: 'mismatch' });
+  });
+
+  it('refuses a replayed widget delivery', async () => {
+    const stale = String(Math.floor(Date.now() / 1000) - 3600);
+    const response = await selfSigned(
+      `webhooks/web-chat/${WIDGET_ID}`,
+      { object: 'web_chat', installation_id: WIDGET_ID, events: [] },
+      WIDGET_KEY,
+      { origin: 'https://school.example', stamp: stale },
+    );
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ reason: 'stale' });
+  });
+
+  it('answers an unknown installation the way an unknown route does', async () => {
+    const response = await selfSigned(
+      'webhooks/web-chat/widget-nobody-connected',
+      { object: 'web_chat', events: [] },
+      WIDGET_KEY,
+      { origin: 'https://school.example' },
+    );
+    // Whether an installation id exists is not an unauthenticated caller's
+    // business, so it is the same answer as a route that does not exist.
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('answers a disconnected installation the same way', async () => {
+    const id = await connectKind('web_chat', 'widget-retired', WIDGET_KEY, {
+      origins: ['https://school.example'],
+    });
+    await send(api, owner, 'DELETE', `/channels/${id}`);
+    const response = await selfSigned(
+      'webhooks/web-chat/widget-retired',
+      { object: 'web_chat', events: [] },
+      WIDGET_KEY,
+      { origin: 'https://school.example' },
+    );
+    // An old widget still on a page learns nothing from being turned off.
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('rate-limits one installation without touching another', async () => {
+    await connectKind('web_chat', 'widget-noisy', WIDGET_KEY, {
+      origins: ['https://school.example'],
+      ratePerMinute: 2,
+    });
+    const body = { object: 'web_chat', installation_id: 'widget-noisy', events: [] };
+    const codes: number[] = [];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const response = await selfSigned('webhooks/web-chat/widget-noisy', body, WIDGET_KEY, {
+        origin: 'https://school.example',
+      });
+      codes.push(response.statusCode);
+    }
+    expect(codes.filter((code) => code === 429).length).toBeGreaterThan(0);
+    // The quiet installation is unaffected: the bucket is per connection.
+    const other = await selfSigned(
+      `webhooks/web-chat/${WIDGET_ID}`,
+      { object: 'web_chat', installation_id: WIDGET_ID, events: [] },
+      WIDGET_KEY,
+      { origin: 'https://school.example' },
+    );
+    expect(other.statusCode).toBe(200);
+  });
+
+  it('accepts a signed Custom Channel delivery on its documented version', async () => {
+    await connectKind('custom', GATEWAY_ID, GATEWAY_KEY, {
+      origins: ['https://gateway.example'],
+      declaredTypes: ['text'],
+    });
+    const response = await selfSigned(
+      `webhooks/custom/${GATEWAY_ID}`,
+      {
+        object: 'convo_custom',
+        version: '1',
+        asset_id: GATEWAY_ID,
+        events: [{ id: 'cc.1', from: '+201000000000', type: 'message', text: 'من البوابة' }],
+      },
+      GATEWAY_KEY,
+      { origin: 'https://gateway.example' },
+    );
+    expect(response.statusCode).toBe(200);
+    await normalizer.drain(api.tenantId);
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ text_body: string }>(
+        `SELECT text_body FROM inbound_events WHERE provider_message_id = 'cc.1'`,
+      ),
+    );
+    expect(rows.rows[0]?.text_body).toBe('من البوابة');
+  });
+
+  it('keeps a Custom Channel payload from an unknown contract version, whole', async () => {
+    const response = await selfSigned(
+      `webhooks/custom/${GATEWAY_ID}`,
+      {
+        object: 'convo_custom',
+        version: '9',
+        asset_id: GATEWAY_ID,
+        events: [{ id: 'cc.future', from: '+2010', type: 'message', text: 'من نسخة قادمة' }],
+      },
+      GATEWAY_KEY,
+      { origin: 'https://gateway.example' },
+    );
+    expect(response.statusCode).toBe(200);
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ quarantine_reason: string; payload: Record<string, unknown> }>(
+        `SELECT quarantine_reason, payload FROM channel_events
+          WHERE quarantine_reason LIKE 'unsupported_contract_version%'`,
+      ),
+    );
+    // Kept for replay once that version exists, rather than parsed hopefully.
+    expect(rows.rows[0]?.quarantine_reason).toBe('unsupported_contract_version:9');
+    expect(rows.rows[0]?.payload).toMatchObject({ version: '9' });
+  });
+
+  it('refuses a delivery when the signing key has been revoked', async () => {
+    const id = await connectKind('web_chat', 'widget-nokey', WIDGET_KEY, {
+      origins: ['https://school.example'],
+    });
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `UPDATE channel_credentials SET status = 'revoked', revoked_at = now() WHERE connection_id = $1`,
+        [id],
+      ),
+    );
+    const response = await selfSigned(
+      'webhooks/web-chat/widget-nokey',
+      { object: 'web_chat', events: [] },
+      WIDGET_KEY,
+      { origin: 'https://school.example' },
+    );
+    // Our configuration is missing, so it is a retryable 503 rather than a
+    // refusal that blames the caller.
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ reason: 'signing_key_missing' });
+  });
+
+  it('refuses a signed body that will not parse', async () => {
+    const raw = '{not json';
+    const stamp = String(Math.floor(Date.now() / 1000));
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/webhooks/web-chat/${WIDGET_ID}`,
+      headers: {
+        'content-type': 'application/json',
+        'x-convo-signature': `v1=${createHmac('sha256', WIDGET_KEY).update(`${stamp}.${raw}`).digest('hex')}`,
+        'x-convo-timestamp': stamp,
+        origin: 'https://school.example',
+      },
+      payload: raw,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ reason: 'malformed_body' });
+  });
+
+  it('refuses a Custom Channel connection that declared no origins', async () => {
+    // An unconfigured allowlist is not an open one.
+    await connectKind('custom', 'gateway-no-origins', GATEWAY_KEY, { declaredTypes: ['text'] });
+    const response = await selfSigned(
+      'webhooks/custom/gateway-no-origins',
+      { object: 'convo_custom', version: '1', asset_id: 'gateway-no-origins', events: [] },
+      GATEWAY_KEY,
+      { origin: 'https://gateway.example' },
+    );
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ reason: 'origin_not_allowed' });
+  });
+
+  it('stores a signing key rather than an access token for the channels we own', async () => {
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ kind: string; purpose: string }>(
+        `SELECT c.kind, cr.purpose
+           FROM channel_credentials cr
+           JOIN channel_connections c ON c.id = cr.connection_id
+          WHERE cr.status = 'active'
+          ORDER BY c.kind`,
+      ),
+    );
+    const byKind = new Map(rows.rows.map((row) => [row.kind, row.purpose]));
+    // Opposite directions: a provider grant is presented, a signing key is
+    // verified. Naming the purpose is what keeps a verifier from ever being
+    // handed a sending credential.
+    expect(byKind.get('messenger')).toBe('access_token');
+    expect(byKind.get('instagram')).toBe('access_token');
+    expect(byKind.get('web_chat')).toBe('signing_key');
+    expect(byKind.get('custom')).toBe('signing_key');
+  });
+
+  it.each([
+    ['a non-object settings block', { settings: 'open' }, 'settings'],
+    ['an origin with a path', { settings: { origins: ['https://x.test/chat'] } }, 'settings.origins'],
+    ['a wildcard origin', { settings: { origins: ['*'] } }, 'settings.origins'],
+    ['a rate that is not a count', { settings: { ratePerMinute: 0 } }, 'settings.ratePerMinute'],
+    ['a shouty declared type', { settings: { declaredTypes: ['TEXT'] } }, 'settings.declaredTypes'],
+  ])('rejects %s when connecting', async (_label, extra, field) => {
+    const response = await send(api, owner, 'POST', '/channels', {
+      kind: 'web_chat',
+      externalAssetId: `widget-${String(Math.random()).slice(2, 10)}`,
+      displayName: 'Widget',
+      accessToken: 'widget-key-000000000000000000001',
+      ...extra,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(
+      (response.json() as { error: { details: { field: string }[] } }).error.details.map(
+        (detail) => detail.field,
+      ),
+    ).toContain(field);
   });
 });

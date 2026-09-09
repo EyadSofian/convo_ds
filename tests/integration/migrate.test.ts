@@ -46,6 +46,7 @@ describe('migrate', () => {
       '0009_people_admin.sql',
       '0010_channels.sql',
       '0011_outbound.sql',
+      '0012_channel_settings.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -99,7 +100,7 @@ describe('migrate', () => {
     const recorded = await pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM schema_migrations',
     );
-    expect(recorded.rows[0]?.count).toBe('11');
+    expect(recorded.rows[0]?.count).toBe('12');
   });
 
   /**

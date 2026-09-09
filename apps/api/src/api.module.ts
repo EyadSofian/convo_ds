@@ -25,6 +25,7 @@ import { ChannelDispatcherService } from './channels/dispatcher.service.js';
 import { ChannelIngressService } from './channels/ingress.service.js';
 import { OutboundController } from './channels/outbound.controller.js';
 import { OutboundService } from './channels/outbound.service.js';
+import { SelfHostedIngressService } from './channels/self-hosted-ingress.service.js';
 import { ChannelNormalizationService } from './channels/normalization.service.js';
 import { PermissionController } from './authorization/permission.controller.js';
 import { PermissionService } from './authorization/permission.service.js';
@@ -129,6 +130,7 @@ export class ApiModule {
         ChannelCredentialService,
         ChannelService,
         ChannelIngressService,
+        SelfHostedIngressService,
         ChannelNormalizationService,
         ChannelDispatcherService,
         OutboundService,

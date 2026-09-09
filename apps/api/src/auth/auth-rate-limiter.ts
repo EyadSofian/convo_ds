@@ -4,8 +4,20 @@ import type { ApiConfig } from '../config.js';
 import { API_CONFIG, API_POOL } from '../tokens.js';
 import { tokenFingerprint } from './auth-tokens.js';
 
-const WINDOW_SECONDS = 15 * 60;
-const MAX_ATTEMPTS = 5;
+/**
+ * The credential-guessing defaults: five attempts in fifteen minutes.
+ *
+ * Every caller that needs different numbers passes them, rather than a second
+ * limiter existing with its own table and its own bugs. The counter itself is
+ * in PostgreSQL because a limit that lives in one process's memory is not a
+ * limit once there are two processes.
+ */
+const DEFAULT_LIMITS: RateLimits = { windowSeconds: 15 * 60, maxAttempts: 5 };
+
+export interface RateLimits {
+  readonly windowSeconds: number;
+  readonly maxAttempts: number;
+}
 
 export type RateLimitDecision =
   | { readonly status: 'allowed' }
@@ -18,7 +30,11 @@ export class AuthRateLimiter {
     @Inject(API_POOL) private readonly pool: Pool,
   ) {}
 
-  async consume(bucket: string, subject: string): Promise<RateLimitDecision> {
+  async consume(
+    bucket: string,
+    subject: string,
+    limits: RateLimits = DEFAULT_LIMITS,
+  ): Promise<RateLimitDecision> {
     const bucketHash = this.bucketHash(bucket, subject);
     const result = await this.pool.query<{ attempt_count: number; retry_after_seconds: number }>(
       `INSERT INTO auth_rate_limits
@@ -38,13 +54,13 @@ export class AuthRateLimiter {
          greatest(1, ceil(extract(epoch FROM
            (window_started_at + $2 * interval '1 second' - now()))))::integer
            AS retry_after_seconds`,
-      [bucketHash, WINDOW_SECONDS],
+      [bucketHash, limits.windowSeconds],
     );
     const row = result.rows[0];
     if (row === undefined) {
       throw new Error('Rate limit counter did not return a result');
     }
-    return row.attempt_count <= MAX_ATTEMPTS
+    return row.attempt_count <= limits.maxAttempts
       ? { status: 'allowed' }
       : { status: 'blocked', retryAfterSeconds: row.retry_after_seconds };
   }

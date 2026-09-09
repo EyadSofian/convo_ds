@@ -2226,6 +2226,141 @@
         }
       }
     },
+    "/webhooks/custom/{assetId}": {
+      "post": {
+        "operationId": "receiveCustomChannelDelivery",
+        "summary": "Receive a signed Custom Channel delivery",
+        "description": "The versioned contract for a transport CONVO does not write. `version` is required and checked: a payload from a version this build does not implement is kept whole and quarantined for replay rather than parsed hopefully. Contract version 1 defines the event types `message`, `delivery_status` and `read_status`.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Convo-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v1=[0-9a-f]{64}$"
+            },
+            "description": "HMAC-SHA-256 over `<X-Convo-Timestamp>.<raw body>` with this connection’s signing key, hex-encoded. The timestamp is inside the signed material so it cannot be rewritten to make an old capture look fresh."
+          },
+          {
+            "name": "X-Convo-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,20}$"
+            },
+            "description": "Unix seconds. Deliveries more than 300 seconds old are refused."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Checked against the connection’s declared origins for Website Chat. Matched exactly, never by suffix."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "`{\"object\":\"convo_custom\",\"version\":\"1\",\"asset_id\":\"…\",\"events\":[{\"id\",\"from\",\"type\",\"text\",\"occurred_at\"}]}`.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Journaled durably.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A verified sender sent a body that will not parse.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The signature did not verify, or the delivery is outside the replay window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The delivery came from an origin this installation has not declared.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No live asset with that id. Deliberately the same answer a disconnected one gives: an id that exists is not something an unauthenticated caller learns.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "This connection is delivering faster than its configured rate.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The connection holds no signing key, so nothing can be verified.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/webhooks/meta/{appConnectionId}": {
       "get": {
         "operationId": "verifyMetaWebhook",
@@ -2391,6 +2526,141 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/webhooks/web-chat/{installationId}": {
+      "post": {
+        "operationId": "receiveWebChatDelivery",
+        "summary": "Receive a signed website-chat delivery",
+        "description": "The widget signs each delivery with the key issued to its installation. The installation id in the path selects the key; it never decides who the delivery belongs to — the company comes from the registry row that id resolves to, and nothing is stored unless the signature holds. An origin allowlist and a per-connection rate limit stand in for the protections a provider would otherwise give.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "installationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Convo-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v1=[0-9a-f]{64}$"
+            },
+            "description": "HMAC-SHA-256 over `<X-Convo-Timestamp>.<raw body>` with this connection’s signing key, hex-encoded. The timestamp is inside the signed material so it cannot be rewritten to make an old capture look fresh."
+          },
+          {
+            "name": "X-Convo-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{1,20}$"
+            },
+            "description": "Unix seconds. Deliveries more than 300 seconds old are refused."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Checked against the connection’s declared origins for Website Chat. Matched exactly, never by suffix."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "`{\"object\":\"web_chat\",\"installation_id\":\"…\",\"events\":[…]}`. Event types: `message` and `session_start`; anything else is stored and shown as a documented fallback.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Journaled durably.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A verified sender sent a body that will not parse.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The signature did not verify, or the delivery is outside the replay window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The delivery came from an origin this installation has not declared.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No live installation with that id. Deliberately the same answer a disconnected one gives: an id that exists is not something an unauthenticated caller learns.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "This connection is delivering faster than its configured rate.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The connection holds no signing key, so nothing can be verified.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfHostedWebhookRejected"
                 }
               }
             }
@@ -2979,6 +3249,36 @@
         ],
         "description": "Derived from evidence, never set by hand. `healthy` requires every evidence item; a non-empty token field proves none of them."
       },
+      "ChannelSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Per-connection configuration for the channels CONVO hosts itself. Meaningless for a provider channel, where identity, callers and rate limits belong to the provider.",
+        "properties": {
+          "origins": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "example": "https://school.example"
+            },
+            "description": "Whole origins a widget may deliver from, matched exactly. An empty or absent list is read as \"not configured yet\", which the ingress treats as no — an unconfigured allowlist is not an open one."
+          },
+          "ratePerMinute": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "description": "Deliveries per minute for this connection. Defaults to 120."
+          },
+          "declaredTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "example": "text"
+            },
+            "description": "What a Custom Channel's own transport says it can carry. Intersected with the capability matrix, which is the ceiling: declaring more widens nothing."
+          }
+        }
+      },
       "CommandState": {
         "type": "string",
         "enum": [
@@ -3024,7 +3324,7 @@
             "minLength": 8,
             "maxLength": 4096,
             "writeOnly": true,
-            "description": "The provider grant. Stored as AES-256-GCM ciphertext bound to its tenant, connection and purpose, and never returned by any operation."
+            "description": "For a provider channel, the grant they issued. For Website Chat and the Custom Channel API, the **signing key** the installation will sign its deliveries with. Stored as AES-256-GCM ciphertext bound to its tenant, connection and purpose, and never returned by any operation."
           },
           "appId": {
             "type": [
@@ -3032,6 +3332,9 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ChannelSettings"
           }
         }
       },
@@ -4205,6 +4508,41 @@
             "minLength": 8,
             "maxLength": 4096,
             "writeOnly": true
+          }
+        }
+      },
+      "SelfHostedWebhookRejected": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "reason",
+          "request_id"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "rejected"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "missing_header",
+              "malformed_header",
+              "unsupported_algorithm",
+              "mismatch",
+              "stale",
+              "malformed_body",
+              "origin_not_allowed",
+              "rate_limited",
+              "signing_key_missing",
+              "unknown_asset"
+            ]
+          },
+          "request_id": {
+            "type": "string"
           }
         }
       },

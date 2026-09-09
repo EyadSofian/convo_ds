@@ -142,8 +142,10 @@ describe('pinned OpenAPI contract', () => {
       'updateTeam',
       'addTeamMember',
       'removeTeamMember',
+      'receiveCustomChannelDelivery',
       'verifyMetaWebhook',
       'receiveMetaWebhook',
+      'receiveWebChatDelivery',
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);

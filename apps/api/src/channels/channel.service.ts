@@ -10,8 +10,9 @@ import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG, CHANNEL_TRANSPORT } from '../tokens.js';
-import { adapterFor, implementedKinds } from './adapters.js';
+import { implementedKinds } from './adapters.js';
 import { parseConnectChannel, parseRotateCredential } from './channel-request.js';
+import type { ConnectChannelRequest } from './channel-request.js';
 import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
 import { assetFingerprint } from './node-crypto.js';
@@ -83,6 +84,35 @@ interface ConnectionRow {
 const ASSET_TAKEN_INDEX = 'channel_asset_registry_asset_uq';
 const LIVE_ASSET_INDEX = 'channel_connections_live_asset_uq';
 
+/**
+ * Which kind of secret a channel holds.
+ *
+ * A provider channel holds a grant *they* issued us and we present. Website
+ * Chat and the Custom Channel API hold a key the installation signs *its*
+ * deliveries with. They are stored identically and used in opposite directions,
+ * so naming the purpose is what keeps a verifier from ever being handed a
+ * sending credential.
+ */
+function credentialPurpose(kind: ChannelKind): 'access_token' | 'signing_key' {
+  return kind === 'web_chat' || kind === 'custom' ? 'signing_key' : 'access_token';
+}
+
+/** Only the channels we own store settings; the rest have nothing to put there. */
+function settingsColumn(request: ConnectChannelRequest): Record<string, unknown> {
+  if (request.kind !== 'web_chat' && request.kind !== 'custom') {
+    return {};
+  }
+  const settings: Record<string, unknown> = {};
+  if (request.settings.origins !== undefined) settings['origins'] = request.settings.origins;
+  if (request.settings.ratePerMinute !== undefined) {
+    settings['rate_per_minute'] = request.settings.ratePerMinute;
+  }
+  if (request.settings.declaredTypes !== undefined) {
+    settings['declared_types'] = request.settings.declaredTypes;
+  }
+  return settings;
+}
+
 @Injectable()
 export class ChannelService {
   constructor(
@@ -144,16 +174,6 @@ export class ChannelService {
     const request = parsed.value;
     this.authorization.assertTenantId(tenantId);
 
-    if (adapterFor(request.kind) === null) {
-      // Typed and immediate, never queued to fail later (CH-01).
-      throw new ApiHttpError(
-        400,
-        'not_supported',
-        `This build has no ${request.kind} adapter yet.`,
-        [{ field: 'kind', code: 'not_supported', message: 'Choose an implemented channel.' }],
-      );
-    }
-
     const outcome = await this.idempotency.execute(
       {
         tenantContextId: tenantId,
@@ -185,7 +205,7 @@ export class ChannelService {
   private async connectWithin(
     sql: SqlExecutor,
     tenantId: string,
-    request: { kind: ChannelKind; externalAssetId: string; displayName: string; accessToken: string; appId: string | null },
+    request: ConnectChannelRequest,
   ): Promise<ChannelConnectionSummary> {
     const provider = PROVIDER_OF[request.kind];
     const capabilities = capabilitiesFor(request.kind);
@@ -194,8 +214,8 @@ export class ChannelService {
       sql.query<{ id: string }>(
         `INSERT INTO channel_connections
            (tenant_id, app_id, kind, external_asset_id, display_name, status,
-            capabilities, asset_verified_at)
-         VALUES ($1, $2, $3, $4, $5, 'authorization_needed', $6::jsonb, now())
+            capabilities, settings, asset_verified_at)
+         VALUES ($1, $2, $3, $4, $5, 'authorization_needed', $6::jsonb, $7::jsonb, now())
          RETURNING id::text`,
         [
           tenantId,
@@ -204,6 +224,7 @@ export class ChannelService {
           request.externalAssetId,
           request.displayName,
           JSON.stringify(capabilities),
+          JSON.stringify(settingsColumn(request)),
         ],
       ),
     );
@@ -231,7 +252,7 @@ export class ChannelService {
 
     await this.credentials.store(
       sql,
-      { tenantId, connectionId, purpose: 'access_token' },
+      { tenantId, connectionId, purpose: credentialPurpose(request.kind) },
       request.accessToken,
       null,
     );
@@ -256,7 +277,7 @@ export class ChannelService {
       const connection = await requireConnection(sql, connectionId);
       const check = await this.credentials.withActive(
         sql,
-        { tenantId, connectionId, purpose: 'access_token' },
+        { tenantId, connectionId, purpose: credentialPurpose(connection.kind) },
         (token) => this.transport.validateConnection(connection.kind, token, connection.external_asset_id),
       );
 
@@ -298,10 +319,10 @@ export class ChannelService {
       throw new ApiHttpError(400, 'invalid_input', 'The request is not valid.', parsed.details);
     }
     return this.authorization.authorized(session, tenantId, 'credential.rotate', async ({ sql }) => {
-      await requireConnection(sql, connectionId);
+      const connection = await requireConnection(sql, connectionId);
       await this.credentials.store(
         sql,
-        { tenantId, connectionId, purpose: 'access_token' },
+        { tenantId, connectionId, purpose: credentialPurpose(connection.kind) },
         parsed.value.accessToken,
         null,
       );

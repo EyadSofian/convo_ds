@@ -43,6 +43,10 @@ export class WhatsAppAdapter implements ChannelAdapter {
     return capabilitiesFor('whatsapp');
   }
 
+  claims(payload: unknown): boolean {
+    return asRecord(payload)?.['object'] === 'whatsapp_business_account';
+  }
+
   verifySignature(input: SignatureInput): SignatureVerdict {
     return verifyMetaSignature(input, this.crypto);
   }

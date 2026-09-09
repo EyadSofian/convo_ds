@@ -131,3 +131,21 @@ export type {
 } from './channels/outcome.js';
 
 export { WhatsAppAdapter } from './channels/whatsapp.js';
+export { MessengerAdapter } from './channels/messenger.js';
+export { InstagramAdapter } from './channels/instagram.js';
+export {
+  originAllowed,
+  WEB_CHAT_REPLAY_WINDOW_SECONDS,
+  WEB_CHAT_SIGNATURE_HEADER,
+  WEB_CHAT_TIMESTAMP_HEADER,
+  WebChatAdapter,
+} from './channels/web-chat.js';
+export {
+  CUSTOM_CHANNEL_VERSIONS,
+  CUSTOM_EVENT_TYPES,
+  CUSTOM_REPLAY_WINDOW_SECONDS,
+  CUSTOM_SIGNATURE_HEADER,
+  CUSTOM_TIMESTAMP_HEADER,
+  CustomChannelAdapter,
+  negotiateCustomTypes,
+} from './channels/custom-channel.js';
