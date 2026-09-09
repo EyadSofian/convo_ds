@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { asExecutor, withCredentialResolvedTenant } from '@convo/database';
+import { asExecutor, CREDENTIAL_SETTINGS, withCredentialResolvedTenant } from '@convo/database';
 import type {
   GrantMap,
   PermissionKey,
@@ -308,6 +308,7 @@ export class InvitationService {
     // be revoked between the lookup and the claim.
     const accepted = await withCredentialResolvedTenant(
       this.pool,
+      CREDENTIAL_SETTINGS.invitation,
       credentialHash,
       async (client) => {
         // Only `invitations` is readable here: the carve-out is one row wide

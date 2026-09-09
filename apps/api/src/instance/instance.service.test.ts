@@ -19,7 +19,10 @@ const CONFIG = {
     authHash: 'auth-hash-secret-test-value-00000001',
     bootstrapToken: 'bootstrap-token-test-value-00000001',
     idempotencyHash: 'idempotency-secret-test-value-000001',
+    credentialKeys: [],
   },
+  channelSecrets: {},
+  workerConcurrency: 4,
   host: '127.0.0.1',
   port: 0,
   database: {

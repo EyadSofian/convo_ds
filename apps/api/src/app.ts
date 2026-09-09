@@ -6,6 +6,8 @@ import { applyInstallationConfig } from '@convo/domain';
 import pg from 'pg';
 import { ApiModule } from './api.module.js';
 import type { RecoveryDeliveryPort } from './auth/recovery-delivery.js';
+import type { ChannelTransportPort } from './channels/channel-transport.js';
+import { attachRawBodyParser } from './channels/raw-body.js';
 import type { InvitationDeliveryPort } from './people/invitation-delivery.js';
 import { ApiConfigurationError, parseApiConfig, type ApiConfig } from './config.js';
 import { ApiErrorFilter } from './error.filter.js';
@@ -34,6 +36,7 @@ export class ApiBootError extends Error {
 export interface ApiAdapters {
   readonly recoveryDelivery?: RecoveryDeliveryPort | undefined;
   readonly invitationDelivery?: InvitationDeliveryPort | undefined;
+  readonly channelTransport?: ChannelTransportPort | undefined;
 }
 
 export async function createApiApplication(
@@ -46,10 +49,15 @@ export async function createApiApplication(
     genReqId: requestIdFor,
   });
   attachRouteInventory(adapter.getInstance());
+  // Our own JSON parser, and Nest's turned off. The webhook routes authenticate
+  // on the exact bytes, and Nest's parser hands a route a parsed object with the
+  // bytes already discarded — so there is one parser, ours, and it decides per
+  // route whether to parse or to keep the buffer.
+  attachRawBodyParser(adapter.getInstance());
   const app = await NestFactory.create<NestFastifyApplication>(
     ApiModule.register(config, pool, adapters),
     adapter,
-    { logger: false },
+    { logger: false, bodyParser: false },
   );
   app.setGlobalPrefix('api/v1');
   app.useGlobalFilters(new ApiErrorFilter());

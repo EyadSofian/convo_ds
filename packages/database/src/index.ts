@@ -2,10 +2,12 @@ export { bootstrapCluster } from './bootstrap.js';
 export { MIGRATIONS_DIR, migrate } from './migrate.js';
 export type { MigrateOptions } from './migrate.js';
 export {
+  CREDENTIAL_SETTINGS,
   TenantContextError,
   withCredentialResolvedTenant,
   withTenant,
 } from './context.js';
+export type { CredentialSetting, ResolvedCredential } from './context.js';
 export {
   asExecutor,
   enableInstallationContext,

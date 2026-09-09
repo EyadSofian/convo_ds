@@ -29,7 +29,13 @@ describe('parseApiConfig', () => {
       authHash: 'auth-hash-secret-value-longer-than-32-bytes',
       bootstrapToken: 'bootstrap-token-value-longer-than-32-bytes',
       idempotencyHash: 'idempotency-secret-longer-than-32-bytes',
+      // Empty and not an error: an installation with no channel connections
+      // needs no encryption key, and refusing to boot over an unused feature
+      // would be worse than refusing at the point of use.
+      credentialKeys: [],
     });
+    expect(config.channelSecrets).toEqual({});
+    expect(config.workerConcurrency).toBe(4);
     expect(config.host).toBe('0.0.0.0');
     expect(config.port).toBe(3000);
     expect(config.database).toEqual({
@@ -42,6 +48,46 @@ describe('parseApiConfig', () => {
     expect(Object.isFrozen(config)).toBe(true);
     expect(Object.isFrozen(config.secrets)).toBe(true);
     expect(Object.isFrozen(config.database)).toBe(true);
+  });
+
+  it.each(['ingress', 'realtime', 'worker-inbound', 'worker-campaign'])(
+    'accepts %s as a process role',
+    (role) => {
+      // One artifact, seven jobs (DEP-01). A role the build does not know is
+      // still refused, which is the next case.
+      expect(parseApiConfig({ ...validEnv(), CONVO_PROCESS_ROLE: role }).processRole).toBe(role);
+    },
+  );
+
+  it('reads channel app secrets from the environment, by reference name', () => {
+    // The secret lives in configuration and never in a column: rotating it is
+    // an operations act, and a database reader learns nothing.
+    const config = parseApiConfig({
+      ...validEnv(),
+      CONVO_CHANNEL_SECRET_META_APP: ' the-app-secret ',
+      CONVO_CHANNEL_SECRET_EMPTY: '   ',
+      CONVO_NOT_A_CHANNEL_SECRET: 'ignored',
+    });
+    expect(config.channelSecrets).toEqual({ META_APP: 'the-app-secret' });
+  });
+
+  it('reads credential keys newest-first and refuses an empty list', () => {
+    const config = parseApiConfig({ ...validEnv(), CONVO_CREDENTIAL_KEYS: ' v2:aaa , v1:bbb ' });
+    expect(config.secrets.credentialKeys).toEqual(['v2:aaa', 'v1:bbb']);
+    expect(() => parseApiConfig({ ...validEnv(), CONVO_CREDENTIAL_KEYS: ' , ' })).toThrow(
+      /CONVO_CREDENTIAL_KEYS/,
+    );
+  });
+
+  it('bounds worker concurrency', () => {
+    expect(parseApiConfig({ ...validEnv(), CONVO_WORKER_CONCURRENCY: '16' }).workerConcurrency).toBe(
+      16,
+    );
+    for (const value of ['0', '257', 'many', '2.5']) {
+      expect(() => parseApiConfig({ ...validEnv(), CONVO_WORKER_CONCURRENCY: value })).toThrow(
+        /CONVO_WORKER_CONCURRENCY/,
+      );
+    }
   });
 
   it('accepts a trimmed host and an ephemeral API port', () => {

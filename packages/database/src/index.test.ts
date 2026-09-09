@@ -4,6 +4,7 @@ import * as database from './index.js';
 describe('@convo/database public surface', () => {
   it('exports exactly the documented runtime members', () => {
     expect(Object.keys(database).sort()).toEqual([
+      'CREDENTIAL_SETTINGS',
       'EXIT_FAILED',
       'EXIT_OK',
       'EXIT_USAGE',

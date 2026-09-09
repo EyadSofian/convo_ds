@@ -520,6 +520,359 @@
         }
       }
     },
+    "/tenants/{tenantId}/channels": {
+      "get": {
+        "operationId": "listChannelConnections",
+        "summary": "List channel connections",
+        "description": "Every connection with its readiness, its capability matrix and the separate pieces of evidence behind it. Requires `channel.manage`. A caller with no membership in this company receives 404, not 403.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connections, with evidence-based readiness.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelConnectionListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "connectChannel",
+        "summary": "Connect a provider asset",
+        "description": "Claims the asset for this company installation-wide, stores the credential encrypted, and returns a connection in `authorization_needed`. Connecting does not make a channel work: every later state needs its own evidence. Requires `channel.manage`, CSRF and an `Idempotency-Key` — a retried connect that minted a second connection would leave two rows racing for the same inbound messages.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectChannelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The connection, which is not yet working.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelConnectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "description": "The asset is already connected, or the Idempotency-Key was reused with a different request. Whether the asset is held by this company or another one is deliberately indistinguishable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/channels/{connectionId}": {
+      "delete": {
+        "operationId": "disconnectChannel",
+        "summary": "Disconnect a channel",
+        "description": "Revokes every credential for the connection and releases the asset claim so the same asset can be connected again. The connection row and its event history stay: they are evidence. Requires `channel.manage` and CSRF. Disconnecting twice succeeds.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "connectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected."
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/channels/{connectionId}/credential": {
+      "post": {
+        "operationId": "rotateChannelCredential",
+        "summary": "Rotate a channel credential",
+        "description": "Stores a new credential version and supersedes the previous one, which is kept so a credential in flight during the rotation can still be identified. Verification is reset: the new token has proved nothing yet. Requires `credential.rotate` — reaching a provider credential is a narrower act than managing a channel — and CSRF.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "connectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateChannelCredentialRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The connection, with a new credential fingerprint and verification cleared.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelConnectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "description": "Credential storage is not configured in this installation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/channels/{connectionId}/test": {
+      "post": {
+        "operationId": "testChannelConnection",
+        "summary": "Ask the provider whether the stored credential works",
+        "description": "The only operation that may record `credential_verified`. With no provider transport configured it records `provider_not_connected` — which is the honest answer, not a failure of the request. Requires `channel.manage` and CSRF.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "connectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection with the result of the check recorded on it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelConnectionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "description": "Credential storage is not configured in this installation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/channels/catalogue": {
+      "get": {
+        "operationId": "listChannelCatalogue",
+        "summary": "List the channels this build can serve",
+        "description": "Every channel kind with its capability matrix and whether this build has an adapter for it. Requires `channel.manage`.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The catalogue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelCatalogueResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/tenants/{tenantId}/invitations": {
       "get": {
         "operationId": "listInvitations",
@@ -1679,6 +2032,181 @@
           }
         }
       }
+    },
+    "/webhooks/meta/{appConnectionId}": {
+      "get": {
+        "operationId": "verifyMetaWebhook",
+        "summary": "Answer the provider subscription challenge",
+        "description": "Echoes `hub.challenge` when `hub.verify_token` matches the stored hash. Proving we hold the verify token is all this does: it authenticates nothing on a POST.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "appConnectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "hub.mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hub.verify_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hub.challenge",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The challenge, echoed verbatim.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The challenge failed. A wrong token, a wrong mode and a missing challenge are deliberately indistinguishable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "receiveMetaWebhook",
+        "summary": "Receive a signed provider delivery",
+        "description": "Verifies `X-Hub-Signature-256` over the **exact raw request bytes** in constant time, refuses a replayed delivery, resolves the company from the verified asset inside the payload — never from a header, a path parameter or a query string — and journals the raw envelope before answering. A 200 means the delivery is durably journaled and nothing more.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "appConnectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Hub-Signature-256",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^sha256=[0-9a-f]{64}$"
+            }
+          },
+          {
+            "name": "X-Hub-Timestamp",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The provider envelope, verified as bytes before it is parsed.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Journaled durably.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAccepted"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Verified and understood, with nothing here to route: an asset no company has connected, or an envelope carrying no asset. Retrying cannot change that, so it is not a failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRejected"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A verified sender sent a body that will not parse. Retrying cannot help.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The signature did not verify, or the delivery is outside the replay window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "description": "The provider app secret is not configured here. Our fault, and worth retrying once it is fixed — so it is never a silent 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1936,6 +2464,366 @@
           },
           "request_id": {
             "type": "string"
+          }
+        }
+      },
+      "CapabilityMatrix": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "version",
+          "host",
+          "inboundEvents",
+          "outboundTypes",
+          "attachmentTypes",
+          "textLimit",
+          "windowHours",
+          "businessInitiated",
+          "templates",
+          "deliveryReceipts",
+          "readReceipts"
+        ],
+        "description": "What a channel can carry, for one pinned provider version. Read by the UI to enable, disable and explain options.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ChannelKind"
+          },
+          "version": {
+            "type": "string",
+            "example": "v21.0"
+          },
+          "host": {
+            "type": "string",
+            "example": "graph.facebook.com"
+          },
+          "inboundEvents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "outboundTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "attachmentTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "textLimit": {
+            "$ref": "#/components/schemas/TextLimit"
+          },
+          "windowHours": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Reply window in hours, or null where the channel has none."
+          },
+          "businessInitiated": {
+            "type": "boolean"
+          },
+          "templates": {
+            "type": "boolean",
+            "description": "A WhatsApp concept. False for Messenger and Instagram, which is what stops a WhatsApp template being accepted for them."
+          },
+          "deliveryReceipts": {
+            "type": "boolean"
+          },
+          "readReceipts": {
+            "type": "boolean",
+            "description": "Absent support renders as `not_available`, never as false or 0%."
+          }
+        }
+      },
+      "ChannelCatalogueEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "provider",
+          "implemented",
+          "capabilities"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ChannelKind"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "meta",
+              "web_chat",
+              "custom"
+            ]
+          },
+          "implemented": {
+            "type": "boolean",
+            "description": "Whether this build has an adapter for the kind. False is not a hidden channel."
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/CapabilityMatrix"
+          }
+        }
+      },
+      "ChannelCatalogueResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelCatalogueEntry"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ChannelConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "provider",
+          "display_name",
+          "external_asset_id",
+          "status",
+          "capabilities",
+          "evidence",
+          "missing_evidence",
+          "last_error_code",
+          "last_error_at",
+          "created_at",
+          "disconnected_at",
+          "credential_held",
+          "credential_fingerprint"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChannelKind"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "meta",
+              "web_chat",
+              "custom"
+            ]
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "external_asset_id": {
+            "type": "string",
+            "description": "The provider asset: a phone number id, a Page id, an Instagram account id."
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChannelReadiness"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/CapabilityMatrix"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelEvidence"
+            }
+          },
+          "missing_evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "last_error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_error_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disconnected_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "credential_held": {
+            "type": "boolean",
+            "description": "Whether a credential is stored. Never the credential, never a prefix of it."
+          },
+          "credential_fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An HMAC fingerprint that identifies the stored credential without revealing it, so a rotation is visibly a rotation."
+          }
+        }
+      },
+      "ChannelConnectionListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelConnection"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ChannelConnectionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ChannelConnection"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ChannelEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "satisfied",
+          "observed_at"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "asset_verified",
+              "credential_verified",
+              "webhook_subscribed",
+              "first_inbound",
+              "first_outbound"
+            ]
+          },
+          "satisfied": {
+            "type": "boolean"
+          },
+          "observed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the thing that observed it observed it — not when a form was submitted."
+          }
+        }
+      },
+      "ChannelKind": {
+        "type": "string",
+        "enum": [
+          "whatsapp",
+          "messenger",
+          "instagram",
+          "web_chat",
+          "custom"
+        ],
+        "description": "The five channels. WhatsApp, Messenger and Instagram are separate products with separate hosts, tokens, scopes, windows and capabilities; nothing is inherited between them."
+      },
+      "ChannelReadiness": {
+        "type": "string",
+        "enum": [
+          "not_configured",
+          "authorization_needed",
+          "webhook_pending",
+          "healthy",
+          "degraded",
+          "disconnected"
+        ],
+        "description": "Derived from evidence, never set by hand. `healthy` requires every evidence item; a non-empty token field proves none of them."
+      },
+      "ConnectChannelRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "externalAssetId",
+          "displayName",
+          "accessToken"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ChannelKind"
+          },
+          "externalAssetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "example": "106540352242922"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "example": "Enrollment line"
+          },
+          "accessToken": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 4096,
+            "writeOnly": true,
+            "description": "The provider grant. Stored as AES-256-GCM ciphertext bound to its tenant, connection and purpose, and never returned by any operation."
+          },
+          "appId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -2913,6 +3801,21 @@
           }
         }
       },
+      "RotateChannelCredentialRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accessToken"
+        ],
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 4096,
+            "writeOnly": true
+          }
+        }
+      },
       "Session": {
         "type": "object",
         "additionalProperties": false,
@@ -3077,6 +3980,25 @@
           }
         }
       },
+      "TextLimit": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "characters",
+          "bytes"
+        ],
+        "description": "Both units, because providers publish one or the other and they diverge badly for Arabic: a 1000-character bound is reached at 500 Arabic characters when the real limit is 1000 bytes.",
+        "properties": {
+          "characters": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
       "UpdateMembershipRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -3137,6 +4059,75 @@
           "email": {
             "type": "string",
             "format": "email"
+          }
+        }
+      },
+      "WebhookAccepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "receipt_id",
+          "stored",
+          "duplicates",
+          "request_id"
+        ],
+        "description": "The ACK means the delivery was journaled durably, and nothing more. Normalization, the inbox and every integration happen afterwards.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "received"
+            ]
+          },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stored": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duplicates": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Events already journaled under the same dedupe key. Counted rather than ignored, so redelivery is visible."
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WebhookRejected": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "reason",
+          "request_id"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "rejected"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "missing_header",
+              "malformed_header",
+              "unsupported_algorithm",
+              "mismatch",
+              "stale",
+              "malformed_body",
+              "no_asset_in_payload",
+              "unknown_asset"
+            ]
+          },
+          "request_id": {
+            "type": "string"
           }
         }
       },

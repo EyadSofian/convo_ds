@@ -44,6 +44,7 @@ describe('migrate', () => {
       '0007_role_matrix.sql',
       '0008_invitations.sql',
       '0009_people_admin.sql',
+      '0010_channels.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -57,7 +58,14 @@ describe('migrate', () => {
       'auth_rate_limits',
       'builtin_role_definitions',
       'builtin_role_grants',
+      'channel_apps',
+      'channel_asset_registry',
+      'channel_connections',
+      'channel_credentials',
+      'channel_event_queue',
+      'channel_events',
       'idempotency_records',
+      'inbound_events',
       'installations',
       'invitation_scopes',
       'invitations',
@@ -75,6 +83,7 @@ describe('migrate', () => {
       'user_membership_index',
       'user_sessions',
       'users',
+      'webhook_receipts',
     ]);
   });
 
@@ -85,7 +94,7 @@ describe('migrate', () => {
     const recorded = await pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM schema_migrations',
     );
-    expect(recorded.rows[0]?.count).toBe('9');
+    expect(recorded.rows[0]?.count).toBe('10');
   });
 
   /**

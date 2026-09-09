@@ -5,6 +5,14 @@ export const PASSWORD_HASHER = Symbol('PASSWORD_HASHER');
 export const RECOVERY_DELIVERY = Symbol('RECOVERY_DELIVERY');
 /** Where an invitation token is sent. See people/invitation-delivery.ts. */
 export const INVITATION_DELIVERY = Symbol('INVITATION_DELIVERY');
+/**
+ * How a channel reaches its provider. See channels/channel-transport.ts.
+ *
+ * The default refuses every call, because no provider assets are authorized.
+ * That is the truth this build can tell, and a simulator bound here would make
+ * it look otherwise.
+ */
+export const CHANNEL_TRANSPORT = Symbol('CHANNEL_TRANSPORT');
 
 export interface PasswordHasher {
   hash(plaintext: string): Promise<string>;

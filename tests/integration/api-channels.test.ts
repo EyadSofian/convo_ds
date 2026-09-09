@@ -1,0 +1,1345 @@
+import { createHash, createHmac, randomUUID } from 'node:crypto';
+import argon2 from 'argon2';
+import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
+import type { Pool } from 'pg';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createApiApplication } from '../../apps/api/src/app.js';
+import type { ApiAdapters } from '../../apps/api/src/app.js';
+import { parseApiConfig } from '../../apps/api/src/config.js';
+import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
+import { asExecutor, withTenant } from '../../packages/database/src/index.js';
+import { applyInstallationConfig } from '../../packages/domain/src/index.js';
+import type { ConnectionCheck } from '../../packages/domain/src/index.js';
+import type { DatabaseNames } from '../../packages/database/src/types.js';
+import {
+  clusterCredentials,
+  createScratchDatabase,
+  migrateScratch,
+  scratchMigrationPool,
+  scratchRuntimePool,
+} from '../support/scratch.js';
+
+/**
+ * The channel foundation against a real PostgreSQL with FORCE RLS.
+ *
+ * The path under test is the one the whole milestone is built around:
+ *
+ *   connect an asset → provider delivers a signed webhook → the tenant is
+ *   resolved from the asset → the raw event is journaled → a normalized inbound
+ *   event exists.
+ *
+ * Every step is proved with the properties that actually matter: a forged
+ * signature is refused before anything is written, a forged tenant header is
+ * ignored, a redelivered batch produces one effect, one bad element does not
+ * lose its siblings, and one tenant cannot see or claim another's asset.
+ *
+ * **No provider is contacted.** The signatures are computed with the app secret
+ * this test configures, which is exactly what the provider would do — that
+ * makes the verification real. The *transport* is not configured, so every send
+ * and every connection test refuses with `provider_not_connected`, which is the
+ * honest state of this build until authorized Meta assets exist.
+ */
+
+const BOOTSTRAP_TOKEN = 'channels-bootstrap-token-value-00000001';
+const OWNER_PASSWORD = 'owner password for channel tests';
+const MEMBER_PASSWORD = 'member password for channel tests';
+const APP_SECRET = 'meta-app-secret-for-integration-tests';
+const VERIFY_TOKEN = 'the-verify-token';
+const CREDENTIAL_KEY = `v1:${Buffer.alloc(32, 11).toString('base64')}`;
+const PHONE_ID = 'phone-15550001111';
+
+interface Harness {
+  app: NestFastifyApplication;
+  pool: Pool;
+  server: FastifyInstance;
+  readonly names: DatabaseNames;
+  readonly tenantId: string;
+  readonly appId: string;
+}
+
+interface Browser {
+  readonly cookie: string;
+  readonly csrf: string;
+}
+
+function envFor(names: DatabaseNames): Record<string, string> {
+  const cluster = clusterCredentials();
+  return {
+    CONVO_DEPLOYMENT_MODE: 'saas',
+    CONVO_INSTALLATION_NAME: 'Channels Test',
+    CONVO_PUBLIC_BASE_URL: 'https://convo.test',
+    CONVO_PROCESS_ROLE: 'api',
+    CONVO_AUTH_HASH_SECRET: 'channels-integration-hash-secret-0001',
+    CONVO_BOOTSTRAP_TOKEN: BOOTSTRAP_TOKEN,
+    CONVO_IDEMPOTENCY_HASH_SECRET: 'channels-idempotency-secret-000001',
+    CONVO_CREDENTIAL_KEYS: CREDENTIAL_KEY,
+    CONVO_CHANNEL_SECRET_META_APP: APP_SECRET,
+    CONVO_API_PORT: '0',
+    CONVO_PG_HOST: cluster.host,
+    CONVO_PG_PORT: String(cluster.port),
+    CONVO_PG_DATABASE: names.database,
+    CONVO_PG_RUNTIME_ROLE: names.runtimeRole,
+    CONVO_PG_RUNTIME_PASSWORD: names.runtimePassword,
+  };
+}
+
+async function createHarness(adapters: ApiAdapters = {}): Promise<Harness> {
+  const names = await createScratchDatabase('convo_channels');
+  await migrateScratch(names);
+  const pool = scratchRuntimePool(names, 6);
+  const config = parseApiConfig(envFor(names));
+  await applyInstallationConfig(asExecutor(pool), config.deploymentMode);
+  const app = await createApiApplication(config, pool, adapters);
+  const server = app.getHttpAdapter().getInstance() as unknown as FastifyInstance;
+
+  const bootstrap = await server.inject({
+    method: 'POST',
+    url: '/api/v1/instance/bootstrap',
+    headers: { 'x-bootstrap-token': BOOTSTRAP_TOKEN, 'idempotency-key': 'channels-bootstrap' },
+    payload: {
+      companyName: 'Digital School',
+      companySlug: 'digital-school',
+      ownerEmail: 'owner@channels.test',
+      ownerPassword: OWNER_PASSWORD,
+    },
+  });
+  expect(bootstrap.statusCode).toBe(201);
+  const tenantId = (bootstrap.json() as { data: { tenantId: string } }).data.tenantId;
+
+  // The provider app is installation configuration. It is seeded through the
+  // schema owner, not the runtime role, because the runtime role has only
+  // SELECT on it — registering an app is an operations act, and the grants say
+  // so rather than a comment saying so.
+  const admin = scratchMigrationPool(names);
+  let appId: string;
+  try {
+    const appRow = await admin.query<{ id: string }>(
+      `INSERT INTO channel_apps
+         (provider, external_app_id, secret_ref, secret_fingerprint, verify_token_hash, graph_version)
+       VALUES ('meta', '100000000000001', 'META_APP', $1, $2, 'v21.0')
+       RETURNING id::text`,
+      [sha256(APP_SECRET), sha256(VERIFY_TOKEN)],
+    );
+    appId = appRow.rows[0]?.id as string;
+  } finally {
+    await admin.end();
+  }
+  return { app, pool, server, names, tenantId, appId };
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+async function login(api: Harness, email: string, password: string): Promise<Browser> {
+  const response = await api.server.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    headers: { 'user-agent': 'CONVO channel test' },
+    payload: { email, password },
+  });
+  expect(response.statusCode, `login ${email}`).toBe(200);
+  const raw = response.headers['set-cookie'];
+  const lines = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
+  const cookie = lines.map((line) => line.split(';')[0]).join('; ');
+  const csrf =
+    cookie
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith('convo_csrf='))
+      ?.slice('convo_csrf='.length) ?? '';
+  return { cookie, csrf };
+}
+
+async function send(
+  api: Harness,
+  browser: Browser,
+  method: 'GET' | 'POST' | 'DELETE',
+  path: string,
+  payload?: Record<string, unknown>,
+  key = `channel-${String(Math.random()).slice(2)}`,
+): Promise<LightMyRequestResponse> {
+  return api.server.inject({
+    method,
+    url: `/api/v1/tenants/${api.tenantId}${path}`,
+    headers: {
+      cookie: browser.cookie,
+      'x-csrf-token': browser.csrf,
+      'idempotency-key': key,
+    },
+    ...(payload === undefined ? {} : { payload }),
+  });
+}
+
+/** A signed delivery, exactly as the provider would compose it. */
+function deliver(
+  api: Harness,
+  body: unknown,
+  options: { secret?: string; timestamp?: string; signature?: string } = {},
+): Promise<LightMyRequestResponse> {
+  const raw = JSON.stringify(body);
+  const signature =
+    options.signature ??
+    `sha256=${createHmac('sha256', options.secret ?? APP_SECRET).update(raw).digest('hex')}`;
+  return api.server.inject({
+    method: 'POST',
+    url: `/api/v1/webhooks/meta/${api.appId}`,
+    headers: {
+      'content-type': 'application/json',
+      'x-hub-signature-256': signature,
+      ...(options.timestamp === undefined ? {} : { 'x-hub-timestamp': options.timestamp }),
+    },
+    payload: raw,
+  });
+}
+
+function messageDelivery(
+  messages: readonly Record<string, unknown>[],
+  phoneId = PHONE_ID,
+): Record<string, unknown> {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: 'waba-1',
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              messaging_product: 'whatsapp',
+              metadata: { display_phone_number: '15550001111', phone_number_id: phoneId },
+              messages,
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function textMessage(id: string, body: string): Record<string, unknown> {
+  return {
+    id,
+    from: '15559998888',
+    timestamp: '1789000000',
+    type: 'text',
+    text: { body },
+  };
+}
+
+async function connect(api: Harness, browser: Browser, assetId = PHONE_ID) {
+  return send(api, browser, 'POST', '/channels', {
+    kind: 'whatsapp',
+    externalAssetId: assetId,
+    displayName: 'Enrollment line',
+    accessToken: 'EAAGtestaccesstoken0001',
+    appId: api.appId,
+  });
+}
+
+/* --------------------------------------------------------------- lifecycle -- */
+
+describe('channel connections', () => {
+  let api: Harness;
+  let owner: Browser;
+
+  beforeAll(async () => {
+    api = await createHarness();
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+  }, 180_000);
+
+  afterAll(async () => {
+    await api.app.close();
+  });
+
+  it('lists the catalogue before anything is connected, saying what is implemented', async () => {
+    const response = await send(api, owner, 'GET', '/channels/catalogue');
+    expect(response.statusCode).toBe(200);
+    const entries = (response.json() as { data: { kind: string; implemented: boolean }[] }).data;
+    expect(entries.map((entry) => entry.kind)).toEqual([
+      'whatsapp',
+      'messenger',
+      'instagram',
+      'web_chat',
+      'custom',
+    ]);
+    // Honest about what this build can actually do.
+    expect(entries.filter((entry) => entry.implemented).map((entry) => entry.kind)).toEqual([
+      'whatsapp',
+    ]);
+  });
+
+  it('refuses to connect a channel this build has no adapter for', async () => {
+    const response = await send(api, owner, 'POST', '/channels', {
+      kind: 'instagram',
+      externalAssetId: 'ig-1',
+      displayName: 'Instagram',
+      accessToken: 'IGQVJtestaccesstoken1',
+    });
+    // Typed and immediate, not queued to fail at a provider later (CH-01).
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'not_supported' } });
+  });
+
+  it('connects an asset without claiming it works', async () => {
+    const response = await connect(api, owner, 'phone-lifecycle-1');
+    expect(response.statusCode).toBe(201);
+    const connection = (response.json() as { data: Record<string, unknown> }).data;
+
+    // The single most important assertion in this file: a submitted form does
+    // not produce a working channel.
+    expect(connection['status']).toBe('authorization_needed');
+    expect(connection['credential_held']).toBe(true);
+    expect(connection['missing_evidence']).toEqual([
+      'credential_verified',
+      'webhook_subscribed',
+      'first_inbound',
+      'first_outbound',
+    ]);
+    // And the token is nowhere in the response, at any depth.
+    expect(JSON.stringify(connection)).not.toContain('EAAGtestaccesstoken');
+  });
+
+  it('never returns or stores the token in readable form', async () => {
+    const stored = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ ciphertext: Buffer; fingerprint: string }>(
+        `SELECT ciphertext, fingerprint FROM channel_credentials WHERE status = 'active' LIMIT 1`,
+      ),
+    );
+    const row = stored.rows[0];
+    expect(row).toBeDefined();
+    expect(row?.ciphertext.toString('utf8')).not.toContain('EAAG');
+    expect(row?.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('replays an identical connect and refuses a different one under the same key', async () => {
+    const key = 'connect-idempotency-key';
+    const first = await send(
+      api,
+      owner,
+      'POST',
+      '/channels',
+      {
+        kind: 'whatsapp',
+        externalAssetId: 'phone-idem-1',
+        displayName: 'Idempotent',
+        accessToken: 'EAAGtestaccesstoken0002',
+        appId: api.appId,
+      },
+      key,
+    );
+    expect(first.statusCode).toBe(201);
+    const replay = await send(
+      api,
+      owner,
+      'POST',
+      '/channels',
+      {
+        kind: 'whatsapp',
+        externalAssetId: 'phone-idem-1',
+        displayName: 'Idempotent',
+        accessToken: 'EAAGtestaccesstoken0002',
+        appId: api.appId,
+      },
+      key,
+    );
+    expect(replay.statusCode).toBe(201);
+    expect((replay.json() as { data: { id: string } }).data.id).toBe(
+      (first.json() as { data: { id: string } }).data.id,
+    );
+
+    const different = await send(
+      api,
+      owner,
+      'POST',
+      '/channels',
+      {
+        kind: 'whatsapp',
+        externalAssetId: 'phone-idem-2',
+        displayName: 'Different',
+        accessToken: 'EAAGtestaccesstoken0003',
+        appId: api.appId,
+      },
+      key,
+    );
+    expect(different.statusCode).toBe(409);
+    expect(different.json()).toMatchObject({ error: { code: 'idempotency_key_reused' } });
+  });
+
+  it('refuses a second connection for an asset already claimed', async () => {
+    const first = await connect(api, owner, 'phone-contested-1');
+    expect(first.statusCode).toBe(201);
+    const second = await connect(api, owner, 'phone-contested-1');
+    expect(second.statusCode).toBe(409);
+    expect(second.json()).toMatchObject({ error: { code: 'asset_already_connected' } });
+  });
+
+  it('reports a connection test honestly when no provider transport is configured', async () => {
+    const created = await connect(api, owner, 'phone-test-1');
+    const id = (created.json() as { data: { id: string } }).data.id;
+
+    const tested = await send(api, owner, 'POST', `/channels/${id}/test`);
+    expect(tested.statusCode).toBe(200);
+    const connection = (tested.json() as { data: Record<string, unknown> }).data;
+    // Not "connected", not a fabricated success: the state names exactly why.
+    expect(connection['last_error_code']).toBe('provider_not_connected');
+    expect(connection['status']).toBe('authorization_needed');
+  });
+
+  it('rotates a credential, superseding the old version and clearing verification', async () => {
+    const created = await connect(api, owner, 'phone-rotate-1');
+    const id = (created.json() as { data: { id: string } }).data.id;
+    const before = (created.json() as { data: { credential_fingerprint: string } }).data
+      .credential_fingerprint;
+
+    const rotated = await send(api, owner, 'POST', `/channels/${id}/credential`, {
+      accessToken: 'EAAGrotatedtoken0001',
+    });
+    expect(rotated.statusCode).toBe(200);
+    const after = (rotated.json() as { data: { credential_fingerprint: string } }).data
+      .credential_fingerprint;
+    expect(after).not.toBe(before);
+
+    // Superseded, not deleted: a credential in flight during the rotation can
+    // still be identified afterwards.
+    const versions = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ version: number; status: string }>(
+        `SELECT version, status FROM channel_credentials
+          WHERE connection_id = $1 ORDER BY version`,
+        [id],
+      ),
+    );
+    expect(versions.rows).toEqual([
+      { version: 1, status: 'superseded' },
+      { version: 2, status: 'active' },
+    ]);
+  });
+
+  it('contains the blast radius of a disconnect', async () => {
+    const kept = await connect(api, owner, 'phone-kept-1');
+    const dropped = await connect(api, owner, 'phone-dropped-1');
+    const keptId = (kept.json() as { data: { id: string } }).data.id;
+    const droppedId = (dropped.json() as { data: { id: string } }).data.id;
+
+    const response = await send(api, owner, 'DELETE', `/channels/${droppedId}`);
+    expect(response.statusCode).toBe(204);
+
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ connection_id: string; status: string }>(
+        `SELECT connection_id::text, status FROM channel_credentials
+          WHERE connection_id IN ($1, $2) AND version = 1`,
+        [keptId, droppedId],
+      ),
+    );
+    const byConnection = new Map(rows.rows.map((row) => [row.connection_id, row.status]));
+    expect(byConnection.get(droppedId)).toBe('revoked');
+    // The other connection is untouched (CH-05).
+    expect(byConnection.get(keptId)).toBe('active');
+
+    // The asset claim is released, so the number can be connected again.
+    const again = await connect(api, owner, 'phone-dropped-1');
+    expect(again.statusCode).toBe(201);
+  });
+
+  it('treats a second disconnect as already done', async () => {
+    const created = await connect(api, owner, 'phone-twice-1');
+    const id = (created.json() as { data: { id: string } }).data.id;
+    expect((await send(api, owner, 'DELETE', `/channels/${id}`)).statusCode).toBe(204);
+    expect((await send(api, owner, 'DELETE', `/channels/${id}`)).statusCode).toBe(204);
+  });
+
+  it('records a missing credential rather than reporting the connection healthy', async () => {
+    const created = await connect(api, owner, 'phone-nocred-1');
+    const id = (created.json() as { data: { id: string } }).data.id;
+    // Revoked out from under the connection, as a provider-side revocation or a
+    // partial disconnect would leave it.
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `UPDATE channel_credentials SET status = 'revoked', revoked_at = now() WHERE connection_id = $1`,
+        [id],
+      ),
+    );
+    const tested = await send(api, owner, 'POST', `/channels/${id}/test`);
+    expect((tested.json() as { data: { last_error_code: string } }).data.last_error_code).toBe(
+      'credential_missing',
+    );
+  });
+
+  it('rejects a malformed rotation before it touches the connection', async () => {
+    const created = await connect(api, owner, 'phone-badrotate-1');
+    const id = (created.json() as { data: { id: string } }).data.id;
+    const response = await send(api, owner, 'POST', `/channels/${id}/credential`, { accessToken: '' });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'invalid_input' } });
+  });
+
+  it('reports a disconnected connection as disconnected, with its timestamp', async () => {
+    const created = await connect(api, owner, 'phone-listed-1');
+    const id = (created.json() as { data: { id: string } }).data.id;
+    await send(api, owner, 'DELETE', `/channels/${id}`);
+
+    const listed = await send(api, owner, 'GET', '/channels');
+    const rows = (listed.json() as { data: { id: string; status: string; disconnected_at: string | null }[] })
+      .data;
+    const row = rows.find((entry) => entry.id === id);
+    expect(row?.status).toBe('disconnected');
+    expect(row?.disconnected_at).not.toBeNull();
+    // Kept in the list rather than hidden: the connection and its history are
+    // evidence, and an operator needs to see that it was taken out of service.
+    expect(rows.length).toBeGreaterThan(1);
+  });
+
+  it('answers an unknown connection with the same 404 a stranger gets', async () => {
+    const missing = '99999999-9999-4999-8999-999999999999';
+    expect((await send(api, owner, 'POST', `/channels/${missing}/test`)).statusCode).toBe(404);
+    expect((await send(api, owner, 'DELETE', `/channels/${missing}`)).statusCode).toBe(404);
+  });
+
+  it.each([
+    ['a missing body', {}],
+    ['an unknown kind', { kind: 'telegram', externalAssetId: 'x', displayName: 'x', accessToken: 'aaaaaaaa' }],
+  ])('rejects %s', async (_label, payload) => {
+    const response = await send(api, owner, 'POST', '/channels', payload);
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('accepts an ordinary API request with an empty body', async () => {
+    // The webhook parser also serves every other route. An empty body there is
+    // "no body", not a parse failure.
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${api.tenantId}/channels`,
+      headers: {
+        cookie: owner.cookie,
+        'x-csrf-token': owner.csrf,
+        'idempotency-key': 'empty-body',
+        'content-type': 'application/json',
+      },
+      payload: '',
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'invalid_input' } });
+  });
+
+  it('rejects an ordinary API request whose body is not JSON', async () => {
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${api.tenantId}/channels`,
+      headers: {
+        cookie: owner.cookie,
+        'x-csrf-token': owner.csrf,
+        'idempotency-key': 'bad-body',
+        'content-type': 'application/json',
+      },
+      payload: '{oh no',
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('requires an idempotency key to connect', async () => {
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${api.tenantId}/channels`,
+      headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrf },
+      payload: { kind: 'whatsapp', externalAssetId: 'x', displayName: 'x', accessToken: 'aaaaaaaa' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'idempotency_key_required' } });
+  });
+});
+
+/* ------------------------------------------------------------ authorization -- */
+
+describe('channel authorization', () => {
+  let api: Harness;
+  let owner: Browser;
+  let agent: Browser;
+
+  beforeAll(async () => {
+    api = await createHarness();
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+    const hash = await argon2.hash(MEMBER_PASSWORD, { type: argon2.argon2id });
+    const user = await api.pool.query<{ id: string }>(
+      `INSERT INTO users (email, password_hash, status) VALUES ($1, $2, 'active') RETURNING id::text`,
+      ['agent@channels.test', hash],
+    );
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      const role = await client.query<{ id: string }>(
+        `SELECT id::text FROM roles WHERE key = 'agent'`,
+      );
+      await client.query(
+        `INSERT INTO memberships (tenant_id, user_id, role_id, status)
+         VALUES ($1, $2, $3, 'active')`,
+        [api.tenantId, user.rows[0]?.id, role.rows[0]?.id],
+      );
+    });
+    agent = await login(api, 'agent@channels.test', MEMBER_PASSWORD);
+  }, 180_000);
+
+  afterAll(async () => {
+    await api.app.close();
+  });
+
+  it('denies an Agent every channel operation, by key', async () => {
+    // An Agent holds no `channel.manage`, so the server refuses regardless of
+    // what any UI chose to render.
+    expect((await send(api, agent, 'GET', '/channels')).statusCode).toBe(403);
+    expect((await send(api, agent, 'GET', '/channels/catalogue')).statusCode).toBe(403);
+    expect((await connect(api, agent, 'phone-denied-1')).statusCode).toBe(403);
+  });
+
+  it('separates rotating a credential from managing a channel', async () => {
+    const created = await connect(api, owner, 'phone-perm-1');
+    const id = (created.json() as { data: { id: string } }).data.id;
+    const response = await send(api, agent, 'POST', `/channels/${id}/credential`, {
+      accessToken: 'EAAGrotate0002',
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('requires CSRF on every mutation', async () => {
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${api.tenantId}/channels`,
+      headers: { cookie: owner.cookie, 'idempotency-key': 'no-csrf' },
+      payload: { kind: 'whatsapp', externalAssetId: 'x', displayName: 'x', accessToken: 'aaaaaaaa' },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('conceals another tenant behind the same 404 non-membership gives', async () => {
+    const stranger = '88888888-8888-4888-8888-888888888888';
+    const response = await api.server.inject({
+      method: 'GET',
+      url: `/api/v1/tenants/${stranger}/channels`,
+      headers: { cookie: owner.cookie },
+    });
+    expect(response.statusCode).toBe(404);
+  });
+});
+
+/* ---------------------------------------------------------------- ingress -- */
+
+describe('webhook ingress', () => {
+  let api: Harness;
+  let owner: Browser;
+  let connectionId: string;
+
+  beforeAll(async () => {
+    api = await createHarness();
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+    const created = await connect(api, owner);
+    expect(created.statusCode).toBe(201);
+    connectionId = (created.json() as { data: { id: string } }).data.id;
+  }, 180_000);
+
+  afterAll(async () => {
+    await api.app.close();
+  });
+
+  it('answers the subscription challenge with the token it holds', async () => {
+    const response = await api.server.inject({
+      method: 'GET',
+      url: `/api/v1/webhooks/meta/${api.appId}?hub.mode=subscribe&hub.verify_token=${VERIFY_TOKEN}&hub.challenge=12345`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toBe('12345');
+  });
+
+  it.each([
+    ['a wrong verify token', `hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=1`],
+    ['a wrong mode', `hub.mode=unsubscribe&hub.verify_token=${VERIFY_TOKEN}&hub.challenge=1`],
+  ])('refuses the challenge with %s', async (_label, query) => {
+    const response = await api.server.inject({
+      method: 'GET',
+      url: `/api/v1/webhooks/meta/${api.appId}?${query}`,
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('refuses a delivery to an unknown app the way an unknown route answers', async () => {
+    const response = await api.server.inject({
+      method: 'GET',
+      url: `/api/v1/webhooks/meta/99999999-9999-4999-8999-999999999999?hub.mode=subscribe&hub.verify_token=${VERIFY_TOKEN}&hub.challenge=1`,
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('accepts a signed delivery and journals it before answering', async () => {
+    const response = await deliver(api, messageDelivery([textMessage('wamid.first', 'مرحبا')]));
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ status: 'received', stored: 1, duplicates: 0 });
+
+    const events = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ dedupe_key: string; status: string; payload: Record<string, unknown> }>(
+        `SELECT dedupe_key, status, payload FROM channel_events WHERE dedupe_key = 'wa:msg:wamid.first'`,
+      ),
+    );
+    expect(events.rows).toHaveLength(1);
+    expect(events.rows[0]?.status).toBe('received');
+    // The provider's own element is what was journaled — the evidence, not our
+    // interpretation of it.
+    expect(events.rows[0]?.payload).toMatchObject({ id: 'wamid.first', type: 'text' });
+
+    // Receiving is itself evidence, and only the ingress can observe it.
+    const connection = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ first_inbound_at: Date | null; webhook_subscribed_at: Date | null }>(
+        'SELECT first_inbound_at, webhook_subscribed_at FROM channel_connections WHERE id = $1',
+        [connectionId],
+      ),
+    );
+    expect(connection.rows[0]?.first_inbound_at).not.toBeNull();
+    expect(connection.rows[0]?.webhook_subscribed_at).not.toBeNull();
+  });
+
+  it('refuses an altered body, and writes nothing but a receipt', async () => {
+    const body = messageDelivery([textMessage('wamid.tampered', 'original')]);
+    const signature = `sha256=${createHmac('sha256', APP_SECRET).update(JSON.stringify(body)).digest('hex')}`;
+    // The signature is over the original bytes; the body sent is one byte
+    // different. This is EVT-01.
+    const tampered = messageDelivery([textMessage('wamid.tampered', 'originaL')]);
+    const response = await deliver(api, tampered, { signature });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ reason: 'mismatch' });
+    const events = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(`SELECT 1 FROM channel_events WHERE dedupe_key = 'wa:msg:wamid.tampered'`),
+    );
+    expect(events.rows).toHaveLength(0);
+
+    const receipts = await api.pool.query<{ outcome: string; signature_valid: boolean }>(
+      `SELECT outcome, signature_valid FROM webhook_receipts
+        WHERE outcome = 'signature_invalid' ORDER BY received_at DESC LIMIT 1`,
+    );
+    // The refusal is still evidence: an operator can see that bytes arrived.
+    expect(receipts.rows[0]).toMatchObject({ outcome: 'signature_invalid', signature_valid: false });
+  });
+
+  it('refuses a delivery signed with another secret', async () => {
+    const response = await deliver(api, messageDelivery([textMessage('wamid.wrongsecret', 'x')]), {
+      secret: 'not-the-app-secret-at-all-0000000001',
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('refuses a replayed delivery outside the window', async () => {
+    const stale = String(Math.floor(Date.now() / 1000) - 3600);
+    const response = await deliver(api, messageDelivery([textMessage('wamid.replay', 'x')]), {
+      timestamp: stale,
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ reason: 'stale' });
+  });
+
+  it('ignores a forged tenant header and routes only by the verified asset', async () => {
+    const other = '77777777-7777-4777-8777-777777777777';
+    const raw = JSON.stringify(messageDelivery([textMessage('wamid.forged', 'x')]));
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/webhooks/meta/${api.appId}`,
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', APP_SECRET).update(raw).digest('hex')}`,
+        // Every shape a caller might hope is authority.
+        'x-tenant-id': other,
+        'x-convo-tenant': other,
+      },
+      payload: raw,
+    });
+    expect(response.statusCode).toBe(200);
+
+    const routed = await api.pool.query<{ tenant_id: string }>(
+      `SELECT tenant_id::text FROM webhook_receipts WHERE outcome = 'routed' ORDER BY received_at DESC LIMIT 1`,
+    );
+    // The tenant came from the asset in the payload, not from a header (DEL-02).
+    expect(routed.rows[0]?.tenant_id).toBe(api.tenantId);
+  });
+
+  it('acknowledges a verified delivery for an asset nobody has connected, and keeps no content', async () => {
+    const response = await deliver(
+      api,
+      messageDelivery([textMessage('wamid.stranger', 'secret')], 'phone-not-connected'),
+    );
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({ reason: 'unknown_asset' });
+
+    const receipts = await api.pool.query<{ outcome: string; tenant_id: string | null }>(
+      `SELECT outcome, tenant_id::text FROM webhook_receipts
+        WHERE outcome = 'unknown_asset' ORDER BY received_at DESC LIMIT 1`,
+    );
+    expect(receipts.rows[0]).toMatchObject({ outcome: 'unknown_asset', tenant_id: null });
+    // No message content is retained for an asset this installation does not
+    // know: that is somebody else's customer.
+    const stored = await api.pool.query(
+      `SELECT 1 FROM channel_events WHERE dedupe_key = 'wa:msg:wamid.stranger'`,
+    );
+    expect(stored.rows).toHaveLength(0);
+  });
+
+  it('absorbs a redelivery, in either order, as one effect', async () => {
+    const first = textMessage('wamid.dup-a', 'first');
+    const second = textMessage('wamid.dup-b', 'second');
+
+    const original = await deliver(api, messageDelivery([first, second]));
+    expect(original.json()).toMatchObject({ stored: 2, duplicates: 0 });
+
+    // The provider redelivers the same facts with the batch reordered (EVT-02).
+    const redelivered = await deliver(api, messageDelivery([second, first]));
+    expect(redelivered.statusCode).toBe(200);
+    expect(redelivered.json()).toMatchObject({ stored: 0, duplicates: 2 });
+
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `SELECT 1 FROM channel_events WHERE dedupe_key IN ('wa:msg:wamid.dup-a', 'wa:msg:wamid.dup-b')`,
+      ),
+    );
+    expect(rows.rows).toHaveLength(2);
+  });
+
+  it('keeps a message and a status about it as separate facts', async () => {
+    await deliver(api, messageDelivery([textMessage('wamid.status-1', 'hello')]));
+    const statuses = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba-1',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: PHONE_ID },
+                statuses: [
+                  {
+                    id: 'wamid.status-1',
+                    status: 'delivered',
+                    recipient_id: '15559998888',
+                    timestamp: '1789000001',
+                  },
+                  {
+                    id: 'wamid.status-1',
+                    status: 'read',
+                    recipient_id: '15559998888',
+                    timestamp: '1789000002',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const response = await deliver(api, statuses);
+    // Two statuses about a message that already exists: three rows in total,
+    // none of them suppressing another.
+    expect(response.json()).toMatchObject({ stored: 2, duplicates: 0 });
+  });
+
+  it('stores a poison element beside its siblings instead of losing the batch', async () => {
+    const response = await deliver(
+      api,
+      messageDelivery([
+        textMessage('wamid.good-1', 'first'),
+        { from: 'nobody', type: 'text', text: { body: 'no id' } },
+        textMessage('wamid.good-2', 'third'),
+      ]),
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ stored: 3 });
+
+    const quarantined = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ quarantine_reason: string; payload: Record<string, unknown> }>(
+        `SELECT quarantine_reason, payload FROM channel_events WHERE status = 'quarantined'`,
+      ),
+    );
+    expect(quarantined.rows.some((row) => row.quarantine_reason === 'message_missing_id_or_sender')).toBe(
+      true,
+    );
+    // Its payload is kept intact, so it can be diagnosed and replayed.
+    expect(
+      quarantined.rows.find((row) => row.quarantine_reason === 'message_missing_id_or_sender')
+        ?.payload,
+    ).toMatchObject({ from: 'nobody' });
+
+    const good = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `SELECT 1 FROM channel_events WHERE dedupe_key IN ('wa:msg:wamid.good-1', 'wa:msg:wamid.good-2')`,
+      ),
+    );
+    expect(good.rows).toHaveLength(2);
+  });
+
+  it('absorbs a redelivered poison element too', async () => {
+    const poison = messageDelivery([
+      textMessage('wamid.poison-1', 'first'),
+      { from: 'twice', type: 'text', text: { body: 'no id' } },
+    ]);
+    const first = await deliver(api, poison);
+    expect(first.json()).toMatchObject({ stored: 2, duplicates: 0 });
+    // The quarantine key is content-addressed, so redelivering the same broken
+    // element does not pile up rows.
+    const second = await deliver(api, poison);
+    expect(second.json()).toMatchObject({ stored: 0, duplicates: 2 });
+  });
+
+  it('quarantines a null element in a messages array', async () => {
+    const response = await deliver(api, messageDelivery([null as unknown as Record<string, unknown>]));
+    expect(response.statusCode).toBe(200);
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ payload: unknown }>(
+        `SELECT payload FROM channel_events
+          WHERE status = 'quarantined' AND quarantine_reason = 'message_missing_id_or_sender'
+            AND payload = 'null'::jsonb`,
+      ),
+    );
+    expect(rows.rows).toHaveLength(1);
+  });
+
+  it('refuses a delivery whose content type we do not parse', async () => {
+    // The parser never runs, so there are no bytes to verify, and the signature
+    // check refuses on a mismatch rather than on a crash.
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/webhooks/meta/${api.appId}`,
+      headers: {
+        'content-type': 'text/plain',
+        'x-hub-signature-256': `sha256=${'a'.repeat(64)}`,
+      },
+      payload: 'not json at all',
+    });
+    expect([401, 415]).toContain(response.statusCode);
+  });
+
+  it('acknowledges a verified delivery with nothing addressable in it', async () => {
+    const response = await deliver(api, { object: 'page', entry: [] });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({ reason: 'no_asset_in_payload' });
+  });
+
+  it('refuses an unparsable body from a verified sender', async () => {
+    const raw = '{not json';
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/webhooks/meta/${api.appId}`,
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', APP_SECRET).update(raw).digest('hex')}`,
+      },
+      payload: raw,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ reason: 'malformed_body' });
+  });
+
+  it('refuses a delivery on a route key that is not an id at all', async () => {
+    const response = await api.server.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/meta/not-a-uuid',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': `sha256=${'a'.repeat(64)}` },
+      payload: '{}',
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('answers a retryable 503 when our own app secret is not configured', async () => {
+    // The delivery is real and worth keeping. Silently 200-ing it would lose a
+    // customer's message over a configuration mistake of ours.
+    const admin = scratchMigrationPool(api.names);
+    let strayApp: string;
+    try {
+      const row = await admin.query<{ id: string }>(
+        `INSERT INTO channel_apps
+           (provider, external_app_id, secret_ref, secret_fingerprint, verify_token_hash, graph_version)
+         VALUES ('meta', '200000000000002', 'UNCONFIGURED_APP', $1, $2, 'v21.0')
+         RETURNING id::text`,
+        [sha256('x'), sha256('y')],
+      );
+      strayApp = row.rows[0]?.id as string;
+    } finally {
+      await admin.end();
+    }
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/webhooks/meta/${strayApp}`,
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': `sha256=${'a'.repeat(64)}` },
+      payload: '{}',
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({ error: { code: 'channel_secret_unavailable' } });
+  });
+
+  it('refuses a delivery with an empty body', async () => {
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/webhooks/meta/${api.appId}`,
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', APP_SECRET).update('').digest('hex')}`,
+      },
+      payload: '',
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('refuses a delivery with no signature at all', async () => {
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/webhooks/meta/${api.appId}`,
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify(messageDelivery([textMessage('wamid.nosig', 'x')])),
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ reason: 'missing_header' });
+  });
+});
+
+/* --------------------------------------------------- a stubbed transport -- */
+
+describe('with a stubbed provider transport', () => {
+  /**
+   * A **stub**, not a provider and not a simulator of one.
+   *
+   * It exists to exercise our own success and failure handling, which is
+   * otherwise unreachable while no authorized Meta assets exist. It never
+   * produces a message id, never claims a send happened, and is bound only
+   * inside this test. Nothing in the shipped composition root has a transport.
+   */
+  let api: Harness;
+  let owner: Browser;
+  let answer: ConnectionCheck;
+
+  beforeAll(async () => {
+    api = await createHarness({
+      channelTransport: {
+        name: 'test-stub',
+        validateConnection: () => Promise.resolve(answer),
+        send: () =>
+          Promise.resolve({
+            status: 'definitely_rejected' as const,
+            code: 'stub',
+            message: 'This stub never sends.',
+            retryable: false,
+          }),
+      },
+    });
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+  }, 180_000);
+
+  afterAll(async () => {
+    await api.app.close();
+  });
+
+  it('records credential verification only when the provider says yes', async () => {
+    const created = await connect(api, owner, 'phone-stub-ok');
+    const id = (created.json() as { data: { id: string } }).data.id;
+
+    answer = { ok: true, assetIdentity: 'phone-stub-ok', code: null, message: null };
+    const tested = await send(api, owner, 'POST', `/channels/${id}/test`);
+    const connection = (tested.json() as { data: Record<string, unknown> }).data;
+    expect(connection['last_error_code']).toBeNull();
+    // Verified, and still not healthy: no webhook has arrived yet, and each
+    // piece of evidence is earned separately (CH-02).
+    expect(connection['status']).toBe('webhook_pending');
+    expect(connection['missing_evidence']).toEqual([
+      'webhook_subscribed',
+      'first_inbound',
+      'first_outbound',
+    ]);
+  });
+
+  it('falls back to a generic code when the provider refuses without naming one', async () => {
+    const created = await connect(api, owner, 'phone-stub-bad');
+    const id = (created.json() as { data: { id: string } }).data.id;
+
+    answer = { ok: false, assetIdentity: null, code: null, message: null };
+    const tested = await send(api, owner, 'POST', `/channels/${id}/test`);
+    expect((tested.json() as { data: { last_error_code: string } }).data.last_error_code).toBe(
+      'provider_rejected',
+    );
+  });
+
+  it('degrades a connection that worked and then stopped', async () => {
+    const created = await connect(api, owner, 'phone-stub-degrade');
+    const id = (created.json() as { data: { id: string } }).data.id;
+
+    answer = { ok: true, assetIdentity: 'phone-stub-degrade', code: null, message: null };
+    await send(api, owner, 'POST', `/channels/${id}/test`);
+    answer = { ok: false, assetIdentity: null, code: 'token_expired', message: 'Expired.' };
+    const again = await send(api, owner, 'POST', `/channels/${id}/test`);
+
+    const connection = (again.json() as { data: Record<string, unknown> }).data;
+    // Degraded, not "webhook_pending": it was authorized and then broke, and
+    // telling an operator to keep waiting would be the wrong instruction.
+    expect(connection['status']).toBe('degraded');
+    expect(connection['last_error_code']).toBe('token_expired');
+  });
+});
+
+/* ---------------------------------------------------------- normalization -- */
+
+describe('normalization', () => {
+  let api: Harness;
+  let owner: Browser;
+  let normalizer: ChannelNormalizationService;
+
+  beforeAll(async () => {
+    api = await createHarness();
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+    expect((await connect(api, owner)).statusCode).toBe(201);
+    normalizer = api.app.get(ChannelNormalizationService);
+  }, 180_000);
+
+  afterAll(async () => {
+    await api.app.close();
+  });
+
+  it('turns a journaled event into a normalized inbound event', async () => {
+    await deliver(api, messageDelivery([textMessage('wamid.norm-1', 'مرحبا بالعالم')]));
+
+    expect(await normalizer.pendingTenants()).toContain(api.tenantId);
+    const result = await normalizer.drain(api.tenantId);
+    expect(result.projected).toBeGreaterThan(0);
+
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{
+        kind: string;
+        provider_message_id: string;
+        peer_identity: string;
+        asset_identity: string;
+        text_body: string;
+        occurred_at: Date;
+      }>(
+        `SELECT kind, provider_message_id, peer_identity, asset_identity, text_body, occurred_at
+           FROM inbound_events WHERE provider_message_id = 'wamid.norm-1'`,
+      ),
+    );
+    expect(rows.rows[0]).toMatchObject({
+      kind: 'message',
+      peer_identity: '15559998888',
+      asset_identity: PHONE_ID,
+      text_body: 'مرحبا بالعالم',
+    });
+    // The provider's time, not ours: both are stored and they disagree.
+    expect(rows.rows[0]?.occurred_at.toISOString()).toBe('2026-09-10T00:26:40.000Z');
+  });
+
+  it('is idempotent: a second drain adds nothing', async () => {
+    await deliver(api, messageDelivery([textMessage('wamid.norm-2', 'once')]));
+    await normalizer.drain(api.tenantId);
+    const after = await normalizer.drain(api.tenantId);
+    expect(after.claimed).toBe(0);
+
+    const count = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM inbound_events WHERE provider_message_id = 'wamid.norm-2'`,
+      ),
+    );
+    expect(count.rows[0]?.count).toBe('1');
+  });
+
+  it('projects an out-of-order read before its delivered without folding them', async () => {
+    const statuses = (state: string, timestamp: string) => ({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba-1',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: PHONE_ID },
+                statuses: [
+                  { id: 'wamid.order-1', status: state, recipient_id: '1555', timestamp },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    // `read` arrives first, `delivered` second — the anomaly ADR-0006 names.
+    await deliver(api, statuses('read', '1789000005'));
+    await deliver(api, statuses('delivered', '1789000004'));
+    await normalizer.drain(api.tenantId);
+
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ kind: string; occurred_at: Date }>(
+        `SELECT kind, occurred_at FROM inbound_events
+          WHERE provider_message_id = 'wamid.order-1' ORDER BY occurred_at`,
+      ),
+    );
+    // Two independent rows. Nothing was overwritten, and the later provider
+    // timestamp still belongs to `read`.
+    expect(rows.rows.map((row) => row.kind)).toEqual(['delivery_status', 'read_status']);
+  });
+
+  it('marks a drained event so it is not claimed twice', async () => {
+    await deliver(api, messageDelivery([textMessage('wamid.norm-3', 'drain me')]));
+    await normalizer.drain(api.tenantId);
+    const states = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ status: string; processed_at: Date | null }>(
+        `SELECT status, processed_at FROM channel_events WHERE dedupe_key = 'wa:msg:wamid.norm-3'`,
+      ),
+    );
+    expect(states.rows[0]?.status).toBe('normalized');
+    expect(states.rows[0]?.processed_at).not.toBeNull();
+  });
+
+  it('reports an already-projected event on a deliberate replay', async () => {
+    await deliver(api, messageDelivery([textMessage('wamid.replay-1', 'again')]));
+    await normalizer.drain(api.tenantId);
+
+    // An operator replaying a batch re-queues the event. The projection is
+    // keyed on its source, so the replay converges rather than duplicating.
+    const eventId = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>(
+        `SELECT id::text FROM channel_events WHERE dedupe_key = 'wa:msg:wamid.replay-1'`,
+      ),
+    );
+    await api.pool.query(
+      `INSERT INTO channel_event_queue (event_id, tenant_id) VALUES ($1, $2)`,
+      [eventId.rows[0]?.id, api.tenantId],
+    );
+
+    const result = await normalizer.drain(api.tenantId);
+    expect(result).toMatchObject({ claimed: 1, projected: 0, alreadyProjected: 1, failed: 0 });
+    const count = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM inbound_events WHERE provider_message_id = 'wamid.replay-1'`,
+      ),
+    );
+    expect(count.rows[0]?.count).toBe('1');
+  });
+
+  it('keeps queued work it cannot read, rather than dropping it', async () => {
+    // A queue row pointing at an event this context cannot see — what a
+    // cascade delete or a routing bug would leave behind. Deleting it silently
+    // is how an inbox loses a message.
+    const orphan = randomUUID();
+    await api.pool.query(
+      `INSERT INTO channel_event_queue (event_id, tenant_id) VALUES ($1, $2)`,
+      [orphan, api.tenantId],
+    );
+    const result = await normalizer.drain(api.tenantId);
+    expect(result.failed).toBeGreaterThan(0);
+
+    const row = await api.pool.query<{ attempts: number; last_error: string; lease_until: Date | null }>(
+      `SELECT attempts, last_error, lease_until FROM channel_event_queue WHERE event_id = $1`,
+      [orphan],
+    );
+    expect(row.rows[0]).toMatchObject({ attempts: 1, last_error: 'event_not_visible' });
+    // The lease is released so a later attempt can pick it up again.
+    expect(row.rows[0]?.lease_until).toBeNull();
+    await api.pool.query('DELETE FROM channel_event_queue WHERE event_id = $1', [orphan]);
+  });
+
+  it('leaves a quarantined element out of the normalized projection', async () => {
+    await deliver(
+      api,
+      messageDelivery([{ from: 'nobody', type: 'text', text: { body: 'no id' } }]),
+    );
+    await normalizer.drain(api.tenantId);
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM inbound_events WHERE peer_identity = 'nobody'`,
+      ),
+    );
+    // Kept as evidence in `channel_events`, absent from the inbox projection.
+    expect(rows.rows[0]?.count).toBe('0');
+  });
+});
+
+/* ------------------------------------------------------- tenant isolation -- */
+
+describe('channel tenant isolation', () => {
+  let api: Harness;
+  let owner: Browser;
+  let otherTenant: string;
+
+  beforeAll(async () => {
+    api = await createHarness();
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+    expect((await connect(api, owner)).statusCode).toBe(201);
+    // A second company, created the way the runtime role must: inside its own
+    // tenant context, so the row it writes is the row RLS lets it write.
+    otherTenant = randomUUID();
+    await withTenant(api.pool, otherTenant, async (client) => {
+      await client.query(
+        `INSERT INTO tenants (id, name, slug, status) VALUES ($1, 'Other', 'other-co', 'active')`,
+        [otherTenant],
+      );
+    });
+  }, 180_000);
+
+  afterAll(async () => {
+    await api.app.close();
+  });
+
+  it('hides a connection from another tenant’s context under FORCE RLS', async () => {
+    const rows = await withTenant(api.pool, otherTenant, (client) =>
+      client.query(`SELECT 1 FROM channel_connections`),
+    );
+    expect(rows.rows).toHaveLength(0);
+  });
+
+  it('hides the credential rows too', async () => {
+    const rows = await withTenant(api.pool, otherTenant, (client) =>
+      client.query(`SELECT 1 FROM channel_credentials`),
+    );
+    expect(rows.rows).toHaveLength(0);
+  });
+
+  it('hides the registry row unless the asset fingerprint is presented', async () => {
+    // The carve-out is one row wide and keyed on a fingerprint the ingress can
+    // only derive from a signature-verified payload.
+    const blind = await withTenant(api.pool, otherTenant, (client) =>
+      client.query(`SELECT 1 FROM channel_asset_registry`),
+    );
+    expect(blind.rows).toHaveLength(0);
+  });
+
+  it('refuses a cross-tenant write even with a row id in hand', async () => {
+    const id = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>(`SELECT id::text FROM channel_connections LIMIT 1`),
+    );
+    const target = id.rows[0]?.id as string;
+    const updated = await withTenant(api.pool, otherTenant, (client) =>
+      client.query(`UPDATE channel_connections SET display_name = 'stolen' WHERE id = $1`, [target]),
+    );
+    expect(updated.rowCount).toBe(0);
+  });
+
+  it('refuses to claim an asset another tenant already holds', async () => {
+    // Attempted directly against the database, bypassing the service, because
+    // the guarantee has to hold below the application too (CH-03).
+    await expect(
+      withTenant(api.pool, otherTenant, async (client) => {
+        const connection = await client.query<{ id: string }>(
+          `INSERT INTO channel_connections (tenant_id, kind, external_asset_id, display_name)
+           VALUES ($1, 'whatsapp', $2, 'Theirs') RETURNING id::text`,
+          [otherTenant, PHONE_ID],
+        );
+        await client.query(
+          `INSERT INTO channel_asset_registry
+             (asset_fingerprint, provider, kind, external_asset_id, tenant_id, connection_id)
+           VALUES ($1, 'meta', 'whatsapp', $2, $3, $4)`,
+          [
+            createHash('sha256').update(`meta:whatsapp:${PHONE_ID}`).digest('hex'),
+            PHONE_ID,
+            otherTenant,
+            connection.rows[0]?.id,
+          ],
+        );
+      }),
+    ).rejects.toThrow(/channel_asset_registry_pkey|channel_asset_registry_asset_uq/);
+  });
+
+  it('keeps a tenant’s events invisible to another tenant', async () => {
+    await deliver(api, messageDelivery([textMessage('wamid.isolated', 'private')]));
+    const rows = await withTenant(api.pool, otherTenant, (client) =>
+      client.query(`SELECT 1 FROM channel_events`),
+    );
+    expect(rows.rows).toHaveLength(0);
+  });
+});

@@ -113,6 +113,12 @@ describe('pinned OpenAPI contract', () => {
       'bootstrapInstallation',
       'acceptInvitation',
       'listMyMemberships',
+      'listChannelConnections',
+      'connectChannel',
+      'disconnectChannel',
+      'rotateChannelCredential',
+      'testChannelConnection',
+      'listChannelCatalogue',
       'listInvitations',
       'createInvitation',
       'revokeInvitation',
@@ -133,6 +139,8 @@ describe('pinned OpenAPI contract', () => {
       'updateTeam',
       'addTeamMember',
       'removeTeamMember',
+      'verifyMetaWebhook',
+      'receiveMetaWebhook',
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);

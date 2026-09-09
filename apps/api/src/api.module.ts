@@ -15,6 +15,14 @@ import { LoggingRecoveryDelivery } from './auth/recovery-delivery.js';
 import type { RecoveryDeliveryPort } from './auth/recovery-delivery.js';
 import { RecoveryService } from './auth/recovery.service.js';
 import { AuthorizationService } from './authorization/authorization.service.js';
+import { ChannelController } from './channels/channel.controller.js';
+import { ChannelService } from './channels/channel.service.js';
+import { unconfiguredTransport } from './channels/channel-transport.js';
+import type { ChannelTransportPort } from './channels/channel-transport.js';
+import { ChannelCredentialService } from './channels/credential.service.js';
+import { ChannelIngressController } from './channels/ingress.controller.js';
+import { ChannelIngressService } from './channels/ingress.service.js';
+import { ChannelNormalizationService } from './channels/normalization.service.js';
 import { PermissionController } from './authorization/permission.controller.js';
 import { PermissionService } from './authorization/permission.service.js';
 import { IdempotencyService } from './idempotency/idempotency.service.js';
@@ -31,6 +39,7 @@ import { MembershipService } from './memberships/membership.service.js';
 import {
   API_CONFIG,
   API_POOL,
+  CHANNEL_TRANSPORT,
   INVITATION_DELIVERY,
   PASSWORD_HASHER,
   RECOVERY_DELIVERY,
@@ -68,6 +77,7 @@ export class ApiModule {
     adapters: {
       readonly recoveryDelivery?: RecoveryDeliveryPort | undefined;
       readonly invitationDelivery?: InvitationDeliveryPort | undefined;
+      readonly channelTransport?: ChannelTransportPort | undefined;
     } = {},
   ): DynamicModule {
     return {
@@ -79,6 +89,8 @@ export class ApiModule {
         PermissionController,
         InvitationController,
         PeopleController,
+        ChannelController,
+        ChannelIngressController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -95,6 +107,13 @@ export class ApiModule {
           provide: INVITATION_DELIVERY,
           useValue: adapters.invitationDelivery ?? new LoggingInvitationDelivery(),
         },
+        // No provider transport is configured, because no authorized Meta
+        // assets exist. The default refuses every send and every connection
+        // test with a typed reason rather than pretending to succeed.
+        {
+          provide: CHANNEL_TRANSPORT,
+          useValue: adapters.channelTransport ?? unconfiguredTransport,
+        },
         IdempotencyService,
         InstanceService,
         AuthRateLimiter,
@@ -103,6 +122,10 @@ export class ApiModule {
         RecoveryService,
         InvitationService,
         PeopleService,
+        ChannelCredentialService,
+        ChannelService,
+        ChannelIngressService,
+        ChannelNormalizationService,
         MembershipService,
         PermissionService,
         PoolLifecycle,

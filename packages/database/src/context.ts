@@ -56,6 +56,23 @@ export async function withTenant<T>(
 const TOKEN_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 /**
+ * The transaction-local settings a verified fact may be presented under.
+ *
+ * Two, not one, and named separately on purpose. An invitation token and a
+ * provider asset are both "something the caller demonstrably has", but they
+ * unlock different tables, and one setting serving both would mean a bug in
+ * either carve-out widens the other.
+ */
+export const CREDENTIAL_SETTINGS = {
+  /** A single-use credential this installation issued: an invitation token. */
+  invitation: 'convo.credential_hash',
+  /** A provider asset whose identity a webhook signature has already proved. */
+  channelAsset: 'convo.asset_fingerprint',
+} as const;
+
+export type CredentialSetting = (typeof CREDENTIAL_SETTINGS)[keyof typeof CREDENTIAL_SETTINGS];
+
+/**
  * Runs `work` inside a transaction whose tenant context was resolved from a
  * **verified credential** rather than from a membership.
  *
@@ -65,11 +82,11 @@ const TOKEN_HASH_PATTERN = /^[0-9a-f]{64}$/;
  * installation issued, and the tenant is read from that credential, never from
  * anything the caller supplied alongside it.
  *
- * The carve-out is deliberately as narrow as it can be. `convo.credential_hash`
- * is transaction-local and is matched against ONE column, so the policy admits
- * exactly the row whose token the caller already has — not "all invitations
- * while a flag is set". The rest of the transaction then runs under the normal
- * tenant context, so every later read and write is isolated as usual.
+ * The carve-out is deliberately as narrow as it can be. `setting` is
+ * transaction-local and is matched against ONE column, so the policy admits
+ * exactly the row whose fingerprint the caller already holds — not "all
+ * invitations while a flag is set". The rest of the transaction then runs under
+ * the normal tenant context, so every later read and write is isolated as usual.
  *
  * Returns `null` without opening a tenant context when nothing matches, so a
  * dead token cannot be told apart from an unknown one by observing behaviour.
@@ -87,6 +104,7 @@ export interface ResolvedCredential<R> {
 
 export async function withCredentialResolvedTenant<R, T>(
   pool: Pool,
+  setting: CredentialSetting,
   credentialHash: string,
   resolveTenant: (client: PoolClient) => Promise<ResolvedCredential<R> | null>,
   work: (client: PoolClient, resolved: ResolvedCredential<R>) => Promise<T>,
@@ -98,9 +116,10 @@ export async function withCredentialResolvedTenant<R, T>(
   let result: T | null;
   try {
     await client.query('BEGIN');
-    await client.query('SELECT set_config($1, $2, true)', ['convo.credential_hash', credentialHash]);
+    await client.query('SELECT set_config($1, $2, true)', [setting, credentialHash]);
     const scope = await client.query<{ value: string | null }>(
-      "SELECT nullif(current_setting('convo.credential_hash', true), '') AS value",
+      "SELECT nullif(current_setting($1, true), '') AS value",
+      [setting],
     );
     if (scope.rows[0]?.value !== credentialHash) {
       throw new TenantContextError('Credential context did not take effect in this transaction');

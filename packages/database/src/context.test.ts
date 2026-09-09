@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { TenantContextError, withCredentialResolvedTenant, withTenant } from './context.js';
+import {
+  CREDENTIAL_SETTINGS,
+  TenantContextError,
+  withCredentialResolvedTenant,
+  withTenant,
+} from './context.js';
 import { fakePool } from './testing/fake-pool.js';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -106,6 +111,7 @@ describe('withCredentialResolvedTenant', () => {
     const fake = fakePool({ reportedTenant: TENANT, reportedCredential: HASH });
     const result = await withCredentialResolvedTenant(
       fake.pool,
+      CREDENTIAL_SETTINGS.invitation,
       HASH,
       async () => await Promise.resolve({ tenantId: TENANT, value: 'the row' }),
       async (_client, resolved) =>
@@ -114,10 +120,14 @@ describe('withCredentialResolvedTenant', () => {
 
     expect(result).toBe(`worked in ${TENANT} with the row`);
     expect(fake.queries[0]).toBe('BEGIN');
-    // The setting name travels as a bound parameter, so only the read-back
-    // query names it. Both happen before anything is resolved.
-    expect(fake.queries[1]).toBe('SELECT set_config($1, $2, true)');
-    expect(fake.queries[2]).toContain('convo.credential_hash');
+    // The setting name travels as a bound parameter, so which context was
+    // opened is visible in the values rather than in the SQL text. Both the
+    // write and its read-back happen before anything is resolved.
+    expect(fake.calls[1]).toEqual({
+      text: 'SELECT set_config($1, $2, true)',
+      values: ['convo.credential_hash', HASH],
+    });
+    expect(fake.calls[2]?.values).toEqual(['convo.credential_hash']);
     // The tenant context is entered afterwards, and verified in its turn.
     expect(fake.queries.some((text) => text.includes('app_current_tenant()'))).toBe(true);
     expect(fake.queries.at(-1)).toBe('COMMIT');
@@ -135,6 +145,7 @@ describe('withCredentialResolvedTenant', () => {
     await expect(
       withCredentialResolvedTenant(
         fake.pool,
+        CREDENTIAL_SETTINGS.invitation,
         value,
         async () => await Promise.resolve({ tenantId: TENANT, value: null }),
         async () => await Promise.resolve(1),
@@ -155,6 +166,7 @@ describe('withCredentialResolvedTenant', () => {
     await expect(
       withCredentialResolvedTenant(
         fake.pool,
+        CREDENTIAL_SETTINGS.invitation,
         HASH,
         async () => {
           resolved = true;
@@ -173,6 +185,7 @@ describe('withCredentialResolvedTenant', () => {
     let ran = false;
     const result = await withCredentialResolvedTenant(
       fake.pool,
+      CREDENTIAL_SETTINGS.invitation,
       HASH,
       async () => await Promise.resolve(null),
       async () => {
@@ -193,6 +206,7 @@ describe('withCredentialResolvedTenant', () => {
     await expect(
       withCredentialResolvedTenant(
         fake.pool,
+        CREDENTIAL_SETTINGS.invitation,
         HASH,
         async () => await Promise.resolve({ tenantId: 'not-a-uuid', value: null }),
         async () => await Promise.resolve(1),
@@ -210,6 +224,7 @@ describe('withCredentialResolvedTenant', () => {
     await expect(
       withCredentialResolvedTenant(
         fake.pool,
+        CREDENTIAL_SETTINGS.invitation,
         HASH,
         async () => await Promise.resolve({ tenantId: TENANT, value: null }),
         async () => {
@@ -231,6 +246,7 @@ describe('withCredentialResolvedTenant', () => {
     await expect(
       withCredentialResolvedTenant(
         fake.pool,
+        CREDENTIAL_SETTINGS.invitation,
         HASH,
         async () => await Promise.resolve({ tenantId: TENANT, value: null }),
         async () => {

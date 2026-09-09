@@ -20,22 +20,35 @@ export interface FakePoolOptions {
   readonly failOn?: { readonly match: RegExp; readonly error: Error };
 }
 
+export interface FakeQuery {
+  readonly text: string;
+  readonly values: readonly unknown[];
+}
+
 export interface FakePool {
   readonly pool: Pool;
   readonly queries: readonly string[];
+  /**
+   * The same calls with their bound values. A setting name travels as a
+   * parameter, so which context was opened is only visible here — and which
+   * context was opened is the security-relevant fact.
+   */
+  readonly calls: readonly FakeQuery[];
   releaseCount(): number;
 }
 
 export function fakePool(options: FakePoolOptions = {}): FakePool {
   const queries: string[] = [];
+  const calls: FakeQuery[] = [];
   let released = 0;
   const reported = options.reportedTenant;
   const reportedCredential = options.reportedCredential;
   const failOn = options.failOn;
 
   const client: Pick<PoolClient, 'query' | 'release'> = {
-    query: ((text: string): Promise<QueryResult> => {
+    query: ((text: string, values?: readonly unknown[]): Promise<QueryResult> => {
       queries.push(text);
+      calls.push({ text, values: values ?? [] });
       if (failOn !== undefined && failOn.match.test(text)) {
         return Promise.reject(failOn.error);
       }
@@ -43,8 +56,10 @@ export function fakePool(options: FakePoolOptions = {}): FakePool {
         return Promise.resolve(result(reported === undefined ? [] : [{ tenant: reported }]));
       }
       // The credential-scope read-back, mirroring the tenant one above: omit
-      // `reportedCredential` to make the setting look as if it never took.
-      if (text.includes('convo.credential_hash')) {
+      // `reportedCredential` to make the setting look as if it never took. The
+      // setting's name is a bound parameter now, so the shape of the query is
+      // what identifies it rather than the name inside it.
+      if (text.includes('current_setting(')) {
         return Promise.resolve(
           result(reportedCredential === undefined ? [] : [{ value: reportedCredential }]),
         );
@@ -58,6 +73,7 @@ export function fakePool(options: FakePoolOptions = {}): FakePool {
 
   return {
     queries,
+    calls,
     releaseCount: () => released,
     pool: {
       connect: () => Promise.resolve(client as PoolClient),

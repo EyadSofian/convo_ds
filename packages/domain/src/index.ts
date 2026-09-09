@@ -56,3 +56,63 @@ export type {
   GrantMap,
   ScopeRequest,
 } from './iam/delegation.js';
+
+/* -------------------------------------------------------------- channels -- */
+
+export {
+  CHANNEL_KINDS,
+  CHANNEL_PROVIDERS,
+  EVIDENCE_KINDS,
+  isChannelKind,
+  missingEvidence,
+  PROVIDER_OF,
+  READINESS_STATES,
+  readinessOf,
+} from './channels/kinds.js';
+export type {
+  ChannelKind,
+  ChannelProvider,
+  EvidenceKind,
+  EvidenceRecord,
+  Readiness,
+  ReadinessInput,
+} from './channels/kinds.js';
+
+export {
+  CAPABILITY_MATRICES,
+  capabilitiesFor,
+  measureText,
+  PINNED_GRAPH_VERSION,
+  utf8Length,
+} from './channels/capabilities.js';
+export type { CapabilityMatrix, TextLimit, TextMeasurement } from './channels/capabilities.js';
+
+export type { ChannelCrypto } from './channels/crypto.js';
+
+export { permitSend, REFUSAL_REASONS } from './channels/policy.js';
+export type { RefusalReason, SendPermit, SendRequest } from './channels/policy.js';
+
+export { ADAPTER_PORT_VERSION, INBOUND_KINDS, SIGNATURE_REFUSALS } from './channels/port.js';
+export type {
+  ChannelAdapter,
+  ChannelTransport,
+  ConnectionCheck,
+  InboundAttachment,
+  InboundKind,
+  NormalizedBatch,
+  NormalizedEvent,
+  QuarantinedElement,
+  SendCommand,
+  SendOutcome,
+  SignatureInput,
+  SignatureRefusal,
+  SignatureVerdict,
+} from './channels/port.js';
+
+export {
+  answerMetaChallenge,
+  REPLAY_WINDOW_SECONDS,
+  verifyMetaSignature,
+} from './channels/meta-signature.js';
+
+export { WhatsAppAdapter } from './channels/whatsapp.js';
