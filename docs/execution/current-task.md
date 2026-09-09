@@ -4,7 +4,57 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T5 second slice (Milestone B: password recovery)
+## Last completed task — P1-T5 third slice (Milestone B: invitations, and a 100% coverage gate)
+
+**Task / requirement IDs:** IAM-06 closed. IAM-14 moved to `partial` with the enforced half named. DEP-14 restored to a real 100/100/100/100 gate.
+
+### Behavior delivered
+
+**The coverage gate is honest again.** Branch coverage was 98.95% against a threshold of 95, so it could rot to 95 without failing anything. It is now 100% and the threshold says 100. Six of the twenty-two uncovered paths were **deleted as unreachable** rather than covered — a non-nullable `ownerDocument` fallback, a finite-by-construction guard, an attribute re-read that `closestWithAttr` had already proved present, an optional parameter every caller passes, a campaign-example lookup whose fallback key cannot be missing, and a tab fallback the guard above it prevents. The rest were covered with tests for behaviour that genuinely happens.
+
+**Invitations store a fingerprint, never a token.** Creation requires `member.manage`, CSRF and an `Idempotency-Key`, and authorizes **inside** the idempotency transaction rather than opening a second one, so the record and the invitation commit together. A retry replays the first answer; a second invitation for the same address supersedes the first, because two live tokens for one seat are two ways in.
+
+**The ceiling is arithmetic, not a list of role names.** An Admin cannot invite an Owner because Admin does not hold `tenant.delete`. A scoped inviter cannot grant an inbox they cannot see.
+
+**Acceptance needed a new tenancy primitive.** `FORCE ROW LEVEL SECURITY` applies to the table owner, so a `SECURITY DEFINER` lookup could not read the invitation either — the first attempt at one was removed. `withCredentialResolvedTenant` sets a transaction-local credential fingerprint that the policy admits for exactly the row carrying that token, takes `FOR UPDATE`, then enters the tenant's normal context. One row wide, not a flag that opens the table.
+
+**Accept requires a password in both cases** — creating the identity, or proving it. Otherwise holding the link would attach a stranger's established account to a company. Unknown, expired, revoked, already-used and wrong-password are byte-identical, and a wrong password does not burn the invitation. A successful accept clears the attempt counter so an office behind one IP can onboard ten people.
+
+**A visual-regression flake was fixed at the cause.** The seeded dataset derives timestamps from `new Date()` at boot, so baselines drifted with wall-clock time. Playwright's clock is frozen before the bundle runs.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0008_invitations.sql` | invitations, scopes, ownership-transfer offers, the one-row RLS carve-out |
+| `packages/database/src/context.ts` | `withCredentialResolvedTenant` — tenant resolved from a verified credential |
+| `packages/domain/src/iam/delegation.ts` | `canAssignRole` / `canAuthorRole` / `canGrantScopes` |
+| `apps/api/src/people/` | invitation service, request parsing, delivery port, controller |
+| `apps/api/src/require-row.ts` | the impossible-row guard, in one tested place |
+| `tests/integration/api-invitations.test.ts` | 23 tests against real PostgreSQL |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | four projects |
+| `pnpm build` | **0** | |
+| `pnpm test:coverage` | **0** | 65 files, **870 tests**, **100% lines / statements / functions / branches** |
+| `pnpm test:integration` | **0** | 17 files, **156 tests** against real PostgreSQL 17.4 |
+| `pnpm test:e2e` | **0** | 146 tests |
+| `pnpm test:a11y` | **0** | 22 tests |
+
+### Honest remaining scope
+
+- **No email provider is configured**, so no invitation is actually delivered in production. Open dependency #9.
+- The People/Roles/Teams **mutation** surface does not exist: role change, scope change, custom-role creation, team membership and ownership transfer are all still unimplemented. The `ownership_transfers` table exists but has no routes.
+- There is **no People UI**. `apps/web` remains the demo; UX-09 stays `planned`.
+- The invitation token travels in the URL path, as the task specifies. It is single-use, short-lived and rate-limited for that reason, and the OpenAPI description records that access logs must redact it.
+
+---
+
+## Previously completed — P1-T5 second slice (Milestone B: password recovery)
 
 **Task / requirement IDs:** IAM-03 closed. API-02 incremental (two routes documented and drift-checked).
 
@@ -272,7 +322,7 @@ These block only the named live/deployment checks. Independent implementation co
 
 ---
 
-## Next task — P1-T5 remainder (Milestone B: invitations, the mutation surface and the People UI)
+## Next task — P1-T5 remainder (Milestone B: the mutation surface and the People UI)
 
 **Task:** the parts of Milestone B the role-boundary slice did not cover.
 
@@ -281,7 +331,7 @@ These block only the named live/deployment checks. Independent implementation co
 **Scope:**
 
 1. ~~Complete generic password-recovery start/complete with single-use HMAC-only challenges, shared abuse limits, transactional password update plus session revocation, and an injectable delivery port whose production implementation never returns the token in HTTP.~~ **Done** (IAM-03). The delivery port is unwired: a real email adapter and its credentials are an open dependency.
-2. Add tenant-scoped invitations with hashed single-use tokens, expiry, revoke and atomic accept. Known/unknown recovery and invite failures must not expose hidden account or tenant state.
+2. ~~Add tenant-scoped invitations with hashed single-use tokens, expiry, revoke and atomic accept.~~ **Done** (IAM-06).
 3. ~~Seed the seven built-in tenant roles and their exact permission-key matrices; implement Tenant/Scoped/Own/No intersection without role-name authorization.~~ **Done** in the slice above (IAM-09, IAM-10).
 4. **Partly done:** protected People/Roles/Teams *read* APIs and last-active-Owner protection are in place. Still open: the mutation surface (invite, change role, change scopes, create/edit a custom role within the delegation ceiling, ownership transfer with acceptance), all of it behind CSRF and idempotency where replay would otherwise duplicate an effect — plus the UI for these screens.
 5. Exercise recovery, invite accept/reuse/expiry/revoke, every role/permission decision, privilege escalation attempts and concurrent last-Owner changes against real PostgreSQL and FORCE RLS.

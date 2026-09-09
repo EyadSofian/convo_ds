@@ -6,6 +6,7 @@ import { applyInstallationConfig } from '@convo/domain';
 import pg from 'pg';
 import { ApiModule } from './api.module.js';
 import type { RecoveryDeliveryPort } from './auth/recovery-delivery.js';
+import type { InvitationDeliveryPort } from './people/invitation-delivery.js';
 import { ApiConfigurationError, parseApiConfig, type ApiConfig } from './config.js';
 import { ApiErrorFilter } from './error.filter.js';
 import { requestIdFor } from './request-id.js';
@@ -32,6 +33,7 @@ export class ApiBootError extends Error {
  */
 export interface ApiAdapters {
   readonly recoveryDelivery?: RecoveryDeliveryPort | undefined;
+  readonly invitationDelivery?: InvitationDeliveryPort | undefined;
 }
 
 export async function createApiApplication(

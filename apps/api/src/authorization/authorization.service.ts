@@ -1,8 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, withTenant } from '@convo/database';
-import type { Decision, PermissionKey, Principal, ResourceRef, ScopeLevel } from '@convo/domain';
+import type {
+  Decision,
+  PermissionKey,
+  Principal,
+  ResourceRef,
+  ScopeLevel,
+  SqlExecutor,
+} from '@convo/domain';
 import { authorize, isPermissionKey } from '@convo/domain';
-import type { PoolClient } from 'pg';
 import type { Pool } from 'pg';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
@@ -48,18 +54,52 @@ export class AuthorizationService {
     tenantId: string,
     work: (context: PrincipalContext) => Promise<T>,
   ): Promise<T> {
+    this.assertTenantId(tenantId);
+    return withTenant(this.pool, tenantId, async (client) => {
+      const sql = asExecutor(client);
+      return work({ sql, principal: await this.requirePrincipal(sql, session), tenantId });
+    });
+  }
+
+  /**
+   * Loads and authorizes a principal inside a transaction the caller already
+   * owns.
+   *
+   * The idempotency service opens its own transaction, and the effect plus the
+   * stored result must commit together. Nesting a second transaction inside it
+   * would break that, so an idempotent route authorizes through this method
+   * with the executor it was handed instead.
+   */
+  async requirePrincipal(sql: SqlExecutor, session: AuthenticatedSession): Promise<Principal> {
+    const principal = await loadPrincipal(sql, session.userId);
+    if (principal === null) {
+      // No membership in this tenant — or no such tenant at all. The two are
+      // deliberately indistinguishable from outside.
+      throw notFound();
+    }
+    return principal;
+  }
+
+  /** Authorizes one key inside a caller-owned transaction. */
+  async requirePermission(
+    sql: SqlExecutor,
+    session: AuthenticatedSession,
+    permission: PermissionKey,
+    resource: ResourceRef = {},
+  ): Promise<Principal> {
+    const principal = await this.requirePrincipal(sql, session);
+    const decision = authorize(principal, permission, resource);
+    if (!decision.allowed) {
+      throw denial(decision);
+    }
+    return principal;
+  }
+
+  /** Rejects a tenant id that cannot name a tenant, before any query runs. */
+  assertTenantId(tenantId: string): void {
     if (!UUID_PATTERN.test(tenantId)) {
       throw notFound();
     }
-    return withTenant(this.pool, tenantId, async (client) => {
-      const principal = await loadPrincipal(client, session.userId);
-      if (principal === null) {
-        // No membership in this tenant — or no such tenant at all. The two are
-        // deliberately indistinguishable from outside.
-        throw notFound();
-      }
-      return work({ client, principal, tenantId });
-    });
   }
 
   /**
@@ -84,7 +124,7 @@ export class AuthorizationService {
 }
 
 export interface PrincipalContext {
-  readonly client: PoolClient;
+  readonly sql: SqlExecutor;
   readonly principal: Principal;
   readonly tenantId: string;
 }
@@ -101,9 +141,7 @@ export interface AuthorizedContext extends PrincipalContext {
  * from another tenant cannot enter the principal even if a predicate were
  * wrong: the policy denies it before this query sees it.
  */
-async function loadPrincipal(client: PoolClient, userId: string): Promise<Principal | null> {
-  const sql = asExecutor(client);
-
+async function loadPrincipal(sql: SqlExecutor, userId: string): Promise<Principal | null> {
   const membership = await sql.query<{
     membership_id: string;
     membership_status: Principal['membershipStatus'];

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import { MATRIX, openInbox, setDirection, setTheme } from './support/workspace';
+import { freezeClock, MATRIX, openInbox, setDirection, setTheme } from './support/workspace';
 
 /**
  * Accessibility acceptance — task §3, "Run accessibility checks for keyboard,
@@ -70,6 +70,7 @@ test.describe('axe: no WCAG 2.1 AA violations', () => {
 
   for (const screen of ['channels', 'people', 'broadcasts', 'analytics', 'settings'] as const) {
     test(`workspace screen — ${screen}`, async ({ page }) => {
+      await freezeClock(page);
       await page.goto(`/#/${screen}`);
       await expect(page.locator('.workspace')).toBeVisible();
       expect(describeViolations(await audit(page))).toEqual([]);

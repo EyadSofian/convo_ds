@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { MATRIX, openInbox, setDirection, setTheme } from './support/workspace';
+import { freezeClock, MATRIX, openInbox, setDirection, setTheme } from './support/workspace';
 
 /**
  * Visual regression — task §3, "Add visual-regression screenshots ... for the
@@ -10,9 +10,11 @@ import { MATRIX, openInbox, setDirection, setTheme } from './support/workspace';
  * such as a colour drifting or a control losing its border. The first run
  * writes baselines under tests/e2e/visual.spec.ts-snapshots/.
  *
- * Time is frozen through the app's own deterministic seed (every timestamp is
- * derived from `now` in src/data.ts), and animations are disabled by the config,
- * so a diff means the design changed.
+ * Time is frozen with Playwright's clock before the bundle boots, because the
+ * seeded dataset derives every timestamp from `new Date()` at startup — without
+ * that, a baseline taken an hour earlier differs in every clock time and every
+ * "4m ago". Animations are disabled by the config. A diff therefore means the
+ * design changed, not that the day moved on.
  */
 
 test.describe('inbox baselines', () => {
@@ -70,6 +72,7 @@ test.describe('state baselines', () => {
 
   test('projected unassigned queue for an agent', async ({ page }) => {
     // business-rules.md §4.1: no snippet, no PII, claim-first.
+    await freezeClock(page);
     await page.goto('/#/inbox?as=agent&queue=unassigned');
     await expect(page.locator('.convrow').first()).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
@@ -80,6 +83,7 @@ test.describe('state baselines', () => {
 test.describe('workspace screen baselines', () => {
   for (const screen of ['channels', 'people', 'broadcasts', 'analytics', 'settings'] as const) {
     test(`screen — ${screen}`, async ({ page }) => {
+      await freezeClock(page);
       await page.goto(`/#/${screen}`);
       await expect(page.locator('.workspace')).toBeVisible();
       await page.evaluate(() => document.fonts.ready);

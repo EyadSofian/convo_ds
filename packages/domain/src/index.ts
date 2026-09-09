@@ -48,3 +48,11 @@ export type {
   ResourceRef,
   ScopeGrant,
 } from './iam/authorize.js';
+
+export { canAssignRole, canAuthorRole, canGrantScopes } from './iam/delegation.js';
+export type {
+  DelegationRefusal,
+  DelegationResult,
+  GrantMap,
+  ScopeRequest,
+} from './iam/delegation.js';

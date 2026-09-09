@@ -17,6 +17,7 @@ describe('@convo/database public surface', () => {
       'runCli',
       'setTenantContext',
       'tenantTransaction',
+      'withCredentialResolvedTenant',
       'withTenant',
     ]);
   });

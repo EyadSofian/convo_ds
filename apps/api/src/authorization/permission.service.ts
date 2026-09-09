@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { asExecutor } from '@convo/database';
 import type { ScopeLevel } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from './authorization.service.js';
@@ -48,8 +47,8 @@ export class PermissionService {
     session: AuthenticatedSession,
     tenantId: string,
   ): Promise<readonly PermissionDescriptor[]> {
-    return this.authorization.authorized(session, tenantId, 'role.manage', async ({ client }) => {
-      const permissions = await asExecutor(client).query<PermissionDescriptor>(
+    return this.authorization.authorized(session, tenantId, 'role.manage', async ({ sql }) => {
+      const permissions = await sql.query<PermissionDescriptor>(
         'SELECT key, description, delegable FROM permissions ORDER BY key',
       );
       return permissions.rows;
@@ -62,8 +61,7 @@ export class PermissionService {
    * itself administrative information.
    */
   async listRoles(session: AuthenticatedSession, tenantId: string): Promise<readonly RoleSummary[]> {
-    return this.authorization.authorized(session, tenantId, 'role.manage', async ({ client }) => {
-      const sql = asExecutor(client);
+    return this.authorization.authorized(session, tenantId, 'role.manage', async ({ sql }) => {
       const roles = await sql.query<{
         id: string;
         key: string;
@@ -100,8 +98,7 @@ export class PermissionService {
     session: AuthenticatedSession,
     tenantId: string,
   ): Promise<readonly PersonSummary[]> {
-    return this.authorization.authorized(session, tenantId, 'member.manage', async ({ client }) => {
-      const sql = asExecutor(client);
+    return this.authorization.authorized(session, tenantId, 'member.manage', async ({ sql }) => {
       const people = await sql.query<{
         membership_id: string;
         email: string;
@@ -144,8 +141,8 @@ export class PermissionService {
    * who sees which work, so it is a membership-administration question.
    */
   async listTeams(session: AuthenticatedSession, tenantId: string): Promise<readonly TeamSummary[]> {
-    return this.authorization.authorized(session, tenantId, 'member.manage', async ({ client }) => {
-      const teams = await asExecutor(client).query<{
+    return this.authorization.authorized(session, tenantId, 'member.manage', async ({ sql }) => {
+      const teams = await sql.query<{
         id: string;
         name: string;
         member_count: string;

@@ -15,6 +15,8 @@ export interface FakePoolOptions {
    * row at all, which is what an unset context looks like.
    */
   readonly reportedTenant?: string;
+  /** What the credential-scope setting reports after being set. */
+  readonly reportedCredential?: string;
   readonly failOn?: { readonly match: RegExp; readonly error: Error };
 }
 
@@ -28,6 +30,7 @@ export function fakePool(options: FakePoolOptions = {}): FakePool {
   const queries: string[] = [];
   let released = 0;
   const reported = options.reportedTenant;
+  const reportedCredential = options.reportedCredential;
   const failOn = options.failOn;
 
   const client: Pick<PoolClient, 'query' | 'release'> = {
@@ -38,6 +41,13 @@ export function fakePool(options: FakePoolOptions = {}): FakePool {
       }
       if (text.includes('app_current_tenant()')) {
         return Promise.resolve(result(reported === undefined ? [] : [{ tenant: reported }]));
+      }
+      // The credential-scope read-back, mirroring the tenant one above: omit
+      // `reportedCredential` to make the setting look as if it never took.
+      if (text.includes('convo.credential_hash')) {
+        return Promise.resolve(
+          result(reportedCredential === undefined ? [] : [{ value: reportedCredential }]),
+        );
       }
       return Promise.resolve(result([]));
     }) as PoolClient['query'],

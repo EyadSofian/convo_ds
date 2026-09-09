@@ -12,8 +12,25 @@ import { expect } from '@playwright/test';
 export type Direction = 'rtl' | 'ltr';
 export type Theme = 'light' | 'dark';
 
+/**
+ * A fixed instant for every screenshot.
+ *
+ * The seeded dataset derives every timestamp from `new Date()` at boot, so a
+ * baseline captured at 01:47 and compared at 03:15 differs in every clock time
+ * and every "4m ago" in the queue. Freezing the page clock before the bundle
+ * runs makes the rendering a function of the code alone, which is the only way
+ * a visual diff can mean "the design changed".
+ */
+export const FROZEN_NOW = new Date('2026-09-09T09:30:00.000Z');
+
+/** Installs the fixed clock. Must run before the page script boots. */
+export async function freezeClock(page: Page): Promise<void> {
+  await page.clock.install({ time: FROZEN_NOW });
+}
+
 /** Opens the inbox and waits for the shell to have rendered. */
 export async function openInbox(page: Page): Promise<void> {
+  await freezeClock(page);
   await page.goto('/#/inbox');
   await expect(page.locator('.shell')).toBeVisible();
   await expect(page.locator('.zone--thread')).toBeVisible();

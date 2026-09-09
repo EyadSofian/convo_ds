@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TenantContextError, withTenant } from './context.js';
+import { TenantContextError, withCredentialResolvedTenant, withTenant } from './context.js';
 import { fakePool } from './testing/fake-pool.js';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -95,6 +95,149 @@ describe('withTenant', () => {
     await expect(
       withTenant(fake.pool, TENANT, async () => await Promise.resolve(1)),
     ).rejects.toThrow('commit failed');
+    expect(fake.releaseCount()).toBe(1);
+  });
+});
+
+describe('withCredentialResolvedTenant', () => {
+  const HASH = 'a'.repeat(64);
+
+  it('sets the credential scope, resolves the tenant, then enters it', async () => {
+    const fake = fakePool({ reportedTenant: TENANT, reportedCredential: HASH });
+    const result = await withCredentialResolvedTenant(
+      fake.pool,
+      HASH,
+      async () => await Promise.resolve({ tenantId: TENANT, value: 'the row' }),
+      async (_client, resolved) =>
+        await Promise.resolve(`worked in ${resolved.tenantId} with ${resolved.value}`),
+    );
+
+    expect(result).toBe(`worked in ${TENANT} with the row`);
+    expect(fake.queries[0]).toBe('BEGIN');
+    // The setting name travels as a bound parameter, so only the read-back
+    // query names it. Both happen before anything is resolved.
+    expect(fake.queries[1]).toBe('SELECT set_config($1, $2, true)');
+    expect(fake.queries[2]).toContain('convo.credential_hash');
+    // The tenant context is entered afterwards, and verified in its turn.
+    expect(fake.queries.some((text) => text.includes('app_current_tenant()'))).toBe(true);
+    expect(fake.queries.at(-1)).toBe('COMMIT');
+    expect(fake.releaseCount()).toBe(1);
+  });
+
+  it.each([
+    ['an empty string', ''],
+    ['a short hex string', 'abc'],
+    ['uppercase hex', 'A'.repeat(64)],
+    ['a uuid', TENANT],
+    ['a 63-character hash', 'a'.repeat(63)],
+  ])('refuses %s before it reaches SQL', async (_label, value) => {
+    const fake = fakePool();
+    await expect(
+      withCredentialResolvedTenant(
+        fake.pool,
+        value,
+        async () => await Promise.resolve({ tenantId: TENANT, value: null }),
+        async () => await Promise.resolve(1),
+      ),
+    ).rejects.toThrow(TenantContextError);
+    expect(fake.queries).toEqual([]);
+    expect(fake.releaseCount()).toBe(0);
+  });
+
+  /**
+   * The same argument as the tenant read-back: a scope that did not take effect
+   * would leave the policy carve-out closed, and running the resolver anyway
+   * would silently look at nothing.
+   */
+  it('aborts when the credential scope does not take effect', async () => {
+    const fake = fakePool({ reportedTenant: TENANT });
+    let resolved = false;
+    await expect(
+      withCredentialResolvedTenant(
+        fake.pool,
+        HASH,
+        async () => {
+          resolved = true;
+          return await Promise.resolve({ tenantId: TENANT, value: null });
+        },
+        async () => await Promise.resolve(1),
+      ),
+    ).rejects.toThrow('Credential context did not take effect in this transaction');
+    expect(resolved).toBe(false);
+    expect(fake.queries).toContain('ROLLBACK');
+    expect(fake.releaseCount()).toBe(1);
+  });
+
+  it('commits without entering any tenant when nothing resolves', async () => {
+    const fake = fakePool({ reportedCredential: HASH });
+    let ran = false;
+    const result = await withCredentialResolvedTenant(
+      fake.pool,
+      HASH,
+      async () => await Promise.resolve(null),
+      async () => {
+        ran = true;
+        return await Promise.resolve(1);
+      },
+    );
+    // Null, not an exception: an unknown credential must be indistinguishable
+    // from a dead one, and neither opens a tenant context.
+    expect(result).toBeNull();
+    expect(ran).toBe(false);
+    expect(fake.queries.some((text) => text.includes('app_current_tenant()'))).toBe(false);
+    expect(fake.queries.at(-1)).toBe('COMMIT');
+  });
+
+  it('refuses a resolved tenant that is not a uuid', async () => {
+    const fake = fakePool({ reportedCredential: HASH });
+    await expect(
+      withCredentialResolvedTenant(
+        fake.pool,
+        HASH,
+        async () => await Promise.resolve({ tenantId: 'not-a-uuid', value: null }),
+        async () => await Promise.resolve(1),
+      ),
+    ).rejects.toThrow(TenantContextError);
+    expect(fake.queries).toContain('ROLLBACK');
+  });
+
+  it('aborts when the tenant context does not take effect', async () => {
+    const fake = fakePool({
+      reportedCredential: HASH,
+      reportedTenant: '22222222-2222-4222-8222-222222222222',
+    });
+    let ran = false;
+    await expect(
+      withCredentialResolvedTenant(
+        fake.pool,
+        HASH,
+        async () => await Promise.resolve({ tenantId: TENANT, value: null }),
+        async () => {
+          ran = true;
+          return await Promise.resolve(1);
+        },
+      ),
+    ).rejects.toThrow('Tenant context did not take effect in this transaction');
+    expect(ran).toBe(false);
+    expect(fake.queries).not.toContain('COMMIT');
+  });
+
+  it('reports the caller error, not a failing rollback', async () => {
+    const fake = fakePool({
+      reportedCredential: HASH,
+      reportedTenant: TENANT,
+      failOn: { match: /ROLLBACK/, error: new Error('connection already gone') },
+    });
+    await expect(
+      withCredentialResolvedTenant(
+        fake.pool,
+        HASH,
+        async () => await Promise.resolve({ tenantId: TENANT, value: null }),
+        async () => {
+          throw new Error('the work failed');
+        },
+      ),
+    ).rejects.toThrow('the work failed');
     expect(fake.releaseCount()).toBe(1);
   });
 });

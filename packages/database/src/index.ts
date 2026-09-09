@@ -1,7 +1,11 @@
 export { bootstrapCluster } from './bootstrap.js';
 export { MIGRATIONS_DIR, migrate } from './migrate.js';
 export type { MigrateOptions } from './migrate.js';
-export { withTenant, TenantContextError } from './context.js';
+export {
+  TenantContextError,
+  withCredentialResolvedTenant,
+  withTenant,
+} from './context.js';
 export {
   asExecutor,
   enableInstallationContext,

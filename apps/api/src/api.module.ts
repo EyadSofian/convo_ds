@@ -21,10 +21,15 @@ import { IdempotencyService } from './idempotency/idempotency.service.js';
 import { InstanceController } from './instance/instance.controller.js';
 import { InstanceService } from './instance/instance.service.js';
 import { MembershipController } from './memberships/membership.controller.js';
+import { InvitationController } from './people/invitation.controller.js';
+import { LoggingInvitationDelivery } from './people/invitation-delivery.js';
+import type { InvitationDeliveryPort } from './people/invitation-delivery.js';
+import { InvitationService } from './people/invitation.service.js';
 import { MembershipService } from './memberships/membership.service.js';
 import {
   API_CONFIG,
   API_POOL,
+  INVITATION_DELIVERY,
   PASSWORD_HASHER,
   RECOVERY_DELIVERY,
   type PasswordHasher,
@@ -58,11 +63,20 @@ export class ApiModule {
   static register(
     config: ApiConfig,
     pool: Pool,
-    adapters: { readonly recoveryDelivery?: RecoveryDeliveryPort | undefined } = {},
+    adapters: {
+      readonly recoveryDelivery?: RecoveryDeliveryPort | undefined;
+      readonly invitationDelivery?: InvitationDeliveryPort | undefined;
+    } = {},
   ): DynamicModule {
     return {
       module: ApiModule,
-      controllers: [InstanceController, AuthController, MembershipController, PermissionController],
+      controllers: [
+        InstanceController,
+        AuthController,
+        MembershipController,
+        PermissionController,
+        InvitationController,
+      ],
       providers: [
         { provide: API_CONFIG, useValue: config },
         { provide: API_POOL, useValue: pool },
@@ -74,12 +88,17 @@ export class ApiModule {
           provide: RECOVERY_DELIVERY,
           useValue: adapters.recoveryDelivery ?? new LoggingRecoveryDelivery(),
         },
+        {
+          provide: INVITATION_DELIVERY,
+          useValue: adapters.invitationDelivery ?? new LoggingInvitationDelivery(),
+        },
         IdempotencyService,
         InstanceService,
         AuthRateLimiter,
         AuthService,
         AuthorizationService,
         RecoveryService,
+        InvitationService,
         MembershipService,
         PermissionService,
         PoolLifecycle,
