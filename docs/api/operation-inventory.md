@@ -267,6 +267,40 @@ provider credential is the narrower act, and the catalogue already distinguishes
 channels is not thereby an operator who may replace the token that sends as the
 company.
 
+### Conversations and realtime (P2)
+
+| Group | Method + path | operationId | Permission / scope | Phase |
+|---|---|---|---|---|
+| Inbox | `GET T/conversations/unassigned` | `listUnassignedConversations` | `conversation.unassigned.preview`, per row | P2 |
+| Inbox | `GET T/conversations/{id}` | `getConversation` | `conversation.read` for that conversation | P2 |
+| Inbox | `POST T/conversations/{id}/claim` | `claimConversation` | `conversation.claim` + CSRF | P2 |
+| Realtime | `GET T/realtime/events` | `catchUpRealtimeEvents` | session; each event authorized individually | P2 |
+| Realtime | `GET T/realtime/stream` | `streamRealtimeEvents` | session; each event authorized individually | P2 |
+
+The queue and the conversation are **two endpoints, not one with a flag**. A
+queue card and a conversation are different things with different permissions,
+and an endpoint that returns either depending on a query parameter is one bug
+away from returning the wrong one. The card is built field by field on the
+server from `QUEUE_CARD_FIELDS`; it is not a conversation with fields hidden in
+the browser (IAM-11).
+
+`claimConversation` requires the `version` the caller saw on the card. A claim
+without one would be "take this from whoever has it", which is a different
+operation with a different permission (`conversation.assign`). Two agents
+claiming at the same version produce exactly one winner; the loser is told
+`conversation_version_conflict` (IAM-13). It carries no `Idempotency-Key`
+because the version already makes a replay a no-op conflict rather than a second
+claim.
+
+`streamRealtimeEvents` is **Server-Sent Events**, not a WebSocket. The traffic is
+one-directional, the session cookie authenticates it like any other request,
+`Last-Event-ID` resumes from a cursor with no bespoke handshake, and any proxy
+that speaks HTTP speaks it. Commands travel the other way as ordinary
+authenticated `POST`s, where CSRF and idempotency already live. Neither realtime
+operation is a capability: presenting a cursor authorizes nothing, and every
+event is authorized again on the way out against a principal re-read from the
+database.
+
 ## Deliberate divergences from the minimum inventory
 
 The rows above are the minimum from MASTER-PROMPT §19. Where the implementation

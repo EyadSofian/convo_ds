@@ -171,6 +171,67 @@ outbound_attempts        (id, tenant_id, message_id, attempt_no, permit jsonb, s
                           an attempt is the evidence that we did, or may have, contacted a
                           customer.
 
+-- Broker relay (migration 0013) ----------------------------------------------
+broker_outbox            (id, tenant_id, topic, envelope jsonb, created_at, available_at,
+                          published_at, attempts, leased_by, lease_until, last_error)
+                          Written in the same transaction as the effect it announces, and
+                          `published_at` is set only after the broker CONFIRMS. A claim with
+                          no confirmation is retried, because a duplicate is survivable and
+                          a lost event is not (ADR-0004, ADR-0005).
+broker_deliveries        (envelope_id, consumer, tenant_id, first_seen_at, attempts)
+                          PK (envelope_id, consumer). A consumer records that it handled an
+                          envelope in the same transaction as the handling, which is what
+                          makes at-least-once delivery safe to build on.
+broker_dead_letters      (id, tenant_id, topic, envelope jsonb, reason, attempts,
+                          quarantined_at, replayed_at, replayed_by)
+                          Bounded retries end here rather than in an infinite loop or in
+                          nothing. A replay is an operator act and is recorded as one.
+
+-- Conversations and the realtime feed (migration 0014) -----------------------
+conversations            (id, tenant_id, connection_id, peer_identity, team_id,
+                          assignee_membership_id, status, priority, version,
+                          waiting_since, last_inbound_at, last_activity_at, created_at)
+                          status ∈ open|snoozed|resolved; priority ∈ low|normal|high|urgent.
+                          A channel connection IS an inbox in this build, so
+                          `membership_scopes.scope_type = 'inbox'` names a connection id.
+                          UNIQUE (tenant_id, connection_id, peer_identity): the same pair the
+                          dispatch gate serializes on, now with an identity. `version` is the
+                          claim's fence — exactly one winner, the loser gets a typed conflict
+                          (IAM-13). `waiting_since` is set only while nobody holds it.
+conversation_participants(tenant_id, conversation_id, membership_id, first_acted_at)
+                          Participation outlives assignment: an agent reassigned tomorrow
+                          keeps read access to what they wrote today. Losing inbox access
+                          still overrides it, because `authorize` checks scope first.
+tenant_event_sequences   (tenant_id PK, next_seq bigint)
+                          A counter row, not a `bigserial`. Sequence values are handed out
+                          before commit and NOT in commit order, so a subscriber polling
+                          "everything after 41" can read 42 while 41 is still uncommitted and
+                          never see 41 again. A row lock held to commit makes the numbers
+                          dense and in commit order; the cost is that two events for one
+                          company serialize here.
+realtime_events          (id, tenant_id, seq, schema_version, type, entity_type, entity_id,
+                          entity_version, conversation_id, connection_id, team_id,
+                          assignee_membership_id, payload jsonb, occurred_at)
+                          Append-only: the runtime role holds SELECT and INSERT and nothing
+                          else. type ∈ message.inbound|message.delivery|conversation.assigned|
+                          conversation.state|conversation.note — separate types, so a
+                          subscriber authorized for receipts and not for notes can be filtered
+                          without reading either. The authorization terms are COLUMNS, not
+                          payload fields: visibility is decided from connection_id, team_id
+                          and assignee_membership_id before the payload is looked at, so a
+                          projection cannot be defeated by a payload that carries more than it
+                          should (DEL-19, IAM-11).
+
+-- Receipt watermark (migration 0015) -----------------------------------------
+outbound_messages.receipts_folded_through timestamptz
+                          The highest `inbound_events.observed_at` already folded into this
+                          message's delivery state. Without it the reconciler re-folds
+                          receipts it has already applied, and a correctly-ordered
+                          delivered → read pair turns into a fabricated
+                          `delivered_after_read` on the next sweep. Keyed on observation,
+                          not on the provider's timestamp, so a genuinely late `delivered`
+                          is still folded once and its anomaly recorded (DEL-16).
+
 platform_admins          (id, user_id, granted_at)          -- no tenant membership
 support_grants           (id, tenant_id, platform_admin_id, scope jsonb, reason, expires_at, revoked_at)
 

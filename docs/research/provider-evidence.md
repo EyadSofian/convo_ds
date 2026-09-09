@@ -17,6 +17,10 @@ Therefore: every `Live` status in the traceability registry is `blocked_no_asset
 
 **On simulators.** There is deliberately no provider simulator bound anywhere in the shipped composition root. A simulator that answered "accepted" would make the Channels screen show a working channel, and that would be a lie told by our own code rather than by a provider. The default transport refuses every call with a typed reason, and one integration suite binds a clearly-labelled **stub** to exercise our own success and failure handling — it produces no message id, claims no send, and exists only inside that test file.
 
+**On the broker (added 2026-09-09).** The same rule now applies to the durable transport. The relay, publisher confirms, consumer idempotency, bounded retries, the dead-letter quarantine and the audited replay are all built and tested, against a **stub broker whose answer each test chooses**. That stub proves our own behaviour when a broker confirms, refuses, or goes quiet; it proves nothing about RabbitMQ, and it is bound nowhere outside its test file. No broker product is configured, so the shipped default answers every publish `unknown` with `broker_not_configured` — deliberately *unknown* rather than *refused*, so the outbox grows visibly instead of the system discarding events because nobody configured a transport. DEL-08 and DEL-09 therefore stay `blocked_env` on the live column: the code is done, the environment is not supplied.
+
+**On realtime (added 2026-09-09).** Realtime needs no provider, so nothing here is blocked by the missing Meta assets — but it is worth recording what it is *not*. The feed carries what this installation observed: normalized inbound events, delivery receipts folded from provider webhooks, and assignment changes made by people. It contains no provider-reported fact that was not first verified by a signature and journaled. A subscriber watching a delivery tick move to `read` is watching a receipt this installation received and stored, not a claim the UI invented while waiting.
+
 ## 2. WhatsApp Cloud API
 
 | Observation | Source | Decision in CONVO |

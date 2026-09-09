@@ -1,9 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, withTenant } from '@convo/database';
-import type { DeliveryFold, SendOutcome, SqlExecutor } from '@convo/domain';
+import type { DeliveryFold, Offer, SendOutcome, SqlExecutor } from '@convo/domain';
 import { foldDelivery, permitSend } from '@convo/domain';
 import type { Pool } from 'pg';
 import { API_POOL, CHANNEL_TRANSPORT } from '../tokens.js';
+import { ConversationService } from '../conversations/conversation.service.js';
 import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
 import { capabilitiesOf } from './outbound.service.js';
@@ -41,6 +42,8 @@ export interface DispatchResult {
   readonly unknown: number;
   readonly skipped: number;
   readonly retried: number;
+  /** Results that lost the fence: recorded as evidence, applied to nothing. */
+  readonly stale: number;
 }
 
 interface ClaimRow {
@@ -71,7 +74,39 @@ export class ChannelDispatcherService {
     @Inject(API_POOL) private readonly pool: Pool,
     @Inject(CHANNEL_TRANSPORT) private readonly transport: ChannelTransportPort,
     @Inject(ChannelCredentialService) private readonly credentials: ChannelCredentialService,
+    @Inject(ConversationService) private readonly conversations: ConversationService,
   ) {}
+
+  /**
+   * What each company is offering in one traffic class, right now.
+   *
+   * Read from the contentless outbox, so it needs no tenant context and holds
+   * no customer content. This is the input the fair scheduler plans a round
+   * from: without the *counts* it could only round-robin over companies, and a
+   * company with one message would be given the same slice as one with ten
+   * thousand — which is a different unfairness, not fairness.
+   */
+  async offers(
+    trafficClass: 'interactive' | 'bulk',
+    limit = 200,
+  ): Promise<readonly Offer[]> {
+    const rows = await asExecutor(this.pool).query<{ tenant_id: string; ready: string }>(
+      `SELECT tenant_id::text, count(*)::text AS ready
+         FROM outbox
+        WHERE traffic_class = $1
+          AND available_at <= now()
+          AND (lease_until IS NULL OR lease_until < now())
+        GROUP BY tenant_id
+        ORDER BY tenant_id
+        LIMIT $2`,
+      [trafficClass, limit],
+    );
+    return rows.rows.map((row) => ({
+      tenantId: row.tenant_id,
+      trafficClass,
+      ready: Number(row.ready),
+    }));
+  }
 
   /** Companies with dispatchable work, read from the contentless outbox. */
   async pendingTenants(limit = 50): Promise<readonly string[]> {
@@ -125,7 +160,15 @@ export class ChannelDispatcherService {
     trafficClass: 'interactive' | 'bulk' = 'interactive',
   ): Promise<DispatchResult> {
     const claims = await this.claim(tenantId, limit, workerId, trafficClass);
-    const result = { claimed: claims.length, accepted: 0, rejected: 0, unknown: 0, skipped: 0, retried: 0 };
+    const result = {
+      claimed: claims.length,
+      accepted: 0,
+      rejected: 0,
+      unknown: 0,
+      skipped: 0,
+      retried: 0,
+      stale: 0,
+    };
 
     for (const claim of claims) {
       const outcome = await this.dispatchOne(tenantId, claim);
@@ -133,6 +176,7 @@ export class ChannelDispatcherService {
       else if (outcome === 'rejected') result.rejected += 1;
       else if (outcome === 'outcome_unknown') result.unknown += 1;
       else if (outcome === 'skipped') result.skipped += 1;
+      else if (outcome === 'stale') result.stale += 1;
       else result.retried += 1;
     }
     return result;
@@ -209,14 +253,17 @@ export class ChannelDispatcherService {
           [row.message_id],
         );
       }
-      return leased.rows;
+      // The version each row carries is the one *before* that increment, so the
+      // version this worker owns — and must present when it writes a result —
+      // is one higher.
+      return leased.rows.map((row) => ({ ...row, dispatch_version: row.dispatch_version + 1 }));
     });
   }
 
   private async dispatchOne(
     tenantId: string,
     claim: ClaimRow,
-  ): Promise<'accepted' | 'rejected' | 'outcome_unknown' | 'skipped' | 'retry'> {
+  ): Promise<'accepted' | 'rejected' | 'outcome_unknown' | 'skipped' | 'retry' | 'stale'> {
     // Step 2 and 3 in one transaction: decide, and record the attempt durably.
     const prepared = await withTenant(this.pool, tenantId, async (client) => {
       const sql = asExecutor(client);
@@ -315,13 +362,22 @@ export class ChannelDispatcherService {
     return permit.allowed ? null : { reason: permit.reason, detail: permit.detail };
   }
 
-  /** Step 5: record the answer, fenced on the version we read. */
+  /**
+   * Step 5: record the answer, fenced on the version this worker owns.
+   *
+   * The attempt row is written **first and unconditionally**. A stale worker's
+   * provider response is still evidence about what a customer may have
+   * received, and discarding it because the message moved on would throw away
+   * the only record that a request went out. What the fence protects is the
+   * *command state*: a stale write must not roll it back to something a newer
+   * worker has already moved past.
+   */
   private async record(
     tenantId: string,
     claim: ClaimRow,
     attemptId: string,
     outcome: SendOutcome,
-  ): Promise<'accepted' | 'rejected' | 'outcome_unknown' | 'retry'> {
+  ): Promise<'accepted' | 'rejected' | 'outcome_unknown' | 'retry' | 'stale'> {
     return withTenant(this.pool, tenantId, async (client) => {
       const sql = asExecutor(client);
       await sql.query(
@@ -338,8 +394,21 @@ export class ChannelDispatcherService {
         ],
       );
 
+      const fence = claim.dispatch_version;
+
       if (outcome.status === 'accepted') {
-        await settle(sql, claim.message_id, 'provider_accepted', null, null, outcome.providerMessageId);
+        const applied = await settle(
+          sql,
+          claim.message_id,
+          'provider_accepted',
+          null,
+          null,
+          outcome.providerMessageId,
+          fence,
+        );
+        if (!applied) {
+          return this.rejectStale(sql, attemptId);
+        }
         await sql.query('DELETE FROM outbox WHERE message_id = $1', [claim.message_id]);
         // A receipt may already have arrived for this id, before we knew it.
         await reconcileHeldReceipts(sql, claim.message_id, outcome.providerMessageId);
@@ -347,7 +416,18 @@ export class ChannelDispatcherService {
       }
 
       if (outcome.status === 'outcome_unknown') {
-        await settle(sql, claim.message_id, 'outcome_unknown', outcome.code, outcome.message);
+        const applied = await settle(
+          sql,
+          claim.message_id,
+          'outcome_unknown',
+          outcome.code,
+          outcome.message,
+          null,
+          fence,
+        );
+        if (!applied) {
+          return this.rejectStale(sql, attemptId);
+        }
         // Out of the outbox, permanently. Nothing automatic may touch it again.
         await sql.query('DELETE FROM outbox WHERE message_id = $1', [claim.message_id]);
         return 'outcome_unknown';
@@ -355,17 +435,32 @@ export class ChannelDispatcherService {
 
       const exhausted = claim.attempts >= MAX_ATTEMPTS;
       if (!outcome.retryable || exhausted) {
-        await settle(
+        const applied = await settle(
           sql,
           claim.message_id,
           outcome.retryable ? 'failed' : 'rejected',
           outcome.code,
           outcome.message,
+          null,
+          fence,
         );
+        if (!applied) {
+          return this.rejectStale(sql, attemptId);
+        }
         await sql.query('DELETE FROM outbox WHERE message_id = $1', [claim.message_id]);
         return 'rejected';
       }
 
+      const rescheduled = await sql.query(
+        `UPDATE outbound_messages
+            SET command_state = 'retry_scheduled', state_reason = $2,
+                dispatch_version = dispatch_version + 1
+          WHERE id = $1 AND dispatch_version = $3`,
+        [claim.message_id, outcome.code, fence],
+      );
+      if (rescheduled.rowCount !== 1) {
+        return this.rejectStale(sql, attemptId);
+      }
       // Exponential backoff with the attempt count already incremented by the
       // claim, so the first retry waits and the fifth waits a lot longer.
       await sql.query(
@@ -375,15 +470,30 @@ export class ChannelDispatcherService {
           WHERE message_id = $1`,
         [claim.message_id, outcome.code, BACKOFF_BASE_SECONDS * 2 ** (claim.attempts - 1)],
       );
-      await sql.query(
-        `UPDATE outbound_messages
-            SET command_state = 'retry_scheduled', state_reason = $2,
-                dispatch_version = dispatch_version + 1
-          WHERE id = $1`,
-        [claim.message_id, outcome.code],
-      );
       return 'retry';
     });
+  }
+
+  /**
+   * A result that lost the fence.
+   *
+   * The attempt keeps its outcome — that is the provider evidence, and it is
+   * exactly what somebody investigating a duplicate message needs. What it
+   * gains is a typed marker saying the command had already moved on, so the
+   * evidence is never mistaken for the current state.
+   */
+  private async rejectStale(sql: SqlExecutor, attemptId: string): Promise<'stale'> {
+    await sql.query(
+      `UPDATE outbound_attempts
+          SET error_code = coalesce(error_code, 'stale_dispatch'),
+              error_message = coalesce(error_message, '') ||
+                ' [recorded after a newer worker took this message over]'
+        WHERE id = $1`,
+      [attemptId],
+    );
+    // The outbox is deliberately untouched: whatever owns the message now owns
+    // its scheduling too.
+    return 'stale';
   }
 
   /**
@@ -405,24 +515,39 @@ export class ChannelDispatcherService {
         delivery_state: string | null;
         delivery_state_at: Date | null;
         delivery_anomaly: string | null;
+        connection_id: string;
+        peer_identity: string;
+        observed_at: Date;
       }>(
         `SELECT e.provider_message_id,
                 -- Mapped here rather than in TypeScript: the filter below makes
                 -- the ELSE exactly 'delivery_status', so there is no third case
                 -- to write and then never be able to reach.
                 CASE e.kind WHEN 'read_status' THEN 'read' ELSE 'delivered' END AS incoming_state,
-                e.occurred_at,
-                m.id::text AS message_id, m.delivery_state, m.delivery_state_at, m.delivery_anomaly
+                e.occurred_at, e.observed_at,
+                m.id::text AS message_id, m.delivery_state, m.delivery_state_at, m.delivery_anomaly,
+                m.connection_id::text, m.peer_identity
            FROM inbound_events e
            JOIN outbound_messages m ON m.provider_message_id = e.provider_message_id
           WHERE e.kind IN ('delivery_status', 'read_status')
+            -- Each receipt is folded once. Re-folding one that has already
+            -- been applied is how a correctly-ordered pair turns into a
+            -- fabricated delivered_after_read on the second sweep (0015).
+            AND e.observed_at > coalesce(m.receipts_folded_through, '-infinity'::timestamptz)
           ORDER BY e.observed_at
           LIMIT $1`,
         [limit],
       );
 
       let folded = 0;
+      // Highest observation folded per message, so a message with two new
+      // receipts in one sweep advances past both rather than only the first.
+      const watermark = new Map<string, Date>();
       for (const receipt of receipts.rows) {
+        const seen = watermark.get(receipt.message_id);
+        if (seen === undefined || receipt.observed_at > seen) {
+          watermark.set(receipt.message_id, receipt.observed_at);
+        }
         const next = foldDelivery(
           receipt.delivery_state === null || receipt.delivery_state_at === null
             ? null
@@ -444,14 +569,51 @@ export class ChannelDispatcherService {
             WHERE id = $1`,
           [receipt.message_id, next.state, next.at, next.anomaly],
         );
+        // The screen showing this conversation learns the tick moved, in the
+        // same transaction that moved it.
+        const conversation = await this.conversations.ensure(
+          sql,
+          tenantId,
+          receipt.connection_id,
+          receipt.peer_identity,
+        );
+        await this.conversations.noteDelivery(sql, tenantId, conversation, {
+          messageId: receipt.message_id,
+          state: next.state,
+          at: next.at,
+          anomaly: next.anomaly,
+        });
         folded += 1;
+      }
+      for (const [messageId, observedAt] of watermark) {
+        // Advanced even for a receipt that changed nothing: it has still been
+        // considered, and considering it again can only produce the false
+        // anomaly this watermark exists to prevent.
+        await sql.query(
+          `UPDATE outbound_messages
+              SET receipts_folded_through = greatest(coalesce(receipts_folded_through, $2), $2)
+            WHERE id = $1`,
+          [messageId, observedAt],
+        );
       }
       return folded;
     });
   }
 }
 
-/** Moves a command to a terminal state, bumping the fencing version with it. */
+/**
+ * Moves a command to a terminal state, bumping the fencing version with it.
+ *
+ * `expectedVersion` is the fence. A worker whose lease expired can still be
+ * holding a provider response when a newer worker has already taken the message
+ * over; writing that response would roll the command back to a state the newer
+ * worker has moved past. Comparing the version the worker owns makes that
+ * impossible: the `UPDATE` matches nothing, and the caller is told so rather
+ * than believing it succeeded.
+ *
+ * Pass `null` for a transition no worker owns — recovery of an orphaned
+ * attempt, which is by definition not racing anybody.
+ */
 async function settle(
   sql: SqlExecutor,
   messageId: string,
@@ -459,17 +621,20 @@ async function settle(
   reason: string | null,
   detail: string | null,
   providerMessageId: string | null = null,
-): Promise<void> {
-  await sql.query(
+  expectedVersion: number | null = null,
+): Promise<boolean> {
+  const result = await sql.query(
     `UPDATE outbound_messages
         SET command_state = $2,
             state_reason = $3,
             provider_message_id = coalesce($4, provider_message_id),
             settled_at = now(),
             dispatch_version = dispatch_version + 1
-      WHERE id = $1`,
-    [messageId, state, reason === null ? detail : reason, providerMessageId],
+      WHERE id = $1
+        AND ($5::integer IS NULL OR dispatch_version = $5)`,
+    [messageId, state, reason === null ? detail : reason, providerMessageId, expectedVersion],
   );
+  return result.rowCount === 1;
 }
 
 /**

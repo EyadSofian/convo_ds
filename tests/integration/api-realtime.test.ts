@@ -1,0 +1,1225 @@
+import { createHash, createHmac } from 'node:crypto';
+import argon2 from 'argon2';
+import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
+import type { Pool } from 'pg';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createApiApplication } from '../../apps/api/src/app.js';
+import type { ApiAdapters } from '../../apps/api/src/app.js';
+import { parseApiConfig } from '../../apps/api/src/config.js';
+import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
+import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
+import { asExecutor, withTenant } from '../../packages/database/src/index.js';
+import { applyInstallationConfig, encodeCursor } from '../../packages/domain/src/index.js';
+import type { SendOutcome } from '../../packages/domain/src/index.js';
+import type { DatabaseNames } from '../../packages/database/src/types.js';
+import {
+  clusterCredentials,
+  createScratchDatabase,
+  migrateScratch,
+  scratchMigrationPool,
+  scratchRuntimePool,
+  superuserPool,
+} from '../support/scratch.js';
+
+/**
+ * Realtime, against a real database with FORCE RLS.
+ *
+ * The claim under test is the one that decides whether this feature is safe to
+ * ship: **a subscription is not a way around an endpoint**. Every event is
+ * authorized again on the way out, from the same `authorize` the HTTP routes
+ * use, against a principal read fresh from the database — so an agent who may
+ * only preview a conversation receives a queue card and not a transcript, and
+ * an agent whose inbox is taken away stops receiving anything at all without
+ * logging out first.
+ *
+ * The stream itself is exercised over HTTP with a deliberately short maximum
+ * connection age, which is a real production setting rather than a test hook:
+ * a bounded connection is what makes reconnect the normal path.
+ */
+
+const BOOTSTRAP_TOKEN = 'realtime-bootstrap-token-value-00000001';
+const OWNER_PASSWORD = 'owner password for realtime tests';
+const MEMBER_PASSWORD = 'member password for realtime tests';
+const APP_SECRET = 'meta-app-secret-for-realtime-tests-01';
+const VERIFY_TOKEN = 'the-realtime-verify-token';
+const CREDENTIAL_KEY = `v1:${Buffer.alloc(32, 23).toString('base64')}`;
+const INBOX_A = 'phone-realtime-a';
+const INBOX_B = 'phone-realtime-b';
+
+interface Harness {
+  app: NestFastifyApplication;
+  pool: Pool;
+  server: FastifyInstance;
+  readonly names: DatabaseNames;
+  readonly tenantId: string;
+  readonly appId: string;
+}
+
+interface Browser {
+  readonly cookie: string;
+  readonly csrf: string;
+}
+
+let answer: SendOutcome = { status: 'accepted', providerMessageId: 'wamid.rt', raw: {} };
+
+function envFor(names: DatabaseNames, overrides: Record<string, string> = {}): Record<string, string> {
+  const cluster = clusterCredentials();
+  return {
+    CONVO_DEPLOYMENT_MODE: 'saas',
+    CONVO_INSTALLATION_NAME: 'Realtime Test',
+    CONVO_PUBLIC_BASE_URL: 'https://convo.test',
+    CONVO_PROCESS_ROLE: 'realtime',
+    CONVO_AUTH_HASH_SECRET: 'realtime-integration-hash-secret-001',
+    CONVO_BOOTSTRAP_TOKEN: BOOTSTRAP_TOKEN,
+    CONVO_IDEMPOTENCY_HASH_SECRET: 'realtime-idempotency-secret-000001',
+    CONVO_CREDENTIAL_KEYS: CREDENTIAL_KEY,
+    CONVO_CHANNEL_SECRET_META_APP: APP_SECRET,
+    // A one-second connection: long enough to prove frames flow, short enough
+    // that a test finishes. Production runs this at five minutes.
+    CONVO_REALTIME_MAX_STREAM_MS: '1000',
+    CONVO_REALTIME_POLL_MS: '50',
+    CONVO_REALTIME_HEARTBEAT_MS: '1000',
+    CONVO_API_PORT: '0',
+    CONVO_PG_HOST: cluster.host,
+    CONVO_PG_PORT: String(cluster.port),
+    CONVO_PG_DATABASE: names.database,
+    CONVO_PG_RUNTIME_ROLE: names.runtimeRole,
+    CONVO_PG_RUNTIME_PASSWORD: names.runtimePassword,
+    ...overrides,
+  };
+}
+
+const transport: NonNullable<ApiAdapters['channelTransport']> = {
+  name: 'test-stub',
+  validateConnection: (_kind, _credential, asset) =>
+    Promise.resolve({ ok: true, assetIdentity: asset, code: null, message: null }),
+  send: () => Promise.resolve(answer),
+};
+
+async function createHarness(): Promise<Harness> {
+  const names = await createScratchDatabase('convo_realtime');
+  await migrateScratch(names);
+  const pool = scratchRuntimePool(names, 8);
+  const config = parseApiConfig(envFor(names));
+  await applyInstallationConfig(asExecutor(pool), config.deploymentMode);
+  const app = await createApiApplication(config, pool, { channelTransport: transport });
+  const server = app.getHttpAdapter().getInstance() as unknown as FastifyInstance;
+
+  const bootstrap = await server.inject({
+    method: 'POST',
+    url: '/api/v1/instance/bootstrap',
+    headers: { 'x-bootstrap-token': BOOTSTRAP_TOKEN, 'idempotency-key': 'realtime-bootstrap' },
+    payload: {
+      companyName: 'Digital School',
+      companySlug: 'digital-school',
+      ownerEmail: 'owner@realtime.test',
+      ownerPassword: OWNER_PASSWORD,
+    },
+  });
+  expect(bootstrap.statusCode).toBe(201);
+  const tenantId = (bootstrap.json() as { data: { tenantId: string } }).data.tenantId;
+
+  const admin = scratchMigrationPool(names);
+  let appId: string;
+  try {
+    const appRow = await admin.query<{ id: string }>(
+      `INSERT INTO channel_apps
+         (provider, external_app_id, secret_ref, secret_fingerprint, verify_token_hash, graph_version)
+       VALUES ('meta', '100000000000009', 'META_APP', $1, $2, 'v21.0')
+       RETURNING id::text`,
+      [sha256(APP_SECRET), sha256(VERIFY_TOKEN)],
+    );
+    appId = appRow.rows[0]?.id as string;
+  } finally {
+    await admin.end();
+  }
+  return { app, pool, server, names, tenantId, appId };
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+async function login(api: Harness, email: string, password: string): Promise<Browser> {
+  const response = await api.server.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    headers: { 'user-agent': 'CONVO realtime test' },
+    payload: { email, password },
+  });
+  expect(response.statusCode, `login ${email}`).toBe(200);
+  const raw = response.headers['set-cookie'];
+  const lines = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
+  const cookie = lines.map((line) => line.split(';')[0]).join('; ');
+  const csrf =
+    cookie
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith('convo_csrf='))
+      ?.slice('convo_csrf='.length) ?? '';
+  return { cookie, csrf };
+}
+
+async function send(
+  api: Harness,
+  browser: Browser,
+  method: 'GET' | 'POST' | 'DELETE',
+  path: string,
+  payload?: Record<string, unknown>,
+): Promise<LightMyRequestResponse> {
+  return api.server.inject({
+    method,
+    url: `/api/v1/tenants/${api.tenantId}${path}`,
+    headers: {
+      cookie: browser.cookie,
+      'x-csrf-token': browser.csrf,
+      'idempotency-key': `realtime-${String(Math.random()).slice(2)}`,
+    },
+    ...(payload === undefined ? {} : { payload }),
+  });
+}
+
+/** Adds a person holding a built-in role, scoped to the inboxes they may work. */
+async function addMember(
+  api: Harness,
+  email: string,
+  roleKey: string,
+  scopes: readonly { type: 'tenant' | 'team' | 'inbox'; id: string | null }[],
+): Promise<string> {
+  const hash = await argon2.hash(MEMBER_PASSWORD, { type: argon2.argon2id });
+  const user = await api.pool.query<{ id: string }>(
+    `INSERT INTO users (email, password_hash, status) VALUES ($1, $2, 'active') RETURNING id::text`,
+    [email, hash],
+  );
+  const userId = user.rows[0]?.id as string;
+  return withTenant(api.pool, api.tenantId, async (client) => {
+    const role = await client.query<{ id: string }>('SELECT id::text FROM roles WHERE key = $1', [
+      roleKey,
+    ]);
+    const membership = await client.query<{ id: string }>(
+      `INSERT INTO memberships (tenant_id, user_id, role_id, status)
+       VALUES ($1, $2, $3, 'active') RETURNING id::text`,
+      [api.tenantId, userId, role.rows[0]?.id],
+    );
+    const membershipId = membership.rows[0]?.id as string;
+    for (const scope of scopes) {
+      await client.query(
+        `INSERT INTO membership_scopes (tenant_id, membership_id, scope_type, scope_id)
+         VALUES ($1, $2, $3, $4)`,
+        [api.tenantId, membershipId, scope.type, scope.id],
+      );
+    }
+    return membershipId;
+  });
+}
+
+function deliver(api: Harness, body: unknown): Promise<LightMyRequestResponse> {
+  const raw = JSON.stringify(body);
+  return api.server.inject({
+    method: 'POST',
+    url: `/api/v1/webhooks/meta/${api.appId}`,
+    headers: {
+      'content-type': 'application/json',
+      'x-hub-signature-256': `sha256=${createHmac('sha256', APP_SECRET).update(raw).digest('hex')}`,
+    },
+    payload: raw,
+  });
+}
+
+function messageDelivery(
+  phoneId: string,
+  messages: readonly Record<string, unknown>[],
+): Record<string, unknown> {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: 'waba-1',
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              messaging_product: 'whatsapp',
+              metadata: { display_phone_number: '15550009999', phone_number_id: phoneId },
+              messages,
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function statusDelivery(
+  phoneId: string,
+  id: string,
+  state: string,
+  timestamp: string,
+  recipient: string,
+): Record<string, unknown> {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: 'waba-1',
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              metadata: { phone_number_id: phoneId },
+              statuses: [{ id, status: state, recipient_id: recipient, timestamp }],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function textMessage(id: string, body: string, from: string): Record<string, unknown> {
+  return { id, from, timestamp: '1789000000', type: 'text', text: { body } };
+}
+
+interface FeedBody {
+  readonly status: string;
+  readonly reason?: string;
+  readonly cursor: string;
+  readonly backlog?: number;
+  readonly events: readonly {
+    readonly id: string;
+    readonly seq: number;
+    readonly type: string;
+    readonly entity: { readonly type: string; readonly id: string; readonly version: number };
+    readonly scope: { readonly conversationId: string; readonly inboxId: string };
+    readonly payload: Record<string, unknown>;
+  }[];
+}
+
+let api: Harness;
+let owner: Browser;
+let agentA: Browser;
+let agentB: Browser;
+let agentAMembershipId: string;
+let agentBMembershipId: string;
+let secondAgentA: Browser;
+let inboxA: string;
+let inboxB: string;
+let normalizer: ChannelNormalizationService;
+let dispatcher: ChannelDispatcherService;
+
+async function feed(browser: Browser, cursor?: string): Promise<FeedBody> {
+  const response = await send(
+    api,
+    browser,
+    'GET',
+    `/realtime/events${cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`}`,
+  );
+  expect(response.statusCode, response.payload).toBe(200);
+  return (response.json() as { data: FeedBody }).data;
+}
+
+/** Delivers a customer message and normalizes it, the way the workers would. */
+async function customerWrites(phoneId: string, from: string, text: string, id: string): Promise<void> {
+  expect((await deliver(api, messageDelivery(phoneId, [textMessage(id, text, from)]))).statusCode).toBe(
+    200,
+  );
+  await normalizer.drain(api.tenantId);
+}
+
+beforeAll(async () => {
+  api = await createHarness();
+  owner = await login(api, 'owner@realtime.test', OWNER_PASSWORD);
+  normalizer = api.app.get(ChannelNormalizationService);
+  dispatcher = api.app.get(ChannelDispatcherService);
+
+  for (const [asset, label] of [
+    [INBOX_A, 'خط التسجيل'],
+    [INBOX_B, 'خط المحاسبة'],
+  ] as const) {
+    const created = await send(api, owner, 'POST', '/channels', {
+      kind: 'whatsapp',
+      externalAssetId: asset,
+      displayName: label,
+      accessToken: 'EAAGtestaccesstoken0009',
+      appId: api.appId,
+    });
+    expect(created.statusCode).toBe(201);
+    const id = (created.json() as { data: { id: string } }).data.id;
+    if (asset === INBOX_A) {
+      inboxA = id;
+    } else {
+      inboxB = id;
+    }
+  }
+
+  agentAMembershipId = await addMember(api, 'agent-a@realtime.test', 'agent', [
+    { type: 'inbox', id: inboxA },
+  ]);
+  agentBMembershipId = await addMember(api, 'agent-b@realtime.test', 'agent', [
+    { type: 'inbox', id: inboxB },
+  ]);
+  await addMember(api, 'agent-a2@realtime.test', 'agent', [{ type: 'inbox', id: inboxA }]);
+  agentA = await login(api, 'agent-a@realtime.test', MEMBER_PASSWORD);
+  agentB = await login(api, 'agent-b@realtime.test', MEMBER_PASSWORD);
+  secondAgentA = await login(api, 'agent-a2@realtime.test', MEMBER_PASSWORD);
+}, 240_000);
+
+afterAll(async () => {
+  await api.app.close();
+});
+
+describe('the event feed', () => {
+  it('answers an empty feed before anything has happened', async () => {
+    // The very first subscription any company makes: no events, no sequence
+    // row. It has to be an ordinary empty page, not an expired cursor, or every
+    // new company would start by being told to reload.
+    const page = await feed(owner);
+    expect(page).toMatchObject({ status: 'ok', events: [], backlog: 0 });
+  });
+
+  it('records a conversation and an event when a customer writes', async () => {
+    await customerWrites(INBOX_A, '15557000001', 'مرحبا، أريد التسجيل', 'wamid.rt-1');
+
+    const page = await feed(owner);
+    expect(page.status).toBe('ok');
+    const inbound = page.events.filter((event) => event.type === 'message.inbound');
+    expect(inbound).toHaveLength(1);
+    // DEL-19: schema version, own id, entity with its version, and the scope.
+    expect(inbound[0]?.entity).toMatchObject({ type: 'conversation', version: 2 });
+    expect(inbound[0]?.scope.inboxId).toBe(inboxA);
+    expect(inbound[0]?.payload['text']).toBe('مرحبا، أريد التسجيل');
+
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; waiting_since: Date | null }>(
+        'SELECT id::text, waiting_since FROM conversations WHERE peer_identity = $1',
+        ['15557000001'],
+      ),
+    );
+    expect(conversation.rows).toHaveLength(1);
+    // The customer is waiting for a human, and the queue knows when that started.
+    expect(conversation.rows[0]?.waiting_since).not.toBeNull();
+  });
+
+  it('numbers events densely, so a client can tell a gap from silence', async () => {
+    const before = await feed(owner);
+    await customerWrites(INBOX_A, '15557000002', 'سؤال ثانٍ', 'wamid.rt-2');
+    const after = await feed(owner);
+    const numbers = after.events.map((event) => event.seq);
+    expect(numbers).toEqual(numbers.slice().sort((left, right) => left - right));
+    expect(numbers[numbers.length - 1]).toBe((before.events.at(-1)?.seq ?? 0) + 1);
+  });
+
+  it('does not repeat an event a client already has', async () => {
+    const first = await feed(owner);
+    const again = await feed(owner, first.cursor);
+    // Resuming from a cursor is the dedupe: the second page starts after the
+    // last event of the first, not at the beginning of the feed.
+    expect(again.events).toEqual([]);
+
+    await customerWrites(INBOX_A, '15557000003', 'سؤال ثالث', 'wamid.rt-3');
+    const next = await feed(owner, first.cursor);
+    expect(next.events).toHaveLength(1);
+    expect(next.events[0]?.payload['text']).toBe('سؤال ثالث');
+    // Every event still carries a stable id, so a consumer that sees one twice
+    // across a reconnect can recognise it.
+    expect(next.events[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('gives an agent a queue card and never the customer’s message', async () => {
+    const page = await feed(agentA);
+    const inbound = page.events.filter((event) => event.type === 'message.inbound');
+    expect(inbound.length).toBeGreaterThan(0);
+    for (const event of inbound) {
+      expect(event.payload['projected']).toBe(true);
+      // The projection is server-side. There is no transcript in the frame for
+      // a browser to be trusted to hide.
+      expect(event.payload['text']).toBeUndefined();
+      expect(event.payload['peerIdentity']).toBeUndefined();
+      expect(event.payload['maskedLabel']).toMatch(/^••••\d{3}$/);
+      expect(event.payload['claimable']).toBe(true);
+    }
+    expect(JSON.stringify(page.events)).not.toContain('15557000001');
+  });
+
+  it('hides another inbox’s conversations entirely', async () => {
+    const page = await feed(agentB);
+    // Not an empty payload and not an id: nothing. Otherwise an agent could
+    // count another team's conversations by watching sequence numbers.
+    expect(page.events).toEqual([]);
+  });
+
+  it('answers another company’s feed the way it answers a company that does not exist', async () => {
+    const response = await api.server.inject({
+      method: 'GET',
+      url: `/api/v1/tenants/99999999-9999-4999-8999-999999999999/realtime/events`,
+      headers: { cookie: owner.cookie },
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('refuses an unauthenticated subscription', async () => {
+    const response = await api.server.inject({
+      method: 'GET',
+      url: `/api/v1/tenants/${api.tenantId}/realtime/events`,
+    });
+    expect(response.statusCode).toBe(401);
+  });
+});
+
+describe('cursors', () => {
+  it('refuses a cursor minted for another company', async () => {
+    const foreign = encodeCursor({
+      tenantId: '99999999-9999-4999-8999-999999999999',
+      seq: 1,
+      authority: 'whatever',
+    });
+    const page = await feed(owner, foreign);
+    expect(page).toMatchObject({ status: 'reset_required', reason: 'other_tenant' });
+  });
+
+  it('refuses a cursor that is not one of ours', async () => {
+    expect(await feed(owner, 'not-a-cursor')).toMatchObject({
+      status: 'reset_required',
+      reason: 'malformed',
+    });
+  });
+
+  it('refuses a cursor issued before the caller’s permissions changed', async () => {
+    const before = await feed(secondAgentA);
+    const membership = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>(
+        `SELECT m.id::text FROM memberships m
+           JOIN users u ON u.id = m.user_id
+          WHERE u.email = $1`,
+        ['agent-a2@realtime.test'],
+      ),
+    );
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `INSERT INTO membership_scopes (tenant_id, membership_id, scope_type, scope_id)
+         VALUES ($1, $2, 'inbox', $3)`,
+        [api.tenantId, membership.rows[0]?.id, inboxB],
+      ),
+    );
+
+    // Both halves of the client's view are now wrong: events it was not sent
+    // may now be permitted, and a partial resume would never show them.
+    expect(await feed(secondAgentA, before.cursor)).toMatchObject({
+      status: 'reset_required',
+      reason: 'permissions_changed',
+    });
+    // Starting again works immediately, with the wider reach applied.
+    expect((await feed(secondAgentA)).status).toBe('ok');
+  });
+
+  it('refuses a cursor older than the feed still holds', async () => {
+    const current = await feed(owner);
+    const bounds = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ oldest: string; newest: string }>(
+        'SELECT min(seq)::text AS oldest, max(seq)::text AS newest FROM realtime_events',
+      ),
+    );
+    const oldest = Number(bounds.rows[0]?.oldest);
+    const newest = Number(bounds.rows[0]?.newest);
+    expect(newest).toBeGreaterThan(oldest + 1);
+
+    // Retention pruning is a maintenance act outside any tenant context, so it
+    // runs here as the superuser: the runtime role holds INSERT and SELECT on
+    // the feed and nothing else, and FORCE RLS applies to the schema owner too.
+    // Automatic pruning is not built yet; what has to work today is the client's
+    // side of it, which is what this asserts.
+    const admin = superuserPool(api.names.database);
+    try {
+      await admin.query('DELETE FROM realtime_events');
+    } finally {
+      await admin.end();
+    }
+
+    const stale = encodeCursor({
+      tenantId: api.tenantId,
+      seq: oldest,
+      // The digest has to match, or the answer would be permissions_changed and
+      // this test would be proving the wrong thing.
+      authority: decodeAuthority(current.cursor),
+    });
+    expect(await feed(owner, stale)).toMatchObject({
+      status: 'reset_required',
+      reason: 'expired',
+    });
+
+    // Starting again works, and the numbering carries on from where it was: a
+    // pruned feed is not a reset sequence, or a client's stored events would
+    // collide with new ones.
+    const restarted = await feed(owner);
+    expect(restarted).toMatchObject({ status: 'ok', events: [] });
+    await customerWrites(INBOX_A, '15557000006', 'بعد التقليم', 'wamid.rt-6');
+    const resumed = await feed(owner, restarted.cursor);
+    expect(resumed.events).toHaveLength(1);
+    expect(resumed.events[0]?.seq).toBe(newest + 1);
+  });
+
+  it('tells a consumer that has fallen too far behind to start again', async () => {
+    await customerWrites(INBOX_A, '15557000004', 'تراكم أول', 'wamid.rt-4');
+    await customerWrites(INBOX_A, '15557000005', 'تراكم ثانٍ', 'wamid.rt-5');
+    // A separate process configured to tolerate a backlog of one, which is what
+    // a slow consumer looks like from the server's side.
+    const pool = scratchRuntimePool(api.names, 2);
+    const app = await createApiApplication(
+      parseApiConfig(envFor(api.names, { CONVO_REALTIME_MAX_BACKLOG: '1' })),
+      pool,
+      { channelTransport: transport },
+    );
+    try {
+      const server = app.getHttpAdapter().getInstance() as unknown as FastifyInstance;
+      const response = await server.inject({
+        method: 'GET',
+        url: `/api/v1/tenants/${api.tenantId}/realtime/events`,
+        headers: { cookie: owner.cookie },
+      });
+      const body = (response.json() as { data: FeedBody }).data;
+      // Sending a bigger page would move the problem into memory rather than
+      // solve it, so the honest answer is "reload".
+      expect(body).toMatchObject({ status: 'reset_required', reason: 'too_far_behind' });
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe('the Unassigned queue', () => {
+  it('lists projected cards for the inboxes an agent may work', async () => {
+    const response = await send(api, agentA, 'GET', '/conversations/unassigned');
+    expect(response.statusCode).toBe(200);
+    const cards = (response.json() as { data: readonly Record<string, unknown>[] }).data;
+    expect(cards.length).toBeGreaterThan(0);
+    for (const card of cards) {
+      expect(Object.keys(card).sort()).toEqual([
+        'channel',
+        'claimable',
+        'id',
+        'inboxLabel',
+        'maskedLabel',
+        'priority',
+        'status',
+        'waitingSinceAt',
+      ]);
+    }
+    expect(JSON.stringify(cards)).not.toContain('15557000001');
+    expect(JSON.stringify(cards)).not.toContain('التسجيل، أريد');
+  });
+
+  it('shows an agent nothing from an inbox they do not hold', async () => {
+    const response = await send(api, agentB, 'GET', '/conversations/unassigned');
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { data: unknown[] }).data).toEqual([]);
+  });
+
+  it('refuses the queue to someone with no preview grant', async () => {
+    await addMember(api, 'analyst@realtime.test', 'analyst', [{ type: 'tenant', id: null }]);
+    const analyst = await login(api, 'analyst@realtime.test', MEMBER_PASSWORD);
+    expect((await send(api, analyst, 'GET', '/conversations/unassigned')).statusCode).toBe(403);
+  });
+});
+
+describe('claiming', () => {
+  async function cardFor(browser: Browser, peer: string): Promise<{ id: string; version: number }> {
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; version: number }>(
+        'SELECT id::text, version FROM conversations WHERE peer_identity = $1',
+        [peer],
+      ),
+    );
+    const row = conversation.rows[0];
+    expect(row, `no conversation for ${peer}`).toBeDefined();
+    // Proves the agent can actually see the card they are about to act on.
+    const queue = await send(api, browser, 'GET', '/conversations/unassigned');
+    expect((queue.json() as { data: { id: string }[] }).data.map((card) => card.id)).toContain(
+      row?.id,
+    );
+    return row as { id: string; version: number };
+  }
+
+  it('refuses the full record before a claim and allows it after', async () => {
+    await customerWrites(INBOX_A, '15557000010', 'أريد التفاصيل', 'wamid.rt-10');
+    const card = await cardFor(agentA, '15557000010');
+
+    // `conversation.read` is `own` for an agent, and nothing is theirs yet.
+    expect((await send(api, agentA, 'GET', `/conversations/${card.id}`)).statusCode).toBe(403);
+
+    const claimed = await send(api, agentA, 'POST', `/conversations/${card.id}/claim`, {
+      version: card.version,
+    });
+    expect(claimed.statusCode).toBe(201);
+    const detail = (claimed.json() as { data: Record<string, unknown> }).data;
+    expect(detail['assigneeMembershipId']).toBe(agentAMembershipId);
+
+    const read = await send(api, agentA, 'GET', `/conversations/${card.id}`);
+    expect(read.statusCode).toBe(200);
+    expect((read.json() as { data: { peerIdentity: string } }).data.peerIdentity).toBe(
+      '15557000010',
+    );
+  });
+
+  it('produces exactly one winner when two agents claim at the same version', async () => {
+    await customerWrites(INBOX_A, '15557000011', 'من يرد أولاً', 'wamid.rt-11');
+    const card = await cardFor(agentA, '15557000011');
+
+    const [first, second] = await Promise.all([
+      send(api, agentA, 'POST', `/conversations/${card.id}/claim`, { version: card.version }),
+      send(api, secondAgentA, 'POST', `/conversations/${card.id}/claim`, { version: card.version }),
+    ]);
+    const codes = [first.statusCode, second.statusCode].sort();
+    expect(codes).toEqual([201, 409]);
+    const loser = first.statusCode === 409 ? first : second;
+    // Told, not silently overwritten: the loser's next step is to re-read.
+    expect((loser.json() as { error: { code: string } }).error.code).toBe(
+      'conversation_version_conflict',
+    );
+  });
+
+  it('refuses a claim at a version the caller did not see', async () => {
+    await customerWrites(INBOX_A, '15557000012', 'نسخة قديمة', 'wamid.rt-12');
+    const card = await cardFor(agentA, '15557000012');
+    const stale = await send(api, agentA, 'POST', `/conversations/${card.id}/claim`, {
+      version: card.version - 1,
+    });
+    expect(stale.statusCode).toBe(409);
+  });
+
+  it('refuses a claim with no version at all', async () => {
+    await customerWrites(INBOX_A, '15557000013', 'بدون نسخة', 'wamid.rt-13');
+    const card = await cardFor(agentA, '15557000013');
+    const response = await send(api, agentA, 'POST', `/conversations/${card.id}/claim`, {});
+    expect(response.statusCode).toBe(400);
+    expect(
+      (response.json() as { error: { details: { field: string }[] } }).error.details[0]?.field,
+    ).toBe('version');
+  });
+
+  it('answers a claim on a conversation that does not exist with a 404', async () => {
+    const missing = '99999999-9999-4999-8999-999999999999';
+    expect(
+      (await send(api, agentA, 'POST', `/conversations/${missing}/claim`, { version: 1 }))
+        .statusCode,
+    ).toBe(404);
+    expect((await send(api, agentA, 'GET', `/conversations/${missing}`)).statusCode).toBe(404);
+  });
+
+  it('takes a claimed conversation off everyone else’s queue and says so on the feed', async () => {
+    await customerWrites(INBOX_A, '15557000014', 'سيُطالب به', 'wamid.rt-14');
+    const card = await cardFor(agentA, '15557000014');
+    const beforeForPeer = await feed(secondAgentA);
+    const beforeForOwner = await feed(owner);
+
+    expect(
+      (await send(api, agentA, 'POST', `/conversations/${card.id}/claim`, { version: card.version }))
+        .statusCode,
+    ).toBe(201);
+
+    const queue = await send(api, secondAgentA, 'GET', '/conversations/unassigned');
+    expect((queue.json() as { data: { id: string }[] }).data.map((entry) => entry.id)).not.toContain(
+      card.id,
+    );
+
+    // The other agent learns it is gone, and learns nothing else about it.
+    const after = await feed(secondAgentA, beforeForPeer.cursor);
+    const assignment = after.events.filter((event) => event.type === 'conversation.assigned');
+    expect(assignment).toEqual([]);
+
+    // Somebody who may read the conversation gets the assignment as written.
+    const ownerView = await feed(owner, beforeForOwner.cursor);
+    const assigned = ownerView.events.find((event) => event.type === 'conversation.assigned');
+    expect(assigned?.payload['assigneeMembershipId']).toBe(agentAMembershipId);
+  });
+});
+
+describe('team routing', () => {
+  it('reaches a conversation through its team when the inbox was never granted', async () => {
+    // The first message creates the conversation; the router then puts it on a
+    // team. An event carries the scope it was emitted under, so only messages
+    // after the routing carry the team — which is the correct behaviour, not a
+    // limitation: an event is a statement about a moment.
+    await customerWrites(INBOX_B, '15557000060', 'قبل التوجيه', 'wamid.rt-59');
+    const team = await withTenant(api.pool, api.tenantId, async (client) => {
+      const created = await client.query<{ id: string }>(
+        `INSERT INTO teams (tenant_id, name) VALUES ($1, 'فريق التسجيل') RETURNING id::text`,
+        [api.tenantId],
+      );
+      const teamId = created.rows[0]?.id as string;
+      // Routing does not exist yet, so the column is set the way a router will
+      // set it. The authorization term it feeds is what is under test.
+      await client.query(
+        `UPDATE conversations SET team_id = $1 WHERE peer_identity = $2`,
+        [teamId, '15557000060'],
+      );
+      return teamId;
+    });
+    await customerWrites(INBOX_B, '15557000060', 'موجّه لفريق', 'wamid.rt-60');
+
+    const membershipId = await addMember(api, 'team-lead@realtime.test', 'supervisor', [
+      { type: 'team', id: team },
+    ]);
+    expect(membershipId).toMatch(/^[0-9a-f-]{36}$/);
+    const lead = await login(api, 'team-lead@realtime.test', MEMBER_PASSWORD);
+
+    // The conversation is on inbox B, which this supervisor was never granted.
+    const page = await feed(lead);
+    const routed = page.events.filter(
+      (event) => event.payload['text'] === 'موجّه لفريق',
+    );
+    expect(routed).toHaveLength(1);
+
+    const queue = await send(api, lead, 'GET', '/conversations/unassigned');
+    expect((queue.json() as { data: { id: string }[] }).data).toHaveLength(1);
+
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity = $1', [
+        '15557000060',
+      ]),
+    );
+    const read = await send(api, lead, 'GET', `/conversations/${conversation.rows[0]?.id}`);
+    expect(read.statusCode).toBe(200);
+    const detail = (read.json() as { data: { teamId: string; version: number } }).data;
+    expect(detail.teamId).toBe(team);
+
+    // And claiming is decided against the same team term.
+    const claimed = await send(
+      api,
+      lead,
+      'POST',
+      `/conversations/${conversation.rows[0]?.id}/claim`,
+      { version: detail.version },
+    );
+    expect(claimed.statusCode).toBe(201);
+  });
+
+  it('refuses a claim to someone who holds no claim grant', async () => {
+    const analyst = await login(api, 'analyst@realtime.test', MEMBER_PASSWORD);
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; version: number }>(
+        `SELECT id::text, version FROM conversations WHERE assignee_membership_id IS NULL LIMIT 1`,
+      ),
+    );
+    const row = conversation.rows[0] as { id: string; version: number };
+    const response = await send(api, analyst, 'POST', `/conversations/${row.id}/claim`, {
+      version: row.version,
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('refuses a claim whose body is not an object at all', async () => {
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>(
+        `SELECT id::text FROM conversations WHERE assignee_membership_id IS NULL LIMIT 1`,
+      ),
+    );
+    const id = conversation.rows[0]?.id as string;
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${api.tenantId}/conversations/${id}/claim`,
+      headers: {
+        cookie: agentA.cookie,
+        'x-csrf-token': agentA.csrf,
+        'content-type': 'application/json',
+      },
+      payload: '"three"',
+    });
+    expect(response.statusCode).toBe(400);
+  });
+});
+
+describe('a conversation that is already somebody’s', () => {
+  it('does not go back in the queue when the customer writes again', async () => {
+    const peer = '15557000070';
+    await customerWrites(INBOX_A, peer, 'أول رسالة', 'wamid.rt-70');
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; version: number }>(
+        'SELECT id::text, version FROM conversations WHERE peer_identity = $1',
+        [peer],
+      ),
+    );
+    const row = conversation.rows[0] as { id: string; version: number };
+    expect(
+      (await send(api, agentA, 'POST', `/conversations/${row.id}/claim`, { version: row.version }))
+        .statusCode,
+    ).toBe(201);
+
+    await customerWrites(INBOX_A, peer, 'رسالة ثانية', 'wamid.rt-71');
+
+    const after = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ waiting_since: Date | null; assignee_membership_id: string | null }>(
+        'SELECT waiting_since, assignee_membership_id FROM conversations WHERE id = $1',
+        [row.id],
+      ),
+    );
+    // Still theirs, and still not waiting: a reply from the customer is not a
+    // new arrival in the Unassigned queue.
+    expect(after.rows[0]?.assignee_membership_id).toBe(agentAMembershipId);
+    expect(after.rows[0]?.waiting_since).toBeNull();
+
+    const queue = await send(api, secondAgentA, 'GET', '/conversations/unassigned');
+    expect((queue.json() as { data: { id: string }[] }).data.map((card) => card.id)).not.toContain(
+      row.id,
+    );
+  });
+
+  it('shows a conversation nobody has written to yet with no waiting time', async () => {
+    // A template send opens a conversation from our side: the customer has not
+    // written, so nobody is waiting, and the card has to say so rather than
+    // inventing a start time.
+    const peer = '15557000080';
+    const queued = await send(api, owner, 'POST', `/channels/${inboxA}/messages`, {
+      peerIdentity: peer,
+      messageType: 'text',
+      text: '',
+      template: { name: 'order_update', language: 'ar' },
+      clientMessageId: 'realtime-template-1',
+    });
+    expect(queued.statusCode).toBe(202);
+    answer = { status: 'accepted', providerMessageId: `wamid.rt-tpl-${peer}`, raw: {} };
+    await dispatcher.dispatch(api.tenantId);
+    await deliver(api, statusDelivery(INBOX_A, `wamid.rt-tpl-${peer}`, 'delivered', '1789000300', peer));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+
+    const queue = await send(api, agentA, 'GET', '/conversations/unassigned');
+    const card = (queue.json() as { data: { maskedLabel: string; waitingSinceAt: string | null }[] })
+      .data.find((entry) => entry.maskedLabel === '••••080');
+    expect(card).toBeDefined();
+    expect(card?.waitingSinceAt).toBeNull();
+  });
+});
+
+describe('revocation', () => {
+  it('stops the feed the moment an inbox is taken away', async () => {
+    const membership = agentBMembershipId;
+    // Give agent B access to inbox A, then take it away again, with a message
+    // in between so the difference is visible rather than assumed.
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `INSERT INTO membership_scopes (tenant_id, membership_id, scope_type, scope_id)
+         VALUES ($1, $2, 'inbox', $3)`,
+        [api.tenantId, membership, inboxA],
+      ),
+    );
+    const granted = await feed(agentB);
+    expect(granted.events.length).toBeGreaterThan(0);
+
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `DELETE FROM membership_scopes
+          WHERE membership_id = $1 AND scope_type = 'inbox' AND scope_id = $2`,
+        [membership, inboxA],
+      ),
+    );
+    await customerWrites(INBOX_A, '15557000020', 'بعد السحب', 'wamid.rt-20');
+
+    // No reconnect and no new login: the next page simply stops carrying that
+    // inbox. Their own inbox is untouched, which is what makes this a narrowing
+    // rather than a logout.
+    const after = await feed(agentB);
+    expect(after.events.filter((event) => event.scope.inboxId === inboxA)).toEqual([]);
+    expect(JSON.stringify(after.events)).not.toContain('بعد السحب');
+  });
+
+  it('answers a revoked membership the way it answers a stranger', async () => {
+    await addMember(api, 'leaver@realtime.test', 'agent', [{ type: 'inbox', id: inboxA }]);
+    const leaver = await login(api, 'leaver@realtime.test', MEMBER_PASSWORD);
+    expect((await send(api, leaver, 'GET', '/realtime/events')).statusCode).toBe(200);
+
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `UPDATE memberships SET status = 'revoked'
+          WHERE user_id = (SELECT id FROM users WHERE email = $1)`,
+        ['leaver@realtime.test'],
+      ),
+    );
+    expect((await send(api, leaver, 'GET', '/realtime/events')).statusCode).toBe(404);
+  });
+});
+
+describe('delivery receipts on the feed', () => {
+  it('reports each receipt as its own event, in the order they moved the state', async () => {
+    const peer = '15557000030';
+    await customerWrites(INBOX_A, peer, 'افتح النافذة', 'wamid.rt-30');
+    const before = await feed(owner);
+
+    const queued = await send(api, owner, 'POST', `/channels/${inboxA}/messages`, {
+      peerIdentity: peer,
+      messageType: 'text',
+      text: 'رد الفريق',
+      clientMessageId: 'realtime-receipt-1',
+    });
+    expect(queued.statusCode).toBe(202);
+    answer = { status: 'accepted', providerMessageId: `wamid.rt-out-${peer}`, raw: {} };
+    await dispatcher.dispatch(api.tenantId);
+
+    for (const [state, stamp] of [
+      ['delivered', '1789000100'],
+      ['read', '1789000101'],
+    ] as const) {
+      await deliver(api, statusDelivery(INBOX_A, `wamid.rt-out-${peer}`, state, stamp, peer));
+      await normalizer.drain(api.tenantId);
+      await dispatcher.reconcileReceipts(api.tenantId);
+    }
+
+    const page = await feed(owner, before.cursor);
+    const receipts = page.events.filter((event) => event.type === 'message.delivery');
+    expect(receipts.map((event) => event.payload['deliveryState'])).toEqual(['delivered', 'read']);
+    // The entity version is the delivery rank, so a receipt that arrives out of
+    // order is recognisable as older without a separate counter.
+    expect(receipts.map((event) => event.entity.version)).toEqual([2, 3]);
+    expect(receipts[0]?.entity.type).toBe('message');
+  });
+
+  it('never rolls a read back to delivered, and says so once', async () => {
+    const peer = '15557000031';
+    await customerWrites(INBOX_A, peer, 'خارج الترتيب', 'wamid.rt-31');
+    const queued = await send(api, owner, 'POST', `/channels/${inboxA}/messages`, {
+      peerIdentity: peer,
+      messageType: 'text',
+      text: 'رد آخر',
+      clientMessageId: 'realtime-receipt-2',
+    });
+    expect(queued.statusCode).toBe(202);
+    answer = { status: 'accepted', providerMessageId: `wamid.rt-out-${peer}`, raw: {} };
+    await dispatcher.dispatch(api.tenantId);
+    const before = await feed(owner);
+
+    // Read first, then the delivered receipt that was overtaken.
+    await deliver(api, statusDelivery(INBOX_A, `wamid.rt-out-${peer}`, 'read', '1789000201', peer));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+    await deliver(
+      api,
+      statusDelivery(INBOX_A, `wamid.rt-out-${peer}`, 'delivered', '1789000200', peer),
+    );
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+
+    const page = await feed(owner, before.cursor);
+    const receipts = page.events.filter((event) => event.type === 'message.delivery');
+    // One event, not two: the late `delivered` changed nothing except the
+    // anomaly, and the state stayed where it was.
+    expect(receipts.map((event) => event.payload['deliveryState'])).toEqual(['read', 'read']);
+    expect(receipts.at(-1)?.payload['anomaly']).toBe('delivered_after_read');
+  });
+});
+
+describe('feed ordering', () => {
+  it('orders by number once the feed passes ten events', async () => {
+    const page = await feed(owner);
+    expect(page.events.length).toBeGreaterThan(10);
+    const seqs = page.events.map((event) => event.seq);
+    // The bug this guards is textual ordering, which is invisible below ten and
+    // then puts event 10 immediately after event 1 — taking the cursor
+    // backwards and re-delivering everything in between forever.
+    expect(seqs).toEqual([...seqs].sort((left, right) => left - right));
+    expect(seqs.at(-1)).toBe(Math.max(...seqs));
+  });
+});
+
+describe('the stream', () => {
+  async function stream(
+    browser: Browser,
+    query = '',
+    headers: Record<string, string> = {},
+  ): Promise<LightMyRequestResponse> {
+    return api.server.inject({
+      method: 'GET',
+      url: `/api/v1/tenants/${api.tenantId}/realtime/stream${query}`,
+      headers: { cookie: browser.cookie, ...headers },
+    });
+  }
+
+  function framesOf(payload: string): { event: string; data: Record<string, unknown> }[] {
+    return payload
+      .split('\n\n')
+      .filter((block) => block.includes('event: '))
+      .map((block) => {
+        const event = /event: (.+)/.exec(block)?.[1] ?? '';
+        const data = /data: (.+)/.exec(block)?.[1] ?? '{}';
+        return { event, data: JSON.parse(data) as Record<string, unknown> };
+      });
+  }
+
+  it('sends what happened, then closes on its own with a reason', async () => {
+    const response = await stream(owner);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/event-stream');
+    // A reconnect floor, so a fleet does not all come back on the same tick.
+    expect(response.payload).toContain('retry: ');
+
+    const frames = framesOf(response.payload);
+    expect(frames.some((entry) => entry.event === 'message.inbound')).toBe(true);
+    const last = frames.at(-1);
+    // A planned cycle, said out loud, so a client can tell it from a network
+    // failure and reconnect without alarm.
+    expect(last?.event).toBe('stream_cycled');
+    expect(last?.data['reason']).toBe('max_stream_age');
+  }, 20_000);
+
+  it('resumes from Last-Event-ID and repeats nothing', async () => {
+    const first = await stream(owner);
+    const frames = framesOf(first.payload);
+    const cursor = frames.find((entry) => entry.event === 'stream_cycled')?.data['reason'];
+    expect(cursor).toBe('max_stream_age');
+    const lastEventId = /id: (.+)/.exec(first.payload.split('\n\n').at(-2) ?? '')?.[1] ?? '';
+
+    await customerWrites(INBOX_A, '15557000040', 'بعد إعادة الاتصال', 'wamid.rt-40');
+    const second = await stream(owner, '', { 'last-event-id': lastEventId });
+    const events = framesOf(second.payload).filter((entry) => entry.event === 'message.inbound');
+    // Exactly the message that arrived while the client was away.
+    expect(events).toHaveLength(1);
+    expect(events[0]?.data['payload']).toMatchObject({ text: 'بعد إعادة الاتصال' });
+  }, 20_000);
+
+  it('projects for an agent on the stream exactly as it does on the page', async () => {
+    await customerWrites(INBOX_A, '15557000050', 'قبل المطالبة', 'wamid.rt-50');
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity = $1', [
+        '15557000050',
+      ]),
+    );
+    const unclaimed = conversation.rows[0]?.id;
+
+    const response = await stream(agentA);
+    const frames = framesOf(response.payload).filter((entry) => {
+      const scope = entry.data['scope'] as { conversationId?: string } | undefined;
+      return entry.event === 'message.inbound' && scope?.conversationId === unclaimed;
+    });
+    expect(frames.length).toBeGreaterThan(0);
+    for (const entry of frames) {
+      const payload = entry.data['payload'] as Record<string, unknown>;
+      // The socket is not a way around the endpoint: the same agent, the same
+      // conversation, the same projection as the JSON page gives.
+      expect(payload['projected']).toBe(true);
+      expect(payload['text']).toBeUndefined();
+      expect(payload['maskedLabel']).toBe('••••050');
+    }
+  }, 20_000);
+
+  it('refuses to open for a caller with no membership, before any bytes are written', async () => {
+    const response = await api.server.inject({
+      method: 'GET',
+      url: `/api/v1/tenants/99999999-9999-4999-8999-999999999999/realtime/stream`,
+      headers: { cookie: owner.cookie },
+    });
+    // A 200 stream that closed immediately would be indistinguishable from a
+    // working subscription with nothing to say.
+    expect(response.statusCode).toBe(404);
+    expect(response.headers['content-type']).toContain('application/json');
+  });
+
+  it('refuses to open without a session', async () => {
+    const response = await api.server.inject({
+      method: 'GET',
+      url: `/api/v1/tenants/${api.tenantId}/realtime/stream`,
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('tells a client whose cursor is unusable to start again', async () => {
+    const response = await stream(owner, '?cursor=not-a-cursor');
+    const frames = framesOf(response.payload);
+    expect(frames[0]).toMatchObject({ event: 'reset_required' });
+    expect(frames[0]?.data['reason']).toBe('malformed');
+  }, 20_000);
+
+  it('closes a stream whose membership is revoked while it is open', async () => {
+    await addMember(api, 'streamer@realtime.test', 'agent', [{ type: 'inbox', id: inboxA }]);
+    const streamer = await login(api, 'streamer@realtime.test', MEMBER_PASSWORD);
+    const revoke = withTenant(api.pool, api.tenantId, async (client) => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await client.query(
+        `UPDATE memberships SET status = 'revoked'
+          WHERE user_id = (SELECT id FROM users WHERE email = $1)`,
+        ['streamer@realtime.test'],
+      );
+    });
+    const [response] = await Promise.all([stream(streamer), revoke]);
+
+    const last = framesOf(response.payload).at(-1);
+    // Not a silent stop: the client is told this is not worth reconnecting for.
+    expect(last?.event).toBe('stream_closed');
+    expect(last?.data['reason']).toBe('access_revoked');
+  }, 20_000);
+});
+
+describe('a stream that ends badly', () => {
+  it('stops the loop when the client goes away', async () => {
+    // A real socket, because a client hanging up is a socket event and cannot
+    // be simulated by an in-process injection.
+    const pool = scratchRuntimePool(api.names, 2);
+    const app = await createApiApplication(parseApiConfig(envFor(api.names)), pool, {
+      channelTransport: transport,
+    });
+    await app.listen(0, '127.0.0.1');
+    try {
+      const base = await app.getUrl();
+      const controller = new AbortController();
+      const response = await fetch(
+        `${base.replace('[::1]', '127.0.0.1')}/api/v1/tenants/${api.tenantId}/realtime/stream`,
+        { headers: { cookie: owner.cookie }, signal: controller.signal },
+      );
+      expect(response.status).toBe(200);
+      const reader = response.body?.getReader();
+      await reader?.read();
+      controller.abort();
+
+      // The server survives the hang-up and keeps serving: a stream loop that
+      // ran on after its client left would hold a database connection per
+      // abandoned browser tab.
+      const after = await fetch(
+        `${base.replace('[::1]', '127.0.0.1')}/api/v1/tenants/${api.tenantId}/realtime/events`,
+        { headers: { cookie: owner.cookie } },
+      );
+      expect(after.status).toBe(200);
+    } finally {
+      await app.close();
+    }
+  }, 20_000);
+
+  it('tells a client to reconnect when the server itself fails', async () => {
+    const pool = scratchRuntimePool(api.names, 2);
+    const app = await createApiApplication(parseApiConfig(envFor(api.names)), pool, {
+      channelTransport: transport,
+    });
+    const server = app.getHttpAdapter().getInstance() as unknown as FastifyInstance;
+    try {
+      const streaming = server.inject({
+        method: 'GET',
+        url: `/api/v1/tenants/${api.tenantId}/realtime/stream`,
+        headers: { cookie: owner.cookie },
+      });
+      // The database goes away underneath an open stream. The first page has
+      // already been sent, so this cannot become a status code.
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await pool.end();
+      const response = await streaming;
+
+      const frames = response.payload
+        .split('\n\n')
+        .filter((block) => block.includes('event: '))
+        .map((block) => ({
+          event: /event: (.+)/.exec(block)?.[1] ?? '',
+          data: JSON.parse(/data: (.+)/.exec(block)?.[1] ?? '{}') as Record<string, unknown>,
+        }));
+      const last = frames.at(-1);
+      expect(last?.event).toBe('stream_closed');
+      // Not `access_revoked`: calling a database outage a revocation would log
+      // people out of a working session.
+      expect(last?.data['reason']).toBe('server_error');
+    } finally {
+      // The pool is already ended; closing the app must not be the thing that
+      // decides whether this test passes.
+      await app.close().catch(() => undefined);
+    }
+  }, 20_000);
+});
+
+/** Reads the authority digest back out of a cursor this build issued. */
+function decodeAuthority(cursor: string): string {
+  return Buffer.from(cursor, 'base64url').toString('utf8').split('|')[3] as string;
+}

@@ -15,6 +15,9 @@ import { LoggingRecoveryDelivery } from './auth/recovery-delivery.js';
 import type { RecoveryDeliveryPort } from './auth/recovery-delivery.js';
 import { RecoveryService } from './auth/recovery.service.js';
 import { AuthorizationService } from './authorization/authorization.service.js';
+import { unconfiguredBroker } from './broker/broker.port.js';
+import type { BrokerPort } from './broker/broker.port.js';
+import { BrokerRelayService } from './broker/relay.service.js';
 import { ChannelController } from './channels/channel.controller.js';
 import { ChannelService } from './channels/channel.service.js';
 import { unconfiguredTransport } from './channels/channel-transport.js';
@@ -27,6 +30,10 @@ import { OutboundController } from './channels/outbound.controller.js';
 import { OutboundService } from './channels/outbound.service.js';
 import { SelfHostedIngressService } from './channels/self-hosted-ingress.service.js';
 import { ChannelNormalizationService } from './channels/normalization.service.js';
+import { ConversationController } from './conversations/conversation.controller.js';
+import { ConversationService } from './conversations/conversation.service.js';
+import { RealtimeController } from './realtime/realtime.controller.js';
+import { RealtimeService } from './realtime/realtime.service.js';
 import { PermissionController } from './authorization/permission.controller.js';
 import { PermissionService } from './authorization/permission.service.js';
 import { IdempotencyService } from './idempotency/idempotency.service.js';
@@ -43,6 +50,7 @@ import { MembershipService } from './memberships/membership.service.js';
 import {
   API_CONFIG,
   API_POOL,
+  BROKER,
   CHANNEL_TRANSPORT,
   INVITATION_DELIVERY,
   PASSWORD_HASHER,
@@ -82,6 +90,7 @@ export class ApiModule {
       readonly recoveryDelivery?: RecoveryDeliveryPort | undefined;
       readonly invitationDelivery?: InvitationDeliveryPort | undefined;
       readonly channelTransport?: ChannelTransportPort | undefined;
+      readonly broker?: BrokerPort | undefined;
     } = {},
   ): DynamicModule {
     return {
@@ -96,6 +105,8 @@ export class ApiModule {
         ChannelController,
         ChannelIngressController,
         OutboundController,
+        ConversationController,
+        RealtimeController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -119,6 +130,10 @@ export class ApiModule {
           provide: CHANNEL_TRANSPORT,
           useValue: adapters.channelTransport ?? unconfiguredTransport,
         },
+        // No durable broker is configured. The default refuses every publish,
+        // so the outbox grows visibly rather than a queue silently becoming an
+        // array that loses everything on restart.
+        { provide: BROKER, useValue: adapters.broker ?? unconfiguredBroker },
         IdempotencyService,
         InstanceService,
         AuthRateLimiter,
@@ -131,6 +146,9 @@ export class ApiModule {
         ChannelService,
         ChannelIngressService,
         SelfHostedIngressService,
+        BrokerRelayService,
+        RealtimeService,
+        ConversationService,
         ChannelNormalizationService,
         ChannelDispatcherService,
         OutboundService,

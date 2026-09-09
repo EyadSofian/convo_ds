@@ -3,7 +3,9 @@ import { asExecutor, withTenant } from '@convo/database';
 import type { SqlExecutor } from '@convo/domain';
 import type { Pool } from 'pg';
 import { API_POOL } from '../tokens.js';
+import { ConversationService } from '../conversations/conversation.service.js';
 import { inboundRowFrom } from './inbound-projection.js';
+import type { InboundRow } from './inbound-projection.js';
 
 /**
  * The inbound worker: journaled events become normalized inbound events.
@@ -38,7 +40,10 @@ const LEASE_SECONDS = 60;
 
 @Injectable()
 export class ChannelNormalizationService {
-  constructor(@Inject(API_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(API_POOL) private readonly pool: Pool,
+    @Inject(ConversationService) private readonly conversations: ConversationService,
+  ) {}
 
   /**
    * Tenants with queued work.
@@ -117,10 +122,14 @@ export class ChannelNormalizationService {
           continue;
         }
         const inserted = await projectEvent(sql, tenantId, row.event_id, row.connection_id, row.normalized);
-        if (inserted) {
-          projected += 1;
-        } else {
+        if (inserted === null) {
           alreadyProjected += 1;
+        } else {
+          projected += 1;
+          // The inbox side of the same transaction: a conversation exists, it
+          // knows a customer is waiting, and the feed says so. All three commit
+          // with the normalized event or none of them do (DEL-07).
+          await this.record(sql, tenantId, row.connection_id, inserted);
         }
         await sql.query(
           `UPDATE channel_events SET status = 'normalized', processed_at = now() WHERE id = $1`,
@@ -133,15 +142,51 @@ export class ChannelNormalizationService {
       return { claimed: queued.rows.length, projected, alreadyProjected, failed };
     });
   }
+
+  /**
+   * Turns one normalized event into inbox state.
+   *
+   * Only a customer *message* touches the conversation. A delivery receipt is
+   * about an outbound message and is folded on the outbound side; an
+   * unsupported or quarantined element is a fact about a payload, not about a
+   * customer, and must not make a conversation appear in the queue.
+   */
+  private async record(
+    sql: SqlExecutor,
+    tenantId: string,
+    connectionId: string,
+    inbound: InboundRow,
+  ): Promise<void> {
+    if (inbound.kind !== 'message') {
+      return;
+    }
+    const conversation = await this.conversations.ensure(
+      sql,
+      tenantId,
+      connectionId,
+      inbound.peerIdentity,
+    );
+    await this.conversations.noteInbound(sql, tenantId, conversation, {
+      occurredAt: inbound.occurredAt,
+      payload: {
+        providerMessageId: inbound.providerMessageId,
+        contentType: inbound.contentType,
+        text: inbound.text,
+      },
+    });
+  }
 }
 
 /**
  * Projects one journaled event into the normalized table.
  *
- * Returns whether a row was added. `ON CONFLICT DO NOTHING` against the
- * source-uniqueness index is what makes a replay idempotent: running this over
- * an event that was already projected changes nothing and reports so, rather
- * than either failing or silently doubling a customer's message.
+ * Returns the row it added, or `null` when the event was already projected.
+ * `ON CONFLICT DO NOTHING` against the source-uniqueness index is what makes a
+ * replay idempotent: running this over an event that was already projected
+ * changes nothing and reports so, rather than either failing or silently
+ * doubling a customer's message. The caller uses the returned row to decide
+ * what the arrival means for the inbox — which is exactly the work a replay
+ * must not repeat.
  */
 async function projectEvent(
   sql: SqlExecutor,
@@ -149,7 +194,7 @@ async function projectEvent(
   eventId: string,
   connectionId: string,
   event: Record<string, unknown>,
-): Promise<boolean> {
+): Promise<InboundRow | null> {
   const row = inboundRowFrom(event, new Date());
   const inserted = await sql.query<{ id: string }>(
     `INSERT INTO inbound_events
@@ -173,5 +218,5 @@ async function projectEvent(
       row.occurredAt,
     ],
   );
-  return inserted.rows.length > 0;
+  return inserted.rows.length > 0 ? row : null;
 }

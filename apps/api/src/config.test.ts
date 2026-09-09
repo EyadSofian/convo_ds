@@ -90,6 +90,42 @@ describe('parseApiConfig', () => {
     }
   });
 
+  it('defaults the realtime tuning, and bounds every part of it', () => {
+    const defaults = parseApiConfig(validEnv()).realtime;
+    expect(defaults).toEqual({
+      pollMs: 500,
+      heartbeatMs: 15_000,
+      maxStreamMs: 300_000,
+      maxBatch: 200,
+      maxBacklog: 5_000,
+    });
+
+    const tuned = parseApiConfig({
+      ...validEnv(),
+      CONVO_REALTIME_POLL_MS: '250',
+      CONVO_REALTIME_MAX_STREAM_MS: '60000',
+    }).realtime;
+    expect(tuned.pollMs).toBe(250);
+    expect(tuned.maxStreamMs).toBe(60_000);
+
+    // Every one of these is a way to break the feed quietly: a poll interval of
+    // an hour delays revocation, a batch of zero delivers nothing, a stream that
+    // never cycles never re-reads the principal.
+    for (const [field, value] of [
+      ['CONVO_REALTIME_POLL_MS', '10'],
+      ['CONVO_REALTIME_POLL_MS', '600000'],
+      ['CONVO_REALTIME_HEARTBEAT_MS', '0'],
+      ['CONVO_REALTIME_MAX_STREAM_MS', '999'],
+      ['CONVO_REALTIME_MAX_BATCH', '0'],
+      ['CONVO_REALTIME_MAX_BATCH', 'lots'],
+      ['CONVO_REALTIME_MAX_BACKLOG', '0'],
+    ] as const) {
+      expect(() => parseApiConfig({ ...validEnv(), [field]: value }), `${field}=${value}`).toThrow(
+        new RegExp(field),
+      );
+    }
+  });
+
   it('accepts a trimmed host and an ephemeral API port', () => {
     const config = parseApiConfig({
       ...validEnv(),

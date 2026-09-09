@@ -4,7 +4,90 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T7 third slice (Milestone C: the outbound path)
+## Last completed task — P1-T7 fifth slice (Milestone C: process roles, the broker relay, fairness, fencing and realtime)
+
+**Task / requirement IDs:** DEL-08, DEL-09, DEL-18, DEL-19, DEL-20, IAM-11, IAM-12, IAM-13 closed. DEL-21, DEP-01, CMP-15 moved to `partial` with the unbuilt half named.
+
+### Behavior delivered
+
+**One artifact, seven roles.** `CONVO_PROCESS_ROLE` alone decides what a process is. An HTTP role listens; the four worker roles run a loop and **bind no port** — asserted by starting one and reading `null` from the server's address. The pool size follows the role rather than one global number. `worker-integration` **fails closed** when no durable broker is reachable: a process whose only job is publishing has nothing to do without one, and falling back to an in-memory queue would leave something that looks healthy, reports throughput, and loses everything it holds on restart.
+
+**The broker is a transport; the outbox is the truth.** An envelope commits with the effect that caused it and is published afterwards, with `published_at` set only on a confirmation. The cost of that ordering is that a publish can happen twice, which is accepted rather than hidden: `broker_deliveries` makes consumers idempotent, so a duplicate is absorbed and a lost event would not be. Bounded retries end in `broker_dead_letters` with a reason; a replay creates a new envelope and records who did it.
+
+**Fencing is enforced, not merely recorded.** `claim()` returns the version the worker owns and every result write compares it. The attempt row is still written **first and unconditionally** — a stale worker's provider response is evidence about what a customer may have received — and is marked `stale_dispatch` so it can never be mistaken for current state. Four stale paths tested: accept, `outcome_unknown`, rejection, retry.
+
+**The round is bounded and dealt.** `planRound` serves interactive first up to the whole capacity, gives bulk the remainder, and deals within a class one slot at a time. Before this, every pending company got up to `concurrency` per tick, so the size of a tick depended on how many companies happened to be busy. The worker reports `offered` beside `achieved`, because `handled` alone reads the same whether a round served everything or a tenth of it.
+
+**Realtime is an authorization feature that happens to have a transport.** Every event is decided again on the way out, by the same `authorize` the HTTP routes use, against a principal re-read from the database — so a revoked membership, a narrowed role or a removed inbox stops the stream on the next poll rather than at the next login. A caller who may only preview an unassigned conversation gets a **queue card built field by field on the server**; the test serialises the frames and asserts the transcript, the attachment name, the contact name and the raw phone number are nowhere in them. An event a caller may not see is omitted entirely rather than redacted.
+
+**A cursor carries the authority it was issued under.** After a permission change, the events already delivered and the events skipped were both chosen against different rules, so a partial resume would be silently wrong; the answer is `reset_required` with `permissions_changed`. The other three unusable cases — `malformed`, `other_tenant`, `expired` — each have their own reason and their own test.
+
+**The claim is atomic and version-checked.** Two agents claiming the same card concurrently produce exactly one 201 and one 409 `conversation_version_conflict`, asserted with two real requests issued together.
+
+**Two defects the tests found.** The feed's `ORDER BY seq` bound to the `seq::text` output column and sorted 10 before 2 — invisible below ten events, then it walked the cursor backwards and re-delivered forever. And `reconcileReceipts` re-folded receipts it had already applied, turning a correctly-ordered `delivered` → `read` pair into a fabricated `delivered_after_read`; migration `0015` adds an observation watermark so each receipt folds once.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0013_broker_relay.sql` | the relay outbox, consumer idempotency, dead letters |
+| `packages/database/migrations/0014_realtime.sql` | conversations, participants, the per-company counter, the append-only feed |
+| `packages/database/migrations/0015_receipt_watermark.sql` | fold each receipt once |
+| `packages/domain/src/channels/fairness.ts` | `planRound`: the reservation, the remainder, the round-robin |
+| `packages/domain/src/realtime/visibility.ts` | who sees what, in what shape — built on the same `authorize` |
+| `packages/domain/src/realtime/cursor.ts` | a position plus the authority it was issued under |
+| `apps/api/src/broker/relay.service.ts` | confirm, retry with backoff, quarantine, replay |
+| `apps/api/src/workers/worker-roles.ts` | what each role does per tick, through the scheduler |
+| `apps/api/src/realtime/realtime.service.ts` | append in the caller's transaction; decide every event on read |
+| `apps/api/src/realtime/realtime.controller.ts` | SSE with cursors, heartbeat, bounded lifetime |
+| `apps/api/src/conversations/conversation.service.ts` | the queue projection, the version-checked claim |
+| `tests/integration/api-realtime.test.ts` | 41 tests: projection, revocation, cursors, claims, receipts, the stream |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm test:coverage` | **0** | 82 files, **1528 tests**, 100% on all four metrics |
+| `pnpm test:integration` | **0** | 22 files, **377 tests** against real PostgreSQL 17.4 |
+| `pnpm test:contracts` | **0** | adapter + OpenAPI contract suites |
+| `pnpm test:security` | **0** | isolation, authorization, signature, realtime suites + production audit |
+| `pnpm test:e2e` | **0** | 146 |
+| `pnpm test:a11y` | **0** | 22, no WCAG 2.1 AA violations |
+| `pnpm test:visual` | **0** | 19, images plus structural snapshots |
+| `pnpm test:mutation` | **1** | `not_run` — wired in P4 |
+| `pnpm test:load:target` | **1** | `blocked_env` — k6 not installed, no staging target |
+| `pnpm test:recovery` | **1** | `blocked_env` — no restore target |
+
+The pinned OpenAPI carries **50 operations**; the bidirectional drift test passes.
+
+### Honest remaining scope
+
+- **No broker product.** The port, the relay, the confirms, the DLQ and the replay are real and tested against a scripted stub. Nothing is configured, so the default port answers every publish `unknown` with `broker_not_configured` — deliberately unknown rather than refused, so the outbox grows visibly. DEL-08/DEL-09 stay `blocked_env` on the live column.
+- **No metrics endpoint.** `offered` and `achieved` are accumulated per loop and printed when a worker stops. A worker role binds no port, so there is nowhere else to put them yet.
+- **No routing.** `conversations.team_id` exists and authorization reads it; nothing sets it except a test doing what a router will do.
+- **No retention pruning.** The feed grows. What is built is the *client's* side of pruning: a cursor older than what is retained is refused with `expired` rather than silently resuming.
+- **The Inbox, Contacts and the realtime UI are not built.** That is Milestone D, and it starts next.
+- **Still no provider HTTP client.** Every provider-live check stays `blocked_no_asset`.
+
+---
+
+## Previously completed — P1-T7 fourth slice (Milestone C: the other four channel adapters)
+
+**Task / requirement IDs:** CH-MSG-01, CH-MSG-02, CH-IG-01, CH-IG-03, CH-IG-04 closed. CH-00 and CH-01 gained four more adapters against the same versioned contract.
+
+**Four channels, four sets of rules.** Messenger, Instagram, Website Chat and a versioned Custom Channel API, each with its own identity, capability matrix, window policy, template rules, signature scheme and event vocabulary. What the Meta three share is a *wire*, not a rule: one app secret, one envelope skeleton, one `entry[].messaging[]` walk. The tests assert the differences rather than the sameness — a WhatsApp template refused on all four others, 600 Arabic characters passing on Messenger and failing on Instagram, Instagram with no template path out of a closed window, and our own channels with no window at all.
+
+**The ingress asks rather than switches.** Meta multiplexes three products over one webhook, so `adapterClaiming(payload, META_KINDS)` asks which adapter claims a verified envelope. Exactly one claims each, asserted; a delivery none recognises is acknowledged and journaled rather than retried forever.
+
+**Our own channels carry the guarantees a provider would have given.** The installation signs deliveries with a key it issued — HMAC over `<timestamp>.<raw body>`, the timestamp inside the signed material so an old capture cannot be made to look fresh — with an exactly-matched origin allowlist and a per-connection rate limit beside it.
+
+Committed as `bf36360`. Migration `0012_channel_settings.sql` adds the per-connection settings object the self-hosted channels are configured through.
+
+---
+
+## Previously completed — P1-T7 third slice (Milestone C: the outbound path)
 
 **Task / requirement IDs:** DEL-07, DEL-10, DEL-12, DEL-13, DEL-14, DEL-15, DEL-16, DEL-17, SEND-01, SEND-03 closed. CH-WA-01, CH-WA-05, DEL-11, DEL-18, SEND-04, EVT-04 moved to `partial` with the unbuilt half named.
 

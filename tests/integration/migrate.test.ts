@@ -47,6 +47,9 @@ describe('migrate', () => {
       '0010_channels.sql',
       '0011_outbound.sql',
       '0012_channel_settings.sql',
+      '0013_broker_relay.sql',
+      '0014_realtime.sql',
+      '0015_receipt_watermark.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -58,6 +61,9 @@ describe('migrate', () => {
     expect(tables.rows.map((r) => r.table_name)).toEqual([
       'admin_audit_events',
       'auth_rate_limits',
+      'broker_dead_letters',
+      'broker_deliveries',
+      'broker_outbox',
       'builtin_role_definitions',
       'builtin_role_grants',
       'channel_apps',
@@ -67,6 +73,8 @@ describe('migrate', () => {
       'channel_event_queue',
       'channel_events',
       'channel_suppressions',
+      'conversation_participants',
+      'conversations',
       'idempotency_records',
       'inbound_events',
       'installations',
@@ -80,11 +88,13 @@ describe('migrate', () => {
       'ownership_transfers',
       'password_recovery_challenges',
       'permissions',
+      'realtime_events',
       'role_permissions',
       'roles',
       'schema_migrations',
       'team_members',
       'teams',
+      'tenant_event_sequences',
       'tenants',
       'user_membership_index',
       'user_sessions',
@@ -100,7 +110,7 @@ describe('migrate', () => {
     const recorded = await pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM schema_migrations',
     );
-    expect(recorded.rows[0]?.count).toBe('12');
+    expect(recorded.rows[0]?.count).toBe('15');
   });
 
   /**

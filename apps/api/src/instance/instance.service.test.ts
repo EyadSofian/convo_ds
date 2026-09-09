@@ -23,6 +23,13 @@ const CONFIG = {
   },
   channelSecrets: {},
   workerConcurrency: 4,
+  realtime: {
+    pollMs: 500,
+    heartbeatMs: 15_000,
+    maxStreamMs: 300_000,
+    maxBatch: 200,
+    maxBacklog: 5_000,
+  },
   host: '127.0.0.1',
   port: 0,
   database: {

@@ -52,6 +52,26 @@ export interface ApiConfig extends InstallationConfig {
   readonly channelSecrets: Readonly<Record<string, string>>;
   /** Concurrency for a worker role. Ignored by the HTTP roles. */
   readonly workerConcurrency: number;
+  /**
+   * Realtime stream tuning.
+   *
+   * Configuration rather than constants because every one of them is a
+   * deployment trade: how quickly a revoked membership stops receiving events,
+   * how much a slow consumer may fall behind before it is told to reload, and
+   * how long one connection may live before it is cycled.
+   */
+  readonly realtime: {
+    /** How often an open stream looks for new events, in milliseconds. */
+    readonly pollMs: number;
+    /** Silence after which a comment frame is sent to keep the pipe honest. */
+    readonly heartbeatMs: number;
+    /** Maximum lifetime of one connection. The client reconnects with its cursor. */
+    readonly maxStreamMs: number;
+    /** Events per page. */
+    readonly maxBatch: number;
+    /** Backlog beyond which a consumer is told to reload instead of catching up. */
+    readonly maxBacklog: number;
+  };
   readonly host: string;
   readonly port: number;
   readonly database: {
@@ -93,6 +113,7 @@ export function parseApiConfig(env: EnvironmentSource): ApiConfig {
   const credentialKeys = readCredentialKeys(env, issues);
   const channelSecrets = readChannelSecrets(env);
   const workerConcurrency = readConcurrency(env, issues);
+  const realtime = readRealtime(env, issues);
   const host = optional(env, 'CONVO_API_HOST') ?? '0.0.0.0';
   const port = readPort(env, 'CONVO_API_PORT', 3000, true, issues);
   const databaseHost = required(env, 'CONVO_PG_HOST', issues);
@@ -111,6 +132,7 @@ export function parseApiConfig(env: EnvironmentSource): ApiConfig {
     secrets: Object.freeze({ authHash, bootstrapToken, idempotencyHash, credentialKeys }),
     channelSecrets: Object.freeze(channelSecrets),
     workerConcurrency,
+    realtime,
     host,
     port,
     database: Object.freeze({
@@ -199,6 +221,43 @@ function readConcurrency(env: EnvironmentSource, issues: ErrorDetail[]): number 
       issue('CONVO_WORKER_CONCURRENCY', 'out_of_range', 'Concurrency is an integer from 1 to 256.'),
     );
     return 4;
+  }
+  return value;
+}
+
+/**
+ * The realtime tunables, each bounded so a typo cannot produce a stream that
+ * never checks for revocation or a page that tries to load a company's history
+ * into memory.
+ */
+function readRealtime(env: EnvironmentSource, issues: ErrorDetail[]): ApiConfig['realtime'] {
+  return Object.freeze({
+    pollMs: readBounded(env, 'CONVO_REALTIME_POLL_MS', 500, 50, 10_000, issues),
+    heartbeatMs: readBounded(env, 'CONVO_REALTIME_HEARTBEAT_MS', 15_000, 1_000, 120_000, issues),
+    maxStreamMs: readBounded(env, 'CONVO_REALTIME_MAX_STREAM_MS', 300_000, 1_000, 3_600_000, issues),
+    maxBatch: readBounded(env, 'CONVO_REALTIME_MAX_BATCH', 200, 1, 1_000, issues),
+    maxBacklog: readBounded(env, 'CONVO_REALTIME_MAX_BACKLOG', 5_000, 1, 100_000, issues),
+  });
+}
+
+function readBounded(
+  env: EnvironmentSource,
+  field: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  issues: ErrorDetail[],
+): number {
+  const raw = optional(env, field);
+  if (raw === undefined) {
+    return fallback;
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    issues.push(
+      issue(field, 'out_of_range', `${field} must be an integer from ${minimum} to ${maximum}.`),
+    );
+    return fallback;
   }
   return value;
 }

@@ -6,10 +6,12 @@ import { applyInstallationConfig } from '@convo/domain';
 import pg from 'pg';
 import { ApiModule } from './api.module.js';
 import type { RecoveryDeliveryPort } from './auth/recovery-delivery.js';
+import type { BrokerPort } from './broker/broker.port.js';
 import type { ChannelTransportPort } from './channels/channel-transport.js';
 import { attachRawBodyParser } from './channels/raw-body.js';
 import type { InvitationDeliveryPort } from './people/invitation-delivery.js';
-import { ApiConfigurationError, parseApiConfig, type ApiConfig } from './config.js';
+import { ApiConfigurationError, HTTP_ROLES, parseApiConfig } from './config.js';
+import type { ApiConfig, ProcessRole } from './config.js';
 import { ApiErrorFilter } from './error.filter.js';
 import { requestIdFor } from './request-id.js';
 import { attachRouteInventory } from './route-inventory.js';
@@ -37,6 +39,7 @@ export interface ApiAdapters {
   readonly recoveryDelivery?: RecoveryDeliveryPort | undefined;
   readonly invitationDelivery?: InvitationDeliveryPort | undefined;
   readonly channelTransport?: ChannelTransportPort | undefined;
+  readonly broker?: BrokerPort | undefined;
 }
 
 export async function createApiApplication(
@@ -68,6 +71,14 @@ export async function createApiApplication(
   return app;
 }
 
+/**
+ * Starts this process in whichever role it was configured for.
+ *
+ * One artifact, seven roles. The HTTP roles listen; the four worker roles run a
+ * loop and never bind a port. Which one this is comes from configuration alone,
+ * so a deployment scales a role by starting more copies of the same image with a
+ * different `CONVO_PROCESS_ROLE` (DEP-01).
+ */
 export async function startApi(
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<INestApplication> {
@@ -78,7 +89,10 @@ export async function startApi(
     database: config.database.name,
     user: config.database.user,
     password: config.database.password,
-    max: 10,
+    // A worker's appetite is its concurrency; an HTTP role's is its traffic.
+    // Sharing one number would make a campaign worker either starved or
+    // wasteful depending on which role it was chosen for.
+    max: HTTP_ROLES.includes(config.processRole) ? 10 : Math.max(4, config.workerConcurrency),
   });
   let app: NestFastifyApplication | undefined;
   try {
@@ -87,7 +101,9 @@ export async function startApi(
       throw new ApiBootError(state.code, state.message);
     }
     app = await createApiApplication(config, pool);
-    await app.listen(config.port, config.host);
+    if (HTTP_ROLES.includes(config.processRole)) {
+      await app.listen(config.port, config.host);
+    }
     return app;
   } catch (error) {
     if (app === undefined) {
@@ -97,6 +113,18 @@ export async function startApi(
     }
     throw error;
   }
+}
+
+/**
+ * Whether this role must have a durable broker before it may run.
+ *
+ * The integration worker exists to publish to one, so starting it without one
+ * would be a process whose only job is impossible. Everything else degrades
+ * without a broker — the outbox simply grows — so nothing else fails closed on
+ * its absence.
+ */
+export function requiresBroker(role: ProcessRole): boolean {
+  return role === 'worker-integration';
 }
 
 export function bootFailureMessage(error: unknown): string {

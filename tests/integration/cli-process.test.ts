@@ -103,6 +103,9 @@ describe('convo-db entry point', () => {
       'applied 0010_channels.sql',
       'applied 0011_outbound.sql',
       'applied 0012_channel_settings.sql',
+      'applied 0013_broker_relay.sql',
+      'applied 0014_realtime.sql',
+      'applied 0015_receipt_watermark.sql',
     ]);
 
     const second = await runBin(['migrate'], env);

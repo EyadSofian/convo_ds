@@ -13,6 +13,15 @@ export const INVITATION_DELIVERY = Symbol('INVITATION_DELIVERY');
  * it look otherwise.
  */
 export const CHANNEL_TRANSPORT = Symbol('CHANNEL_TRANSPORT');
+/**
+ * The durable broker. See broker/broker.port.ts.
+ *
+ * The default refuses every publish. A process that requires a broker fails
+ * closed rather than falling back to an in-memory queue, because a queue that
+ * quietly becomes an array loses everything on restart while every dashboard
+ * still says it is working.
+ */
+export const BROKER = Symbol('BROKER');
 
 export interface PasswordHasher {
   hash(plaintext: string): Promise<string>;

@@ -130,6 +130,13 @@ export type {
   TransportObservation,
 } from './channels/outcome.js';
 
+export {
+  DEFAULT_INTERACTIVE_RESERVATION,
+  interactiveFloor,
+  planRound,
+} from './channels/fairness.js';
+export type { FairnessConfig, FairnessPlan, Grant, Offer } from './channels/fairness.js';
+
 export { WhatsAppAdapter } from './channels/whatsapp.js';
 export { MessengerAdapter } from './channels/messenger.js';
 export { InstagramAdapter } from './channels/instagram.js';
@@ -149,3 +156,25 @@ export {
   CustomChannelAdapter,
   negotiateCustomTypes,
 } from './channels/custom-channel.js';
+
+/* -------------------------------------------------------------- realtime -- */
+
+export {
+  isRealtimeEventType,
+  REALTIME_EVENT_TYPES,
+  REALTIME_SCHEMA_VERSION,
+} from './realtime/events.js';
+export type {
+  QueueCard,
+  RealtimeEnvelope,
+  RealtimeEventType,
+  RealtimeScope,
+} from './realtime/events.js';
+
+export { maskIdentity, projectQueueCard, visibilityOf } from './realtime/visibility.js';
+export type { Visibility } from './realtime/visibility.js';
+
+export { canonicalAuthority } from './realtime/authority.js';
+
+export { checkCursor, decodeCursor, encodeCursor } from './realtime/cursor.js';
+export type { Cursor, CursorCheck, CursorRejection } from './realtime/cursor.js';

@@ -121,6 +121,9 @@ describe('pinned OpenAPI contract', () => {
       'queueOutboundMessage',
       'testChannelConnection',
       'listChannelCatalogue',
+      'listUnassignedConversations',
+      'getConversation',
+      'claimConversation',
       'listInvitations',
       'createInvitation',
       'revokeInvitation',
@@ -133,6 +136,8 @@ describe('pinned OpenAPI contract', () => {
       'listPeople',
       'updateMembership',
       'listPermissions',
+      'catchUpRealtimeEvents',
+      'streamRealtimeEvents',
       'listRoles',
       'createRole',
       'updateRole',
@@ -159,6 +164,21 @@ describe('pinned OpenAPI contract', () => {
     expect(SPEC.components.schemas['RoleListResponse']?.additionalProperties).toBe(false);
     expect(SPEC.components.schemas['PersonListResponse']?.additionalProperties).toBe(false);
     expect(SPEC.components.schemas['TeamListResponse']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['QueueCardListResponse']?.additionalProperties).toBe(false);
+    // The queue card is a closed shape with exactly the eight permitted fields.
+    // An open one would let a future payload field become a disclosure.
+    expect(SPEC.components.schemas['QueueCard']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['QueueCard']?.required).toEqual([
+      'id',
+      'inboxLabel',
+      'channel',
+      'maskedLabel',
+      'priority',
+      'status',
+      'waitingSinceAt',
+      'claimable',
+    ]);
+    expect(SPEC.components.schemas['RealtimeEvent']?.required).toContain('schemaVersion');
     // A denial is the absence of a grant, never a grant that says `none`. The
     // wire contract has to say so too, or a client will render a "none" chip.
     expect(SPEC.components.schemas['RoleGrant']?.properties?.['scope_level']?.enum).toEqual([

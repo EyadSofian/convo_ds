@@ -9,6 +9,7 @@ import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
+import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig } from '../../packages/domain/src/index.js';
 import type { ConnectionCheck, SendCommand, SendOutcome } from '../../packages/domain/src/index.js';
@@ -1471,6 +1472,30 @@ describe('the outbound path', () => {
     });
   }
 
+  /**
+   * A newer owner takes the message over while a worker is still in flight.
+   *
+   * What actually happens when a lease expires: another worker, or an operator
+   * cancelling, moves the command on and bumps the version. The in-flight
+   * worker's write must then lose the fence.
+   */
+  async function takeOver(messageId: string): Promise<void> {
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `UPDATE outbound_messages
+            SET command_state = 'cancelled', state_reason = 'operator_cancelled',
+                settled_at = now(), dispatch_version = dispatch_version + 1
+          WHERE id = $1`,
+        [messageId],
+      ),
+    );
+  }
+
+  async function readMessage(messageId: string): Promise<Record<string, unknown>> {
+    const response = await send(api, owner, 'GET', `/outbound-messages/${messageId}`);
+    return (response.json() as { data: Record<string, unknown> }).data;
+  }
+
   it('answers 202 with a queued command, and nothing is sent yet', async () => {
     const before = sent.length;
     const response = await queue({ peerIdentity: peer() });
@@ -1937,6 +1962,136 @@ describe('the outbound path', () => {
     expect(message['delivery_anomaly']).toBeNull();
   });
 
+  it('refuses a stale worker’s result while keeping its provider evidence', async () => {
+    // The race the fence exists for: a worker's lease expires, a newer worker
+    // takes the message over, and then the first worker's provider response
+    // finally arrives. Writing it would roll the command back to a state the
+    // newer worker has already moved past.
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'مسبوق', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = accepted(`wamid.stale-${to}`);
+    delay = 400;
+
+    const slow = dispatcher.dispatch(api.tenantId);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    // A newer owner moves the command on while the first is still in flight.
+    await takeOver(id);
+    const result = await slow;
+    delay = 0;
+
+    expect(result.stale).toBe(1);
+    expect(result.accepted).toBe(0);
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const message = (read.json() as { data: Record<string, unknown> }).data;
+    // The newer state stands.
+    expect(message['command_state']).toBe('cancelled');
+    expect(message['provider_message_id']).toBeNull();
+    // And the evidence survives: somebody investigating a duplicate message
+    // needs to know a request went out and what the provider said.
+    const attempts = message['attempts'] as { outcome: string; error_code: string }[];
+    expect(attempts[0]?.outcome).toBe('accepted');
+    expect(attempts[0]?.error_code).toBe('stale_dispatch');
+  });
+
+  it('refuses a stale worker’s unknown outcome rather than resurrecting the message', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'مجهول ومسبوق', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = { status: 'outcome_unknown', code: 'ETIMEDOUT', message: 'The answer never came.' };
+    delay = 400;
+
+    const slow = dispatcher.dispatch(api.tenantId);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    await takeOver(id);
+    const result = await slow;
+    delay = 0;
+
+    expect(result.stale).toBe(1);
+    // `outcome_unknown` is terminal, and terminal states are still fenced: it is
+    // not a licence to overwrite a command a newer worker already settled.
+    expect(result.unknown).toBe(0);
+    const message = await readMessage(id);
+    expect(message['command_state']).toBe('cancelled');
+
+    const attempts = message['attempts'] as { outcome: string; error_code: string }[];
+    // The provider's own code survives — the marker is added beside it, not over
+    // it, because why this attempt went unanswered is the evidence.
+    expect(attempts[0]?.outcome).toBe('outcome_unknown');
+    expect(attempts[0]?.error_code).toBe('ETIMEDOUT');
+    const recorded = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ error_message: string }>(
+        'SELECT error_message FROM outbound_attempts WHERE message_id = $1',
+        [id],
+      ),
+    );
+    expect(recorded.rows[0]?.error_message).toContain('newer worker');
+  });
+
+  it('refuses a stale worker’s rejection rather than failing a live message', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'رفض مسبوق', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = {
+      status: 'definitely_rejected',
+      code: 'template_not_approved',
+      message: 'No.',
+      retryable: false,
+    };
+    delay = 400;
+
+    const slow = dispatcher.dispatch(api.tenantId);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    await takeOver(id);
+    const result = await slow;
+    delay = 0;
+
+    expect(result.stale).toBe(1);
+    expect(result.rejected).toBe(0);
+    const message = await readMessage(id);
+    expect(message['command_state']).toBe('cancelled');
+    expect(message['state_reason']).toBe('operator_cancelled');
+  });
+
+  it('refuses a stale worker’s retry rather than rescheduling somebody else’s message', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'إعادة مسبوقة', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = {
+      status: 'definitely_rejected',
+      code: 'http_503',
+      message: 'Try later.',
+      retryable: true,
+    };
+    delay = 400;
+
+    const slow = dispatcher.dispatch(api.tenantId);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    await takeOver(id);
+    const result = await slow;
+    delay = 0;
+
+    expect(result.stale).toBe(1);
+    expect(result.retried).toBe(0);
+    expect((await readMessage(id))['command_state']).toBe('cancelled');
+
+    // Scheduling belongs to whoever owns the message now, so the stale worker
+    // writes no backoff: a losing worker that still rescheduled would keep
+    // resurrecting a cancelled message.
+    const outbox = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ last_error: string | null; attempts: number }>(
+        'SELECT last_error, attempts FROM outbox WHERE message_id = $1',
+        [id],
+      ),
+    );
+    expect(outbox.rows[0]?.last_error).toBeNull();
+  });
+
   it('reports which companies have dispatchable work', async () => {
     await queue({ peerIdentity: peer(), text: 'قائمة الانتظار' });
     expect(await dispatcher.pendingTenants()).toContain(api.tenantId);
@@ -2368,5 +2523,153 @@ describe('the channels beyond WhatsApp', () => {
         (detail) => detail.field,
       ),
     ).toContain(field);
+  });
+});
+
+/* ------------------------------------------------------------ worker roles -- */
+
+describe('the worker roles, on real channel work', () => {
+  let api: Harness;
+  let owner: Browser;
+  let connectionId: string;
+  let sent: SendCommand[];
+
+  beforeAll(async () => {
+    sent = [];
+    api = await createHarness({
+      channelTransport: {
+        name: 'test-stub',
+        validateConnection: () =>
+          Promise.resolve({ ok: true, assetIdentity: PHONE_ID, code: null, message: null }),
+        send: (_kind, _credential, command) => {
+          sent.push(command);
+          return Promise.resolve({
+            status: 'accepted',
+            // Derived from the recipient so a test knows the id the provider
+            // will have handed back without having to count sends.
+            providerMessageId: `wamid.role-${command.peerIdentity}`,
+            raw: {},
+          } satisfies SendOutcome);
+        },
+      },
+    });
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+    const created = await connect(api, owner);
+    connectionId = (created.json() as { data: { id: string } }).data.id;
+  }, 180_000);
+
+  afterAll(async () => {
+    await api.app.close();
+  });
+
+  function tick(role: 'worker-inbound' | 'worker-interactive' | 'worker-campaign') {
+    return tickFor(role, { app: api.app, concurrency: 5 });
+  }
+
+  async function queueFor(
+    peerIdentity: string,
+    text: string,
+    trafficClass: 'interactive' | 'bulk',
+  ): Promise<void> {
+    const response = await send(api, owner, 'POST', `/channels/${connectionId}/messages`, {
+      peerIdentity,
+      messageType: 'text',
+      text,
+      trafficClass,
+      clientMessageId: `role-${peerIdentity}-${trafficClass}`,
+    });
+    expect(response.statusCode).toBe(202);
+  }
+
+  it('normalizes journalled events through the inbound role', async () => {
+    await deliver(api, messageDelivery([textMessage('wamid.role-in', 'مرحبا', '15557000001')]));
+    // Everything the webhook ACK deliberately did not do, done by the process
+    // whose job it is.
+    expect((await tick('worker-inbound')()).handled).toBeGreaterThan(0);
+
+    const events = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('SELECT 1 FROM inbound_events WHERE peer_identity = $1', ['15557000001']),
+    );
+    expect(events.rows).toHaveLength(1);
+    // Idle once the queue is empty, rather than re-normalizing what it already did.
+    expect(await tick('worker-inbound')()).toEqual({ handled: 0 });
+  });
+
+  it('sends a reply through the interactive role and leaves the campaign alone', async () => {
+    const replier = '15557000002';
+    const recipient = '15557000003';
+    // Both recipients wrote first, so the reply window is open for each and the
+    // only thing separating them is the traffic class.
+    await deliver(
+      api,
+      messageDelivery([
+        textMessage('wamid.role-w1', 'سؤال', replier),
+        textMessage('wamid.role-w2', 'سؤال', recipient),
+      ]),
+    );
+    await tick('worker-inbound')();
+    await queueFor(replier, 'رد تفاعلي', 'interactive');
+    await queueFor(recipient, 'حملة', 'bulk');
+
+    expect((await tick('worker-interactive')()).handled).toBeGreaterThan(0);
+    const afterInteractive = sent.map((command) => command.text);
+    // The separation is the point of two roles: a campaign worker being busy
+    // cannot delay this reply, because it is not the process that sends it.
+    expect(afterInteractive).toContain('رد تفاعلي');
+    expect(afterInteractive).not.toContain('حملة');
+
+    expect((await tick('worker-campaign')()).handled).toBeGreaterThan(0);
+    expect(sent.map((command) => command.text)).toContain('حملة');
+  });
+
+  it('bounds a round and reports what it could not serve', async () => {
+    const peers = ['15557100001', '15557100002', '15557100003', '15557100004', '15557100005'];
+    await deliver(
+      api,
+      messageDelivery(peers.map((to, index) => textMessage(`wamid.round-${index}`, 'سؤال', to))),
+    );
+    await tick('worker-inbound')();
+    for (const to of peers) {
+      await queueFor(to, `رد ${to}`, 'interactive');
+    }
+
+    // Capacity is concurrency × 4, so one unit of concurrency serves four of
+    // the five waiting conversations this round.
+    const round = await tickFor('worker-interactive', { app: api.app, concurrency: 1 })();
+    expect(round.handled).toBe(4);
+    expect(round.fairness).toEqual({ offered: 5, achieved: 4 });
+
+    // The fifth is still queued, not lost: the next round takes it.
+    const next = await tickFor('worker-interactive', { app: api.app, concurrency: 1 })();
+    expect(next.handled).toBe(1);
+    expect(next.fairness).toEqual({ offered: 1, achieved: 1 });
+  });
+
+  it('folds a receipt for a company that is not sending anything', async () => {
+    const to = '15557000004';
+    await deliver(api, messageDelivery([textMessage('wamid.role-w3', 'سؤال', to)]));
+    await tick('worker-inbound')();
+    await queueFor(to, 'إيصال', 'interactive');
+    await tick('worker-interactive')();
+
+    // Everything this company queued has now left, so nothing is dispatchable.
+    // A receipt arriving at this point is the case that matters: folding it
+    // must not depend on the company happening to be sending something.
+    const outbox = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('SELECT 1 FROM outbox'),
+    );
+    expect(outbox.rows).toHaveLength(0);
+
+    const providerId = `wamid.role-${to}`;
+    await deliver(api, statusDelivery(providerId, 'delivered', '1789000040', to));
+    expect((await tick('worker-inbound')()).handled).toBeGreaterThan(0);
+
+    const state = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ delivery_state: string }>(
+        'SELECT delivery_state FROM outbound_messages WHERE provider_message_id = $1',
+        [providerId],
+      ),
+    );
+    expect(state.rows[0]?.delivery_state).toBe('delivered');
   });
 });

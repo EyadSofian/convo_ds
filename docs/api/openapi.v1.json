@@ -1013,6 +1013,185 @@
         }
       }
     },
+    "/tenants/{tenantId}/conversations/unassigned": {
+      "get": {
+        "operationId": "listUnassignedConversations",
+        "summary": "List the Unassigned queue as projected cards",
+        "description": "Requires `conversation.unassigned.preview`. Returns queue cards only: conversation id, inbox label, channel, masked display label, priority, status, wait time and claim availability. Never a snippet, a timeline, a note, an attachment or contact PII — the projection happens on the server, not in the browser.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "inboxId",
+            "in": "query",
+            "required": false,
+            "description": "Limit the queue to one channel connection.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The queue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueCardListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}": {
+      "get": {
+        "operationId": "getConversation",
+        "summary": "Read one conversation",
+        "description": "Requires `conversation.read` for this conversation. An agent whose grant is scoped to their own work is refused before a claim and allowed after one; losing inbox access overrides both.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The conversation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/claim": {
+      "post": {
+        "operationId": "claimConversation",
+        "summary": "Claim an unassigned conversation",
+        "description": "Atomic and version-checked. Requires `conversation.claim`. Send the version shown on the card; if somebody else claimed it first the answer is 409 `conversation_version_conflict` rather than a silent takeover.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimConversationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The claimed conversation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/tenants/{tenantId}/invitations": {
       "get": {
         "operationId": "listInvitations",
@@ -1659,6 +1838,119 @@
             "$ref": "#/components/responses/Error"
           },
           "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/realtime/events": {
+      "get": {
+        "operationId": "catchUpRealtimeEvents",
+        "summary": "Read one page of the event feed",
+        "description": "Catch-up after being offline. Events are authorized one at a time against the caller's current grants, so a conversation they may only preview arrives as a projected queue card. A cursor issued under different permissions, for another company, or older than the retained window is answered with `reset_required` and its reason rather than a partial resume.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque position from a previous page. Omit to start from the beginning of the retained window.",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of events, or an instruction to reset.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RealtimeEventPageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/realtime/stream": {
+      "get": {
+        "operationId": "streamRealtimeEvents",
+        "summary": "Subscribe to the event stream",
+        "description": "Server-Sent Events. The session cookie authenticates the connection and the membership decides what it carries; the principal is re-read on every pass, so a revoked membership or a removed inbox stops the stream rather than waiting for the next login. Frame ids are cursors, so `Last-Event-ID` resumes exactly where the connection stopped. The connection is closed deliberately after its maximum age with a `stream_cycled` event.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque position to resume from. `Last-Event-ID` wins over it.",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "description": "Sent automatically by EventSource on reconnect.",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "An event stream. Each frame is one authorized event, a `reset_required` instruction, or a `stream_cycled` notice.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "example": "id: djEudGVuYW50fDd8YWJj\nevent: message.inbound\ndata: {\"schemaVersion\":1,\"seq\":7}\n\n"
+                }
+              }
+            }
+          },
+          "401": {
             "$ref": "#/components/responses/Error"
           },
           "404": {
@@ -4955,6 +5247,383 @@
             "items": {
               "$ref": "#/components/schemas/RoleGrantWrite"
             }
+          }
+        }
+      },
+      "QueueCard": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "inboxLabel",
+          "channel",
+          "maskedLabel",
+          "priority",
+          "status",
+          "waitingSinceAt",
+          "claimable"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inboxLabel": {
+            "type": "string",
+            "example": "خط التسجيل"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "whatsapp",
+              "messenger",
+              "instagram",
+              "web_chat",
+              "custom"
+            ]
+          },
+          "maskedLabel": {
+            "type": "string",
+            "description": "Enough of the customer's identity to tell two waiting cards apart, and no more.",
+            "example": "••••888"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high",
+              "urgent"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "snoozed",
+              "resolved"
+            ]
+          },
+          "waitingSinceAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "claimable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "QueueCardListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueueCard"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Conversation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "connectionId",
+          "peerIdentity",
+          "teamId",
+          "assigneeMembershipId",
+          "status",
+          "priority",
+          "version",
+          "waitingSince",
+          "inboxLabel",
+          "channel",
+          "participantMembershipIds"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The inbox this conversation belongs to."
+          },
+          "peerIdentity": {
+            "type": "string",
+            "example": "15559998888"
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "assigneeMembershipId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "snoozed",
+              "resolved"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high",
+              "urgent"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Bumped by every change. Send it back on a claim."
+          },
+          "waitingSince": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "inboxLabel": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "participantMembershipIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "ConversationResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Conversation"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ClaimConversationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 3,
+            "description": "The version shown on the card the agent acted on."
+          }
+        }
+      },
+      "RealtimeEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "id",
+          "seq",
+          "type",
+          "entity",
+          "scope",
+          "occurredAt",
+          "payload"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "example": 1
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable identity, for deduplicating an at-least-once delivery."
+          },
+          "seq": {
+            "type": "integer",
+            "description": "Dense per company and issued in commit order, so a gap means a missed event."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "message.inbound",
+              "message.delivery",
+              "conversation.assigned",
+              "conversation.state",
+              "conversation.note"
+            ]
+          },
+          "entity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "id",
+              "version"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "conversation",
+                  "message"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "conversationId",
+              "inboxId",
+              "teamId",
+              "assigneeMembershipId"
+            ],
+            "properties": {
+              "conversationId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "inboxId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "teamId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "assigneeMembershipId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              }
+            }
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "payload": {
+            "type": "object",
+            "description": "The event body, or a projected queue card carrying `projected: true` when the caller may only preview this conversation."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Present on stream frames: the position to resume from after this event."
+          }
+        }
+      },
+      "RealtimeEventPageResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "events",
+              "cursor"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "reset_required"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "malformed",
+                  "other_tenant",
+                  "permissions_changed",
+                  "expired",
+                  "too_far_behind"
+                ],
+                "description": "Present only when the status is reset_required."
+              },
+              "events": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RealtimeEvent"
+                }
+              },
+              "cursor": {
+                "type": "string",
+                "example": "djEuMDAwMHw3fGFiYw"
+              },
+              "backlog": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Events still waiting beyond this page."
+              }
+            }
+          },
+          "request_id": {
+            "type": "string"
           }
         }
       }
