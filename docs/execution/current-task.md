@@ -4,7 +4,70 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T7 (Milestone C: the channel foundation and the first inbound path)
+## Last completed task — P1-T7 third slice (Milestone C: the outbound path)
+
+**Task / requirement IDs:** DEL-07, DEL-10, DEL-12, DEL-13, DEL-14, DEL-15, DEL-16, DEL-17, SEND-01, SEND-03 closed. CH-WA-01, CH-WA-05, DEL-11, DEL-18, SEND-04, EVT-04 moved to `partial` with the unbuilt half named.
+
+### Behavior delivered
+
+**A command, an outbox, an attempt ledger, and two state machines.** `POST .../messages` answers **202** — durably queued, nothing sent — after the command and its outbox row commit together. There is no moment at which a caller has been told "queued" and nothing is scheduled to send it.
+
+**`outcome_unknown` is a state, not an error.** A timeout or a reset means the request was on the wire and no answer came back. It leaves the outbox and stays visible; nothing automatic touches it again. Asserted by counting transport calls across a second dispatch sweep and a recovery sweep.
+
+**The attempt row commits before the network call.** After a crash, recovery finds an attempt with no recorded response and marks it unknown rather than resending. Asserted by holding the transport open and observing the attempt mid-flight with a null outcome.
+
+**The permit is re-evaluated at dispatch.** Four failing paths, each tested: the channel disconnected after queueing, consent withdrawn after queueing, the window shut before the dispatcher arrived, the credential revoked underneath. Each produces `skipped` with a typed reason rather than a send.
+
+**Command and delivery state are separate columns.** Nine and three, folded by two different functions, with no ordering over the command states and no `max()` anywhere. A `delivered` arriving after a `read` leaves the timeline at `read` and records `delivered_after_read`.
+
+**One conversation, one message on the wire.** `DISTINCT ON`, `NOT EXISTS`, an advisory lock for the window where a concurrent claim has not committed, and a partial unique index as the durable gate.
+
+**A receipt that beats the send response is folded in the moment the provider id is learned**, because a receipt is an ordinary inbound event rather than a special case.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0011_outbound.sql` | suppressions, commands, the outbox with its dispatch gate, the attempt ledger |
+| `packages/domain/src/channels/outcome.ts` | the three-valued classifier, the two state machines, `foldDelivery` |
+| `apps/api/src/channels/outbound.service.ts` | 202 after the durable transaction; the command *is* the draft |
+| `apps/api/src/channels/dispatcher.service.ts` | claim → re-permit → attempt → send → record, in that order |
+| `apps/api/src/channels/outbound-request.ts` | the send parser; `clientMessageId` is the caller's, not ours |
+| `tests/integration/api-channels.test.ts` | 88 tests, now including the whole outbound path |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | clean |
+| `pnpm test:unit` | **0** | 56 files, 1027 tests |
+| `pnpm test:integration` | **0** | 18 files, **257 tests** against real PostgreSQL 17.4 |
+| `pnpm test:coverage` | **0** | 74 files, **1284 tests**, 100% on all four metrics |
+| `pnpm test:contracts` | **0** | adapter + OpenAPI contract suites |
+| `pnpm test:security` | **0** | isolation, authorization, signature suites + production audit |
+| `pnpm test:e2e` | **0** | 146 |
+| `pnpm test:a11y` | **0** | 22, no WCAG 2.1 AA violations |
+| `pnpm test:visual` | **0** | 19, images plus structural snapshots |
+| `pnpm test:mutation` | **1** | `not_run` — wired in P4 |
+| `pnpm test:load:target` | **1** | `blocked_env` — k6 not installed, no staging target |
+| `pnpm test:recovery` | **1** | `blocked_env` — no restore target |
+
+The pinned OpenAPI carries **43 operations**; the bidirectional drift test passes.
+
+### Honest remaining scope
+
+- **No provider HTTP client.** The send path is complete and exercised through a labelled stub; there is no Graph client, because there is no authorized app to build one against. Every provider-live check stays `blocked_no_asset`.
+- **One adapter.** Messenger, Instagram, Website Chat and Custom Channel have matrices and policy, no adapter.
+- **No broker.** The outbox is a database table drained in-process; DEL-08 and DEL-09 (relay, DLQ, audited replay) are not built.
+- **No fairness scheduler.** `traffic_class` exists on every outbox row; the pool that would honour a reservation does not.
+- **Fencing is recorded, not enforced.** `dispatch_version` increments on every transition but is not yet compared on write.
+- **No realtime, no inbox, no contacts, no broadcasts, no CRM, no deployment configuration.**
+
+---
+
+## Previously completed — P1-T7 first and second slices (Milestone C: the channel foundation, the inbound path and the Channels screen)
 
 **Task / requirement IDs:** CH-02, CH-03, CH-WA-02, CH-WA-04, DEL-02, DEL-05, DEL-06, EVT-01, EVT-02, EVT-03 closed. CH-00, CH-01, CH-05, CH-WA-03, CH-WA-05, DEL-01, DEL-03, DEL-04, DEL-07, DEP-01 moved to `partial` with the unbuilt half named. UX-09 gained its second wired screen.
 

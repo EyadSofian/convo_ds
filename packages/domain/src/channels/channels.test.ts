@@ -11,6 +11,14 @@ import {
 } from './kinds.js';
 import type { EvidenceRecord } from './kinds.js';
 import { answerMetaChallenge, REPLAY_WINDOW_SECONDS, verifyMetaSignature } from './meta-signature.js';
+import {
+  classifyOutcome,
+  COMMAND_STATES,
+  DELIVERY_STATES,
+  foldDelivery,
+  mayAutoRetry,
+} from './outcome.js';
+import type { CommandState, DeliveryFold } from './outcome.js';
 import { permitSend } from './policy.js';
 import type { SendRequest } from './policy.js';
 import { WhatsAppAdapter } from './whatsapp.js';
@@ -796,5 +804,179 @@ describe('permitSend', () => {
       allowed: true,
       requiresTemplate: false,
     });
+  });
+});
+
+/* ------------------------------------------------------------ the outcome -- */
+
+describe('classifyOutcome', () => {
+  function classify(
+    observation: Parameters<typeof classifyOutcome>[0]['observation'],
+    overrides: Partial<Parameters<typeof classifyOutcome>[0]> = {},
+  ) {
+    return classifyOutcome({
+      observation,
+      providerMessageId: null,
+      errorCode: null,
+      errorMessage: null,
+      ...overrides,
+    });
+  }
+
+  it('accepts a 2xx that carries a message id', () => {
+    expect(
+      classify({ kind: 'response', status: 200, body: { ok: true } }, { providerMessageId: 'wamid.1' }),
+    ).toEqual({ status: 'accepted', providerMessageId: 'wamid.1', raw: { ok: true } });
+  });
+
+  it('calls a 2xx with no message id unknown, not accepted', () => {
+    // We cannot prove it was accepted and we cannot prove it was not — and a
+    // message no receipt can ever be correlated to is exactly that.
+    expect(classify({ kind: 'response', status: 202, body: {} })).toMatchObject({
+      status: 'outcome_unknown',
+      code: 'no_provider_message_id',
+    });
+  });
+
+  it('rejects a 4xx as final, and a 429 or 5xx as worth retrying', () => {
+    expect(classify({ kind: 'response', status: 400, body: {} })).toMatchObject({
+      status: 'definitely_rejected',
+      retryable: false,
+      code: 'http_400',
+    });
+    for (const status of [429, 500, 503]) {
+      expect(classify({ kind: 'response', status, body: {} })).toMatchObject({
+        status: 'definitely_rejected',
+        retryable: true,
+      });
+    }
+  });
+
+  it('prefers the provider’s own error code when the adapter extracted one', () => {
+    expect(
+      classify(
+        { kind: 'response', status: 400, body: {} },
+        { errorCode: 'template_not_approved', errorMessage: 'Not approved.' },
+      ),
+    ).toMatchObject({ code: 'template_not_approved', message: 'Not approved.' });
+  });
+
+  it.each(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'DNS_FAILURE', 'TLS_HANDSHAKE_FAILED'])(
+    'treats %s as never-sent, so it may be retried',
+    (code) => {
+      // These fail before any bytes leave, so nothing was sent and a retry
+      // cannot duplicate anything.
+      expect(classify({ kind: 'transport_error', code, message: 'no' })).toMatchObject({
+        status: 'definitely_rejected',
+        retryable: true,
+        code,
+      });
+    },
+  );
+
+  it.each(['ETIMEDOUT', 'ECONNRESET', 'ABORT_ERR', 'SOCKET_HANGUP'])(
+    'treats %s as an unknown outcome',
+    (code) => {
+      // The request was on the wire. The industry default — retry on timeout —
+      // is what sends duplicate messages to real customers.
+      expect(classify({ kind: 'transport_error', code, message: 'gone' })).toEqual({
+        status: 'outcome_unknown',
+        code,
+        message: 'gone',
+      });
+    },
+  );
+
+  it('never returns accepted for anything but a 2xx with an id', () => {
+    const cases = [
+      classify({ kind: 'response', status: 500, body: {} }),
+      classify({ kind: 'response', status: 200, body: {} }),
+      classify({ kind: 'transport_error', code: 'ETIMEDOUT', message: 'x' }),
+    ];
+    expect(cases.every((outcome) => outcome.status !== 'accepted')).toBe(true);
+  });
+});
+
+describe('foldDelivery', () => {
+  const at = (minutes: number): Date => new Date(NOW.getTime() + minutes * 60_000);
+
+  it('takes the first receipt as it stands', () => {
+    expect(foldDelivery(null, { state: 'delivered', at: at(0) })).toEqual({
+      state: 'delivered',
+      at: at(0),
+      anomaly: null,
+    });
+  });
+
+  it('advances through sent, delivered, read', () => {
+    let fold: DeliveryFold | null = null;
+    for (const state of DELIVERY_STATES) {
+      fold = foldDelivery(fold, { state, at: at(1) });
+    }
+    expect(fold?.state).toBe('read');
+  });
+
+  it('never moves backwards, and records the disagreement', () => {
+    // The anomaly EVT-04 names: a `delivered` arriving after a confirmed `read`
+    // must not erase the read, and must not be silently dropped either.
+    const read = foldDelivery(null, { state: 'read', at: at(5) });
+    const late = foldDelivery(read, { state: 'delivered', at: at(6) });
+    expect(late).toEqual({ state: 'read', at: at(5), anomaly: 'delivered_after_read' });
+  });
+
+  it('treats a repeated receipt as the provider repeating itself', () => {
+    const first = foldDelivery(null, { state: 'delivered', at: at(1) });
+    expect(foldDelivery(first, { state: 'delivered', at: at(2) })).toBe(first);
+  });
+
+  it('keeps an earlier anomaly while still advancing', () => {
+    const read = foldDelivery(null, { state: 'read', at: at(5) });
+    const anomalous = foldDelivery(read, { state: 'sent', at: at(6) });
+    expect(anomalous.anomaly).toBe('sent_after_read');
+    // Nothing above `read` exists, so advance from a lower state instead.
+    const sent = foldDelivery(null, { state: 'sent', at: at(1) });
+    const withAnomaly = { ...sent, anomaly: 'noted' };
+    expect(foldDelivery(withAnomaly, { state: 'read', at: at(2) })).toEqual({
+      state: 'read',
+      at: at(2),
+      anomaly: 'noted',
+    });
+  });
+
+  it('folds any permutation of the same receipts to the same state', () => {
+    // The property ADR-0006 asks for: order of arrival changes the anomaly
+    // record, never the state the operator is shown.
+    const receipts = [
+      { state: 'sent' as const, at: at(1) },
+      { state: 'delivered' as const, at: at(2) },
+      { state: 'read' as const, at: at(3) },
+    ];
+    const permutations = [
+      [0, 1, 2],
+      [0, 2, 1],
+      [1, 0, 2],
+      [1, 2, 0],
+      [2, 0, 1],
+      [2, 1, 0],
+    ];
+    for (const order of permutations) {
+      let fold: DeliveryFold | null = null;
+      for (const index of order) {
+        fold = foldDelivery(fold, receipts[index] as { state: 'sent'; at: Date });
+      }
+      expect(fold?.state).toBe('read');
+    }
+  });
+});
+
+describe('mayAutoRetry', () => {
+  it('never allows an unknown outcome to be resent', () => {
+    // The single most important line in the delivery design.
+    expect(mayAutoRetry('outcome_unknown')).toBe(false);
+  });
+
+  it('allows only the two states that mean "not attempted yet"', () => {
+    const allowed = COMMAND_STATES.filter((state: CommandState) => mayAutoRetry(state));
+    expect(allowed).toEqual(['queued', 'retry_scheduled']);
   });
 });

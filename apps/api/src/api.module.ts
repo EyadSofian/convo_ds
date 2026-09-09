@@ -21,7 +21,10 @@ import { unconfiguredTransport } from './channels/channel-transport.js';
 import type { ChannelTransportPort } from './channels/channel-transport.js';
 import { ChannelCredentialService } from './channels/credential.service.js';
 import { ChannelIngressController } from './channels/ingress.controller.js';
+import { ChannelDispatcherService } from './channels/dispatcher.service.js';
 import { ChannelIngressService } from './channels/ingress.service.js';
+import { OutboundController } from './channels/outbound.controller.js';
+import { OutboundService } from './channels/outbound.service.js';
 import { ChannelNormalizationService } from './channels/normalization.service.js';
 import { PermissionController } from './authorization/permission.controller.js';
 import { PermissionService } from './authorization/permission.service.js';
@@ -91,6 +94,7 @@ export class ApiModule {
         PeopleController,
         ChannelController,
         ChannelIngressController,
+        OutboundController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -126,6 +130,8 @@ export class ApiModule {
         ChannelService,
         ChannelIngressService,
         ChannelNormalizationService,
+        ChannelDispatcherService,
+        OutboundService,
         MembershipService,
         PermissionService,
         PoolLifecycle,

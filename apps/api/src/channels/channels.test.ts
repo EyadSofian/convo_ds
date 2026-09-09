@@ -11,6 +11,7 @@ import {
 import { adapterFor, implementedKinds } from './adapters.js';
 import { ChannelCredentialService } from './credential.service.js';
 import { inboundRowFrom } from './inbound-projection.js';
+import { parseSendMessage } from './outbound-request.js';
 import { assetFingerprint, nodeChannelCrypto, sha256BytesHex } from './node-crypto.js';
 
 /* ------------------------------------------------------------------ crypto -- */
@@ -405,5 +406,98 @@ describe('ChannelCredentialService without usable keys', () => {
 
   it('is available with a usable key', () => {
     expect(serviceWith([KEY]).available).toBe(true);
+  });
+});
+
+/* ---------------------------------------------------------- send requests -- */
+
+const VALID_SEND = {
+  peerIdentity: '15559998888',
+  messageType: 'text',
+  text: 'مرحبا',
+  clientMessageId: 'client-message-0001',
+};
+
+describe('parseSendMessage', () => {
+  it('accepts a minimal text send and defaults the rest', () => {
+    const result = parseSendMessage(VALID_SEND);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.value).toEqual({
+      peerIdentity: '15559998888',
+      messageType: 'text',
+      text: 'مرحبا',
+      template: null,
+      clientMessageId: 'client-message-0001',
+      trafficClass: 'interactive',
+      isPrivateNote: false,
+    });
+  });
+
+  it('accepts a template and a bulk traffic class', () => {
+    const result = parseSendMessage({
+      ...VALID_SEND,
+      template: { name: 'order_update', language: 'ar' },
+      trafficClass: 'bulk',
+    });
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.value.template).toEqual({ name: 'order_update', language: 'ar' });
+    expect(result.value.trafficClass).toBe('bulk');
+  });
+
+  it('accepts a private note rather than rejecting it as malformed', () => {
+    // A note is a real thing an operator writes. The permit is the one place
+    // that decides what may reach a provider, so it is accepted here and
+    // refused there — not silently dropped somewhere nobody tests.
+    const result = parseSendMessage({ ...VALID_SEND, isPrivateNote: true });
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.value.isPrivateNote).toBe(true);
+  });
+
+  it.each([
+    ['a non-object body', ['nope'], ['body']],
+    ['a missing recipient', { ...VALID_SEND, peerIdentity: '' }, ['peerIdentity']],
+    ['a recipient with a slash', { ...VALID_SEND, peerIdentity: 'a/b' }, ['peerIdentity']],
+    ['a missing message type', { ...VALID_SEND, messageType: '' }, ['messageType']],
+    ['a shouty message type', { ...VALID_SEND, messageType: 'TEXT' }, ['messageType']],
+    ['an over-long body', { ...VALID_SEND, text: 'x'.repeat(16_001) }, ['text']],
+    ['a short client id', { ...VALID_SEND, clientMessageId: 'short' }, ['clientMessageId']],
+    ['a missing client id', { peerIdentity: '1', messageType: 'text' }, ['clientMessageId']],
+    ['a half template', { ...VALID_SEND, template: { name: 'x' } }, ['template']],
+    ['a bad language tag', { ...VALID_SEND, template: { name: 'x', language: 'arabic' } }, ['template']],
+    ['an unknown traffic class', { ...VALID_SEND, trafficClass: 'urgent' }, ['trafficClass']],
+    ['a non-boolean note flag', { ...VALID_SEND, isPrivateNote: 'yes' }, ['isPrivateNote']],
+  ])('rejects %s', (_label, body, expected) => {
+    const result = parseSendMessage(body);
+    if (result.ok) throw new Error('expected a rejection');
+    expect(result.details.map((detail) => detail.field)).toEqual(expected);
+  });
+
+  it.each([
+    ['a non-string recipient', { ...VALID_SEND, peerIdentity: 42 }, ['peerIdentity']],
+    ['a non-string type', { ...VALID_SEND, messageType: 7 }, ['messageType']],
+    ['a non-string template name', { ...VALID_SEND, template: { name: 1, language: 'ar' } }, ['template']],
+    ['a non-string client id', { ...VALID_SEND, clientMessageId: 12345678 }, ['clientMessageId']],
+  ])('rejects %s without trusting its type', (_label, body, expected) => {
+    const result = parseSendMessage(body);
+    if (result.ok) throw new Error('expected a rejection');
+    expect(result.details.map((detail) => detail.field)).toEqual(expected);
+  });
+
+  it('reads an absent or non-string body as empty rather than rejecting it', () => {
+    // A template-only send legitimately carries no text, so "no usable text" is
+    // empty rather than an error. The permit is what decides whether an empty
+    // body is acceptable on this channel.
+    for (const text of [undefined, 42, null]) {
+      const result = parseSendMessage({ ...VALID_SEND, text });
+      if (!result.ok) throw new Error('expected acceptance');
+      expect(result.value.text).toBe('');
+    }
+  });
+
+  it('does not check the text against a channel limit', () => {
+    // The limit belongs to the connection's own frozen matrix, and that is a
+    // permit-time decision. Checking it here would use the wrong matrix.
+    const result = parseSendMessage({ ...VALID_SEND, text: 'م'.repeat(5000) });
+    expect(result.ok).toBe(true);
   });
 });

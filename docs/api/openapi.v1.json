@@ -763,6 +763,146 @@
         }
       }
     },
+    "/tenants/{tenantId}/channels/{connectionId}/messages": {
+      "get": {
+        "operationId": "listOutboundMessages",
+        "summary": "List outbound messages on a channel",
+        "description": "Requires `conversation.read`.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "connectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The messages with their command state, delivery state and attempts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboundMessageListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "queueOutboundMessage",
+        "summary": "Queue a message for delivery",
+        "description": "Writes the command and its outbox entry in one transaction and answers **202** — durably queued, and nothing sent. The permit that decides whether it may actually go out is re-evaluated by the dispatcher at the moment of dispatch, because a window that is open now can be shut by then. Only what would be pointless to queue is refused here: a channel that cannot carry the message type, and a private note. Requires `conversation.reply` and CSRF.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "connectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Durably queued. Nothing has been sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboundMessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "description": "The channel is disconnected and cannot send.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The message can never be delivered on this channel: an unsupported type, a template the channel has no concept of, or a private note. Typed rather than queued to fail later.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/tenants/{tenantId}/channels/{connectionId}/test": {
       "post": {
         "operationId": "testChannelConnection",
@@ -1014,6 +1154,59 @@
         "responses": {
           "204": {
             "description": "Revoked."
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/outbound-messages/{messageId}": {
+      "get": {
+        "operationId": "getOutboundMessage",
+        "summary": "Read one outbound message",
+        "description": "Its command state, its delivery state and every attempt. Requires `conversation.read`.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The message.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboundMessageResponse"
+                }
+              }
+            }
           },
           "401": {
             "$ref": "#/components/responses/Error"
@@ -2786,6 +2979,21 @@
         ],
         "description": "Derived from evidence, never set by hand. `healthy` requires every evidence item; a non-empty token field proves none of them."
       },
+      "CommandState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "dispatching",
+          "provider_accepted",
+          "rejected",
+          "retry_scheduled",
+          "skipped",
+          "cancelled",
+          "failed",
+          "outcome_unknown"
+        ],
+        "description": "What we did. Unordered: this is not a progress bar. `outcome_unknown` means the request was on the wire and no answer came back — it may have sent, and nothing resends it automatically."
+      },
       "ConnectChannelRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -2926,6 +3134,15 @@
             "type": "string"
           }
         }
+      },
+      "DeliveryState": {
+        "type": "string",
+        "enum": [
+          "sent",
+          "delivered",
+          "read"
+        ],
+        "description": "What the provider says happened. A separate fact from the command state, folded independently: a receipt never moves this backwards, and one that would have is recorded as an anomaly instead."
       },
       "ErrorDetail": {
         "type": "object",
@@ -3355,6 +3572,181 @@
             ],
             "format": "uuid",
             "description": "null only for a tenant-wide scope."
+          }
+        }
+      },
+      "OutboundAttempt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attempt_no",
+          "started_at",
+          "completed_at",
+          "outcome",
+          "error_code"
+        ],
+        "description": "One network attempt. The row is committed **before** the request leaves, so an attempt with no outcome after a crash is the evidence that the result is unknown.",
+        "properties": {
+          "attempt_no": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "accepted",
+              "definitely_rejected",
+              "outcome_unknown",
+              null
+            ]
+          },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "OutboundMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "connection_id",
+          "peer_identity",
+          "message_type",
+          "client_message_id",
+          "command_state",
+          "state_reason",
+          "delivery_state",
+          "delivery_anomaly",
+          "provider_message_id",
+          "created_at",
+          "settled_at",
+          "attempts"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "peer_identity": {
+            "type": "string"
+          },
+          "message_type": {
+            "type": "string",
+            "example": "text"
+          },
+          "client_message_id": {
+            "type": "string"
+          },
+          "command_state": {
+            "$ref": "#/components/schemas/CommandState"
+          },
+          "state_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A typed reason from the permit or the provider, never free text from a client."
+          },
+          "delivery_state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delivery_anomaly": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when a receipt disagreed with what was already known, e.g. `delivered_after_read`. Recorded rather than smoothed over."
+          },
+          "provider_message_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutboundAttempt"
+            }
+          }
+        }
+      },
+      "OutboundMessageListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutboundMessage"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "OutboundMessageResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/OutboundMessage"
+          },
+          "request_id": {
+            "type": "string"
           }
         }
       },
@@ -3813,6 +4205,76 @@
             "minLength": 8,
             "maxLength": 4096,
             "writeOnly": true
+          }
+        }
+      },
+      "SendMessageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "peerIdentity",
+          "messageType",
+          "clientMessageId"
+        ],
+        "properties": {
+          "peerIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 190
+          },
+          "messageType": {
+            "type": "string",
+            "example": "text"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 16000
+          },
+          "template": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "language"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "order_update"
+                  },
+                  "language": {
+                    "type": "string",
+                    "example": "ar"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only meaningful where the channel has templates. A template approved for another channel is refused, and a channel with no template concept refuses one outright."
+          },
+          "clientMessageId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 190,
+            "description": "The caller's own id for this message. A retry carrying the same one is the same message, not a second one. Required rather than generated, because a server-generated value would differ on every retry."
+          },
+          "trafficClass": {
+            "type": "string",
+            "enum": [
+              "interactive",
+              "bulk"
+            ],
+            "default": "interactive",
+            "description": "Which worker pool drains it. Interactive replies and bulk campaigns share one provider rate limit but not one queue."
+          },
+          "isPrivateNote": {
+            "type": "boolean",
+            "default": false,
+            "description": "An internal note. Accepted by the parser and then refused by the permit with `note_not_deliverable`, so the decision lives in one tested place rather than in a silently dropped field."
           }
         }
       },

@@ -243,6 +243,24 @@ replay would duplicate an effect — a second connection racing the first for th
 same inbound messages. Test, rotate and disconnect converge on the same state, so
 requiring a key there would be ceremony without a reason.
 
+### Outbound (P2)
+
+| Group | Method + path | operationId | Permission / scope | Phase |
+|---|---|---|---|---|
+| Outbound | `POST T/channels/{id}/messages` | `queueOutboundMessage` | `conversation.reply` + CSRF | P2 |
+| Outbound | `GET T/channels/{id}/messages` | `listOutboundMessages` | `conversation.read` | P2 |
+| Outbound | `GET T/outbound-messages/{id}` | `getOutboundMessage` | `conversation.read` | P2 |
+
+`queueOutboundMessage` answers **202**, never 200 or 201, and only after the
+command and its outbox row have committed. It carries no `Idempotency-Key`: the
+body's `clientMessageId` is the caller's own identifier for the message and is
+unique per company, so a header saying the same thing would be a second thing to
+get wrong.
+
+Sending requires `conversation.reply`, not `channel.manage`. Replying is the
+agent's daily act; reconfiguring a channel is not, and the catalogue already
+separates them.
+
 Rotation is separated from management by permission key on purpose. Reaching a
 provider credential is the narrower act, and the catalogue already distinguishes
 `credential.rotate` from `channel.manage`; an operator who may reorganise

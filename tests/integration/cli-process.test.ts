@@ -101,6 +101,7 @@ describe('convo-db entry point', () => {
       'applied 0008_invitations.sql',
       'applied 0009_people_admin.sql',
       'applied 0010_channels.sql',
+      'applied 0011_outbound.sql',
     ]);
 
     const second = await runBin(['migrate'], env);

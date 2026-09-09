@@ -7,10 +7,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
+import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig } from '../../packages/domain/src/index.js';
-import type { ConnectionCheck } from '../../packages/domain/src/index.js';
+import type { ConnectionCheck, SendCommand, SendOutcome } from '../../packages/domain/src/index.js';
 import type { DatabaseNames } from '../../packages/database/src/types.js';
 import {
   clusterCredentials,
@@ -218,10 +219,36 @@ function messageDelivery(
   };
 }
 
-function textMessage(id: string, body: string): Record<string, unknown> {
+/** A status receipt delivery, as the provider composes it. */
+function statusDelivery(
+  id: string,
+  state: string,
+  timestamp: string,
+  recipient = '15559998888',
+): Record<string, unknown> {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: 'waba-1',
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              metadata: { phone_number_id: PHONE_ID },
+              statuses: [{ id, status: state, recipient_id: recipient, timestamp }],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function textMessage(id: string, body: string, from = '15559998888'): Record<string, unknown> {
   return {
     id,
-    from: '15559998888',
+    from,
     timestamp: '1789000000',
     type: 'text',
     text: { body },
@@ -1341,5 +1368,601 @@ describe('channel tenant isolation', () => {
       client.query(`SELECT 1 FROM channel_events`),
     );
     expect(rows.rows).toHaveLength(0);
+  });
+});
+
+/* --------------------------------------------------------------- outbound -- */
+
+/**
+ * The outbound path, with a **stub** transport whose answer each test chooses.
+ *
+ * A stub, not a simulator of a provider: it exists so our own handling of
+ * accepted, rejected and unknown outcomes can be exercised at all. Nothing here
+ * is evidence about Meta, and no stub is bound anywhere outside this file.
+ */
+describe('the outbound path', () => {
+  let api: Harness;
+  let owner: Browser;
+  let dispatcher: ChannelDispatcherService;
+  let normalizer: ChannelNormalizationService;
+  let connectionId: string;
+  let answer: SendOutcome;
+  let sent: SendCommand[];
+  let delay: number;
+
+  const accepted = (id: string): SendOutcome => ({
+    status: 'accepted',
+    providerMessageId: id,
+    raw: {},
+  });
+
+  beforeAll(async () => {
+    sent = [];
+    delay = 0;
+    answer = accepted('wamid.stub');
+    api = await createHarness({
+      channelTransport: {
+        name: 'test-stub',
+        validateConnection: () =>
+          Promise.resolve({ ok: true, assetIdentity: PHONE_ID, code: null, message: null }),
+        send: async (_kind, _credential, command) => {
+          sent.push(command);
+          if (delay > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+          return answer;
+        },
+      },
+    });
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+    const created = await connect(api, owner);
+    expect(created.statusCode).toBe(201);
+    connectionId = (created.json() as { data: { id: string } }).data.id;
+    dispatcher = api.app.get(ChannelDispatcherService);
+    normalizer = api.app.get(ChannelNormalizationService);
+
+    // A customer message, so the reply window is open at dispatch time.
+    await deliver(api, messageDelivery([textMessage('wamid.opener', 'مرحبا')]));
+    await normalizer.drain(api.tenantId);
+  }, 180_000);
+
+  afterAll(async () => {
+    await api.app.close();
+  });
+
+  let counter = 0;
+  function clientId(): string {
+    counter += 1;
+    return `client-message-${String(counter).padStart(4, '0')}`;
+  }
+
+  /**
+   * A recipient nobody else in this file is talking to.
+   *
+   * Each test gets its own conversation, because the dispatch gate is
+   * per-conversation: sharing one recipient would make every test contend for
+   * the same slot and assert on somebody else's message.
+   */
+  function peer(): string {
+    counter += 1;
+    return `1555${String(counter).padStart(7, '0')}`;
+  }
+
+  /** Opens the reply window by having the customer write first. */
+  async function openWindow(identity: string): Promise<void> {
+    await deliver(
+      api,
+      messageDelivery([textMessage(`wamid.open-${identity}`, 'مرحبا', identity)]),
+    );
+    await normalizer.drain(api.tenantId);
+  }
+
+  async function queue(payload: Record<string, unknown>): Promise<LightMyRequestResponse> {
+    return send(api, owner, 'POST', `/channels/${connectionId}/messages`, {
+      messageType: 'text',
+      text: 'رد من الفريق',
+      clientMessageId: clientId(),
+      ...payload,
+    });
+  }
+
+  it('answers 202 with a queued command, and nothing is sent yet', async () => {
+    const before = sent.length;
+    const response = await queue({ peerIdentity: peer() });
+    expect(response.statusCode).toBe(202);
+    const message = (response.json() as { data: Record<string, unknown> }).data;
+    // 202, not 200: the command is durably written and nothing has left.
+    expect(message['command_state']).toBe('queued');
+    expect(message['provider_message_id']).toBeNull();
+    expect(message['attempts']).toEqual([]);
+    expect(sent.length).toBe(before);
+
+    // The command and its outbox entry commit together (DEL-07).
+    const queued = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('SELECT 1 FROM outbox WHERE message_id = $1', [message['id']]),
+    );
+    expect(queued.rows).toHaveLength(1);
+  });
+
+  it('treats the caller’s retry of the same client id as the same message', async () => {
+    const id = clientId();
+    const to = peer();
+    const first = await queue({ clientMessageId: id, peerIdentity: to });
+    const again = await queue({ clientMessageId: id, peerIdentity: to });
+    expect(again.statusCode).toBe(202);
+    expect((again.json() as { data: { id: string } }).data.id).toBe(
+      (first.json() as { data: { id: string } }).data.id,
+    );
+  });
+
+  it('dispatches, records the attempt, and marks the command accepted', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'أهلًا', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = accepted('wamid.accepted-1');
+
+    const result = await dispatcher.dispatch(api.tenantId);
+    expect(result.accepted).toBeGreaterThan(0);
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const message = (read.json() as { data: Record<string, unknown> }).data;
+    expect(message['command_state']).toBe('provider_accepted');
+    expect(message['provider_message_id']).toBe('wamid.accepted-1');
+    expect(message['attempts']).toHaveLength(1);
+    expect((message['attempts'] as { outcome: string }[])[0]?.outcome).toBe('accepted');
+
+    // Accepted work leaves the outbox.
+    const remaining = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('SELECT 1 FROM outbox WHERE message_id = $1', [id]),
+    );
+    expect(remaining.rows).toHaveLength(0);
+  });
+
+  it('writes the attempt before the network call, not after', async () => {
+    // Proved by observing the row while the transport is still in flight: if
+    // the attempt were written afterwards, a crash here would leave no trace
+    // that we may already have contacted the customer (DEL-12).
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'قيد الإرسال', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = accepted('wamid.inflight');
+    delay = 250;
+
+    const dispatching = dispatcher.dispatch(api.tenantId);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const midflight = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ outcome: string | null }>(
+        'SELECT outcome FROM outbound_attempts WHERE message_id = $1',
+        [id],
+      ),
+    );
+    expect(midflight.rows).toHaveLength(1);
+    expect(midflight.rows[0]?.outcome).toBeNull();
+    await dispatching;
+    delay = 0;
+  });
+
+  it('never resends an unknown outcome, and leaves it visible', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'مجهول', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = { status: 'outcome_unknown', code: 'ETIMEDOUT', message: 'The answer never came.' };
+
+    const first = await dispatcher.dispatch(api.tenantId);
+    expect(first.unknown).toBe(1);
+    const before = sent.length;
+
+    // Every later sweep, including recovery, must leave it alone.
+    await dispatcher.dispatch(api.tenantId);
+    await dispatcher.recoverOrphanedAttempts(api.tenantId, 0);
+    expect(sent.length).toBe(before);
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const message = (read.json() as { data: Record<string, unknown> }).data;
+    expect(message['command_state']).toBe('outcome_unknown');
+    expect(message['state_reason']).toBe('ETIMEDOUT');
+    // The uncertainty stays on screen rather than being resolved by guessing.
+    expect(message['provider_message_id']).toBeNull();
+  });
+
+  it('recovers an attempt that was started and never answered', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'انقطاع', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    // What a crash between the attempt row and the response looks like.
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      await client.query(
+        `INSERT INTO outbound_attempts (tenant_id, message_id, attempt_no)
+         VALUES ($1, $2, 1)`,
+        [api.tenantId, id],
+      );
+    });
+    const before = sent.length;
+
+    const recovered = await dispatcher.recoverOrphanedAttempts(api.tenantId, 0);
+    expect(recovered).toBeGreaterThan(0);
+    // Recovery is not a retry: nothing goes back on the wire.
+    expect(sent.length).toBe(before);
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    expect((read.json() as { data: { command_state: string } }).data.command_state).toBe(
+      'outcome_unknown',
+    );
+  });
+
+  it('retries a transient rejection with backoff, then gives up', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'مؤقت', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = {
+      status: 'definitely_rejected',
+      code: 'http_503',
+      message: 'Try later.',
+      retryable: true,
+    };
+
+    const first = await dispatcher.dispatch(api.tenantId);
+    expect(first.retried).toBe(1);
+
+    const scheduled = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ available_at: Date; attempts: number; last_error: string }>(
+        'SELECT available_at, attempts, last_error FROM outbox WHERE message_id = $1',
+        [id],
+      ),
+    );
+    expect(scheduled.rows[0]?.attempts).toBe(1);
+    expect(scheduled.rows[0]?.last_error).toBe('http_503');
+    // Backed off, so an immediate sweep does not pick it up again.
+    expect(scheduled.rows[0]?.available_at.getTime()).toBeGreaterThan(Date.now());
+    const idle = await dispatcher.dispatch(api.tenantId);
+    expect(idle.claimed).toBe(0);
+
+    // Exhaust the budget by hand rather than waiting out the backoff.
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('UPDATE outbox SET attempts = 5, available_at = now() WHERE message_id = $1', [id]),
+    );
+    const final = await dispatcher.dispatch(api.tenantId);
+    expect(final.rejected).toBe(1);
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    expect((read.json() as { data: { command_state: string } }).data.command_state).toBe('failed');
+  });
+
+  it('rejects a permanent refusal without retrying it', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'مرفوض', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = {
+      status: 'definitely_rejected',
+      code: 'template_not_approved',
+      message: 'No.',
+      retryable: false,
+    };
+
+    const result = await dispatcher.dispatch(api.tenantId);
+    expect(result.rejected).toBe(1);
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const message = (read.json() as { data: Record<string, unknown> }).data;
+    expect(message['command_state']).toBe('rejected');
+    expect(message['state_reason']).toBe('template_not_approved');
+    const remaining = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('SELECT 1 FROM outbox WHERE message_id = $1', [id]),
+    );
+    expect(remaining.rows).toHaveLength(0);
+  });
+
+  it('re-checks consent at dispatch time and skips a suppressed recipient', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ peerIdentity: to, text: 'بعد الانسحاب' });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    // Consent withdrawn *after* the message was queued — the case the permit is
+    // re-evaluated for (DEL-11).
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `INSERT INTO channel_suppressions (tenant_id, kind, peer_identity, reason)
+         VALUES ($1, 'whatsapp', $2, 'opt_out')`,
+        [api.tenantId, to],
+      ),
+    );
+    const before = sent.length;
+    answer = accepted('wamid.never');
+
+    const result = await dispatcher.dispatch(api.tenantId);
+    expect(result.skipped).toBe(1);
+    expect(sent.length).toBe(before);
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const message = (read.json() as { data: Record<string, unknown> }).data;
+    expect(message['command_state']).toBe('skipped');
+    expect(message['state_reason']).toBe('consent_withheld');
+    expect(message['attempts']).toEqual([]);
+  });
+
+  it('skips a message whose window closed while it waited', async () => {
+    const response = await queue({ peerIdentity: peer(), text: 'خارج النافذة' });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    // This recipient never wrote to us, so there is no open window at dispatch.
+    const result = await dispatcher.dispatch(api.tenantId);
+    expect(result.skipped).toBeGreaterThan(0);
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    expect((read.json() as { data: { state_reason: string } }).data.state_reason).toBe(
+      'template_required',
+    );
+  });
+
+  it('refuses a private note at the door and never queues it', async () => {
+    const before = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>('SELECT count(*)::text AS count FROM outbound_messages'),
+    );
+    const response = await queue({ peerIdentity: peer(), isPrivateNote: true, text: 'ملاحظة داخلية' });
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'note_not_deliverable' } });
+    const after = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>('SELECT count(*)::text AS count FROM outbound_messages'),
+    );
+    // Not queued, not stored, nowhere near a provider.
+    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+  });
+
+  it('refuses a message type the channel cannot carry', async () => {
+    const response = await queue({ peerIdentity: peer(), messageType: 'carrier_pigeon' });
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'not_supported' } });
+  });
+
+  it('refuses to queue on a disconnected channel', async () => {
+    const created = await connect(api, owner, 'phone-outbound-gone');
+    const goneId = (created.json() as { data: { id: string } }).data.id;
+    await send(api, owner, 'DELETE', `/channels/${goneId}`);
+    const response = await send(api, owner, 'POST', `/channels/${goneId}/messages`, {
+      peerIdentity: peer(),
+      messageType: 'text',
+      text: 'x',
+      clientMessageId: clientId(),
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'channel_disconnected' } });
+  });
+
+  it('holds one conversation to one message on the wire at a time', async () => {
+    // The serialized dispatch gate: two queued messages for the same recipient
+    // are claimed one at a time, so they cannot be sent out of order (DEL-18).
+    const to = peer();
+    await openWindow(to);
+    await queue({ peerIdentity: to, text: 'أولًا' });
+    await queue({ peerIdentity: to, text: 'ثانيًا' });
+
+    answer = accepted(`wamid.gate-${to}`);
+    // Both are ready, and exactly one is claimed: a conversation puts one
+    // message on the wire at a time, so they cannot arrive out of order.
+    const first = await dispatcher.dispatch(api.tenantId, 10);
+    expect(first.claimed).toBe(1);
+    const second = await dispatcher.dispatch(api.tenantId, 10);
+    expect(second.claimed).toBe(1);
+  });
+
+  it('folds a receipt that arrived before the send response', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'إيصال مبكر', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    // The receipt lands first — an ordinary inbound event whose message we
+    // cannot identify yet (DEL-17).
+    await deliver(api, statusDelivery('wamid.early-1', 'delivered', '1789000010', to));
+    await normalizer.drain(api.tenantId);
+
+    answer = accepted('wamid.early-1');
+    await dispatcher.dispatch(api.tenantId);
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const message = (read.json() as { data: Record<string, unknown> }).data;
+    // Held and reconciled the moment the id was learned, not dropped.
+    expect(message['delivery_state']).toBe('delivered');
+  });
+
+  it('keeps a read that arrives before its delivered, and records the anomaly', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'ترتيب غريب', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = accepted('wamid.anomaly-1');
+    await dispatcher.dispatch(api.tenantId);
+
+    await deliver(api, statusDelivery('wamid.anomaly-1', 'read', '1789000020', to));
+    await normalizer.drain(api.tenantId);
+    expect(await dispatcher.reconcileReceipts(api.tenantId)).toBeGreaterThan(0);
+
+    await deliver(api, statusDelivery('wamid.anomaly-1', 'delivered', '1789000021', to));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const message = (read.json() as { data: Record<string, unknown> }).data;
+    // The timeline stays at read; the disagreement is evidence, not noise.
+    expect(message['delivery_state']).toBe('read');
+    expect(message['delivery_anomaly']).toBe('delivered_after_read');
+  });
+
+  it('runs the receipt fold twice without double counting', async () => {
+    const before = await dispatcher.reconcileReceipts(api.tenantId);
+    const again = await dispatcher.reconcileReceipts(api.tenantId);
+    expect(again).toBe(0);
+    expect(before).toBeGreaterThanOrEqual(0);
+  });
+
+  it('sends a template outside the window, and carries it to the transport', async () => {
+    // Outside the window WhatsApp needs an approved template, and the template
+    // has to reach the provider rather than being dropped on the way.
+    const to = peer();
+    const response = await queue({
+      peerIdentity: to,
+      text: '',
+      template: { name: 'order_update', language: 'ar' },
+    });
+    expect(response.statusCode).toBe(202);
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = accepted(`wamid.template-${to}`);
+
+    const result = await dispatcher.dispatch(api.tenantId);
+    expect(result.accepted).toBe(1);
+    const command = sent.at(-1);
+    expect(command?.template).toEqual({ name: 'order_update', language: 'ar' });
+    // A template-only message carries no text, and that is not an error.
+    expect(command?.text).toBeNull();
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    expect((read.json() as { data: { command_state: string } }).data.command_state).toBe(
+      'provider_accepted',
+    );
+  });
+
+  it('refuses to dispatch when the credential has gone, without sending', async () => {
+    const created = await connect(api, owner, 'phone-outbound-nocred');
+    const cid = (created.json() as { data: { id: string } }).data.id;
+    const to = peer();
+    const queued = await send(api, owner, 'POST', `/channels/${cid}/messages`, {
+      peerIdentity: to,
+      messageType: 'text',
+      text: '',
+      template: { name: 'order_update', language: 'ar' },
+      clientMessageId: clientId(),
+    });
+    const id = (queued.json() as { data: { id: string } }).data.id;
+    // Revoked out from under the queued message, as a provider-side revocation
+    // would leave it.
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `UPDATE channel_credentials SET status = 'revoked', revoked_at = now() WHERE connection_id = $1`,
+        [cid],
+      ),
+    );
+    const before = sent.length;
+
+    await dispatcher.dispatch(api.tenantId);
+    expect(sent.length).toBe(before);
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    expect((read.json() as { data: { state_reason: string } }).data.state_reason).toBe(
+      'credential_missing',
+    );
+  });
+
+  it('skips a message whose channel was disconnected after it was queued', async () => {
+    const created = await connect(api, owner, 'phone-outbound-later-gone');
+    const cid = (created.json() as { data: { id: string } }).data.id;
+    const to = peer();
+    const queued = await send(api, owner, 'POST', `/channels/${cid}/messages`, {
+      peerIdentity: to,
+      messageType: 'text',
+      text: '',
+      template: { name: 'order_update', language: 'ar' },
+      clientMessageId: clientId(),
+    });
+    const id = (queued.json() as { data: { id: string } }).data.id;
+    await send(api, owner, 'DELETE', `/channels/${cid}`);
+    const before = sent.length;
+
+    await dispatcher.dispatch(api.tenantId);
+    expect(sent.length).toBe(before);
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const message = (read.json() as { data: Record<string, unknown> }).data;
+    expect(message['command_state']).toBe('skipped');
+    expect(message['state_reason']).toBe('channel_disconnected');
+  });
+
+  it('shows an attempt that has not finished yet', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'أثناء الطيران', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = accepted(`wamid.midflight-${to}`);
+    delay = 250;
+
+    const dispatching = dispatcher.dispatch(api.tenantId);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const attempts = (read.json() as { data: { attempts: { completed_at: string | null }[] } }).data
+      .attempts;
+    expect(attempts).toHaveLength(1);
+    // Started, not finished — visible as exactly that rather than as nothing.
+    expect(attempts[0]?.completed_at).toBeNull();
+    await dispatching;
+    delay = 0;
+  });
+
+  it('falls back to the build’s matrix when a connection stored none', async () => {
+    const created = await connect(api, owner, 'phone-outbound-nomatrix');
+    const cid = (created.json() as { data: { id: string } }).data.id;
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(`UPDATE channel_connections SET capabilities = '{}'::jsonb WHERE id = $1`, [cid]),
+    );
+    // An old row is not a reason to refuse an agent's reply.
+    const response = await send(api, owner, 'POST', `/channels/${cid}/messages`, {
+      peerIdentity: peer(),
+      messageType: 'text',
+      text: 'بدون مصفوفة مخزّنة',
+      clientMessageId: clientId(),
+    });
+    expect(response.statusCode).toBe(202);
+  });
+
+  it('folds a read receipt onto a message that was already delivered', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'قراءة لاحقة', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = accepted(`wamid.readlater-${to}`);
+    await dispatcher.dispatch(api.tenantId);
+
+    await deliver(api, statusDelivery(`wamid.readlater-${to}`, 'delivered', '1789000030', to));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+    await deliver(api, statusDelivery(`wamid.readlater-${to}`, 'read', '1789000031', to));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const message = (read.json() as { data: Record<string, unknown> }).data;
+    expect(message['delivery_state']).toBe('read');
+    expect(message['delivery_anomaly']).toBeNull();
+  });
+
+  it('reports which companies have dispatchable work', async () => {
+    await queue({ peerIdentity: peer(), text: 'قائمة الانتظار' });
+    expect(await dispatcher.pendingTenants()).toContain(api.tenantId);
+  });
+
+  it('lists a channel’s outbound messages', async () => {
+    const response = await send(api, owner, 'GET', `/channels/${connectionId}/messages`);
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { data: unknown[] }).data.length).toBeGreaterThan(0);
+  });
+
+  it('answers an unknown message and an unknown channel with the same 404', async () => {
+    const missing = '99999999-9999-4999-8999-999999999999';
+    expect((await send(api, owner, 'GET', `/outbound-messages/${missing}`)).statusCode).toBe(404);
+    // Queueing onto a channel that does not exist is the same answer a
+    // non-member gets: whether it exists is not this caller's business.
+    const queued = await send(api, owner, 'POST', `/channels/${missing}/messages`, {
+      peerIdentity: peer(),
+      messageType: 'text',
+      text: 'x',
+      clientMessageId: clientId(),
+    });
+    expect(queued.statusCode).toBe(404);
+  });
+
+  it('rejects a malformed send body', async () => {
+    const response = await send(api, owner, 'POST', `/channels/${connectionId}/messages`, {
+      peerIdentity: '',
+      messageType: 'text',
+      clientMessageId: 'x',
+    });
+    expect(response.statusCode).toBe(400);
   });
 });

@@ -134,6 +134,43 @@ inbound_events           (id, tenant_id, connection_id, event_id, kind, provider
                           (tenant_id, event_id, kind, coalesce(provider_message_id, ''))
                           makes re-running the projection idempotent.
 
+-- Outbound (migration 0011) -------------------------------------------------
+channel_suppressions     (id, tenant_id, kind, peer_identity, reason, note,
+                          created_at, created_by)
+                          The consent check the dispatcher makes at permit time. No DELETE
+                          grant: withdrawing consent is a fact with a time.
+outbound_messages        (id, tenant_id, connection_id, peer_identity, author_membership,
+                          message_type, text_body, template_name, template_language,
+                          attachments jsonb, client_message_id,
+                          command_state, state_reason,
+                          delivery_state, delivery_state_at, delivery_anomaly,
+                          provider_message_id, dispatch_version, created_at, settled_at)
+                          Two state machines in two columns. command_state ∈ queued|
+                          dispatching|provider_accepted|rejected|retry_scheduled|skipped|
+                          cancelled|failed|outcome_unknown — unordered, and never folded
+                          with max(). delivery_state ∈ sent|delivered|read, folded
+                          separately; a receipt never moves it backwards and one that would
+                          have is recorded in delivery_anomaly. UNIQUE
+                          (tenant_id, client_message_id): the caller's retry is the same
+                          message, not a second one.
+outbox                   (message_id PK, tenant_id, connection_id, peer_identity,
+                          traffic_class, available_at, attempts, leased_by, lease_until,
+                          last_error)
+                          Installation level and contentless, written in the same
+                          transaction as the command. The partial unique index
+                          (tenant_id, connection_id, peer_identity) WHERE lease_until IS NOT
+                          NULL is the serialized dispatch gate: one conversation puts one
+                          message on the wire at a time.
+outbound_attempts        (id, tenant_id, message_id, attempt_no, permit jsonb, started_at,
+                          completed_at, outcome, provider_message_id, error_code,
+                          error_message)
+                          Committed BEFORE the network call. outcome ∈ accepted|
+                          definitely_rejected|outcome_unknown, and NULL means the attempt
+                          started and no answer was ever recorded — which after a crash is
+                          exactly the evidence that the result is unknown. No DELETE grant:
+                          an attempt is the evidence that we did, or may have, contacted a
+                          customer.
+
 platform_admins          (id, user_id, granted_at)          -- no tenant membership
 support_grants           (id, tenant_id, platform_admin_id, scope jsonb, reason, expires_at, revoked_at)
 

@@ -115,4 +115,19 @@ export {
   verifyMetaSignature,
 } from './channels/meta-signature.js';
 
+export {
+  classifyOutcome,
+  COMMAND_STATES,
+  DELIVERY_STATES,
+  foldDelivery,
+  mayAutoRetry,
+} from './channels/outcome.js';
+export type {
+  ClassifierInput,
+  CommandState,
+  DeliveryFold,
+  DeliveryState,
+  TransportObservation,
+} from './channels/outcome.js';
+
 export { WhatsAppAdapter } from './channels/whatsapp.js';

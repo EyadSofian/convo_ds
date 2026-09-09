@@ -45,6 +45,7 @@ describe('migrate', () => {
       '0008_invitations.sql',
       '0009_people_admin.sql',
       '0010_channels.sql',
+      '0011_outbound.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -64,6 +65,7 @@ describe('migrate', () => {
       'channel_credentials',
       'channel_event_queue',
       'channel_events',
+      'channel_suppressions',
       'idempotency_records',
       'inbound_events',
       'installations',
@@ -71,6 +73,9 @@ describe('migrate', () => {
       'invitations',
       'membership_scopes',
       'memberships',
+      'outbound_attempts',
+      'outbound_messages',
+      'outbox',
       'ownership_transfers',
       'password_recovery_challenges',
       'permissions',
@@ -94,7 +99,7 @@ describe('migrate', () => {
     const recorded = await pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM schema_migrations',
     );
-    expect(recorded.rows[0]?.count).toBe('10');
+    expect(recorded.rows[0]?.count).toBe('11');
   });
 
   /**
