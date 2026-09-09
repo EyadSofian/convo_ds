@@ -25,6 +25,8 @@ import { InvitationController } from './people/invitation.controller.js';
 import { LoggingInvitationDelivery } from './people/invitation-delivery.js';
 import type { InvitationDeliveryPort } from './people/invitation-delivery.js';
 import { InvitationService } from './people/invitation.service.js';
+import { PeopleController } from './people/people.controller.js';
+import { PeopleService } from './people/people.service.js';
 import { MembershipService } from './memberships/membership.service.js';
 import {
   API_CONFIG,
@@ -76,6 +78,7 @@ export class ApiModule {
         MembershipController,
         PermissionController,
         InvitationController,
+        PeopleController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -99,6 +102,7 @@ export class ApiModule {
         AuthorizationService,
         RecoveryService,
         InvitationService,
+        PeopleService,
         MembershipService,
         PermissionService,
         PoolLifecycle,

@@ -43,6 +43,7 @@ describe('migrate', () => {
       '0006_auth_sessions.sql',
       '0007_role_matrix.sql',
       '0008_invitations.sql',
+      '0009_people_admin.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -52,6 +53,7 @@ describe('migrate', () => {
         WHERE table_schema = 'public' ORDER BY table_name`,
     );
     expect(tables.rows.map((r) => r.table_name)).toEqual([
+      'admin_audit_events',
       'auth_rate_limits',
       'builtin_role_definitions',
       'builtin_role_grants',
@@ -83,7 +85,7 @@ describe('migrate', () => {
     const recorded = await pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM schema_migrations',
     );
-    expect(recorded.rows[0]?.count).toBe('8');
+    expect(recorded.rows[0]?.count).toBe('9');
   });
 
   /**

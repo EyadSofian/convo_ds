@@ -116,10 +116,23 @@ describe('pinned OpenAPI contract', () => {
       'listInvitations',
       'createInvitation',
       'revokeInvitation',
+      'listOwnershipTransfers',
+      'offerOwnership',
+      'cancelOwnership',
+      'acceptOwnership',
+      'declineOwnership',
       'listPeople',
+      'updateMembership',
       'listPermissions',
       'listRoles',
+      'createRole',
+      'updateRole',
+      'deleteRole',
       'listTeams',
+      'createTeam',
+      'updateTeam',
+      'addTeamMember',
+      'removeTeamMember',
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);
