@@ -1,6 +1,12 @@
 import type { ScopeRef } from '../api/people.js';
 import type { LiveContext } from './actions.js';
 import {
+  loadContactsScreen,
+  openContact,
+  recordConsent,
+  saveContact,
+} from './contact-actions.js';
+import {
   claimConversation,
   loadInboxScreen,
   loadOlderMessages,
@@ -53,6 +59,79 @@ export type LiveHandler = (context: LiveContext, arg: string) => Promise<unknown
  * that rather than throwing keeps a malformed control from taking the screen
  * down, and the empty value is then rejected by the parser on the server.
  */
+/**
+ * The form key a contact's name field writes into.
+ *
+ * An underscore rather than a colon: the shared `form` action splits its
+ * argument on the first colon, so a key containing one would swallow half the
+ * typed value.
+ */
+export function contactNameField(contactId: string): string {
+  return `contactName_${contactId}`;
+}
+
+/**
+ * Saves whatever was typed into a contact's name field.
+ *
+ * The attributes are not sent: this build offers no editor for them, and
+ * sending the ones it read back would make a round-trip look like an edit.
+ */
+async function saveContactName(context: LiveContext, contactId: string): Promise<boolean> {
+  const typed = (context.state.dialogForm[contactNameField(contactId)] ?? '').trim();
+  if (typed === '') {
+    return false;
+  }
+  const saved = await saveContact(context, contactId, { displayName: typed });
+  if (saved) {
+    clearForm(context, [contactNameField(contactId)]);
+    context.refresh();
+  }
+  return saved;
+}
+
+/**
+ * Records consent or a withdrawal for the service purpose.
+ *
+ * One purpose, because that is the one an agent in a conversation is in a
+ * position to observe. Marketing consent is a campaign decision and belongs to
+ * a surface that does not exist yet, so it is not offered here rather than
+ * offered and quietly meaning something else.
+ */
+async function recordConsentFrom(context: LiveContext, arg: string): Promise<boolean> {
+  const { id, value } = splitArg(arg);
+  if (value !== 'granted' && value !== 'withdrawn') {
+    return false;
+  }
+  const channel = channelOfOpenContact(context, id);
+  if (channel === null) {
+    return false;
+  }
+  return recordConsent(context, id, {
+    channel,
+    purpose: 'service',
+    state: value,
+    source: 'agent_recorded',
+  });
+}
+
+/**
+ * The channel a consent record is about.
+ *
+ * Taken from the contact's live identities rather than typed: consent is per
+ * channel, and letting somebody pick a channel the contact has no identity on
+ * would record a fact about nothing.
+ */
+function channelOfOpenContact(context: LiveContext, contactId: string): string | null {
+  const { live } = context;
+  for (const resource of [live.selectedContact, live.openContact]) {
+    if (resource.status === 'ready' && resource.value.id === contactId) {
+      const identity = resource.value.identities.find((entry) => entry.validTo === null);
+      return identity?.kind ?? null;
+    }
+  }
+  return null;
+}
+
 export function splitArg(arg: string): { readonly id: string; readonly value: string } {
   const separator = arg.indexOf(':');
   return separator === -1
@@ -145,6 +224,26 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-inbox-older': async (context) => loadOlderMessages(context),
+
+  /* -------------------------------------------------------------- contacts -- */
+
+  'live-contacts-reload': async (context) => {
+    await loadSession(context);
+    await loadContactsScreen(context);
+  },
+
+  'live-contacts-search': async (context) => {
+    context.live.contactQuery = form(context, 'contactQuery');
+    return loadContactsScreen(context);
+  },
+
+  'live-contact-open': async (context, arg) => openContact(context, arg),
+
+  'live-contact-save-panel': async (context, arg) => saveContactName(context, arg),
+  'live-contact-save-screen': async (context, arg) => saveContactName(context, arg),
+
+  'live-consent-panel': async (context, arg) => recordConsentFrom(context, arg),
+  'live-consent-screen': async (context, arg) => recordConsentFrom(context, arg),
 
   /**
    * The composer's text.

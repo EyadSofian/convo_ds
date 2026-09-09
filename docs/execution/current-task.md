@@ -4,7 +4,74 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T8 first slice (Milestone D: the real Inbox)
+## Last completed task — P1-T8 second slice (Milestone D: Contacts, identity and consent)
+
+**Task / requirement IDs:** CT-01, CT-02, CT-03, CT-06, CT-08 closed. CT-07 partial, with the unbuilt half named.
+
+### Behavior delivered
+
+**A contact exists because somebody wrote to us.** There is no `createContact`, no import, and no form that turns a typed-in phone number into a person. Contacts are created by `ContactService.resolve` when a customer's first message is normalized, from the scoped triple the provider actually delivered. The absence is asserted by the browser suite, not merely documented: it looks for a create control and a merge control and requires both to be missing.
+
+**An identity is scoped, and never inferred.** `contact_identities` keys on `(kind, scope_id, external_id)` where the scope is a channel connection, so the same number reaching two connections is two identities and the same person messaging two Pages is two identities. `resolve` matches that triple exactly and has **no fuzzy path to fall back to** — no similar name, no matching username, no phone number that looks the same with a different country prefix.
+
+**Rotation closes an interval; it does not overwrite a column.** The unique index is partial — one *live* row per scoped external id, unbounded history behind it. A number reassigned to somebody else is the case that decides the design: the messages sent to it before the reassignment belong to whoever held it then, and an overwrite would silently re-attribute them. A closed identity is returned by the API and rendered as **ended** rather than hidden.
+
+**Consent is evidence, not a switch.** The runtime role holds `SELECT, INSERT` on `consents` and nothing else, under FORCE RLS — a withdrawal is a new row and the current state is the newest row per (contact, channel, purpose). The integration suite proves the role is refused both an `UPDATE` and a `DELETE`, because rewriting a withdrawal into a grant and deleting it outright are the same lie told two ways.
+
+**Two refusals are part of the contract.** `source=import` with `state=granted` is **422 `import_is_not_consent`**: a row in a spreadsheet is not somebody agreeing to be messaged. A grant on a channel the contact is suppressed on is **409 `suppression_outranks_consent`**: an opt-out outranks any consent, and lifting one needs an explicit opt-in workflow this build does not offer. Both reach the operator in their own words rather than as a generic failure. The panel renders a suppression **above** the consent history for the same reason — a green *opted in* sitting over an opt-out would be the exact lie the model exists to prevent.
+
+**Suppression is not a column on the contact.** It stays in `channel_suppressions`, keyed by `(kind, peer_identity)`, and a contact's suppressed channels are derived by joining its **live** identities against it. That is what makes "a suppression survives a merge, a deletion and a CRM import" true rather than hopeful, and it means an ended identity cannot carry a suppression forward to whoever holds the number now.
+
+**A contact outlives the channel it arrived on.** `contact_identities.scope_id` cascades from `channel_connections`, so a hard-deleted connection can leave a contact with no identity rows at all. The directory keeps such a contact rather than dropping it: the consent history is attached to the contact, and losing the row would lose the answer to whether we may write to them.
+
+**The search is over the name a human wrote.** There is no search by number, because matching a similar one is the inference the model refuses. The screen says so on screen rather than only in a comment.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0016_contacts.sql` | `contacts`, `contact_identities`, `consents`, `conversations.contact_id` |
+| `apps/api/src/contacts/contact.service.ts` | resolve, list, read, update, record consent; the single `detailOf` assembler |
+| `apps/api/src/contacts/contact.controller.ts` | the four routes and their validation |
+| `apps/web/src/api/contacts.ts` | the typed client — `ContactSummary` and `Contact` kept apart, as on the server |
+| `apps/web/src/live/contact-actions.ts` | the panel and the directory, holding separate state on purpose |
+| `apps/web/src/ui/contact-panel.ts` | who they are, how we reach them, what they agreed to — in that order |
+| `apps/web/src/ui/contacts-screen.ts` | the directory, and the four things it deliberately does not offer |
+| `apps/web/src/live/contacts.test.ts` | 31 tests through the real client, actions and renderer |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web bundle 145.65 kB / 44.75 kB gzip |
+| `pnpm test:coverage` | **0** | 82 files, **1483 tests**, 100% on all four metrics |
+| `pnpm test:contracts` | **0** | 166 + 119 across the adapter and OpenAPI contract suites |
+| `pnpm test:security` | **0** | 7 files, 248 tests + `pnpm audit --prod` → **no known vulnerabilities** |
+| `pnpm test:e2e` | **0** | 146 |
+| `pnpm test:a11y` | **0** | 25, no WCAG 2.1 AA violations |
+| `pnpm test:visual` | **0** | 19, images plus structural snapshots |
+| `pnpm test:mutation` | **1** | `not_run` — wired in P4 |
+| `pnpm test:load:target` | **1** | `blocked_env` — k6 not installed, no staging target |
+| `pnpm test:recovery` | **1** | `blocked_env` — no restore target |
+
+The pinned OpenAPI carries **57 operations**; the bidirectional drift test passes.
+
+**A real vulnerability was closed on the way past.** `pnpm audit --prod` reported two moderate fastify advisories — a schema-validation bypass and `X-Forwarded-*` spoofing under `trustProxy`. Our own dependency was already patched at 5.12.3; `@nestjs/platform-fastify@11.2.3` pins `fastify: 5.11.3` exactly, so pnpm installed a **nested** vulnerable copy, and that nested copy is the one `FastifyAdapter` loads at runtime. The `high` audit level meant the gate was passing over it. A `pnpm.overrides` entry collapses both copies onto 5.12.3; the full suite re-run confirms nothing depended on the older minor.
+
+### Honest remaining scope
+
+- **No merge, and no merge preview.** Whether two identities are one person is a reviewed decision with an audit trail (CT-04), and neither the review nor the trail exists. An unreviewable merge button would be worse than none, so there is not one.
+- **No CSV import and no export.** CT-07's rule is enforced today at the endpoint that could violate it, but it guards a door nobody can walk through yet; CT-09 and CT-10 are untouched.
+- **No tags, custom-field catalogue, segments or normalized search representation** (CT-05, CT-11). The directory search is a plain `ILIKE` over the display name, capped at 200 rows and uncursored.
+- **No contact deletion request** (CT-13's re-opt-in workflow and the P8 privacy path are both absent). A suppression cannot be lifted through the API at all, which is the safe direction to be incomplete in.
+- **Consent is recorded, not yet enforced at send time by this slice.** The dispatcher's own consent gate predates this work and reads `channel_suppressions`; wiring the `consents` history into the permit is DEL-work, not done here.
+- **Still no provider HTTP client and no broker product.** Every provider-live check stays `blocked_no_asset`; DEL-08/DEL-09 stay `blocked_env`.
+
+---
+
+## Previously completed — P1-T8 first slice (Milestone D: the real Inbox)
 
 **Task / requirement IDs:** CON-01, MSG-01, MSG-05, IAM-11 closed. MSG-02 and UX-09 moved to `partial` with the unbuilt half named.
 
@@ -668,20 +735,21 @@ These block only the named live/deployment checks. Independent implementation co
 
 ---
 
-## Next task — Milestone C remainder (the outbound path and the other four adapters)
+## Next task — Milestone E (the conversation lifecycle: notes, read cursor, status, snooze and reopen)
 
-**Task:** the half of Milestone C the inbound slice did not cover.
+**Task:** the half of P2 item 6 that the Inbox slice deliberately left out, plus the lifecycle table it depends on.
 
-**Requirement IDs:** CH-WA-01, CH-MSG-01…03, CH-IG-01…04, CH-04, DEL-07…DEL-22, SEND-01…04, EVT-04, API-08 (202/429), DEP-01.
+**Requirement IDs:** CON-02, CON-03, CON-04, MSG-02 (the unbuilt half), UX-09, and the notes/read-cursor rows of §18.
 
 **Scope:**
 
-1. The outbound path end to end: a permit that re-checks permission, window, consent, template and identity at dispatch time; an outbox row written in the same transaction as the domain effect; a durable attempt recorded **before** the network call; bounded retry with a lease; and the three-valued outcome, with `outcome_unknown` never blindly resent (ADR-0006).
-2. Command state and provider delivery state as separate columns that fold independently, so a `read` arriving before its `delivered` leaves the timeline at `read` and a late `failed` never erases a confirmed delivery.
-3. Messenger, Instagram, Website Chat and Custom Channel adapters — each with its own fixtures, its own policy and its own contract tests. Nothing inherited across them.
-4. Realtime delivery to the browser, and the worker roles as separate processes with their own concurrency.
-5. `202 Accepted` only after the durable transaction, and `429` with guidance.
+1. **The lifecycle as explicit transitions**, one per row of master §18.1 — not a `status` column somebody writes freely. `open → snoozed → open`, `open → resolved`, `resolved → open` on new inbound. Each transition names its actor, its cause and its authorization, and each is a realtime event with a type of its own.
+2. **Private notes.** A note is not a message: it is never sent, never enters the outbound path, and is visible only to principals whose grant reaches the conversation. The existing `realtime_events` type `conversation.note` exists precisely so a subscriber authorized for receipts and not for notes can be filtered without reading either — that filter must now be exercised by a real note.
+3. **Snooze with a durable, versioned wake job.** UTC wake time **and** the source timezone stored separately (CON-03): "tomorrow morning" is a question about the operator's calendar, not about UTC. A restart must not lose a wake, and re-snoozing must invalidate the old job rather than racing it.
+4. **Reopen on new inbound** to the latest non-archived resolved thread, opening a **new reporting episode** while the original episode's metrics are retained (CON-04). A reopen that silently re-uses the first episode makes every resolution-time report a lie.
+5. **A read cursor per participant**, so "unread" is a fact about a person rather than a badge the browser maintains. Read state is not a receipt: an agent reading a customer's message is not the customer reading ours, and the two must never fold into one column.
+6. **The screen**: the status control, the snooze picker, the note composer beside the reply composer, and unread counts that come from the server. Every one of them calls the backend and shows loading, error, retry and permission states — no demo affordances.
 
-**Exit checks:** the eleven commands above, with coverage staying at 100/100/100/100 and no exclusion added.
+**Exit checks:** the full gate list, coverage staying at 100/100/100/100 with no exclusion added, and the lifecycle table asserted one test per row.
 
-**Blocked, and stays blocked:** every provider-live check remains `blocked_no_asset` until a Meta app, WABA, test number, Page, Instagram professional account and authorized recipient exist. The outbound path will be built and tested against recorded contracts; **there is no provider simulator in the shipped composition root, and the default transport refuses every send.** A send that cannot reach a provider is reported as refused, never as sent.
+**Blocked, and stays blocked:** every provider-live check remains `blocked_no_asset`. Nothing in this slice needs a provider, which is exactly why it is next: it is the largest piece of remaining product value that is not waiting on Meta.

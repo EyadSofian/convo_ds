@@ -1,0 +1,61 @@
+div.workspace
+  div.workspace__intro
+    div.workspace__introtext
+      h1.workspace__heading
+      p.workspace__lede
+  section.card
+    div.card__header
+      h2.card__title
+    div.formrow
+      input.input [form]
+      button.btn [live-contacts-search]
+    p.field__hint
+  div.contacts
+    section.card
+      ul.contactlist
+        li
+          button.contactrow [live-contact-open]
+            span.contactrow__name
+              bdi
+            span.contactrow__channels
+              span.pill.pill--neutral
+        li
+          button.contactrow [live-contact-open]
+            span.contactrow__name
+              bdi
+            span.contactrow__channels
+              span.pill.pill--neutral
+        li
+          button.contactrow [live-contact-open]
+            span.contactrow__name
+              bdi
+            span.contactrow__channels
+              span.pill.pill--neutral
+        li
+          button.contactrow [live-contact-open]
+            span.contactrow__name
+              bdi
+            span.contactrow__channels
+              span.pill.pill--neutral
+        li
+          button.contactrow [live-contact-open]
+            span.contactrow__name
+              bdi
+            span.contactrow__channels
+              span.pill.pill--neutral
+        li
+          button.contactrow [live-contact-open]
+            span.contactrow__name
+              bdi
+            span.contactrow__channels
+              span.pill.pill--neutral
+    section.card
+      div.statebox.statebox--empty
+        span.statebox__icon
+          svg
+            circle
+            path
+            path
+            path
+        p.statebox__title
+        p.statebox__body

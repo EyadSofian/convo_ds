@@ -2,7 +2,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, withTenant } from '@convo/database';
 import type { SqlExecutor } from '@convo/domain';
 import type { Pool } from 'pg';
+import { requireRow } from '../require-row.js';
 import { API_POOL } from '../tokens.js';
+import { ContactService } from '../contacts/contact.service.js';
 import { ConversationService } from '../conversations/conversation.service.js';
 import { inboundRowFrom } from './inbound-projection.js';
 import type { InboundRow } from './inbound-projection.js';
@@ -43,6 +45,7 @@ export class ChannelNormalizationService {
   constructor(
     @Inject(API_POOL) private readonly pool: Pool,
     @Inject(ConversationService) private readonly conversations: ConversationService,
+    @Inject(ContactService) private readonly contacts: ContactService,
   ) {}
 
   /**
@@ -166,8 +169,19 @@ export class ChannelNormalizationService {
       connectionId,
       inbound.peerIdentity,
     );
+    // The customer's identity, resolved in this same transaction. It is scoped
+    // to the connection the message arrived on: the same person writing to two
+    // pages is two identities until somebody says otherwise (CT-02, CT-03).
+    const kind = await connectionKind(sql, connectionId);
+    const contact = await this.contacts.resolve(
+      sql,
+      tenantId,
+      { kind, scopeId: connectionId, externalId: inbound.peerIdentity },
+      { source: 'inbound_message', providerMessageId: inbound.providerMessageId },
+    );
     await this.conversations.noteInbound(sql, tenantId, conversation, {
       occurredAt: inbound.occurredAt,
+      contactId: contact.contactId,
       payload: {
         providerMessageId: inbound.providerMessageId,
         contentType: inbound.contentType,
@@ -175,6 +189,15 @@ export class ChannelNormalizationService {
       },
     });
   }
+}
+
+/** The channel a connection speaks. An identity is only meaningful within it. */
+async function connectionKind(sql: SqlExecutor, connectionId: string): Promise<string> {
+  const rows = await sql.query<{ kind: string }>(
+    'SELECT kind FROM channel_connections WHERE id = $1',
+    [connectionId],
+  );
+  return requireRow(rows.rows, 'the message names a channel that does not exist').kind;
 }
 
 /**

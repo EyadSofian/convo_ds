@@ -179,7 +179,7 @@ async function login(api: Harness, email: string, password: string): Promise<Bro
 async function send(
   api: Harness,
   browser: Browser,
-  method: 'GET' | 'POST' | 'DELETE',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   path: string,
   payload?: Record<string, unknown>,
 ): Promise<LightMyRequestResponse> {
@@ -1168,6 +1168,335 @@ describe('the inbox surface', () => {
     // is not a position in another.
     expect(response.statusCode).toBe(400);
     expect((response.json() as { error: { code: string } }).error.code).toBe('cursor_invalid');
+  });
+});
+
+describe('contacts', () => {
+  const peer = '15557000100';
+  let contactId: string;
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'أول اتصال', 'wamid.rt-100');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ contact_id: string }>(
+        'SELECT contact_id::text FROM conversations WHERE peer_identity = $1',
+        [peer],
+      ),
+    );
+    contactId = row.rows[0]?.contact_id as string;
+  }, 120_000);
+
+  it('creates a contact from the first message, scoped to the channel it arrived on', async () => {
+    expect(contactId).toMatch(/^[0-9a-f-]{36}$/);
+    const response = await send(api, owner, 'GET', `/contacts/${contactId}`);
+    expect(response.statusCode).toBe(200);
+    const contact = (response.json() as { data: Record<string, unknown> }).data;
+    expect(contact['displayName']).toBe(peer);
+
+    const identities = contact['identities'] as { kind: string; externalId: string; validTo: null }[];
+    // One identity, scoped to the connection it arrived on, and open-ended.
+    expect(identities).toHaveLength(1);
+    expect(identities[0]).toMatchObject({ kind: 'whatsapp', externalId: peer, validTo: null });
+  });
+
+  it('reuses the contact for the same identity, and never guesses a link', async () => {
+    await customerWrites(INBOX_A, peer, 'رسالة ثانية', 'wamid.rt-101');
+    const again = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ contact_id: string }>(
+        'SELECT contact_id::text FROM conversations WHERE peer_identity = $1',
+        [peer],
+      ),
+    );
+    expect(again.rows[0]?.contact_id).toBe(contactId);
+
+    // The same number on a *different* connection is a different identity. It
+    // may well be the same person; proving that is a human's job, and guessing
+    // it here is exactly what CT-03 forbids.
+    await customerWrites(INBOX_B, peer, 'نفس الرقم، قناة أخرى', 'wamid.rt-102');
+    const other = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ contact_id: string; connection_id: string }>(
+        `SELECT contact_id::text, connection_id::text FROM conversations
+          WHERE peer_identity = $1 AND connection_id = $2`,
+        [peer, inboxB],
+      ),
+    );
+    expect(other.rows[0]?.contact_id).not.toBe(contactId);
+  });
+
+  it('lists contacts and searches them by name', async () => {
+    const all = await send(api, owner, 'GET', '/contacts');
+    expect(all.statusCode).toBe(200);
+    expect((all.json() as { data: { id: string }[] }).data.map((row) => row.id)).toContain(
+      contactId,
+    );
+
+    const found = await send(api, owner, 'GET', `/contacts?q=${peer.slice(-4)}`);
+    expect((found.json() as { data: { id: string }[] }).data.map((row) => row.id)).toContain(
+      contactId,
+    );
+    const missing = await send(api, owner, 'GET', '/contacts?q=nobody-by-that-name');
+    expect((missing.json() as { data: unknown[] }).data).toEqual([]);
+  });
+
+  it('corrects the business fields without touching the identity', async () => {
+    const response = await send(api, owner, 'PATCH', `/contacts/${contactId}`, {
+      displayName: 'سارة عبد الله',
+      attributes: { grade: 'الصف السادس', branch: 'المعادي' },
+    });
+    expect(response.statusCode).toBe(200);
+    const contact = (response.json() as { data: Record<string, unknown> }).data;
+    expect(contact['displayName']).toBe('سارة عبد الله');
+    expect(contact['attributes']).toEqual({ grade: 'الصف السادس', branch: 'المعادي' });
+    // Renaming somebody links nothing and unlinks nothing.
+    expect((contact['identities'] as { externalId: string }[])[0]?.externalId).toBe(peer);
+  });
+
+  it('refuses an edit that changes nothing, or that is not valid', async () => {
+    expect((await send(api, owner, 'PATCH', `/contacts/${contactId}`, {})).statusCode).toBe(400);
+    expect(
+      (await send(api, owner, 'PATCH', `/contacts/${contactId}`, { displayName: '' })).statusCode,
+    ).toBe(400);
+    expect(
+      (await send(api, owner, 'PATCH', `/contacts/${contactId}`, { attributes: 'not an object' }))
+        .statusCode,
+    ).toBe(400);
+  });
+
+  it('records consent as evidence, and withdrawal as another record', async () => {
+    const granted = await send(api, owner, 'POST', `/contacts/${contactId}/consents`, {
+      channel: 'whatsapp',
+      purpose: 'marketing',
+      state: 'granted',
+      source: 'agent_recorded',
+      proofRef: 'call-2026-09-10',
+    });
+    expect(granted.statusCode).toBe(201);
+
+    const withdrawn = await send(api, owner, 'POST', `/contacts/${contactId}/consents`, {
+      channel: 'whatsapp',
+      purpose: 'marketing',
+      state: 'withdrawn',
+      source: 'customer_message',
+      proofRef: null,
+    });
+    expect(withdrawn.statusCode).toBe(201);
+
+    const history = (withdrawn.json() as { data: { consent: { state: string; source: string }[] } })
+      .data.consent;
+    // Newest first, and both rows survive: withdrawing is a new fact, not an
+    // edit to the old one.
+    expect(history.slice(0, 2).map((entry) => entry.state)).toEqual(['withdrawn', 'granted']);
+    expect(history[1]?.source).toBe('agent_recorded');
+
+    // And the evidence cannot be edited away: the runtime role holds no UPDATE
+    // or DELETE on the table at all. Both, because rewriting a withdrawal into
+    // a grant and deleting it outright are the same lie told two ways.
+    await expect(
+      withTenant(api.pool, api.tenantId, (client) =>
+        client.query('DELETE FROM consents WHERE contact_id = $1', [contactId]),
+      ),
+    ).rejects.toThrow(/permission denied/i);
+    await expect(
+      withTenant(api.pool, api.tenantId, (client) =>
+        client.query(`UPDATE consents SET state = 'granted' WHERE contact_id = $1`, [contactId]),
+      ),
+    ).rejects.toThrow(/permission denied/i);
+  });
+
+  it('refuses to treat an import as consent', async () => {
+    const response = await send(api, owner, 'POST', `/contacts/${contactId}/consents`, {
+      channel: 'whatsapp',
+      purpose: 'marketing',
+      state: 'granted',
+      source: 'import',
+      proofRef: null,
+    });
+    // A row in a spreadsheet is not somebody agreeing to be messaged (CT-07).
+    expect(response.statusCode).toBe(422);
+    expect((response.json() as { error: { code: string } }).error.code).toBe(
+      'import_is_not_consent',
+    );
+  });
+
+  it('refuses a grant that would paper over a suppression', async () => {
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `INSERT INTO channel_suppressions (tenant_id, kind, peer_identity, reason)
+         VALUES ($1, 'whatsapp', $2, 'opt_out')`,
+        [api.tenantId, peer],
+      ),
+    );
+
+    const read = await send(api, owner, 'GET', `/contacts/${contactId}`);
+    // The suppression is shown beside the consent, because it is the one in
+    // force and an operator reading a granted consent needs to see it.
+    expect((read.json() as { data: { suppressed: string[] } }).data.suppressed).toEqual([
+      'whatsapp',
+    ]);
+
+    const response = await send(api, owner, 'POST', `/contacts/${contactId}/consents`, {
+      channel: 'whatsapp',
+      purpose: 'marketing',
+      state: 'granted',
+      source: 'agent_recorded',
+      proofRef: null,
+    });
+    expect(response.statusCode).toBe(409);
+    expect((response.json() as { error: { code: string } }).error.code).toBe(
+      'suppression_outranks_consent',
+    );
+
+    // Withdrawing is still allowed: agreeing with a suppression is never the
+    // thing to block.
+    expect(
+      (
+        await send(api, owner, 'POST', `/contacts/${contactId}/consents`, {
+          channel: 'whatsapp',
+          purpose: 'service',
+          state: 'withdrawn',
+          source: 'customer_message',
+          proofRef: null,
+        })
+      ).statusCode,
+    ).toBe(201);
+  });
+
+  it('refuses a consent record that is not one', async () => {
+    const response = await send(api, owner, 'POST', `/contacts/${contactId}/consents`, {
+      channel: 'telepathy',
+      purpose: 'whatever',
+      state: 'maybe',
+      source: 'a dream',
+    });
+    expect(response.statusCode).toBe(400);
+    const fields = (response.json() as { error: { details: { field: string }[] } }).error.details.map(
+      (detail) => detail.field,
+    );
+    expect(fields).toEqual(['channel', 'purpose', 'state', 'source']);
+  });
+
+  it('lets an agent edit the contact of a conversation they hold, and no other', async () => {
+    // agentA holds a conversation with this peer on inbox A.
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; version: number }>(
+        'SELECT id::text, version FROM conversations WHERE peer_identity = $1 AND connection_id = $2',
+        [peer, inboxA],
+      ),
+    );
+    const row = conversation.rows[0] as { id: string; version: number };
+    expect(
+      (await send(api, agentA, 'POST', `/conversations/${row.id}/claim`, { version: row.version }))
+        .statusCode,
+    ).toBe(201);
+
+    expect(
+      (await send(api, agentA, 'PATCH', `/contacts/${contactId}`, { displayName: 'سارة ع.' }))
+        .statusCode,
+    ).toBe(200);
+
+    // agentB holds nothing with this person, so the same edit is refused.
+    expect(
+      (await send(api, agentB, 'PATCH', `/contacts/${contactId}`, { displayName: 'لا' })).statusCode,
+    ).toBe(403);
+  });
+
+  it('reads a contact whose identity was closed, and one with none at all', async () => {
+    // Both shapes a future merge or rotation can leave behind. Neither is
+    // reachable through the API today, and both have to render.
+    const made = await withTenant(api.pool, api.tenantId, async (client) => {
+      const contact = await client.query<{ id: string }>(
+        `INSERT INTO contacts (tenant_id, display_name) VALUES ($1, 'بلا هوية') RETURNING id::text`,
+        [api.tenantId],
+      );
+      const bare = contact.rows[0]?.id as string;
+      const closed = await client.query<{ id: string }>(
+        `INSERT INTO contacts (tenant_id, display_name) VALUES ($1, 'هوية منتهية') RETURNING id::text`,
+        [api.tenantId],
+      );
+      const rotated = closed.rows[0]?.id as string;
+      await client.query(
+        `INSERT INTO contact_identities
+           (tenant_id, contact_id, kind, scope_id, external_id, valid_from, valid_to)
+         VALUES ($1, $2, 'whatsapp', $3, '15550009999', now() - interval '2 days', now() - interval '1 day')`,
+        [api.tenantId, rotated, inboxA],
+      );
+      return { bare, rotated };
+    });
+
+    const bare = await send(api, owner, 'GET', `/contacts/${made.bare}`);
+    expect(bare.statusCode).toBe(200);
+    const bareBody = (bare.json() as { data: { identities: unknown[]; suppressed: unknown[] } }).data;
+    expect(bareBody.identities).toEqual([]);
+    // No live identity means no channel a suppression could be about.
+    expect(bareBody.suppressed).toEqual([]);
+
+    const rotated = await send(api, owner, 'GET', `/contacts/${made.rotated}`);
+    const identities = (rotated.json() as { data: { identities: { validTo: string | null }[] } }).data
+      .identities;
+    // A closed interval is returned, not hidden: messages sent while it was
+    // live belong to whoever held it then.
+    expect(identities[0]?.validTo).not.toBeNull();
+
+    // And both are in the directory. Dropping a contact from the list because
+    // no identity row survived would lose the consent history attached to it.
+    const listed = await send(api, owner, 'GET', '/contacts');
+    const rows = (listed.json() as { data: { id: string; identities: unknown[] }[] }).data;
+    expect(rows.find((row) => row.id === made.bare)?.identities).toEqual([]);
+    expect(rows.find((row) => row.id === made.rotated)?.identities).toHaveLength(1);
+  });
+
+  it('updates only the attributes when only they are sent', async () => {
+    const response = await send(api, owner, 'PATCH', `/contacts/${contactId}`, {
+      attributes: { plan: 'سنوي' },
+    });
+    expect(response.statusCode).toBe(200);
+    const contact = (response.json() as { data: Record<string, unknown> }).data;
+    expect(contact['attributes']).toEqual({ plan: 'سنوي' });
+    // The name is left exactly as it was rather than blanked by an omission.
+    expect(contact['displayName']).toBe('سارة ع.');
+  });
+
+  it('refuses a body that is not an object at all', async () => {
+    const response = await api.server.inject({
+      method: 'PATCH',
+      url: `/api/v1/tenants/${api.tenantId}/contacts/${contactId}`,
+      headers: {
+        cookie: owner.cookie,
+        'x-csrf-token': owner.csrf,
+        'content-type': 'application/json',
+      },
+      payload: '"a string"',
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('refuses consent from somebody without the grant', async () => {
+    const analyst = await login(api, 'analyst@realtime.test', MEMBER_PASSWORD);
+    const response = await send(api, analyst, 'POST', `/contacts/${contactId}/consents`, {
+      channel: 'whatsapp',
+      purpose: 'service',
+      state: 'withdrawn',
+      source: 'agent_recorded',
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('answers a contact that does not exist with a 404', async () => {
+    const missing = '99999999-9999-4999-8999-999999999999';
+    expect((await send(api, owner, 'GET', `/contacts/${missing}`)).statusCode).toBe(404);
+    expect(
+      (await send(api, owner, 'PATCH', `/contacts/${missing}`, { displayName: 'x' })).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await send(api, owner, 'POST', `/contacts/${missing}/consents`, {
+          channel: 'whatsapp',
+          purpose: 'service',
+          state: 'granted',
+          source: 'agent_recorded',
+        })
+      ).statusCode,
+    ).toBe(404);
   });
 });
 

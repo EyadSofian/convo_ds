@@ -21,6 +21,10 @@ Therefore: every `Live` status in the traceability registry is `blocked_no_asset
 
 **On realtime (added 2026-09-09).** Realtime needs no provider, so nothing here is blocked by the missing Meta assets — but it is worth recording what it is *not*. The feed carries what this installation observed: normalized inbound events, delivery receipts folded from provider webhooks, and assignment changes made by people. It contains no provider-reported fact that was not first verified by a signature and journaled. A subscriber watching a delivery tick move to `read` is watching a receipt this installation received and stored, not a claim the UI invented while waiting.
 
+**On contacts and consent (added 2026-09-10).** Contacts need no provider either, and the ledger records one thing about them because it is the place where a provider fact and our own fact could be confused. A `contact_identity` is **never** a provider's claim about who somebody is: it is the scoped external id that arrived on a signed, journaled delivery — a WhatsApp number, a page-scoped Messenger id, an Instagram-scoped id — recorded against the connection it arrived on and nothing more. We do not fetch profiles, we do not resolve a number to a person, and we do not ask a provider whether two ids are the same human. Where a provider offers such an answer, we have not wired it, and a merge would still be a reviewed act with an audit trail rather than a provider's word taken on trust.
+
+Consent is our own record of what happened here — who said what, through which channel, for which purpose, on whose word. No provider is the source of a consent row, and none is consulted before one is written. A customer writing to us is recorded as `customer_message` because that is a fact this installation observed; an import can never be recorded as a grant at all.
+
 ## 2. WhatsApp Cloud API
 
 | Observation | Source | Decision in CONVO |

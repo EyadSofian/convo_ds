@@ -194,7 +194,6 @@
        tests/e2e/layout.spec.ts against a real browser. */
     --rail-width: 56px;
     --topbar-height: 48px;
-    --views-width: 232px;
     --list-width: 332px;
     --list-width-min: 300px;
     --list-width-max: 380px;

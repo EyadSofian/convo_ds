@@ -467,6 +467,13 @@
     background: var(--surface-hover);
   }
 
+  /* A popover option's secondary line: a scope, a count, a reason. */
+  .popover__hint {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-inline-start: auto;
+  }
+
   .popover__label {
     flex: 1 1 auto;
     overflow: hidden;

@@ -1013,6 +1013,254 @@
         }
       }
     },
+    "/tenants/{tenantId}/contacts": {
+      "get": {
+        "operationId": "listContacts",
+        "summary": "List contacts",
+        "description": "Requires `contact.read`. `q` filters on the display name only — there is no fuzzy identity search, because a search that matched on a similar number would be the identity inference the model refuses (CT-03).",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The contacts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/contacts/{contactId}": {
+      "get": {
+        "operationId": "getContact",
+        "summary": "Read one contact with its identities, consent and suppressions",
+        "description": "Requires `contact.read`. Consent is returned newest-first as evidence, not as a flag. Suppressions are returned beside it because a suppression **outranks** any consent (CT-08), and an operator looking at a granted consent needs to see the thing that overrides it.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The contact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateContact",
+        "summary": "Correct a contact's business fields",
+        "description": "The display name and the business attributes, and nothing else. An identity is not editable here: changing which number reaches a person is a different act with different consequences. Requires `contact.edit`, which an Agent holds only for the contacts of conversations they are in.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateContactRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The contact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/contacts/{contactId}/consents": {
+      "post": {
+        "operationId": "recordConsent",
+        "summary": "Record consent, or its withdrawal",
+        "description": "Appends a record; it never edits one. Withdrawal is a new row, so the history stays answerable. Two refusals are part of the contract: `import_is_not_consent` (422) because a row in a spreadsheet is not somebody agreeing to be messaged (CT-07), and `suppression_outranks_consent` (409) because lifting an opt-out needs an explicit opt-in workflow this build does not offer (CT-08, CT-13). Requires `consent.record`.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordConsentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The contact, with the new record on its history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/tenants/{tenantId}/conversations": {
       "get": {
         "operationId": "listConversations",
@@ -5562,7 +5810,8 @@
           "waitingSince",
           "inboxLabel",
           "channel",
-          "participantMembershipIds"
+          "participantMembershipIds",
+          "contactId"
         ],
         "properties": {
           "id": {
@@ -5633,6 +5882,14 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "contactId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Resolved from the customer's first message. Null on a conversation opened by an outbound message to somebody nobody has heard from."
           }
         }
       },
@@ -5974,6 +6231,272 @@
           },
           "request_id": {
             "type": "string"
+          }
+        }
+      },
+      "ContactIdentity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "scopeId",
+          "externalId",
+          "validFrom",
+          "validTo"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "whatsapp",
+              "messenger",
+              "instagram",
+              "web_chat",
+              "custom"
+            ]
+          },
+          "scopeId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The channel connection the external id is scoped to. A page-scoped id means nothing outside its page."
+          },
+          "externalId": {
+            "type": "string",
+            "example": "15559998888"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Null while the identity is live. Rotation closes an interval and opens a new one rather than overwriting (CT-02)."
+          }
+        }
+      },
+      "ConsentRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "channel",
+          "purpose",
+          "state",
+          "source",
+          "recordedAt",
+          "actorMembershipId"
+        ],
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "whatsapp",
+              "messenger",
+              "instagram",
+              "web_chat",
+              "custom"
+            ]
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "service",
+              "marketing"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "granted",
+              "withdrawn"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "customer_message",
+              "agent_recorded",
+              "import",
+              "web_form"
+            ]
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "actorMembershipId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "Contact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "displayName",
+          "attributes",
+          "createdAt",
+          "identities"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "سارة عبد الله"
+          },
+          "attributes": {
+            "type": "object",
+            "description": "Business fields, named by the company."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "identities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContactIdentity"
+            }
+          },
+          "consent": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsentRecord"
+            },
+            "description": "Newest first. Present on a single-contact read."
+          },
+          "suppressed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Channels this contact has opted out on. Outranks any consent above."
+          }
+        }
+      },
+      "ContactListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Contact"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ContactResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Contact"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateContactRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "example": "سارة عبد الله"
+          },
+          "attributes": {
+            "type": "object",
+            "example": {
+              "grade": "الصف السادس"
+            }
+          }
+        }
+      },
+      "RecordConsentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "channel",
+          "purpose",
+          "state",
+          "source"
+        ],
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "whatsapp",
+              "messenger",
+              "instagram",
+              "web_chat",
+              "custom"
+            ]
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "service",
+              "marketing"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "granted",
+              "withdrawn"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "customer_message",
+              "agent_recorded",
+              "import",
+              "web_form"
+            ],
+            "description": "`import` can never accompany `granted`."
+          },
+          "proofRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "call-2026-09-10"
           }
         }
       }

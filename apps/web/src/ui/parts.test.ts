@@ -164,7 +164,7 @@ describe('popover and anchors', () => {
     );
     const options = element.querySelectorAll('.popover__option');
     expect(options[0]?.getAttribute('aria-checked')).toBe('true');
-    expect(element.querySelectorAll('.viewitem__scope')).toHaveLength(1);
+    expect(element.querySelectorAll('.popover__hint')).toHaveLength(1);
     expect(element.querySelector('.popover__footer')).toBeNull();
     const withFooter = popover('t', [], 'x', h('span', {}, ['f']), true);
     expect(withFooter.className).toContain('popover--end');

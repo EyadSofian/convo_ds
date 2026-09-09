@@ -2,10 +2,12 @@ import type { ActionContext } from './actions';
 import { runAction } from './actions';
 import { ApiClient, API_BASE_URL, csrfFromCookie, type FetchLike } from './api/client';
 import { ChannelsApi } from './api/channels';
+import { ContactsApi } from './api/contacts';
 import { ConversationsApi } from './api/conversations';
 import {
   disconnectedApi,
   disconnectedChannelsApi,
+  disconnectedContactsApi,
   disconnectedConversationsApi,
   PeopleApi,
 } from './api/people';
@@ -17,6 +19,7 @@ import {
   startRealtime,
   stopRealtime,
 } from './live/inbox-actions';
+import { loadContactsScreen } from './live/contact-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
 import { createLiveState, rowsOf } from './live/store';
@@ -35,6 +38,7 @@ import {
   screenTitle,
   VIEWABLE_ROLES,
 } from './state';
+import { renderContacts } from './ui/contacts-screen';
 import { renderInbox } from './ui/live-inbox';
 import { renderDialog } from './ui/dialogs';
 import { button, isolated, selectControl } from './ui/parts';
@@ -49,6 +53,7 @@ function t(state: AppState, ar: string, en: string): string {
 
 const RAIL_ICONS: Record<ScreenId, IconName> = {
   inbox: 'inbox',
+  contacts: 'users',
   channels: 'channels',
   people: 'people',
   broadcasts: 'broadcasts',
@@ -154,6 +159,7 @@ function renderTopbar(state: AppState): HTMLElement {
 
 
 function renderScreen(state: AppState): HTMLElement {
+  if (state.route.screen === 'contacts') return renderContacts(state);
   if (state.route.screen === 'channels') return renderChannels(state);
   if (state.route.screen === 'people') return renderPeople(state);
   if (state.route.screen === 'broadcasts') return renderBroadcasts(state);
@@ -358,6 +364,7 @@ const SCREEN_LOADERS: Readonly<Record<string, (context: LiveContext) => Promise<
   people: loadPeopleScreen,
   channels: loadChannelsScreen,
   inbox: loadInboxScreen,
+  contacts: loadContactsScreen,
 };
 
 /**
@@ -397,9 +404,10 @@ export function mount(options: MountOptions): AppHandle {
   const channels = client === null ? disconnectedChannelsApi() : new ChannelsApi(client);
   const conversations =
     client === null ? disconnectedConversationsApi() : new ConversationsApi(client);
+  const contacts = client === null ? disconnectedContactsApi() : new ContactsApi(client);
   const state = createState(
     options.now ?? new Date(),
-    createLiveState(api, channels, conversations),
+    createLiveState(api, channels, conversations, contacts),
   );
   const root = options.root;
   const host = options.host;

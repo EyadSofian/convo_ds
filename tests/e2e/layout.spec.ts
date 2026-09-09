@@ -175,15 +175,22 @@ test.describe('the queue drawer never squeezes the timeline', () => {
     await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'closed');
   });
 
-  test('has no views or customer panel to squeeze it with', async ({ page }) => {
+  test('has no saved-view sidebar to squeeze it with', async ({ page }) => {
     await openInbox(page);
-    // Both were demo-only surfaces built on seeded data. They are gone rather
-    // than present and empty: a saved-view sidebar with no saved views, or a
-    // contact panel with no contacts service, would be a promise the server
-    // cannot keep.
+    // The views column was a demo surface over seeded data. It is gone rather
+    // than present and empty: a saved-view sidebar with no saved views would be
+    // a promise the server cannot keep.
     await expect(page.locator('.zone--views')).toHaveCount(0);
-    await expect(page.locator('.zone--panel')).toHaveCount(0);
     expect((await box(page.locator('.zone--thread'))).width).toBeGreaterThanOrEqual(640);
+  });
+
+  test('keeps the timeline at 640px with the customer panel beside it', async ({ page }) => {
+    await openInbox(page);
+    // The panel is a real column here, reading a real contact. Below 1364px it
+    // is an overlay instead, so the timeline never gives up its width for it.
+    await expect(page.locator('.zone--panel')).toBeVisible();
+    expect((await box(page.locator('.zone--thread'))).width).toBeGreaterThanOrEqual(640);
+    expect(await pageScrolls(page)).toBe(false);
   });
 });
 

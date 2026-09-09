@@ -75,13 +75,26 @@ test.describe('axe: no WCAG 2.1 AA violations', () => {
     expect(describeViolations(await audit(page))).toEqual([]);
   });
 
+  test('the customer panel beside a conversation', async ({ page }) => {
+    await openInbox(page);
+    await expect(page.locator('.zone--panel .contact')).toBeVisible();
+    expect(describeViolations(await audit(page))).toEqual([]);
+  });
+
   test('inbox showing this agent’s own conversations', async ({ page }) => {
     await openInbox(page);
     await page.locator('[data-act="live-inbox-queue"][data-arg="mine"]').click();
     expect(describeViolations(await audit(page))).toEqual([]);
   });
 
-  for (const screen of ['channels', 'people', 'broadcasts', 'analytics', 'settings'] as const) {
+  for (const screen of [
+    'contacts',
+    'channels',
+    'people',
+    'broadcasts',
+    'analytics',
+    'settings',
+  ] as const) {
     test(`workspace screen — ${screen}`, async ({ page }) => {
       await openScreen(page, screen);
       expect(describeViolations(await audit(page))).toEqual([]);

@@ -294,6 +294,59 @@ exports                  (id, tenant_id, kind, filter jsonb, status, artifact_re
 
 Suppression is keyed by a **hashed identity value** so it survives contact merges and deletions.
 
+### As built (migration 0016)
+
+Three of the tables above exist today. The rest — merges, tags, custom fields, segments, imports, exports — do not, and are not stubbed: a `contact_tags` table with no way to make a tag is a place for data to fail to arrive.
+
+```
+contacts                 (id, tenant_id, display_name, attributes jsonb,
+                          created_at, updated_at, deleted_at)
+                          UNIQUE (tenant_id, id). Deliberately thin: the channel-specific
+                          facts live on the identity rows, and business fields live in
+                          `attributes` because every company means something different by
+                          "grade", "branch" or "plan". `display_name` is what an agent sees
+                          and may correct — it is NOT an identity, and correcting it links
+                          nothing and unlinks nothing (CT-01).
+                          A soft delete keeps the row: a conversation that referenced the
+                          contact must still render, and erasing history would erase the
+                          evidence of what was said to whom.
+contact_identities       (id, tenant_id, contact_id, kind, scope_id, external_id,
+                          valid_from, valid_to, provenance jsonb)
+                          `scope_id` is the channel connection the external id is meaningful
+                          in — a Messenger id is page-scoped, so the same person messaging
+                          two pages is two identities (CT-02). Rotation CLOSES an interval
+                          and opens a new one rather than overwriting a column: a number
+                          reassigned to somebody else must not silently re-attribute the
+                          messages sent to it before the reassignment.
+                          UNIQUE (tenant_id, kind, scope_id, external_id) WHERE valid_to IS NULL
+                          — one *live* identity per scoped external id; history is unbounded,
+                          the present is not.
+                          FK (tenant_id, scope_id) → channel_connections ON DELETE CASCADE, so
+                          a contact can outlive every identity it arrived on. The directory
+                          keeps such a contact rather than dropping it, because its consent
+                          history is attached to the contact, not to the connection.
+consents                 (id, tenant_id, contact_id, channel, purpose, state, source,
+                          proof_ref, actor_membership_id, recorded_at)
+                          Append-only in the grant, not only by convention: the runtime role
+                          holds SELECT and INSERT and NOTHING else. A consent record is a
+                          claim about a moment — who said what, through which channel, for
+                          which purpose, on whose word — and a table that can be edited
+                          cannot answer the question it exists to answer (CT-06).
+                          Withdrawal is a NEW ROW. The current state is the newest row per
+                          (contact, channel, purpose), which is why `recorded_at` is in the
+                          index rather than a `current` flag somebody has to maintain.
+                          state ∈ granted|withdrawn; source ∈ customer_message|agent_recorded|
+                          import|web_form. `import` can never mean opt-in on its own (CT-07).
+conversations.contact_id Nullable, resolved when the customer's first message is normalized.
+                          A conversation opened by an outbound template to a number nobody
+                          has heard from has no contact yet, and inventing one from a phone
+                          number would be the inference this schema exists to refuse.
+                          ON DELETE SET NULL: a purged contact does not take the conversation
+                          with it.
+```
+
+**Suppression is not in `consents`.** It stays in `channel_suppressions`, keyed by `(kind, peer_identity)` rather than by contact — which is what makes "a suppression survives a contact merge, a deletion and a CRM import" true rather than hopeful. A contact's suppressed channels are derived by joining its **live** identities against that table, so an ended identity cannot carry a suppression forward to whoever holds the number now.
+
 ## 5. Conversations and messages
 
 ```

@@ -17,6 +17,7 @@ import type { Page, Route } from '@playwright/test';
 export const TENANT = '11111111-1111-4111-8111-111111111111';
 export const MEMBERSHIP = '44444444-4444-4444-8444-444444444444';
 export const CONVERSATION = '55555555-5555-4555-8555-555555555555';
+export const CONTACT = '66666666-6666-4666-8666-666666666666';
 
 const NAMES = [
   'سارة عبد الله',
@@ -61,6 +62,7 @@ function mine(): readonly Record<string, unknown>[] {
     inboxLabel: 'خط التسجيل',
     channel: ['whatsapp', 'messenger', 'instagram', 'web_chat'][index % 4],
     participantMembershipIds: [MEMBERSHIP],
+    contactId: index === 0 ? CONTACT : null,
   }));
 }
 
@@ -90,6 +92,38 @@ function timeline(): readonly Record<string, unknown>[] {
     delivery_state: index % 2 === 0 ? null : index > 4 ? 'read' : 'delivered',
     delivery_anomaly: null,
     provider_message_id: `wamid.${String(index)}`,
+  }));
+}
+
+function contacts(): readonly Record<string, unknown>[] {
+  return NAMES.slice(0, 6).map((name, index) => ({
+    id: index === 0 ? CONTACT : `ct-${String(index).padStart(2, '0')}`,
+    displayName: name,
+    attributes: index === 0 ? { grade: 'الصف السادس', branch: 'المعادي' } : {},
+    createdAt: new Date(Date.UTC(2026, 8, 1 + index)).toISOString(),
+    identities: [
+      {
+        id: `ci-${String(index)}`,
+        kind: ['whatsapp', 'messenger', 'instagram', 'web_chat'][index % 4],
+        scopeId: 'cn-1',
+        externalId: `1555000${String(index).padStart(4, '0')}`,
+        validFrom: new Date(Date.UTC(2026, 8, 1 + index)).toISOString(),
+        validTo: null,
+      },
+    ],
+    consent: [
+      {
+        channel: 'whatsapp',
+        purpose: 'service',
+        state: 'granted',
+        source: 'customer_message',
+        recordedAt: new Date(Date.UTC(2026, 8, 2 + index)).toISOString(),
+        actorMembershipId: null,
+      },
+    ],
+    // The first contact has opted out, so the panel's most important rule —
+    // a suppression outranks a consent — is on screen in every baseline.
+    suppressed: index === 0 ? ['whatsapp'] : [],
   }));
 }
 
@@ -131,6 +165,13 @@ export async function installApi(page: Page): Promise<void> {
           },
         ],
       });
+    }
+    if (path.endsWith('/contacts')) {
+      return json(route, paged(contacts()));
+    }
+    if (path.includes('/contacts/')) {
+      const [first] = contacts();
+      return json(route, { data: first });
     }
     if (path.endsWith('/conversations/unassigned')) {
       return json(route, { data: queueCards() });

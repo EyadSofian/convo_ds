@@ -5,6 +5,7 @@
 
 export const SCREENS = [
   'inbox',
+  'contacts',
   'channels',
   'people',
   'broadcasts',

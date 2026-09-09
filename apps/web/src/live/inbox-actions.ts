@@ -1,6 +1,7 @@
 import type { ApiError } from '../api/client.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
+import { loadOpenContact } from './contact-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
 import { currentTenantId, failed, fromResult, LOADING, ready } from './store.js';
@@ -114,10 +115,16 @@ export async function openConversation(context: LiveContext, id: string): Promis
       // No record means no contents: the timeline carries the same refusal
       // rather than spinning forever beside an error.
       live.timeline = failed(conversation.error);
+      live.openContact = { status: 'idle' };
       context.refresh();
       return;
     }
-    await loadTimeline(context, id);
+    await Promise.all([
+      loadTimeline(context, id),
+      // The customer beside the conversation. A conversation nobody has written
+      // to has no contact, and the panel says so rather than inventing one.
+      loadOpenContact(context, conversation.data.contactId),
+    ]);
   });
 }
 
@@ -196,7 +203,11 @@ export async function claimConversation(
     }
     live.openConversation = ready(result.data, context.now());
     live.openConversationId = result.data.id;
-    await Promise.all([refreshInboxLists(context), loadTimeline(context, result.data.id)]);
+    await Promise.all([
+      refreshInboxLists(context),
+      loadTimeline(context, result.data.id),
+      loadOpenContact(context, result.data.contactId),
+    ]);
     pushToast(context.state, t(context, 'المحادثة الآن لديك.', 'The conversation is yours.'));
     return true;
   });

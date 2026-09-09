@@ -84,6 +84,14 @@ test.describe('inbox baselines', () => {
     await expect(page).toHaveScreenshot('inbox-mine.png');
   });
 
+  test('the customer panel, with a suppression over a consent', async ({ page }) => {
+    await openInbox(page);
+    // The rule this panel exists to make visible: an opt-out sits above the
+    // consent it overrides.
+    await expect(page.locator('.consent__suppressed')).toBeVisible();
+    await expect(page.locator('.zone--panel')).toHaveScreenshot('contact-panel.png');
+  });
+
   test('queue list rows in isolation', async ({ page }) => {
     await openInbox(page);
     await expect(page.locator('.zone--list')).toHaveScreenshot('queue-list.png');
@@ -131,7 +139,14 @@ test.describe('state baselines', () => {
 });
 
 test.describe('workspace screen baselines', () => {
-  for (const screen of ['channels', 'people', 'broadcasts', 'analytics', 'settings'] as const) {
+  for (const screen of [
+    'contacts',
+    'channels',
+    'people',
+    'broadcasts',
+    'analytics',
+    'settings',
+  ] as const) {
     test(`screen — ${screen}`, async ({ page }) => {
       await openScreen(page, screen);
       await expect(page).toHaveScreenshot(`screen-${screen}.png`);

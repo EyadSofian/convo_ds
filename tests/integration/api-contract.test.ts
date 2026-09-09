@@ -121,6 +121,10 @@ describe('pinned OpenAPI contract', () => {
       'queueOutboundMessage',
       'testChannelConnection',
       'listChannelCatalogue',
+      'listContacts',
+      'getContact',
+      'updateContact',
+      'recordConsent',
       'listConversations',
       'listUnassignedConversations',
       'getConversation',
@@ -183,6 +187,17 @@ describe('pinned OpenAPI contract', () => {
       'version',
     ]);
     expect(SPEC.components.schemas['RealtimeEvent']?.required).toContain('schemaVersion');
+    expect(SPEC.components.schemas['ContactListResponse']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['Contact']?.additionalProperties).toBe(false);
+    // An identity carries the scope it is meaningful in. Without `scopeId` a
+    // page-scoped id would read as a global one, which is the mistake the whole
+    // contact model exists to avoid.
+    expect(SPEC.components.schemas['ContactIdentity']?.required).toContain('scopeId');
+    expect(SPEC.components.schemas['ContactIdentity']?.required).toContain('validTo');
+    expect(SPEC.components.schemas['ConsentRecord']?.properties?.['state']?.enum).toEqual([
+      'granted',
+      'withdrawn',
+    ]);
     expect(SPEC.components.schemas['ConversationListResponse']?.additionalProperties).toBe(false);
     expect(SPEC.components.schemas['TimelineResponse']?.additionalProperties).toBe(false);
     // A timeline row is closed too: command state and delivery state are two

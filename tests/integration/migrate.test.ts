@@ -50,6 +50,7 @@ describe('migrate', () => {
       '0013_broker_relay.sql',
       '0014_realtime.sql',
       '0015_receipt_watermark.sql',
+      '0016_contacts.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -73,6 +74,9 @@ describe('migrate', () => {
       'channel_event_queue',
       'channel_events',
       'channel_suppressions',
+      'consents',
+      'contact_identities',
+      'contacts',
       'conversation_participants',
       'conversations',
       'idempotency_records',
@@ -110,7 +114,7 @@ describe('migrate', () => {
     const recorded = await pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM schema_migrations',
     );
-    expect(recorded.rows[0]?.count).toBe('15');
+    expect(recorded.rows[0]?.count).toBe('16');
   });
 
   /**

@@ -8,6 +8,7 @@ import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { LIST_WIDTH_MAX, LIST_WIDTH_MIN } from '../state.js';
 import type { IconName } from '../icons.js';
+import { renderContactPanel } from './contact-panel.js';
 import { avatar, button, CHANNEL_ICON, isolated, pill, stateBox } from './parts.js';
 import type { Tone } from './parts.js';
 
@@ -87,12 +88,17 @@ export function renderInbox(state: AppState): HTMLElement {
     {
       class: 'inbox inbox--live',
       'data-list': state.listOpen ? 'open' : 'closed',
+      'data-panel': state.live.openConversationId === null ? 'closed' : 'open',
       style: `--list-width:${String(state.listWidth)}px`,
     },
     [
       renderListZone(state, state.live),
       state.listOpen ? scrim(state) : null,
       renderThreadZone(state, state.live),
+      // The customer beside the conversation, once there is a conversation to
+      // stand beside. It is a column rather than a drawer: at these widths the
+      // timeline keeps its 640px either way.
+      state.live.openConversationId === null ? null : renderContactPanel(state, state.live),
     ],
   );
 }

@@ -6,6 +6,7 @@ import type {
   QueueCard,
   TimelineMessage,
 } from '../api/conversations.js';
+import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { RealtimeSubscription } from './realtime.js';
 import type {
   Invitation,
@@ -75,6 +76,7 @@ export interface LiveState {
   readonly api: PeopleApi;
   readonly channels: ChannelsApi;
   readonly conversationsApi: ConversationsApi;
+  readonly contactsApi: ContactsApi;
   session: SessionState;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
@@ -103,6 +105,13 @@ export interface LiveState {
   composer: string;
   realtime: RealtimeState;
   subscription: RealtimeSubscription | null;
+  /** The contact behind the open conversation, for the customer panel. */
+  openContact: Resource<Contact>;
+  /** The Contacts screen's list, and the search behind it. */
+  contacts: Resource<readonly ContactSummary[]>;
+  contactQuery: string;
+  selectedContactId: string | null;
+  selectedContact: Resource<Contact>;
   busy: string | null;
   error: ApiError | null;
   /** Incremented on every settled mutation, so a view can key off freshness. */
@@ -127,6 +136,7 @@ export function createLiveState(
   api: PeopleApi,
   channels: ChannelsApi,
   conversations: ConversationsApi,
+  contacts: ContactsApi,
 ): LiveState {
   return {
     api,
@@ -149,7 +159,13 @@ export function createLiveState(
     composer: '',
     realtime: { status: 'idle' },
     subscription: null,
+    openContact: IDLE,
+    contacts: IDLE,
+    contactQuery: '',
+    selectedContactId: null,
+    selectedContact: IDLE,
     conversationsApi: conversations,
+    contactsApi: contacts,
     busy: null,
     error: null,
     revision: 0,

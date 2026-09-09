@@ -5,6 +5,7 @@ import type { Actor } from './permissions';
 import {
   disconnectedApi,
   disconnectedChannelsApi,
+  disconnectedContactsApi,
   disconnectedConversationsApi,
 } from './api/people';
 import type { LiveState } from './live/store';
@@ -102,6 +103,7 @@ export function createState(
     disconnectedApi(),
     disconnectedChannelsApi(),
     disconnectedConversationsApi(),
+    disconnectedContactsApi(),
   ),
 ): AppState {
   const dataset = buildDataset(now);
@@ -201,6 +203,7 @@ export function applyRoute(state: AppState, route: Route): void {
 export function screenTitle(screen: ScreenId, lang: Lang): string {
   const titles: Record<ScreenId, Record<Lang, string>> = {
     inbox: { ar: 'صندوق الوارد', en: 'Inbox' },
+    contacts: { ar: 'جهات الاتصال', en: 'Contacts' },
     channels: { ar: 'القنوات', en: 'Channels' },
     people: { ar: 'الأفراد والأدوار', en: 'People & roles' },
     broadcasts: { ar: 'الحملات', en: 'Broadcasts' },

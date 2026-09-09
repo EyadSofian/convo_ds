@@ -30,6 +30,8 @@ import { OutboundController } from './channels/outbound.controller.js';
 import { OutboundService } from './channels/outbound.service.js';
 import { SelfHostedIngressService } from './channels/self-hosted-ingress.service.js';
 import { ChannelNormalizationService } from './channels/normalization.service.js';
+import { ContactController } from './contacts/contact.controller.js';
+import { ContactService } from './contacts/contact.service.js';
 import { ConversationController } from './conversations/conversation.controller.js';
 import { ConversationService } from './conversations/conversation.service.js';
 import { RealtimeController } from './realtime/realtime.controller.js';
@@ -106,6 +108,7 @@ export class ApiModule {
         ChannelIngressController,
         OutboundController,
         ConversationController,
+        ContactController,
         RealtimeController,
       ],
       providers: [
@@ -148,6 +151,7 @@ export class ApiModule {
         SelfHostedIngressService,
         BrokerRelayService,
         RealtimeService,
+        ContactService,
         ConversationService,
         ChannelNormalizationService,
         ChannelDispatcherService,

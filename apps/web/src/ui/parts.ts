@@ -197,7 +197,7 @@ export function popover(
         [
           h('span', { class: 'popover__check' }, [icon('check', 11)]),
           h('span', { class: 'popover__label' }, [option.label]),
-          option.hint === undefined ? null : h('span', { class: 'viewitem__scope' }, [option.hint]),
+          option.hint === undefined ? null : h('span', { class: 'popover__hint' }, [option.hint]),
         ],
       ),
     ),

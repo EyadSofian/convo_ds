@@ -47,6 +47,7 @@ export interface ConversationRow {
   readonly priority: string;
   readonly version: number;
   readonly waitingSince: Date | null;
+  readonly contactId: string | null;
 }
 
 interface RawConversation {
@@ -59,6 +60,7 @@ interface RawConversation {
   readonly priority: string;
   readonly version: number;
   readonly waiting_since: Date | null;
+  readonly contact_id: string | null;
 }
 
 export interface ConversationDetail extends ConversationRow {
@@ -76,7 +78,8 @@ export interface ConversationDetail extends ConversationRow {
 const CURSOR_TTL_SECONDS = 3600;
 
 const SELECT_COLUMNS = `id::text, connection_id::text, peer_identity, team_id::text,
-                        assignee_membership_id::text, status, priority, version, waiting_since`;
+                        assignee_membership_id::text, status, priority, version, waiting_since,
+                        contact_id::text`;
 
 @Injectable()
 export class ConversationService {
@@ -127,7 +130,18 @@ export class ConversationService {
     sql: SqlExecutor,
     tenantId: string,
     conversation: ConversationRow,
-    inbound: { readonly occurredAt: Date; readonly payload: Readonly<Record<string, unknown>> },
+    inbound: {
+      readonly occurredAt: Date;
+      readonly payload: Readonly<Record<string, unknown>>;
+      /**
+       * The contact this customer resolved to.
+       *
+       * Required, not optional: the caller resolves it in the same transaction,
+       * and an optional field here would invent a "message from nobody" case
+       * that the inbound path cannot produce.
+       */
+      readonly contactId: string;
+    },
   ): Promise<void> {
     const inbox = await inboxOf(sql, conversation.connectionId);
     const updated = await sql.query<{ version: number; waiting_since: Date | null }>(
@@ -139,10 +153,14 @@ export class ConversationService {
                 ELSE waiting_since
               END,
               status = CASE WHEN status = 'resolved' THEN 'open' ELSE status END,
+              -- Attached once and then left alone: re-resolving on every message
+              -- would let a later identity rotation quietly re-attribute an
+              -- older conversation.
+              contact_id = coalesce(contact_id, $3),
               version = version + 1
         WHERE id = $1
         RETURNING version, waiting_since`,
-      [conversation.id, inbound.occurredAt],
+      [conversation.id, inbound.occurredAt, inbound.contactId],
     );
     const row = requireRow(updated.rows, 'the conversation vanished while recording a message');
     await this.realtime.emit(sql, tenantId, {
@@ -303,7 +321,7 @@ export class ConversationService {
       const rows = await sql.query<RawConversation & { display_name: string; kind: string }>(
         `SELECT c.id::text, c.connection_id::text, c.peer_identity, c.team_id::text,
                 c.assignee_membership_id::text, c.status, c.priority, c.version, c.waiting_since,
-                n.display_name, n.kind
+                c.contact_id::text, n.display_name, n.kind
            FROM conversations c
            JOIN channel_connections n ON n.id = c.connection_id
           WHERE ($1::text IS NULL OR c.status = $1)
@@ -587,7 +605,7 @@ async function readDetail(
   const rows = await sql.query<RawConversation & { display_name: string; kind: string }>(
     `SELECT c.id::text, c.connection_id::text, c.peer_identity, c.team_id::text,
             c.assignee_membership_id::text, c.status, c.priority, c.version, c.waiting_since,
-            n.display_name, n.kind
+            c.contact_id::text, n.display_name, n.kind
        FROM conversations c
        JOIN channel_connections n ON n.id = c.connection_id
       WHERE c.id = $1`,
@@ -627,6 +645,7 @@ function rowOf(row: RawConversation): ConversationRow {
     priority: row.priority,
     version: row.version,
     waitingSince: row.waiting_since,
+    contactId: row.contact_id,
   };
 }
 

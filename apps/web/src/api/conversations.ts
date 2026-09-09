@@ -43,6 +43,8 @@ export interface Conversation {
   readonly inboxLabel: string;
   readonly channel: string;
   readonly participantMembershipIds: readonly string[];
+  /** Resolved from the customer's first message; null until somebody writes. */
+  readonly contactId: string | null;
 }
 
 export interface TimelineMessage {
