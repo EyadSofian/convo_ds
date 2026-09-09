@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { CapabilityMatrix, ChannelKind, SqlExecutor } from '@convo/domain';
+import type { CapabilityMatrix, ChannelKind, ResourceRef, SqlExecutor } from '@convo/domain';
 import { capabilitiesFor, permitSend } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
@@ -64,11 +64,22 @@ export class OutboundService {
    * daily act, and it is deliberately not the same permission as reconfiguring
    * a channel.
    */
+  /**
+   * Queues a send.
+   *
+   * `resource` carries the ownership terms when the caller reached this through
+   * a conversation. Without them an `own`-level `conversation.reply` grant —
+   * which is what an Agent holds — can never be satisfied, because "your
+   * conversation" is not a fact about a channel. The conversation route passes
+   * them; the channel route has none to pass, and an Agent replying there is
+   * correctly refused.
+   */
   async queue(
     session: AuthenticatedSession,
     tenantId: string,
     connectionId: string,
     body: unknown,
+    resource: ResourceRef = {},
   ): Promise<OutboundMessageSummary> {
     const parsed = parseSendMessage(body);
     if (!parsed.ok) {
@@ -144,6 +155,7 @@ export class OutboundService {
 
         return requireRow(await readMessages(sql, messageId), 'the message vanished');
       },
+      resource,
     );
   }
 

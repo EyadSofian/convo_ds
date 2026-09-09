@@ -4,7 +4,70 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T7 fifth slice (Milestone C: process roles, the broker relay, fairness, fencing and realtime)
+## Last completed task — P1-T8 first slice (Milestone D: the real Inbox)
+
+**Task / requirement IDs:** CON-01, MSG-01, MSG-05, IAM-11 closed. MSG-02 and UX-09 moved to `partial` with the unbuilt half named.
+
+### Behavior delivered
+
+**The Inbox reads from the server and nowhere else.** The demo inbox screen, its filters, its saved views, its drafts and its 27 demo actions are deleted rather than disabled. What replaced them calls endpoints: the Unassigned queue, this agent's own conversations, one conversation's timeline, a version-checked claim, a reply, and a live subscription.
+
+**The preview-state switcher is gone.** Loading, empty, offline and permission-denied are still on screen — as the server's answers. The accessibility and visual suites reach them by scripting the API, which is the only way they can occur in the shipped product.
+
+**A card is a card all the way down.** The browser renders a projected queue card because a card is all the server sent: there is no snippet in the payload for a screen to be trusted to hide. Asserted by serialising the rendered queue and looking for the customer's identity in it.
+
+**Claiming carries the version the agent saw.** That meant adding `version` to `QUEUE_CARD_FIELDS` — a deliberate change to a closed list, recorded as such: IAM-13 requires the version the agent saw, and the agent who sees a card is exactly the one who may not read the conversation to find it. Losing the race is reported as a colleague getting there first, not as an error.
+
+**Replying is addressed to a conversation.** The recipient comes from the record; a `peerIdentity` in the body is ignored, which the integration test proves. Everything after that is the existing outbound path.
+
+**Realtime says what changed; the server says what it is.** Every event triggers a re-read of the endpoint that owns it, so a caller gets exactly what they are allowed rather than whatever a payload carried. `EventSource` owns reconnection — two retry loops racing is how one restart becomes a request storm — and the client closes the stream only when coming back is pointless. A dropped stream is on screen, because a stalled inbox and a quiet one look identical.
+
+**Three defects this work surfaced.** A `<textarea>` ignores a `value` attribute, so the composer emptied itself on every re-render — a realtime event arriving mid-sentence would have deleted what an agent was typing. Every URL sync re-entered the router and rendered twice, so a language toggle re-fetched the whole inbox. And `OutboundService.queue` authorized `conversation.reply` with no resource, making the send path unusable by the one role it exists for.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `apps/api/src/conversations/conversation.service.ts` | the queue projection, the list, the timeline, the version-checked claim, the reply target |
+| `apps/api/src/conversations/timeline.ts` | inbound events and outbound commands merged by a read, paged by a signed cursor |
+| `apps/web/src/api/conversations.ts` | the inbox client; two shapes, kept apart |
+| `apps/web/src/live/realtime.ts` | dedupe, ordering, reset, and reconnection left to `EventSource` |
+| `apps/web/src/live/inbox-actions.ts` | load, open, claim, reply, page back, subscribe |
+| `apps/web/src/ui/live-inbox.ts` | the screen, in the design system's own vocabulary |
+| `tests/e2e/support/api.ts` | the scripted API the layout and a11y suites measure against |
+| `apps/web/src/live/inbox.test.ts` | 44 tests through the real client, actions and renderer |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web bundle 132.75 kB / 41.42 kB gzip |
+| `pnpm test:coverage` | **0** | 81 files, **1437 tests**, 100% on all four metrics |
+| `pnpm test:integration` | **0** | 21 files, **359 tests** against real PostgreSQL 17.4 |
+| `pnpm test:contracts` | **0** | adapter + OpenAPI contract suites |
+| `pnpm test:security` | **0** | isolation, authorization, signature, realtime suites + production audit |
+| `pnpm test:e2e` | **0** | 136 |
+| `pnpm test:a11y` | **0** | 23, no WCAG 2.1 AA violations |
+| `pnpm test:visual` | **0** | 17, images plus structural snapshots |
+| `pnpm test:mutation` | **1** | `not_run` — wired in P4 |
+| `pnpm test:load:target` | **1** | `blocked_env` — k6 not installed, no staging target |
+| `pnpm test:recovery` | **1** | `blocked_env` — no restore target |
+
+The pinned OpenAPI carries **53 operations**; the bidirectional drift test passes.
+
+### Honest remaining scope
+
+- **No Contacts.** There is no contacts table, so no contact panel, no consent view, no merge and no export. The customer panel is gone rather than present and empty.
+- **No notes, labels, SLA, snooze, assignment to others, or unread counts.** Each was a demo affordance with no backend. They are removed rather than kept inert; a control that looks live and is not is worse than one that is absent.
+- **Drafts live in memory.** A failed send keeps what was typed, and so does an unrelated re-render, but a reload loses it.
+- **Broadcasts, Analytics and Settings are still seeded demos** and say so on screen.
+- **Still no provider HTTP client and no broker product.** Every provider-live check stays `blocked_no_asset`; DEL-08/DEL-09 stay `blocked_env`.
+
+---
+
+## Previously completed — P1-T7 fifth slice (Milestone C: process roles, the broker relay, fairness, fencing and realtime)
 
 **Task / requirement IDs:** DEL-08, DEL-09, DEL-18, DEL-19, DEL-20, IAM-11, IAM-12, IAM-13 closed. DEL-21, DEP-01, CMP-15 moved to `partial` with the unbuilt half named.
 

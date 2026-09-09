@@ -67,19 +67,18 @@ test.describe('shell geometry', () => {
 });
 
 test.describe('queue list', () => {
-  test('rows are 64–72px with a single-line preview', async ({ page }) => {
+  test('rows are 64–72px and carry no message text', async ({ page }) => {
     await openInbox(page);
-    const row = await box(page.locator('.convrow').first());
-    expect(row.height).toBeGreaterThanOrEqual(64);
-    expect(row.height).toBeLessThanOrEqual(72);
+    const row = page.locator('.convrow').first();
+    const measured = await box(row);
+    expect(measured.height).toBeGreaterThanOrEqual(64);
+    expect(measured.height).toBeLessThanOrEqual(72);
 
-    // "One-line preview" is a measurement, not an intention: the snippet must
-    // occupy exactly one line box however long the message is.
-    const snippetLines = await page.locator('.convrow__snippet').first().evaluate((element) => {
-      const style = window.getComputedStyle(element);
-      return element.getBoundingClientRect().height / Number.parseFloat(style.lineHeight);
-    });
-    expect(snippetLines).toBeLessThanOrEqual(1.05);
+    // The row that used to hold a one-line preview holds none: an unclaimed
+    // conversation is projected on the server, and the browser is never sent a
+    // snippet to render (IAM-11). The masked label is what identifies it.
+    await expect(page.locator('.convrow__snippet')).toHaveCount(0);
+    expect(await row.locator('.convrow__name').innerText()).toMatch(/^•{4}/);
   });
 
   for (const { direction, theme } of MATRIX) {
@@ -143,7 +142,9 @@ test.describe('timeline and composer', () => {
     await input.click();
     await input.fill(Array.from({ length: 14 }, (_, i) => `سطر رقم ${String(i + 1)}`).join('\n'));
     const grown = await box(input);
+    // Only the textarea grows, and only to 88px: the thread keeps its height.
     expect(grown.height).toBeLessThanOrEqual(88);
+    expect((await box(page.locator('.composer'))).height).toBeLessThanOrEqual(160);
   });
 
   test('composer stays reachable at the bottom of a scrolled thread', async ({ page }) => {
@@ -157,89 +158,47 @@ test.describe('timeline and composer', () => {
   });
 });
 
-test.describe('side zones never squeeze the timeline', () => {
-  test('both start closed', async ({ page }) => {
-    await openInbox(page);
-    await expect(page.locator('.zone--views')).toHaveCount(0);
-    await expect(page.locator('.zone--panel')).toHaveCount(0);
-  });
-
-  for (const { direction } of [{ direction: 'rtl' as const }, { direction: 'ltr' as const }]) {
-    test(`timeline stays at or above 640px with either zone open — ${direction}`, async ({ page }) => {
-      await openInbox(page);
-      await setDirection(page, direction);
-
-      await page.locator('.topbar [data-act="sidebar"]').click();
-      await expect(page.locator('.zone--views')).toBeVisible();
-      expect((await box(page.locator('.zone--thread'))).width).toBeGreaterThanOrEqual(640);
-
-      await page.locator('.thread__header [data-act="panel"]').click();
-      await expect(page.locator('.zone--panel')).toBeVisible();
-      expect((await box(page.locator('.zone--thread'))).width).toBeGreaterThanOrEqual(640);
-    });
-  }
-
-  test('the views sidebar closes with its own button and with Escape', async ({ page }) => {
-    await openInbox(page);
-    const toggle = page.locator('.topbar [data-act="sidebar"]');
-
-    await toggle.click();
-    await expect(page.locator('.zone--views')).toBeVisible();
-    await page.locator('.zone--views [data-act="sidebar"]').click();
-    await expect(page.locator('.zone--views')).toHaveCount(0);
-
-    await toggle.click();
-    await expect(page.locator('.zone--views')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.locator('.zone--views')).toHaveCount(0);
-  });
-
-  test('a drawer-mode side zone overlays the work area rather than shrinking it', async ({ page }) => {
+test.describe('the queue drawer never squeezes the timeline', () => {
+  test('opens as an overlay and closes again', async ({ page }) => {
     await openInbox(page);
     const before = await box(page.locator('.zone--thread'));
 
-    await page.locator('.topbar [data-act="sidebar"]').click();
-    await page.locator('.thread__header [data-act="panel"]').click();
+    await page.locator('.topbar [data-act="list"]').click();
+    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'open');
     const after = await box(page.locator('.zone--thread'));
-
-    const viewport = page.viewportSize();
-    if (viewport === null) throw new Error('no viewport');
-    // 1596px is the width at which all four columns fit inline. Below it, at
-    // least one zone must be an overlay, so the timeline keeps its width.
-    if (viewport.width < 1596) {
-      expect(after.width).toBeCloseTo(before.width, 0);
-      const scrims = await page.locator('.zone-scrim').count();
-      expect(scrims).toBeGreaterThan(0);
-    }
+    // A drawer overlays the work area rather than shrinking it, so the
+    // timeline keeps every pixel it had.
+    expect(after.width).toBeCloseTo(before.width, 0);
     expect(after.width).toBeGreaterThanOrEqual(640);
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'closed');
   });
 
-  test('focus mode closes both zones and widens the timeline', async ({ page }) => {
+  test('has no views or customer panel to squeeze it with', async ({ page }) => {
     await openInbox(page);
-    await page.locator('.topbar [data-act="sidebar"]').click();
-    const narrowed = await box(page.locator('.zone--thread'));
-
-    await page.locator('[data-act="focus"]').click();
-    await expect(page.locator('.inbox')).toHaveAttribute('data-focus', 'on');
+    // Both were demo-only surfaces built on seeded data. They are gone rather
+    // than present and empty: a saved-view sidebar with no saved views, or a
+    // contact panel with no contacts service, would be a promise the server
+    // cannot keep.
     await expect(page.locator('.zone--views')).toHaveCount(0);
     await expect(page.locator('.zone--panel')).toHaveCount(0);
-
-    const focused = await box(page.locator('.zone--thread'));
-    expect(focused.width).toBeGreaterThanOrEqual(narrowed.width);
-    expect(await pageScrolls(page)).toBe(false);
+    expect((await box(page.locator('.zone--thread'))).width).toBeGreaterThanOrEqual(640);
   });
 });
 
 test.describe('narrow viewports', () => {
-  test('becomes a drawer layout with a back-to-list route on a tablet', async ({ page }) => {
+  test('reaches the queue from the top bar on a tablet', async ({ page }) => {
     await openInbox(page);
     await page.setViewportSize({ width: 900, height: 800 });
 
-    // Four columns are not squeezed onto 900px: the list leaves the flow.
-    await expect(page.locator('.thread__back')).toBeVisible();
+    // The queue is reached from the top bar rather than squeezed in beside the
+    // timeline, so the thread keeps its width.
+    const toggle = page.locator('.topbar [data-act="list"]');
+    await expect(toggle).toBeVisible();
     expect(await pageScrolls(page)).toBe(false);
 
-    await page.locator('.thread__back').click();
+    await toggle.click();
     await expect(page.locator('.zone--list')).toBeVisible();
     const list = await box(page.locator('.zone--list'));
     expect(list.width).toBeLessThanOrEqual(900);
@@ -350,11 +309,9 @@ test.describe('typography and digits', () => {
     expect(bubble.text).toMatch(/[\u0600-\u06ff]/);
     expect(bubble.firstCharInRightHalf).toBe(true);
 
-    // The queue preview is customer content too.
-    const snippet = await page.locator('.convrow__snippet').first().evaluate(
-      (element) => window.getComputedStyle(element).unicodeBidi,
-    );
-    expect(snippet).toBe('plaintext');
+    // The queue row's label is the server's masked one and carries no customer
+    // text at all, so there is no second place for a direction to be wrong.
+    await expect(page.locator('.convrow__snippet')).toHaveCount(0);
   });
 
   test('keeps the queue row to its essential cues', async ({ page }) => {

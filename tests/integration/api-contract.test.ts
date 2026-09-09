@@ -121,9 +121,12 @@ describe('pinned OpenAPI contract', () => {
       'queueOutboundMessage',
       'testChannelConnection',
       'listChannelCatalogue',
+      'listConversations',
       'listUnassignedConversations',
       'getConversation',
       'claimConversation',
+      'listConversationMessages',
+      'replyToConversation',
       'listInvitations',
       'createInvitation',
       'revokeInvitation',
@@ -177,8 +180,15 @@ describe('pinned OpenAPI contract', () => {
       'status',
       'waitingSinceAt',
       'claimable',
+      'version',
     ]);
     expect(SPEC.components.schemas['RealtimeEvent']?.required).toContain('schemaVersion');
+    expect(SPEC.components.schemas['ConversationListResponse']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['TimelineResponse']?.additionalProperties).toBe(false);
+    // A timeline row is closed too: command state and delivery state are two
+    // fields on the wire because they are two facts, and an open schema would
+    // let a third appear without anybody deciding it should.
+    expect(SPEC.components.schemas['TimelineMessage']?.additionalProperties).toBe(false);
     // A denial is the absence of a grant, never a grant that says `none`. The
     // wire contract has to say so too, or a client will render a "none" chip.
     expect(SPEC.components.schemas['RoleGrant']?.properties?.['scope_level']?.enum).toEqual([

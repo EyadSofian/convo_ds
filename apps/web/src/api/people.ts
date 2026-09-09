@@ -1,4 +1,5 @@
 import { ChannelsApi } from './channels.js';
+import { ConversationsApi } from './conversations.js';
 import type { ApiResult } from './client.js';
 import { ApiClient, API_BASE_URL } from './client.js';
 
@@ -249,6 +250,11 @@ export function disconnectedApi(): PeopleApi {
 /** The same, for the channel operations. */
 export function disconnectedChannelsApi(): ChannelsApi {
   return new ChannelsApi(deadClient());
+}
+
+/** The same, for the inbox. */
+export function disconnectedConversationsApi(): ConversationsApi {
+  return new ConversationsApi(deadClient());
 }
 
 function deadClient(): ApiClient {

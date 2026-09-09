@@ -1,192 +1,168 @@
 import { describe, expect, it } from 'vitest';
-import type { FetchLike } from './client.js';
 import { ApiClient, csrfFromCookie } from './client.js';
+import type { FetchLike } from './client.js';
 
-interface Recorded {
-  readonly url: string;
-  readonly init: RequestInit;
-}
+/**
+ * The HTTP boundary, at the edges.
+ *
+ * The happy paths are exercised end to end in `live/live.test.ts` against the
+ * real screens. What is worth asserting directly is what the client does with
+ * answers a server should not send but might: a page envelope with no page, a
+ * body that is not an object, a cursor that is not a string. Every one of those
+ * has to become an ordinary empty page rather than a crash halfway through a
+ * render.
+ */
 
-function stub(
-  responder: (call: Recorded) => Response | Promise<Response> | Promise<never>,
-): { fetch: FetchLike; calls: Recorded[] } {
-  const calls: Recorded[] = [];
-  const fetch: FetchLike = async (url, init) => {
-    calls.push({ url, init });
-    return responder({ url, init });
-  };
-  return { fetch, calls };
-}
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
-
-function clientWith(
-  responder: (call: Recorded) => Response | Promise<Response> | Promise<never>,
-  csrf: string | null = 'csrf-token',
-): { client: ApiClient; calls: Recorded[] } {
-  const { fetch, calls } = stub(responder);
-  return {
-    client: new ApiClient({ baseUrl: '/api/v1', fetch, readCsrfToken: () => csrf }),
-    calls,
-  };
-}
-
-describe('csrfFromCookie', () => {
-  it('finds the token among other cookies', () => {
-    expect(csrfFromCookie('a=1; convo_csrf=abc123; b=2')).toBe('abc123');
-    expect(csrfFromCookie('convo_csrf=abc123')).toBe('abc123');
-  });
-
-  it('reports absence rather than an empty string', () => {
-    expect(csrfFromCookie('')).toBeNull();
-    expect(csrfFromCookie('a=1; b=2')).toBeNull();
-    expect(csrfFromCookie('convo_csrf=')).toBeNull();
-  });
-});
-
-describe('ApiClient', () => {
-  it('unwraps the success envelope', async () => {
-    const { client } = clientWith(() => json({ data: [{ id: 'a' }], request_id: 'r-1' }));
-    const result = await client.get<readonly { id: string }[]>('/things');
-    expect(result).toEqual({ ok: true, data: [{ id: 'a' }] });
-  });
-
-  it('returns a body with no envelope as it stands', async () => {
-    const { client } = clientWith(() => json([1, 2, 3]));
-    const result = await client.get<readonly number[]>('/things');
-    expect(result).toEqual({ ok: true, data: [1, 2, 3] });
-  });
-
-  it('treats 204 as success with no body, without trying to parse one', async () => {
-    const { client } = clientWith(() => new Response(null, { status: 204 }));
-    const result = await client.delete('/things/1');
-    expect(result).toEqual({ ok: true, data: undefined });
-  });
-
-  it('sends CSRF on every mutation and on no read', async () => {
-    const { client, calls } = clientWith(() => json({ data: {} }));
-    await client.get('/things');
-    await client.post('/things', { body: { a: 1 } });
-    await client.patch('/things/1', { body: { a: 1 } });
-    await client.delete('/things/1');
-
-    const header = (index: number): unknown =>
-      (calls[index]?.init.headers as Record<string, string>)['x-csrf-token'];
-    expect(header(0)).toBeUndefined();
-    expect(header(1)).toBe('csrf-token');
-    expect(header(2)).toBe('csrf-token');
-    expect(header(3)).toBe('csrf-token');
-  });
-
-  it('omits the CSRF header when there is no cookie to read', async () => {
-    const { client, calls } = clientWith(() => json({ data: {} }), null);
-    await client.post('/things', { body: {} });
-    expect((calls[0]?.init.headers as Record<string, string>)['x-csrf-token']).toBeUndefined();
-  });
-
-  it('sends an idempotency key only when one is given', async () => {
-    const { client, calls } = clientWith(() => json({ data: {} }));
-    await client.post('/things', { body: {}, idempotencyKey: 'key-1' });
-    await client.post('/things', { body: {} });
-    expect((calls[0]?.init.headers as Record<string, string>)['idempotency-key']).toBe('key-1');
-    expect((calls[1]?.init.headers as Record<string, string>)['idempotency-key']).toBeUndefined();
-  });
-
-  it('serialises a body and declares its type, and sends neither without one', async () => {
-    const { client, calls } = clientWith(() => json({ data: {} }));
-    await client.post('/things', { body: { a: 1 } });
-    expect(calls[0]?.init.body).toBe('{"a":1}');
-    expect((calls[0]?.init.headers as Record<string, string>)['content-type']).toBe(
-      'application/json',
+function clientFor(reply: { status: number; body: unknown }): ApiClient {
+  const fetch: FetchLike = () =>
+    Promise.resolve(
+      new Response(JSON.stringify(reply.body), {
+        status: reply.status,
+        headers: { 'content-type': 'application/json' },
+      }),
     );
+  return new ApiClient({ baseUrl: '/api/v1', fetch, readCsrfToken: () => null });
+}
 
-    await client.post('/things');
-    expect(calls[1]?.init.body).toBeUndefined();
-    expect((calls[1]?.init.headers as Record<string, string>)['content-type']).toBeUndefined();
-  });
-
-  it('passes an abort signal through', async () => {
-    const { client, calls } = clientWith(() => json({ data: {} }));
-    const controller = new AbortController();
-    await client.get('/things', { signal: controller.signal });
-    expect(calls[0]?.init.signal).toBe(controller.signal);
-  });
-
-  it('parses the error envelope, keeping the code, request id and details', async () => {
-    const { client } = clientWith(() =>
-      json(
-        {
-          error: {
-            code: 'delegation_ceiling',
-            message: 'You cannot grant access wider than your own.',
-            request_id: 'r-9',
-            details: [{ field: 'tenant.delete', code: 'not_held', message: 'Exceeds your access.' }],
-          },
-        },
-        403,
-      ),
-    );
-    const result = await client.post('/roles', { body: {} });
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error('unreachable');
-    expect(result.error).toEqual({
-      code: 'delegation_ceiling',
-      message: 'You cannot grant access wider than your own.',
-      requestId: 'r-9',
-      status: 403,
-      details: [{ field: 'tenant.delete', code: 'not_held', message: 'Exceeds your access.' }],
+describe('reading a page', () => {
+  it('returns the rows and the cursor', async () => {
+    const client = clientFor({
+      status: 200,
+      body: { data: [{ id: 'a' }], page: { next_cursor: 'c1', has_more: true } },
+    });
+    const result = await client.page<{ id: string }>('/things');
+    expect(result).toEqual({
+      ok: true,
+      data: { data: [{ id: 'a' }], nextCursor: 'c1', hasMore: true },
     });
   });
 
-  it('degrades honestly when a failure carries no envelope', async () => {
-    // A proxy or a crash can answer with a real status and no JSON. That is
-    // still a failure the screen has to describe, not a success with no data.
-    const { client } = clientWith(() => new Response('<html>502</html>', { status: 502 }));
-    const result = await client.get('/things');
+  it('reads a page with nothing after it', async () => {
+    const client = clientFor({
+      status: 200,
+      body: { data: [], page: { next_cursor: null, has_more: false } },
+    });
+    const result = await client.page<unknown>('/things');
+    expect(result.ok && result.data).toEqual({ data: [], nextCursor: null, hasMore: false });
+  });
+
+  it('answers an envelope with no page as one page of rows', async () => {
+    const client = clientFor({ status: 200, body: { data: [{ id: 'a' }] } });
+    const result = await client.page<{ id: string }>('/things');
+    // No cursor is not an error: it means there is nothing after this.
+    expect(result.ok && result.data).toEqual({
+      data: [{ id: 'a' }],
+      nextCursor: null,
+      hasMore: false,
+    });
+  });
+
+  it('answers a body that is not an envelope as an empty page', async () => {
+    for (const body of [null, ['not', 'an', 'envelope'], { data: 'not an array' }]) {
+      const result = await clientFor({ status: 200, body }).page<unknown>('/things');
+      // A screen rendering `[]` is recoverable; one crashing mid-render is not.
+      expect(result.ok && result.data.data).toEqual([]);
+    }
+  });
+
+  it('passes a failure through unchanged', async () => {
+    const client = clientFor({
+      status: 403,
+      body: { error: { code: 'permission_denied', message: 'No.', request_id: 'r1' } },
+    });
+    const result = await client.page<unknown>('/things');
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error('unreachable');
-    expect(result.error.code).toBe('http_502');
-    expect(result.error.status).toBe(502);
-    expect(result.error.details).toEqual([]);
+    expect(!result.ok && result.error).toMatchObject({ code: 'permission_denied', status: 403 });
+  });
+});
+
+describe('describing a failure', () => {
+  async function failWith(status: number, body: unknown): Promise<{ code: string; message: string; details: readonly { field: string }[] }> {
+    const result = await clientFor({ status, body }).get<unknown>('/things');
+    if (result.ok) throw new Error('expected a failure');
+    return result.error;
+  }
+
+  it('uses the status when the body carries no error envelope', async () => {
+    // A proxy or a crash can answer a real status code with something that is
+    // not our envelope. That is still a failure a screen must describe.
+    const error = await failWith(502, { unexpected: true });
+    expect(error).toMatchObject({ code: 'http_502', status: 502 });
+    expect(error.message).toBe('The server rejected the request.');
   });
 
-  it('fills in missing envelope fields rather than trusting them', async () => {
-    const { client } = clientWith(() => json({ error: { details: ['not-an-object', {}] } }, 400));
-    const result = await client.get('/things');
-    if (result.ok) throw new Error('unreachable');
-    expect(result.error.code).toBe('http_400');
-    expect(result.error.message).toBe('The server rejected the request.');
-    expect(result.error.requestId).toBeNull();
-    // A detail that is not an object is dropped; one with missing fields is
-    // kept with empty strings, so the screen can still render the row.
-    expect(result.error.details).toEqual([{ field: '', code: '', message: '' }]);
+  it('falls back for an envelope whose fields are the wrong type', async () => {
+    const error = await failWith(400, { error: { code: 7, message: null, request_id: 9 } });
+    expect(error).toMatchObject({ code: 'http_400', message: 'The server rejected the request.' });
   });
 
-  it('reports a dropped connection as a network failure, not a rejection', async () => {
-    const { client } = clientWith(() => Promise.reject(new Error('connection refused')));
-    const result = await client.get('/things');
-    if (result.ok) throw new Error('unreachable');
-    expect(result.error.code).toBe('network');
-    expect(result.error.message).toBe('connection refused');
-    expect(result.error.status).toBeNull();
+  it('reads details, and survives ones that are not objects', async () => {
+    const error = await failWith(400, {
+      error: {
+        code: 'validation_failed',
+        message: 'No.',
+        details: [{ field: 'email', code: 'required', message: 'Give an email.' }, 'nonsense', null],
+      },
+    });
+    expect(error.details).toEqual([
+      { field: 'email', code: 'required', message: 'Give an email.' },
+    ]);
   });
 
-  it('describes a non-Error transport failure without leaking its shape', async () => {
-    const { client } = clientWith(() => Promise.reject('nope' as unknown as Error));
-    const result = await client.get('/things');
-    if (result.ok) throw new Error('unreachable');
-    expect(result.error.message).toBe('The request could not be sent.');
+  it('fills in a detail whose fields are missing', async () => {
+    const error = await failWith(400, { error: { code: 'x', message: 'y', details: [{}] } });
+    expect(error.details).toEqual([{ field: '', code: '', message: '' }]);
   });
 
-  it('prefixes every path with the base url and sends cookies', async () => {
-    const { client, calls } = clientWith(() => json({ data: {} }));
-    await client.get('/tenants/t1/people');
-    expect(calls[0]?.url).toBe('/api/v1/tenants/t1/people');
-    expect(calls[0]?.init.credentials).toBe('same-origin');
+  it('reports a request that never reached the server as a network failure', async () => {
+    const client = new ApiClient({
+      baseUrl: '/api/v1',
+      fetch: () => Promise.reject(new Error('connection refused')),
+      readCsrfToken: () => null,
+    });
+    const result = await client.get<unknown>('/things');
+    expect(result.ok).toBe(false);
+    // A different situation from a rejection, and the screen says so.
+    expect(!result.ok && result.error).toMatchObject({
+      code: 'network',
+      message: 'connection refused',
+      status: null,
+    });
+  });
+
+  it('describes a rejection that is not an Error at all', async () => {
+    const client = new ApiClient({
+      baseUrl: '/api/v1',
+      // A rejection that is not an `Error` — exactly the case under test.
+      fetch: () => Promise.reject(new (class {})() as unknown as Error),
+      readCsrfToken: () => null,
+    });
+    const result = await client.get<unknown>('/things');
+    expect(!result.ok && result.error.message).toBe('The request could not be sent.');
+  });
+
+  it('passes an abort signal through to the transport', async () => {
+    const seen: RequestInit[] = [];
+    const client = new ApiClient({
+      baseUrl: '/api/v1',
+      fetch: (_url, init) => {
+        seen.push(init);
+        return Promise.resolve(new Response('{}', { status: 200 }));
+      },
+      readCsrfToken: () => null,
+    });
+    const controller = new AbortController();
+    await client.request('GET', '/things', { signal: controller.signal });
+    expect(seen[0]?.signal).toBe(controller.signal);
+  });
+});
+
+describe('the CSRF cookie', () => {
+  it('finds the token among other cookies, and reports its absence', () => {
+    expect(csrfFromCookie('a=1; convo_csrf=token-value; b=2')).toBe('token-value');
+    expect(csrfFromCookie('a=1; b=2')).toBeNull();
+    // Present but empty is not a token; sending an empty header would fail the
+    // check in a way that reads like a bug rather than a missing cookie.
+    expect(csrfFromCookie('convo_csrf=')).toBeNull();
   });
 });

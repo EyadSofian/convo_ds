@@ -2,7 +2,6 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest';
-import { toggleFilterValue } from '../filters';
 import type { AppState } from '../state';
 import { createState } from '../state';
 import { renderDialog } from './dialogs';
@@ -26,49 +25,6 @@ function text(element: HTMLElement): string {
 describe('renderDialog', () => {
   it('renders nothing when no dialog is open', () => {
     expect(renderDialog(createState(NOW))).toBeNull();
-  });
-
-  it('renders the advanced filter dialog with a live count', () => {
-    const state = createState(NOW);
-    state.route = { screen: 'inbox', conversationId: null, params: {} };
-    state.filter = toggleFilterValue(state.filter, 'priorities', 'urgent');
-    state.dialog = { kind: 'filters', arg: '' };
-    const element = renderDialog(state);
-    expect(text(element as HTMLElement)).toContain('1 مرشّح نشط');
-    expect((element as HTMLElement).querySelector('[data-act="clear-filters"]')).not.toBeNull();
-    state.lang = 'en';
-    expect(text(renderDialog(state) as HTMLElement)).toContain('1 active filter');
-    state.filter = toggleFilterValue(state.filter, 'priorities', 'high');
-    expect(text(renderDialog(state) as HTMLElement)).toContain('2 active filters');
-  });
-
-  it('renders the save-view dialog with a name and a sharing scope', () => {
-    const { element } = open('save-view');
-    expect(element.querySelector('[data-form="name"]')).not.toBeNull();
-    const scope = element.querySelector('[data-form="scope"]') as HTMLSelectElement;
-    expect(scope.value).toBe('private');
-    expect(element.querySelector('[data-act="save-view"]')).not.toBeNull();
-  });
-
-  it('carries typed form values back into the save-view dialog', () => {
-    const state = createState(NOW);
-    state.dialog = { kind: 'save-view', arg: '' };
-    state.dialogForm = { name: 'عرض', scope: 'workspace' };
-    const element = renderDialog(state) as HTMLElement;
-    expect((element.querySelector('[data-form="name"]') as HTMLInputElement).value).toBe('عرض');
-    expect((element.querySelector('[data-form="scope"]') as HTMLSelectElement).value).toBe('workspace');
-  });
-
-  it('requires a disposition to resolve', () => {
-    const { element } = open('resolve', 'cv-4821');
-    expect(element.querySelectorAll('[data-act="resolve"]')).toHaveLength(5);
-    expect(text(element)).toContain('الحل يتطلب تصنيفًا');
-  });
-
-  it('offers snooze durations and explains the stored timezone', () => {
-    const { element } = open('snooze');
-    expect(element.querySelectorAll('[data-act="snooze"]')).toHaveLength(4);
-    expect(text(element)).toContain('Africa/Cairo');
   });
 
   it('renders the connect-channel dialog without promising a connection', () => {

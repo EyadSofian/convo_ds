@@ -1064,15 +1064,42 @@ describe('the transport the browser actually gets', () => {
     const api = signedInApi();
     handle = mount({
       root: mountRoot(),
-      host: createHost('#/inbox'),
+      host: createHost('#/analytics'),
       now: NOW,
       fetch: api.fetch,
       readCsrfToken: () => 'csrf-token',
     });
     await settle();
-    // The inbox is still demo-backed. A workspace that never opens People must
-    // never call the API.
+    // Analytics is still seeded locally. A workspace that only opens a demo
+    // screen must never call the API — the session is resolved by the screens
+    // that need it, not on boot.
     expect(api.calls).toEqual([]);
+  });
+
+  it('opens the inbox against the server, and nothing else', async () => {
+    const api = signedInApi()
+      .on(`GET /tenants/${TENANT}/conversations/unassigned`, { status: 200, body: { data: [] } })
+      .on(`GET /tenants/${TENANT}/conversations?queue=mine`, {
+        status: 200,
+        body: { data: [] },
+      });
+    handle = mount({
+      root: mountRoot(),
+      host: createHost('#/inbox'),
+      now: NOW,
+      fetch: api.fetch,
+      readCsrfToken: () => 'csrf-token',
+      openEventSource: () => ({ addEventListener: () => undefined, close: () => undefined }),
+    });
+    await settle();
+    // The two the inbox needs, and no People or Channels lists: opening one
+    // server-backed screen must not fetch another's.
+    expect(api.calls.map((call) => call.path)).toEqual([
+      '/auth/session',
+      '/me/memberships',
+      `/tenants/${TENANT}/conversations/unassigned`,
+      `/tenants/${TENANT}/conversations?queue=mine`,
+    ]);
   });
 
   it('sends no CSRF header and still mints a key when neither is injected', async () => {

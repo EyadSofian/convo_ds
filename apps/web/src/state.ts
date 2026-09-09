@@ -1,33 +1,18 @@
-import type {
-  ConversationRecord,
-  Dataset,
-  RoleId,
-  SavedView,
-  SortOrder,
-  TimelineItem,
-} from './data';
+import type { Dataset, RoleId } from './data';
 import { CURRENT_MEMBER_ID, buildDataset } from './data';
-import type { FilterState, QueueSegment } from './filters';
-import { createFilter, filterFromView, QUEUE_SEGMENTS, SORT_VALUES } from './filters';
 import type { Lang } from './format';
 import type { Actor } from './permissions';
-import { disconnectedApi, disconnectedChannelsApi } from './api/people';
+import {
+  disconnectedApi,
+  disconnectedChannelsApi,
+  disconnectedConversationsApi,
+} from './api/people';
 import type { LiveState } from './live/store';
 import { createLiveState } from './live/store';
 import type { Route, ScreenId } from './router';
 import { DEFAULT_ROUTE } from './router';
 
 /** The four demonstrable non-happy states, plus `ready`. */
-export type PreviewState = 'ready' | 'loading' | 'empty' | 'offline' | 'denied';
-
-export const PREVIEW_STATES: readonly PreviewState[] = [
-  'ready',
-  'loading',
-  'empty',
-  'offline',
-  'denied',
-];
-
 export const VIEWABLE_ROLES: readonly RoleId[] = [
   'supervisor',
   'agent',
@@ -69,16 +54,8 @@ export interface AppState {
   theme: Theme;
   openTabs: ScreenId[];
   route: Route;
-  preview: PreviewState;
   role: RoleId;
   dataset: Dataset;
-  conversations: ConversationRecord[];
-  timelines: Record<string, TimelineItem[]>;
-  views: SavedView[];
-  filter: FilterState;
-  activeViewId: string | null;
-  composerTab: ComposerTab;
-  drafts: Record<string, string>;
   openMenu: string | null;
   dialog: DialogState | null;
   dialogForm: Record<string, string>;
@@ -87,13 +64,20 @@ export interface AppState {
    * one "Views / القوائم" control and customer details from the thread header.
    * `focusMode` closes both and keeps them closed until it is turned off.
    */
-  panelOpen: boolean;
-  viewsOpen: boolean;
   listOpen: boolean;
-  focusMode: boolean;
   /** Queue-list width in px, clamped to LIST_WIDTH_MIN..LIST_WIDTH_MAX. */
   listWidth: number;
-  collapsedGroups: string[];
+  /** Which half of the live inbox is showing: the queue, or this agent's work. */
+  inboxQueue: 'unassigned' | 'mine';
+  /**
+   * The moment the screen was last drawn.
+   *
+   * Relative times ("4m ago") are a function of *when the screen was rendered*,
+   * not of when the data arrived, so the clock lives in state and is refreshed
+   * on each render. Reading `new Date()` inside a view would make rendering
+   * impure and every snapshot of it a different picture.
+   */
+  clock: Date;
   toasts: Toast[];
   sequence: number;
   /**
@@ -112,34 +96,29 @@ export interface AppState {
  * work, and anything that asks the API reports a network failure rather than
  * inventing a success. `mount` always passes the real one.
  */
-export function createState(now: Date, live: LiveState = createLiveState(disconnectedApi(), disconnectedChannelsApi())): AppState {
+export function createState(
+  now: Date,
+  live: LiveState = createLiveState(
+    disconnectedApi(),
+    disconnectedChannelsApi(),
+    disconnectedConversationsApi(),
+  ),
+): AppState {
   const dataset = buildDataset(now);
   return {
     lang: 'ar',
     theme: 'light',
     openTabs: ['inbox'],
     route: DEFAULT_ROUTE,
-    preview: 'ready',
     role: 'supervisor',
     dataset,
-    conversations: [...dataset.conversations],
-    timelines: Object.fromEntries(
-      Object.entries(dataset.timelines).map(([id, items]) => [id, [...items]]),
-    ),
-    views: [...dataset.views],
-    filter: createFilter(),
-    activeViewId: null,
-    composerTab: 'reply',
-    drafts: {},
     openMenu: null,
     dialog: null,
     dialogForm: {},
-    panelOpen: false,
-    viewsOpen: false,
     listOpen: false,
-    focusMode: false,
     listWidth: LIST_WIDTH_DEFAULT,
-    collapsedGroups: [],
+    inboxQueue: 'unassigned',
+    clock: now,
     toasts: [],
     sequence: 0,
     live,
@@ -152,39 +131,27 @@ export function createState(now: Date, live: LiveState = createLiveState(disconn
  * across a role switch and the projection rules are visible on real data.
  */
 export function currentActor(state: AppState): Actor {
-  const member = state.dataset.members.find((entry) => entry.id === CURRENT_MEMBER_ID);
-  const base = member ?? {
-    name: 'CONVO',
-    nameEn: 'CONVO',
-    inboxIds: [] as readonly string[],
-    teamIds: [] as readonly string[],
-  };
+  // The seeded dataset always contains this member — `buildDataset` writes it —
+  // so there is no "member not found" case to invent a placeholder for. If the
+  // seed ever stopped including them, the type error would say so here rather
+  // than a fallback quietly rendering a workspace belonging to nobody.
+  const member = requireMember(state.dataset.members);
   return {
     memberId: CURRENT_MEMBER_ID,
-    name: base.name,
-    nameEn: base.nameEn,
+    name: member.name,
+    nameEn: member.nameEn,
     role: state.role,
-    inboxIds: base.inboxIds,
-    teamIds: base.teamIds,
+    inboxIds: member.inboxIds,
+    teamIds: member.teamIds,
   };
 }
 
-export function findConversation(state: AppState, id: string): ConversationRecord | undefined {
-  return state.conversations.find((entry) => entry.id === id);
-}
-
-export function patchConversation(
-  state: AppState,
-  id: string,
-  patch: Partial<ConversationRecord>,
-): void {
-  state.conversations = state.conversations.map((entry) =>
-    entry.id === id ? { ...entry, ...patch } : entry,
-  );
-}
-
-export function appendTimeline(state: AppState, id: string, item: TimelineItem): void {
-  state.timelines = { ...state.timelines, [id]: [...(state.timelines[id] ?? []), item] };
+function requireMember(members: Dataset['members']): Dataset['members'][number] {
+  const member = members.find((entry) => entry.id === CURRENT_MEMBER_ID);
+  if (member === undefined) {
+    throw new Error(`the seeded dataset has no member ${CURRENT_MEMBER_ID}`);
+  }
+  return member;
 }
 
 export function nextId(state: AppState, prefix: string): string {
@@ -195,23 +162,6 @@ export function nextId(state: AppState, prefix: string): string {
 export function pushToast(state: AppState, text: string, tone: Toast['tone'] = 'default'): void {
   const toast: Toast = { id: nextId(state, 'toast'), text, tone };
   state.toasts = [...state.toasts, toast].slice(-3);
-}
-
-export function draftKey(conversationId: string, tab: ComposerTab): string {
-  return `${conversationId}|${tab}`;
-}
-
-export function readDraft(state: AppState, conversationId: string, tab: ComposerTab): string {
-  return state.drafts[draftKey(conversationId, tab)] ?? '';
-}
-
-export function writeDraft(
-  state: AppState,
-  conversationId: string,
-  tab: ComposerTab,
-  value: string,
-): void {
-  state.drafts = { ...state.drafts, [draftKey(conversationId, tab)]: value };
 }
 
 /* ---------------------------------------------------------------------------
@@ -229,13 +179,9 @@ function pick<T extends string>(
 export function routeParamsFor(state: AppState): Record<string, string> {
   const params: Record<string, string> = {};
   if (state.lang !== 'ar') params.lang = state.lang;
-  if (state.preview !== 'ready') params.state = state.preview;
   if (state.role !== 'supervisor') params.as = state.role;
-  if (state.route.screen === 'inbox') {
-    if (state.activeViewId !== null) params.view = state.activeViewId;
-    if (state.filter.queue !== 'all') params.queue = state.filter.queue;
-    if (state.filter.sort !== 'recent') params.sort = state.filter.sort;
-    if (state.filter.query.trim() !== '') params.q = state.filter.query;
+  if (state.route.screen === 'inbox' && state.inboxQueue !== 'unassigned') {
+    params.queue = state.inboxQueue;
   }
   return params;
 }
@@ -244,22 +190,11 @@ export function applyRoute(state: AppState, route: Route): void {
   const params = route.params;
   state.route = route;
   state.lang = params.lang === 'en' ? 'en' : 'ar';
-  state.preview = pick(PREVIEW_STATES, params.state, 'ready');
   state.role = pick(VIEWABLE_ROLES, params.as, 'supervisor');
   if (route.screen === 'inbox') {
-    const viewId = params.view ?? '';
-    const view = state.views.find((entry) => entry.id === viewId);
-    state.activeViewId = view === undefined ? null : view.id;
-    // A view in the URL rebuilds its criteria, so a shared link reproduces the
-    // same result set. Touching any filter clears `view`, so this never
-    // overwrites a manual tweak layered on top of a view.
-    if (view !== undefined) state.filter = filterFromView(view, state.filter);
-    state.filter = {
-      ...state.filter,
-      queue: pick<QueueSegment>(QUEUE_SEGMENTS, params.queue, state.filter.queue),
-      sort: pick<SortOrder>(SORT_VALUES, params.sort, state.filter.sort),
-      query: params.q ?? state.filter.query,
-    };
+    // Which half of the inbox is showing is worth sharing in a link; nothing
+    // else about it is local state any more.
+    state.inboxQueue = params.queue === 'mine' ? 'mine' : 'unassigned';
   }
 }
 

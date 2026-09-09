@@ -240,6 +240,13 @@ export function projectFields<T extends object>(
  * business-rules.md §4.1: conversation ID, inbox/channel label, masked display
  * label, priority, status, wait time, claim availability. No snippet, no
  * timeline, no notes, no attachments, no contact PII.
+ *
+ * `version` is the machine-readable half of "claim availability". IAM-13
+ * requires a claim to carry the version the agent actually saw, and the agent
+ * who sees a card is precisely the one who may not read the conversation — so
+ * without it on the card, the only role the rule exists for could never satisfy
+ * it. It is an optimistic-concurrency token: it says nothing about the customer
+ * and reveals nothing about the content.
  */
 export const QUEUE_CARD_FIELDS = [
   'id',
@@ -250,6 +257,7 @@ export const QUEUE_CARD_FIELDS = [
   'status',
   'waitingSinceAt',
   'claimable',
+  'version',
 ] as const;
 
 /**

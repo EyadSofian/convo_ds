@@ -225,6 +225,7 @@ describe('the queue card', () => {
       status: 'open',
       waitingSinceAt: null,
       claimable: true,
+      version: 3,
     });
   });
 

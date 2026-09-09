@@ -2,28 +2,40 @@ import type { ActionContext } from './actions';
 import { runAction } from './actions';
 import { ApiClient, API_BASE_URL, csrfFromCookie, type FetchLike } from './api/client';
 import { ChannelsApi } from './api/channels';
-import { disconnectedApi, disconnectedChannelsApi, PeopleApi } from './api/people';
+import { ConversationsApi } from './api/conversations';
+import {
+  disconnectedApi,
+  disconnectedChannelsApi,
+  disconnectedConversationsApi,
+  PeopleApi,
+} from './api/people';
 import type { LiveContext } from './live/actions';
 import { loadChannelsScreen, loadPeopleScreen, loadSession } from './live/actions';
+import {
+  loadInboxScreen,
+  openConversation,
+  startRealtime,
+  stopRealtime,
+} from './live/inbox-actions';
+import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
-import { createLiveState } from './live/store';
+import { createLiveState, rowsOf } from './live/store';
 import { attrOf, closestWithAttr, h, replace } from './dom';
 import { icon } from './icons';
 import type { IconName } from './icons';
 import { ROLE_LABELS } from './permissions';
 import type { Route, RouterHost, ScreenId } from './router';
 import { onRouteChange, readRoute, SCREENS, writeRoute } from './router';
-import type { AppState, PreviewState } from './state';
+import type { AppState } from './state';
 import {
   applyRoute,
   createState,
   currentActor,
-  PREVIEW_STATES,
   routeParamsFor,
   screenTitle,
   VIEWABLE_ROLES,
 } from './state';
-import { defaultConversationId, renderInbox } from './ui/inbox';
+import { renderInbox } from './ui/live-inbox';
 import { renderDialog } from './ui/dialogs';
 import { button, isolated, selectControl } from './ui/parts';
 import { initials } from './format';
@@ -46,7 +58,9 @@ const RAIL_ICONS: Record<ScreenId, IconName> = {
 
 function renderRail(state: AppState): HTMLElement {
   const actor = currentActor(state);
-  const unread = state.conversations.filter((entry) => entry.unreadCount > 0).length;
+  // The rail's badge counts what this caller actually holds. It is the live
+  // list, not a demo count, so it is empty until the server has answered.
+  const unread = rowsOf(state.live.conversations).length;
   return h('nav', { class: 'rail', 'aria-label': t(state, 'التنقّل الرئيسي', 'Primary navigation') }, [
     h('span', { class: 'rail__brand', 'aria-hidden': 'true' }, ['CV']),
     ...SCREENS.map((screen) =>
@@ -82,25 +96,18 @@ function renderRail(state: AppState): HTMLElement {
 }
 
 function renderTopbar(state: AppState): HTMLElement {
-  const previewLabels: Record<PreviewState, { ar: string; en: string }> = {
-    ready: { ar: 'طبيعية', en: 'Ready' },
-    loading: { ar: 'تحميل', en: 'Loading' },
-    empty: { ar: 'فارغة', en: 'Empty' },
-    offline: { ar: 'غير متصل/قديمة', en: 'Offline / stale' },
-    denied: { ar: 'صلاحية مرفوضة', en: 'Permission denied' },
-  };
   return h('header', { class: 'topbar' }, [
     state.route.screen === 'inbox'
       ? button({
-          icon: 'sidebar',
-          act: 'sidebar',
+          icon: 'inbox',
+          act: 'list',
           variant: 'ghost',
           small: true,
-          pressed: state.viewsOpen,
-          title: state.viewsOpen
-            ? t(state, 'إغلاق القائمة الجانبية', 'Close sidebar')
-            : t(state, 'فتح القائمة الجانبية', 'Open sidebar'),
-          extraClass: 'sidebar-toggle',
+          pressed: state.listOpen,
+          title: state.listOpen
+            ? t(state, 'إغلاق قائمة المحادثات', 'Close the conversation list')
+            : t(state, 'فتح قائمة المحادثات', 'Open the conversation list'),
+          extraClass: 'list-toggle',
         })
       : null,
     h('h1', { class: 'topbar__title' }, [screenTitle(state.route.screen, state.lang)]),
@@ -110,19 +117,6 @@ function renderTopbar(state: AppState): HTMLElement {
     ]),
     h('span', { class: 'topbar__spacer' }),
     h('div', { class: 'topbar__tools' }, [
-      h('label', { class: 'storyswitch' }, [
-        h('span', { class: 'storyswitch__label' }, [t(state, 'حالة العرض', 'Preview state')]),
-        selectControl({
-          value: state.preview,
-          act: 'preview',
-          ariaLabel: t(state, 'حالة العرض', 'Preview state'),
-          style: 'inline-size:auto',
-          options: PREVIEW_STATES.map((value) => ({
-            value,
-            label: t(state, previewLabels[value].ar, previewLabels[value].en),
-          })),
-        }),
-      ]),
       h('label', { class: 'storyswitch' }, [
         h('span', { class: 'storyswitch__label' }, [t(state, 'اعرض كـ', 'View as')]),
         selectControl({
@@ -215,6 +209,31 @@ export function renderApp(state: AppState): DocumentFragment {
   const toasts = renderToasts(state);
   if (toasts !== null) fragment.appendChild(toasts);
   return fragment;
+}
+
+/**
+ * The stream, opened by the browser.
+ *
+ * `withCredentials` because the session is a cookie and an `EventSource`
+ * without it is an unauthenticated request that will be refused. Named rather
+ * than inlined so the composition root has one obvious default and a test can
+ * substitute another.
+ */
+export function browserEventSource(url: string): EventSource {
+  return new EventSource(url, { withCredentials: true });
+}
+
+/** Whether two routes name the same thing, params included. */
+function sameRoute(current: Route, next: Route): boolean {
+  if (current.screen !== next.screen || current.conversationId !== next.conversationId) {
+    return false;
+  }
+  const currentKeys = Object.keys(current.params);
+  const nextKeys = Object.keys(next.params);
+  return (
+    currentKeys.length === nextKeys.length &&
+    currentKeys.every((key) => current.params[key] === next.params[key])
+  );
 }
 
 /* --------------------------------------------------------------- focus keep -- */
@@ -320,7 +339,26 @@ export interface MountOptions {
   readonly readCsrfToken?: (() => string | null) | undefined;
   /** Injected for deterministic idempotency keys in tests. */
   readonly newKey?: (() => string) | undefined;
+  /**
+   * How the live stream is opened. Injected for the same reason `fetch` is: so
+   * a test drives the real subscription without a browser, and so nothing here
+   * reaches for a global.
+   */
+  readonly openEventSource?: EventSourceFactory | undefined;
 }
+
+/**
+ * Which screens talk to the server, and what each one loads.
+ *
+ * A table rather than a chain of `if`s because the set is the interesting part:
+ * a screen missing from it is a screen that makes no requests, which is worth
+ * being able to read at a glance.
+ */
+const SCREEN_LOADERS: Readonly<Record<string, (context: LiveContext) => Promise<void>>> = {
+  people: loadPeopleScreen,
+  channels: loadChannelsScreen,
+  inbox: loadInboxScreen,
+};
 
 /**
  * Entry point: finds (or creates) the mount node and starts the app.
@@ -357,12 +395,30 @@ export function mount(options: MountOptions): AppHandle {
         });
   const api = client === null ? disconnectedApi() : new PeopleApi(client);
   const channels = client === null ? disconnectedChannelsApi() : new ChannelsApi(client);
-  const state = createState(options.now ?? new Date(), createLiveState(api, channels));
+  const conversations =
+    client === null ? disconnectedConversationsApi() : new ConversationsApi(client);
+  const state = createState(
+    options.now ?? new Date(),
+    createLiveState(api, channels, conversations),
+  );
   const root = options.root;
   const host = options.host;
   let sessionRequested = false;
+  /**
+   * The screen whose lists have been loaded.
+   *
+   * Every route change syncs the URL, and a language toggle is a route change —
+   * without this, changing the language would re-fetch the whole inbox. A
+   * deliberate reload has its own action.
+   */
+  let loadedScreen: string | null = null;
+  /** Whether the first render has happened. */
+  let drawn = false;
 
   const render = (): void => {
+    // Relative times are a function of when the screen was drawn, so the clock
+    // advances here rather than being read inside a view.
+    state.clock = new Date();
     const snapshot = captureFocus(root);
     const document_ = root.ownerDocument;
     document_.documentElement.setAttribute('lang', state.lang);
@@ -394,6 +450,11 @@ export function mount(options: MountOptions): AppHandle {
       };
       syncUrl();
       render();
+      // Arriving at a screen is what triggers its first load, whether the
+      // route came from a click or from the address bar. The hash this just
+      // wrote will re-enter `handleRoute`, which sees the same route and does
+      // nothing — so the load has to happen here.
+      ensureLiveSession();
     },
     refresh: () => {
       syncUrl();
@@ -491,7 +552,7 @@ export function mount(options: MountOptions): AppHandle {
       dispatch('close-menu');
       return;
     }
-    if (state.viewsOpen || state.panelOpen || state.listOpen) {
+    if (state.listOpen) {
       event.preventDefault();
       dispatch('close-overlays');
     }
@@ -527,43 +588,80 @@ export function mount(options: MountOptions): AppHandle {
   };
 
   /**
-   * The People screen is the only server-backed screen so far, so the session
-   * is resolved when it is first opened rather than on boot. That keeps the
-   * demo screens working with no API reachable, and means a workspace that
-   * never opens People never makes a request.
-   */
-  /**
    * Resolves the session the first time a server-backed screen is opened.
    *
-   * Not on boot: the demo screens work with no API reachable, and a workspace
-   * that never opens People or Channels never makes a request. Each screen then
-   * loads its own lists, so opening Channels does not fetch the People ones.
+   * Not on boot: the screens that are still seeded demos work with no API
+   * reachable, and a workspace that never opens a server-backed screen never
+   * makes a request. Each screen then loads its own lists, so opening Channels
+   * does not fetch the People ones.
    */
   const ensureLiveSession = (): void => {
     const screen = state.route.screen;
-    if (screen !== 'people' && screen !== 'channels') {
+    const load = SCREEN_LOADERS[screen];
+    if (load === undefined || screen === loadedScreen) {
       return;
     }
-    const load = screen === 'people' ? loadPeopleScreen : loadChannelsScreen;
+    loadedScreen = screen;
     if (sessionRequested) {
-      void load(liveContext);
+      void load(liveContext).then(() => {
+        afterLoad(screen);
+      });
       return;
     }
     sessionRequested = true;
-    void loadSession(liveContext).then(() => load(liveContext));
+    void loadSession(liveContext)
+      .then(() => load(liveContext))
+      .then(() => {
+        afterLoad(screen);
+      });
   };
 
+  /**
+   * Opens the live stream once the inbox has something to update, and follows a
+   * conversation named in the URL.
+   *
+   * Not on boot, and not for the other screens: a workspace that never opens
+   * the Inbox holds no socket, and one that opens it holds exactly one.
+   */
+  const afterLoad = (screen: string): void => {
+    if (screen !== 'inbox') {
+      return;
+    }
+    const deepLinked = state.route.conversationId;
+    if (deepLinked !== null && state.live.openConversationId !== deepLinked) {
+      // A shared link lands on the thread rather than on an empty pane.
+      void openConversation(liveContext, deepLinked);
+    }
+    startRealtime(liveContext, {
+      baseUrl: API_BASE_URL,
+      open: options.openEventSource ?? browserEventSource,
+    });
+  };
+
+  /**
+   * Applies a route and draws it.
+   *
+   * A route identical to the one on screen is *not* redrawn. Every URL sync
+   * fires the router's own listener, so without this a language toggle rendered
+   * twice: once for the change and once for the hash it wrote. The second
+   * render replaced every node for nothing, which is wasted work and, for
+   * anything holding a reference to a node, a surprise.
+   */
   const handleRoute = (route: Route): void => {
+    // `drawn` is what makes the first call unconditional: on boot the URL
+    // legitimately matches the default route, and skipping that render would
+    // leave the page on its loading placeholder forever.
+    if (drawn && sameRoute(state.route, route)) {
+      return;
+    }
+    drawn = true;
     applyRoute(state, route);
     if (!state.openTabs.includes(state.route.screen)) {
       state.openTabs = [...state.openTabs, state.route.screen];
     }
-    if (state.route.screen === 'inbox' && state.route.conversationId === null) {
-      const fallback = defaultConversationId(state);
-      if (fallback !== null) {
-        state.route = { ...state.route, conversationId: fallback };
-      }
-    }
+    // The inbox no longer picks a conversation for the operator: there is no
+    // local dataset to pick from, and opening somebody's conversation because a
+    // URL had no id is a request nobody made.
     syncUrl();
     render();
     ensureLiveSession();
@@ -583,6 +681,9 @@ export function mount(options: MountOptions): AppHandle {
     render,
     dispatch,
     destroy: () => {
+      // The socket goes with the workspace. A destroyed app that kept a stream
+      // open would keep answering for a screen nobody is looking at.
+      stopRealtime(liveContext);
       stopRouter();
       root.removeEventListener('click', onClick);
       root.removeEventListener('input', onInput);

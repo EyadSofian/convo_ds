@@ -274,6 +274,9 @@ company.
 | Inbox | `GET T/conversations/unassigned` | `listUnassignedConversations` | `conversation.unassigned.preview`, per row | P2 |
 | Inbox | `GET T/conversations/{id}` | `getConversation` | `conversation.read` for that conversation | P2 |
 | Inbox | `POST T/conversations/{id}/claim` | `claimConversation` | `conversation.claim` + CSRF | P2 |
+| Inbox | `GET T/conversations` | `listConversations` | `conversation.read`, per row | P2 |
+| Inbox | `GET T/conversations/{id}/messages` | `listConversationMessages` | `conversation.read` for that conversation | P2 |
+| Inbox | `POST T/conversations/{id}/messages` | `replyToConversation` | `conversation.reply` + CSRF | P2 |
 | Realtime | `GET T/realtime/events` | `catchUpRealtimeEvents` | session; each event authorized individually | P2 |
 | Realtime | `GET T/realtime/stream` | `streamRealtimeEvents` | session; each event authorized individually | P2 |
 
@@ -291,6 +294,25 @@ claiming at the same version produce exactly one winner; the loser is told
 `conversation_version_conflict` (IAM-13). It carries no `Idempotency-Key`
 because the version already makes a replay a no-op conflict rather than a second
 claim.
+
+`listConversations` and `listUnassignedConversations` are the same distinction
+one level up: the first returns records the caller passed `conversation.read`
+for, decided **per row**; the second returns cards for work nobody holds. A
+single endpoint switching between them on a query parameter would put a card and
+a transcript one bug apart.
+
+`replyToConversation` takes the recipient from the conversation record. A
+`peerIdentity` in the body is ignored, because an agent permitted to reply to
+one customer must not be able to reach another by editing a field. It answers
+**202** on the same terms as `queueOutboundMessage`, and carries no
+`Idempotency-Key` for the same reason: `clientMessageId` in the body is already
+the caller's own identifier for the message.
+
+`listConversationMessages` pages **backwards** into the history with an opaque
+cursor that is signed, bound to the company, the conversation and the sort, and
+expiring. A stale or foreign one is answered `cursor_invalid` / `cursor_expired`
+with a safe refresh path rather than silently restarting at the top of somebody's
+conversation.
 
 `streamRealtimeEvents` is **Server-Sent Events**, not a WebSocket. The traffic is
 one-directional, the session cookie authenticates it like any other request,

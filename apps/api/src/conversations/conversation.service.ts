@@ -1,13 +1,21 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { QueueCard, SqlExecutor } from '@convo/domain';
+import type { Principal, QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
 import { authorize, projectQueueCard, REALTIME_SCHEMA_VERSION } from '@convo/domain';
 import type { Pool } from 'pg';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
+import type { ApiConfig } from '../config.js';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
-import { API_POOL } from '../tokens.js';
+import { API_CONFIG, API_POOL } from '../tokens.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
+import {
+  readTimeline,
+  TIMELINE_PAGE_SIZE,
+  timelineBinding,
+  timelineCodec,
+} from './timeline.js';
+import type { TimelinePage } from './timeline.js';
 
 /**
  * Conversations: the thing an inbox is a list of.
@@ -59,6 +67,14 @@ export interface ConversationDetail extends ConversationRow {
   readonly participantMembershipIds: readonly string[];
 }
 
+/**
+ * How long a timeline page position stays usable.
+ *
+ * Long enough to read a conversation, short enough that a cursor found in a log
+ * a week later is not a working pointer into somebody's messages.
+ */
+const CURSOR_TTL_SECONDS = 3600;
+
 const SELECT_COLUMNS = `id::text, connection_id::text, peer_identity, team_id::text,
                         assignee_membership_id::text, status, priority, version, waiting_since`;
 
@@ -66,6 +82,7 @@ const SELECT_COLUMNS = `id::text, connection_id::text, peer_identity, team_id::t
 export class ConversationService {
   constructor(
     @Inject(API_POOL) private readonly pool: Pool,
+    @Inject(API_CONFIG) private readonly config: ApiConfig,
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(RealtimeService) private readonly realtime: RealtimeService,
   ) {}
@@ -269,6 +286,110 @@ export class ConversationService {
   }
 
   /**
+   * The conversations this caller may actually read.
+   *
+   * A different endpoint from the Unassigned queue on purpose: this one returns
+   * **records**, and every row it returns is one the caller passed
+   * `conversation.read` for. The queue returns projected cards for
+   * conversations nobody holds. Mixing the two into one endpoint with a flag is
+   * how a card and a transcript end up one bug apart.
+   */
+  async list(
+    session: AuthenticatedSession,
+    tenantId: string,
+    query: { readonly queue: 'mine' | 'all'; readonly status: string | null },
+  ): Promise<readonly ConversationDetail[]> {
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const rows = await sql.query<RawConversation & { display_name: string; kind: string }>(
+        `SELECT c.id::text, c.connection_id::text, c.peer_identity, c.team_id::text,
+                c.assignee_membership_id::text, c.status, c.priority, c.version, c.waiting_since,
+                n.display_name, n.kind
+           FROM conversations c
+           JOIN channel_connections n ON n.id = c.connection_id
+          WHERE ($1::text IS NULL OR c.status = $1)
+            AND ($2::uuid IS NULL OR c.assignee_membership_id = $2)
+          ORDER BY c.last_activity_at DESC, c.id
+          LIMIT 200`,
+        [query.status, query.queue === 'mine' ? principal.membershipId : null],
+      );
+
+      const visible: ConversationDetail[] = [];
+      for (const row of rows.rows) {
+        const participants = await participantIds(sql, row.id);
+        // Decided per row against the same terms the socket uses. A list route
+        // being permitted in general says nothing about any particular row.
+        const decision = authorize(principal, 'conversation.read', {
+          inboxId: row.connection_id,
+          ...(row.team_id === null ? {} : { teamId: row.team_id }),
+          assigneeMembershipId: row.assignee_membership_id,
+          participantMembershipIds: participants,
+        });
+        if (decision.allowed) {
+          visible.push({
+            ...rowOf(row),
+            inboxLabel: row.display_name,
+            channel: row.kind,
+            participantMembershipIds: participants,
+          });
+        }
+      }
+      return visible;
+    });
+  }
+
+  /**
+   * One page of a conversation's messages, newest page first.
+   *
+   * Authorized exactly like reading the conversation itself, because that is
+   * what it is: an agent who may not read the record may not read its contents
+   * either, and the two decisions must not be able to disagree.
+   */
+  async timeline(
+    session: AuthenticatedSession,
+    tenantId: string,
+    conversationId: string,
+    cursor: string | null,
+  ): Promise<TimelinePage> {
+    this.authorization.assertTenantId(conversationId);
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const detail = await readDetail(sql, conversationId);
+      if (detail === null) {
+        throw notFound();
+      }
+      requireReadable(principal, detail);
+
+      const codec = timelineCodec(this.config.secrets.idempotencyHash);
+      const binding = timelineBinding(tenantId, conversationId);
+      let after: { at: string; id: string } | null = null;
+      if (cursor !== null) {
+        const decoded = codec.decode(cursor, binding);
+        if (decoded.status === 'rejected') {
+          // A page position that no longer works is a typed answer with a safe
+          // next step, not a silent jump back to the top of the conversation.
+          throw new ApiHttpError(400, decoded.code, decoded.message);
+        }
+        after = { at: decoded.after.value, id: decoded.after.id };
+      }
+
+      const page = await readTimeline(
+        sql,
+        detail.connectionId,
+        detail.peerIdentity,
+        after,
+        TIMELINE_PAGE_SIZE,
+      );
+      const oldest = page.rows[0];
+      return {
+        messages: page.rows,
+        nextCursor:
+          page.hasMore && oldest !== undefined
+            ? codec.encode(binding, { value: oldest.at, id: oldest.id }, CURSOR_TTL_SECONDS)
+            : null,
+      };
+    });
+  }
+
+  /**
    * Claims a conversation: atomic, version-checked, exactly one winner.
    *
    * The version the caller saw on the card is the fence. Two agents pressing
@@ -366,19 +487,62 @@ export class ConversationService {
       if (detail === null) {
         throw notFound();
       }
-      const decision = authorize(principal, 'conversation.read', {
-        inboxId: detail.connectionId,
-        ...(detail.teamId === null ? {} : { teamId: detail.teamId }),
-        assigneeMembershipId: detail.assigneeMembershipId,
-        participantMembershipIds: detail.participantMembershipIds,
-      });
-      if (!decision.allowed) {
-        throw denied();
-      }
+      requireReadable(principal, detail);
       return detail;
     });
   }
 
+  /**
+   * The connection and recipient a reply to this conversation goes to.
+   *
+   * The caller names a *conversation*; the channel and the customer identity
+   * come from the record. An agent replying must not be able to redirect a
+   * message to another recipient by editing a field, which is exactly what
+   * taking `peerIdentity` from the request body here would allow.
+   */
+  async replyTarget(
+    session: AuthenticatedSession,
+    tenantId: string,
+    conversationId: string,
+  ): Promise<{
+    readonly connectionId: string;
+    readonly peerIdentity: string;
+    readonly resource: ResourceRef;
+  }> {
+    this.authorization.assertTenantId(conversationId);
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const detail = await readDetail(sql, conversationId);
+      if (detail === null) {
+        throw notFound();
+      }
+      const resource: ResourceRef = {
+        inboxId: detail.connectionId,
+        ...(detail.teamId === null ? {} : { teamId: detail.teamId }),
+        assigneeMembershipId: detail.assigneeMembershipId,
+        participantMembershipIds: detail.participantMembershipIds,
+      };
+      const decision = authorize(principal, 'conversation.reply', resource);
+      if (!decision.allowed) {
+        throw denied();
+      }
+      // The same terms are handed to the send path, so the two decisions cannot
+      // disagree: an Agent's `own` grant means nothing without them.
+      return { connectionId: detail.connectionId, peerIdentity: detail.peerIdentity, resource };
+    });
+  }
+}
+
+/** The read decision, in one place, so a record and its contents agree. */
+function requireReadable(principal: Principal, detail: ConversationDetail): void {
+  const decision = authorize(principal, 'conversation.read', {
+    inboxId: detail.connectionId,
+    ...(detail.teamId === null ? {} : { teamId: detail.teamId }),
+    assigneeMembershipId: detail.assigneeMembershipId,
+    participantMembershipIds: detail.participantMembershipIds,
+  });
+  if (!decision.allowed) {
+    throw denied();
+  }
 }
 
 /** The inbox's label and channel, for the card fields on an event. */

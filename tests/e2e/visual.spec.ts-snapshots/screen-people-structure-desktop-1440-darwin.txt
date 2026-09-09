@@ -3,17 +3,103 @@ div.workspace
     div.workspace__introtext
       h1.workspace__heading
       p.workspace__lede
+    div.workspace__actions
+      span.pill
+        bdi
+      button.btn.btn--sm [live-reload]
+        svg
+          path
+          path
+          path
+      button.btn.btn--ghost.btn--sm [live-signout]
   section.card
     div.card__header
       h2.card__title
     div.card__body
-      p
-      div.banner.banner--danger
-      div.field
-        label.field__label
-        input.input [form]
-      div.field
-        label.field__label
-        input.input [form]
-      div.workspace__actions
-        button.btn.btn--primary [live-signin]
+      div.statebox.statebox--denied
+        span.statebox__icon
+          svg
+            rect
+            path
+        p.statebox__title
+        p.statebox__body
+  section.card
+    div.card__header
+      h2.card__title
+    div.card__body
+      div.filterbar
+        span.searchbox
+          input.input [form]
+        select.select [form]
+          option
+        button.btn.btn--primary.btn--sm [live-invite]
+          svg
+            path
+      div.statebox.statebox--denied
+        span.statebox__icon
+          svg
+            rect
+            path
+        p.statebox__title
+        p.statebox__body
+  section.card
+    div.card__header
+      h2.card__title
+    div.card__body
+      p.field__hint
+      div.filterbar
+        span.searchbox
+          input.input [form]
+        select.select [form]
+          option
+        select.select [form]
+          option
+          option
+          option
+          option
+        button.btn.btn--primary.btn--sm [live-create-role]
+          svg
+            path
+      div.statebox.statebox--denied
+        span.statebox__icon
+          svg
+            rect
+            path
+        p.statebox__title
+        p.statebox__body
+      div.statebox.statebox--denied
+        span.statebox__icon
+          svg
+            rect
+            path
+        p.statebox__title
+        p.statebox__body
+  section.card
+    div.card__header
+      h2.card__title
+    div.card__body
+      div.filterbar
+        span.searchbox
+          input.input [form]
+        button.btn.btn--primary.btn--sm [live-create-team]
+          svg
+            path
+      div.statebox.statebox--denied
+        span.statebox__icon
+          svg
+            rect
+            path
+        p.statebox__title
+        p.statebox__body
+  section.card
+    div.card__header
+      h2.card__title
+    div.card__body
+      p.field__hint
+      div.statebox.statebox--denied
+        span.statebox__icon
+          svg
+            rect
+            path
+        p.statebox__title
+        p.statebox__body

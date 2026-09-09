@@ -1,8 +1,6 @@
 import type { Child } from '../dom';
 import { h } from '../dom';
-import { activeFilterCount } from '../filters';
 import type { AppState } from '../state';
-import { renderFilterDialogBody } from './inbox';
 import { button, dialogShell, field, notice, selectInput, textInput } from './parts';
 
 function t(state: AppState, ar: string, en: string): string {
@@ -17,116 +15,6 @@ function closeButton(state: AppState): HTMLElement {
 export function renderDialog(state: AppState): HTMLElement | null {
   const dialog = state.dialog;
   if (dialog === null) return null;
-
-  if (dialog.kind === 'filters') {
-    const count = activeFilterCount(state.filter);
-    return dialogShell(
-      t(state, 'تصفية المحادثات', 'Filter conversations'),
-      renderFilterDialogBody(state),
-      [
-        h('span', { class: 'field__hint' }, [
-          t(state, `${count} مرشّح نشط`, `${count} active filter${count === 1 ? '' : 's'}`),
-        ]),
-        h('span', { class: 'dialog__footerspacer' }),
-        button({ label: t(state, 'مسح الكل', 'Clear all'), act: 'clear-filters' }),
-        button({ label: t(state, 'تم', 'Done'), act: 'close-dialog', variant: 'primary' }),
-      ],
-    );
-  }
-
-  if (dialog.kind === 'save-view') {
-    return dialogShell(
-      t(state, 'حفظ عرض مخصّص', 'Save a custom view'),
-      [
-        field(
-          t(state, 'اسم العرض', 'View name'),
-          textInput('name', state.dialogForm.name ?? '', t(state, 'مثال: تأخيرات التفعيل اليوم', 'e.g. Activation delays today')),
-          t(state, 'يُحفظ مع المرشّحات النشطة الآن.', 'Saved together with the filters in force right now.'),
-        ),
-        field(
-          t(state, 'من يراه', 'Who can see it'),
-          selectInput('scope', state.dialogForm.scope ?? 'private', [
-            { value: 'private', label: t(state, 'خاص بي', 'Private') },
-            { value: 'team', label: t(state, 'فريقي', 'My team') },
-            { value: 'workspace', label: t(state, 'كل المساحة', 'Whole workspace') },
-          ]),
-        ),
-        notice(
-          'plain',
-          'bookmark',
-          t(
-            state,
-            'العرض يخزّن استعلامًا، لا نسخة من المحادثات — النتائج تتغيّر مع البيانات.',
-            'A view stores a query, not a copy of the conversations — results move with the data.',
-          ),
-        ),
-      ],
-      [
-        h('span', { class: 'dialog__footerspacer' }),
-        closeButton(state),
-        button({ label: t(state, 'حفظ العرض', 'Save view'), act: 'save-view', variant: 'primary' }),
-      ],
-    );
-  }
-
-  if (dialog.kind === 'resolve') {
-    const dispositions = [
-      t(state, 'تم التسليم', 'Delivered'),
-      t(state, 'تم الاسترداد', 'Refunded'),
-      t(state, 'أُجيب الاستفسار', 'Question answered'),
-      t(state, 'إلغاء من العميل', 'Customer cancelled'),
-      t(state, 'مكرّرة', 'Duplicate'),
-    ];
-    return dialogShell(
-      t(state, 'حلّ المحادثة', 'Resolve conversation'),
-      [
-        h('p', { style: 'margin:0' }, [
-          t(
-            state,
-            'الحل يتطلب تصنيفًا. لا يمكن إغلاق محادثة بدونه، ولا يُعلَّم غير المقروء كمقروء تلقائيًا.',
-            'Resolving requires a disposition. A conversation cannot close without one, and unread is not silently marked read.',
-          ),
-        ]),
-        h(
-          'div',
-          { class: 'labelset' },
-          dispositions.map((label) =>
-            button({ label, act: 'resolve', arg: label, variant: 'default', small: true }),
-          ),
-        ),
-      ],
-      [h('span', { class: 'dialog__footerspacer' }), closeButton(state)],
-    );
-  }
-
-  if (dialog.kind === 'snooze') {
-    const options: readonly { readonly label: string; readonly minutes: number }[] = [
-      { label: t(state, 'ساعة واحدة', '1 hour'), minutes: 60 },
-      { label: t(state, '3 ساعات', '3 hours'), minutes: 180 },
-      { label: t(state, 'غدًا 08:00', 'Tomorrow 08:00'), minutes: 20 * 60 },
-      { label: t(state, 'الأسبوع القادم', 'Next week'), minutes: 7 * 24 * 60 },
-    ];
-    return dialogShell(
-      t(state, 'تأجيل المحادثة', 'Snooze conversation'),
-      [
-        h('p', { style: 'margin:0' }, [
-          t(
-            state,
-            'وقت الاستيقاظ يُخزَّن بتوقيت UTC مع منطقة المصدر Africa/Cairo، ووصول رسالة من العميل يوقظها فورًا.',
-            'The wake time is stored in UTC with its source zone Africa/Cairo, and an inbound message wakes it immediately.',
-          ),
-        ]),
-        h(
-          'div',
-          { class: 'labelset' },
-          options.map((option) =>
-            button({ label: option.label, act: 'snooze', arg: String(option.minutes), small: true }),
-          ),
-        ),
-      ],
-      [h('span', { class: 'dialog__footerspacer' }), closeButton(state)],
-    );
-  }
 
   if (dialog.kind === 'connect-channel') {
     return dialogShell(

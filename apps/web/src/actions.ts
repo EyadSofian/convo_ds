@@ -1,35 +1,8 @@
-import type { ChannelKind, ConversationStatus, Priority, SavedView, SortOrder } from './data';
-import type { DateWindow, MultiKey, QueueSegment } from './filters';
-import {
-  clearFilters,
-  createFilter,
-  criteriaFromFilter,
-  DATE_VALUES,
-  filterFromView,
-  MULTI_KEYS,
-  QUEUE_SEGMENTS,
-  SORT_VALUES,
-  toggleFilterValue,
-} from './filters';
-import { minutesUntil } from './format';
-import { canAssignOthers } from './permissions';
-import { conversationAccess } from './permissions';
-import type { ScreenId } from './router';
+import type { ChannelKind } from './data';
 import { SCREENS } from './router';
-import type { AppState, ComposerTab, PreviewState } from './state';
-import {
-  appendTimeline,
-  clampListWidth,
-  currentActor,
-  findConversation,
-  nextId,
-  patchConversation,
-  PREVIEW_STATES,
-  pushToast,
-  readDraft,
-  VIEWABLE_ROLES,
-  writeDraft,
-} from './state';
+import type { ScreenId } from './router';
+import type { AppState } from './state';
+import { clampListWidth, pushToast, VIEWABLE_ROLES } from './state';
 
 /**
  * Every interactive control in the UI carries `data-act` (+ optional `data-arg`)
@@ -64,10 +37,6 @@ export function selectedId(state: AppState): string | null {
 
 function closeTransient(state: AppState): void {
   state.openMenu = null;
-}
-
-function markRead(state: AppState, id: string): void {
-  patchConversation(state, id, { unreadCount: 0 });
 }
 
 const nav: ActionHandler = (context, arg) => {
@@ -110,79 +79,6 @@ const toggleTheme: ActionHandler = (context) => {
   context.refresh();
 };
 
-const openConversation: ActionHandler = (context, arg) => {
-  const state = context.state;
-  const conversation = findConversation(state, arg);
-  if (conversation === undefined) return;
-  closeTransient(state);
-  state.listOpen = false;
-  // Reading advances *this* user's cursor only (business-rules §4); a queue card
-  // has no readable content, so its unread state is untouched.
-  if (conversationAccess(currentActor(state), conversation) === 'full') markRead(state, arg);
-  context.navigate('inbox', arg);
-};
-
-const setQueue: ActionHandler = (context, arg) => {
-  if (!isMember(QUEUE_SEGMENTS, arg)) return;
-  context.state.filter = { ...context.state.filter, queue: arg as QueueSegment };
-  context.state.activeViewId = null;
-  context.refresh();
-};
-
-const setSort: ActionHandler = (context, arg) => {
-  if (!isMember(SORT_VALUES, arg)) return;
-  context.state.filter = { ...context.state.filter, sort: arg as SortOrder };
-  context.state.openMenu = null;
-  context.refresh();
-};
-
-const setSearch: ActionHandler = (context, arg) => {
-  context.state.filter = { ...context.state.filter, query: arg };
-  context.refresh();
-};
-
-const setDate: ActionHandler = (context, arg) => {
-  if (!isMember(DATE_VALUES, arg)) return;
-  context.state.filter = { ...context.state.filter, date: arg as DateWindow };
-  context.state.activeViewId = null;
-  context.refresh();
-};
-
-/** `arg` is `"<multiKey>:<value>"`, e.g. `"channels:whatsapp"`. */
-const toggleFilter: ActionHandler = (context, arg) => {
-  const separator = arg.indexOf(':');
-  if (separator === -1) return;
-  const key = arg.slice(0, separator);
-  const value = arg.slice(separator + 1);
-  if (!isMember(MULTI_KEYS, key)) return;
-  context.state.filter = toggleFilterValue(context.state.filter, key as MultiKey, value);
-  context.state.activeViewId = null;
-  context.refresh();
-};
-
-const clearAll: ActionHandler = (context) => {
-  context.state.filter = clearFilters(context.state.filter);
-  context.state.activeViewId = null;
-  context.refresh();
-};
-
-const resetInbox: ActionHandler = (context) => {
-  context.state.filter = createFilter();
-  context.state.activeViewId = null;
-  context.state.preview = 'ready';
-  context.refresh();
-};
-
-const applyView: ActionHandler = (context, arg) => {
-  const state = context.state;
-  const view = state.views.find((entry) => entry.id === arg);
-  if (view === undefined) return;
-  state.filter = filterFromView(view, state.filter);
-  state.activeViewId = view.id;
-  state.listOpen = false;
-  context.refresh();
-};
-
 const toggleMenu: ActionHandler = (context, arg) => {
   context.state.openMenu = context.state.openMenu === arg ? null : arg;
   context.refresh();
@@ -193,55 +89,14 @@ const closeMenu: ActionHandler = (context) => {
   context.refresh();
 };
 
-const toggleGroup: ActionHandler = (context, arg) => {
-  const collapsed = context.state.collapsedGroups;
-  context.state.collapsedGroups = collapsed.includes(arg)
-    ? collapsed.filter((entry) => entry !== arg)
-    : [...collapsed, arg];
-  context.refresh();
-};
-
-/**
- * Opening one side zone leaves focus mode. Nothing else force-closes the other
- * zone: CSS promotes a zone to an inline column only when the viewport can
- * seat the open combination, and otherwise renders it as a drawer, so the
- * timeline never drops below 640px whatever the operator opens.
- */
-const togglePanel: ActionHandler = (context) => {
-  context.state.panelOpen = !context.state.panelOpen;
-  if (context.state.panelOpen) context.state.focusMode = false;
-  context.refresh();
-};
-
 const toggleList: ActionHandler = (context) => {
   context.state.listOpen = !context.state.listOpen;
   context.refresh();
 };
 
-const toggleSidebar: ActionHandler = (context) => {
-  const open = !context.state.viewsOpen;
-  context.state.viewsOpen = open;
-  if (open) context.state.focusMode = false;
-  context.refresh();
-};
-
 /** Closes whichever overlay zones are open. Bound to Escape and to the scrim. */
 const closeOverlays: ActionHandler = (context, arg) => {
-  const state = context.state;
-  if (arg === 'views' || arg === '') state.viewsOpen = false;
-  if (arg === 'panel' || arg === '') state.panelOpen = false;
-  if (arg === 'list' || arg === '') state.listOpen = false;
-  context.refresh();
-};
-
-/** Focus mode: both optional side zones closed, timeline at maximum width. */
-const toggleFocus: ActionHandler = (context) => {
-  const next = !context.state.focusMode;
-  context.state.focusMode = next;
-  if (next) {
-    context.state.viewsOpen = false;
-    context.state.panelOpen = false;
-  }
+  if (arg === 'list' || arg === '') context.state.listOpen = false;
   context.refresh();
 };
 
@@ -273,298 +128,10 @@ const setLang: ActionHandler = (context, arg) => {
   context.refresh();
 };
 
-const setPreview: ActionHandler = (context, arg) => {
-  if (!isMember(PREVIEW_STATES, arg)) return;
-  context.state.preview = arg as PreviewState;
-  context.refresh();
-};
-
 const setRole: ActionHandler = (context, arg) => {
   if (!isMember(VIEWABLE_ROLES, arg)) return;
   context.state.role = arg;
   context.state.openMenu = null;
-  context.refresh();
-};
-
-const setComposerTab: ActionHandler = (context, arg) => {
-  context.state.composerTab = arg === 'note' ? 'note' : 'reply';
-  context.refresh();
-};
-
-const composerInput: ActionHandler = (context, arg) => {
-  const id = selectedId(context.state);
-  if (id === null) return;
-  writeDraft(context.state, id, context.state.composerTab, arg);
-};
-
-/** Channel window state for the selected conversation, in minutes remaining. */
-export function windowMinutesLeft(state: AppState, conversationId: string): number | null {
-  const conversation = findConversation(state, conversationId);
-  if (conversation === undefined || conversation.windowExpiresAt === null) return null;
-  return minutesUntil(conversation.windowExpiresAt, state.dataset.now);
-}
-
-const send: ActionHandler = (context) => {
-  const state = context.state;
-  const id = selectedId(state);
-  if (id === null) return;
-  const tab: ComposerTab = state.composerTab;
-  const body = readDraft(state, id, tab).trim();
-  if (body === '') {
-    pushToast(state, state.lang === 'ar' ? 'اكتب رسالة أولًا' : 'Write something first', 'warning');
-    context.refresh();
-    return;
-  }
-  if (tab === 'reply') {
-    const left = windowMinutesLeft(state, id);
-    if (left !== null && left <= 0) {
-      // Typed failure: no state change, and the draft is deliberately kept.
-      pushToast(
-        state,
-        state.lang === 'ar'
-          ? 'نافذة الرد على هذه القناة انتهت — استخدم قالبًا معتمدًا. لم تُحذف المسودة.'
-          : 'The channel window has expired — use an approved template. Your draft is kept.',
-        'danger',
-      );
-      context.refresh();
-      return;
-    }
-    const actor = currentActor(state);
-    appendTimeline(state, id, {
-      kind: 'message',
-      id: nextId(state, 'msg'),
-      direction: 'out',
-      authorName: state.lang === 'ar' ? actor.name : actor.nameEn,
-      body,
-      at: state.dataset.now.toISOString(),
-      delivery: 'sent',
-    });
-    patchConversation(state, id, {
-      snippet: body,
-      snippetDirection: 'out',
-      lastActivityAt: state.dataset.now.toISOString(),
-      unreadCount: 0,
-    });
-  } else {
-    const actor = currentActor(state);
-    appendTimeline(state, id, {
-      kind: 'note',
-      id: nextId(state, 'note'),
-      authorName: state.lang === 'ar' ? actor.name : actor.nameEn,
-      body,
-      at: state.dataset.now.toISOString(),
-    });
-    // A note never touches the customer-visible snippet or the provider window.
-  }
-  writeDraft(state, id, tab, '');
-  pushToast(
-    state,
-    tab === 'reply'
-      ? state.lang === 'ar'
-        ? 'تم إرسال الرد'
-        : 'Reply sent'
-      : state.lang === 'ar'
-        ? 'تمت إضافة الملاحظة الداخلية'
-        : 'Private note added',
-  );
-  context.refresh();
-};
-
-const insertText: ActionHandler = (context, arg) => {
-  const state = context.state;
-  const id = selectedId(state);
-  if (id === null) return;
-  const current = readDraft(state, id, state.composerTab);
-  writeDraft(state, id, state.composerTab, current === '' ? arg : `${current} ${arg}`);
-  state.openMenu = null;
-  context.refresh();
-};
-
-const attach: ActionHandler = (context) => {
-  const state = context.state;
-  const id = selectedId(state);
-  if (id === null) return;
-  appendTimeline(state, id, {
-    kind: 'event',
-    id: nextId(state, 'evt'),
-    text:
-      state.lang === 'ar'
-        ? 'أُرفق ملف بالمسودة: enrollment-48127.pdf (عرض توضيحي — لا يُرفع فعليًا)'
-        : 'Attached to draft: enrollment-48127.pdf (demo — nothing is uploaded)',
-    at: state.dataset.now.toISOString(),
-  });
-  pushToast(
-    state,
-    state.lang === 'ar' ? 'أُضيف المرفق إلى المسودة' : 'Attachment added to the draft',
-  );
-  context.refresh();
-};
-
-const assign: ActionHandler = (context, arg) => {
-  const state = context.state;
-  const id = selectedId(state);
-  if (id === null) return;
-  const actor = currentActor(state);
-  const target = arg === '' ? null : arg;
-  if (target !== actor.memberId && !canAssignOthers(actor)) {
-    pushToast(
-      state,
-      state.lang === 'ar'
-        ? 'صلاحية conversation.assign غير ممنوحة لدورك'
-        : 'Your role lacks conversation.assign',
-      'danger',
-    );
-    state.openMenu = null;
-    context.refresh();
-    return;
-  }
-  const member = state.dataset.members.find((entry) => entry.id === target);
-  const name =
-    member === undefined
-      ? state.lang === 'ar'
-        ? 'غير مُسندة'
-        : 'Unassigned'
-      : state.lang === 'ar'
-        ? member.name
-        : member.nameEn;
-  patchConversation(state, id, {
-    assigneeId: target,
-    participantIds: target === null ? [] : [target],
-  });
-  appendTimeline(state, id, {
-    kind: 'event',
-    id: nextId(state, 'evt'),
-    text: state.lang === 'ar' ? `تم الإسناد إلى ${name}` : `Assigned to ${name}`,
-    at: state.dataset.now.toISOString(),
-  });
-  state.openMenu = null;
-  pushToast(state, state.lang === 'ar' ? `أُسندت إلى ${name}` : `Assigned to ${name}`);
-  context.refresh();
-};
-
-const claim: ActionHandler = (context, arg) => {
-  const state = context.state;
-  const conversation = findConversation(state, arg);
-  if (conversation === undefined) return;
-  const actor = currentActor(state);
-  if (conversation.assigneeId !== null) {
-    // Atomic, version-checked claim: exactly one winner (business-rules §4.1).
-    pushToast(
-      state,
-      state.lang === 'ar'
-        ? 'CONVERSATION_VERSION_CONFLICT — استلمها زميل قبلك'
-        : 'CONVERSATION_VERSION_CONFLICT — a colleague claimed it first',
-      'danger',
-    );
-    context.refresh();
-    return;
-  }
-  patchConversation(state, arg, {
-    assigneeId: actor.memberId,
-    participantIds: [actor.memberId],
-    unreadCount: 0,
-  });
-  appendTimeline(state, arg, {
-    kind: 'event',
-    id: nextId(state, 'evt'),
-    text:
-      state.lang === 'ar'
-        ? `تم الاستلام بواسطة ${actor.name}`
-        : `Claimed by ${actor.nameEn}`,
-    at: state.dataset.now.toISOString(),
-  });
-  pushToast(
-    state,
-    state.lang === 'ar' ? 'تم استلام المحادثة — المحتوى متاح الآن' : 'Claimed — content unlocked',
-  );
-  context.navigate('inbox', arg);
-};
-
-const setStatus: ActionHandler = (context, arg) => {
-  const state = context.state;
-  const id = selectedId(state);
-  if (id === null) return;
-  const status = arg as ConversationStatus;
-  if (status === 'resolved') {
-    // Resolve requires a disposition — so it opens a dialog, never a bare click.
-    state.dialog = { kind: 'resolve', arg: id };
-    state.openMenu = null;
-    context.refresh();
-    return;
-  }
-  patchConversation(state, id, { status, snoozedUntil: null });
-  appendTimeline(state, id, {
-    kind: 'event',
-    id: nextId(state, 'evt'),
-    text:
-      state.lang === 'ar'
-        ? `تغيّرت الحالة إلى ${status === 'open' ? 'مفتوحة' : 'بانتظار العميل'}`
-        : `Status changed to ${status}`,
-    at: state.dataset.now.toISOString(),
-  });
-  state.openMenu = null;
-  context.refresh();
-};
-
-const resolveWith: ActionHandler = (context, arg) => {
-  const state = context.state;
-  const dialog = state.dialog;
-  if (dialog === null) return;
-  const id = dialog.arg;
-  patchConversation(state, id, { status: 'resolved', snoozedUntil: null, sla: 'none' });
-  appendTimeline(state, id, {
-    kind: 'event',
-    id: nextId(state, 'evt'),
-    text: state.lang === 'ar' ? `تم الحل — التصنيف: ${arg}` : `Resolved — disposition: ${arg}`,
-    at: state.dataset.now.toISOString(),
-  });
-  state.dialog = null;
-  pushToast(state, state.lang === 'ar' ? 'تم حل المحادثة' : 'Conversation resolved');
-  context.refresh();
-};
-
-const snooze: ActionHandler = (context, arg) => {
-  const state = context.state;
-  const id = selectedId(state);
-  if (id === null) return;
-  const minutes = Number.parseInt(arg, 10);
-  const wake = new Date(state.dataset.now.getTime() + minutes * 60_000);
-  patchConversation(state, id, { status: 'snoozed', snoozedUntil: wake.toISOString() });
-  appendTimeline(state, id, {
-    kind: 'event',
-    id: nextId(state, 'evt'),
-    text:
-      state.lang === 'ar'
-        ? `تم التأجيل — وقت الاستيقاظ مخزَّن بتوقيت UTC مع منطقة Africa/Cairo`
-        : `Snoozed — wake time stored in UTC with the Africa/Cairo zone`,
-    at: state.dataset.now.toISOString(),
-  });
-  state.dialog = null;
-  state.openMenu = null;
-  pushToast(state, state.lang === 'ar' ? 'تم تأجيل المحادثة' : 'Conversation snoozed');
-  context.refresh();
-};
-
-const setPriority: ActionHandler = (context, arg) => {
-  const state = context.state;
-  const id = selectedId(state);
-  if (id === null) return;
-  patchConversation(state, id, { priority: arg as Priority });
-  state.openMenu = null;
-  pushToast(state, state.lang === 'ar' ? 'تم تحديث الأولوية' : 'Priority updated');
-  context.refresh();
-};
-
-const markUnread: ActionHandler = (context) => {
-  const state = context.state;
-  const id = selectedId(state);
-  if (id === null) return;
-  patchConversation(state, id, { unreadCount: 1 });
-  state.openMenu = null;
-  pushToast(
-    state,
-    state.lang === 'ar' ? 'أُعيد تعليمها كغير مقروءة' : 'Marked unread for you only',
-  );
   context.refresh();
 };
 
@@ -596,41 +163,6 @@ const formInput: ActionHandler = (context, arg) => {
 /** Same as `form`, but re-renders — used by switches and other visible toggles. */
 const formToggle: ActionHandler = (context, arg) => {
   formInput(context, arg);
-  context.refresh();
-};
-
-const saveView: ActionHandler = (context) => {
-  const state = context.state;
-  const name = (state.dialogForm.name ?? '').trim();
-  if (name === '') {
-    pushToast(state, state.lang === 'ar' ? 'اكتب اسمًا للعرض' : 'Name the view first', 'warning');
-    context.refresh();
-    return;
-  }
-  const scopeValue = state.dialogForm.scope ?? 'private';
-  const scope: SavedView['scope'] =
-    scopeValue === 'team' || scopeValue === 'workspace' ? scopeValue : 'private';
-  const view: SavedView = {
-    id: nextId(state, 'view'),
-    name,
-    nameEn: name,
-    scope,
-    criteria: criteriaFromFilter(state.filter),
-  };
-  state.views = [...state.views, view];
-  state.activeViewId = view.id;
-  state.dialog = null;
-  state.dialogForm = {};
-  pushToast(state, state.lang === 'ar' ? 'تم حفظ العرض' : 'View saved');
-  context.refresh();
-};
-
-const deleteView: ActionHandler = (context, arg) => {
-  const state = context.state;
-  state.views = state.views.filter((view) => view.id !== arg);
-  if (state.activeViewId === arg) state.activeViewId = null;
-  state.openMenu = null;
-  pushToast(state, state.lang === 'ar' ? 'تم حذف العرض' : 'View deleted');
   context.refresh();
 };
 
@@ -689,50 +221,31 @@ const noop: ActionHandler = (context, arg) => {
   context.refresh();
 };
 
+/**
+ * The remaining demo actions.
+ *
+ * Everything the Inbox used to dispatch has gone with it: the inbox is served
+ * by `live-*` actions that reach the API. What is left here belongs to the
+ * workspace shell (tabs, theme, language, the rail) and to the three screens
+ * that are still seeded demos — Broadcasts, Analytics and Settings. When those
+ * are wired, this table goes with them.
+ */
 export const ACTIONS: Readonly<Record<string, ActionHandler>> = {
   nav,
   'close-tab': closeTab,
   theme: toggleTheme,
-  open: openConversation,
-  queue: setQueue,
-  sort: setSort,
-  search: setSearch,
-  date: setDate,
-  'toggle-filter': toggleFilter,
-  'clear-filters': clearAll,
-  'reset-inbox': resetInbox,
-  view: applyView,
   menu: toggleMenu,
   'close-menu': closeMenu,
-  group: toggleGroup,
-  panel: togglePanel,
   list: toggleList,
-  sidebar: toggleSidebar,
   'close-overlays': closeOverlays,
-  focus: toggleFocus,
   'resize-list': resizeList,
   'resize-list-step': resizeListStep,
   lang: setLang,
-  preview: setPreview,
   role: setRole,
-  'composer-tab': setComposerTab,
-  'composer-input': composerInput,
-  send,
-  insert: insertText,
-  attach,
-  assign,
-  claim,
-  status: setStatus,
-  resolve: resolveWith,
-  snooze,
-  priority: setPriority,
-  'mark-unread': markUnread,
   dialog: openDialog,
   'close-dialog': closeDialog,
   form: formInput,
   'form-toggle': formToggle,
-  'save-view': saveView,
-  'delete-view': deleteView,
   toast: dismissToast,
   campaign: campaignAction,
   demo: noop,

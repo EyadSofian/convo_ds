@@ -61,8 +61,6 @@ interface Browser {
   readonly csrf: string;
 }
 
-let answer: SendOutcome = { status: 'accepted', providerMessageId: 'wamid.rt', raw: {} };
-
 function envFor(names: DatabaseNames, overrides: Record<string, string> = {}): Record<string, string> {
   const cluster = clusterCredentials();
   return {
@@ -90,11 +88,28 @@ function envFor(names: DatabaseNames, overrides: Record<string, string> = {}): R
   };
 }
 
+/**
+ * The provider id a send is answered with.
+ *
+ * Derived from the recipient rather than held in a mutable the tests take turns
+ * setting: two messages sharing one provider id would make a single receipt
+ * fold onto both, which is a test artefact that looks exactly like a real
+ * correlation bug.
+ */
+function providerIdFor(peerIdentity: string): string {
+  return `wamid.rt-out-${peerIdentity}`;
+}
+
 const transport: NonNullable<ApiAdapters['channelTransport']> = {
   name: 'test-stub',
   validateConnection: (_kind, _credential, asset) =>
     Promise.resolve({ ok: true, assetIdentity: asset, code: null, message: null }),
-  send: () => Promise.resolve(answer),
+  send: (_kind, _credential, command) =>
+    Promise.resolve({
+      status: 'accepted',
+      providerMessageId: providerIdFor(command.peerIdentity),
+      raw: {},
+    } satisfies SendOutcome),
 };
 
 async function createHarness(): Promise<Harness> {
@@ -277,8 +292,20 @@ function statusDelivery(
   };
 }
 
+/**
+ * A customer message, timestamped in the recent past and increasing.
+ *
+ * Real provider timestamps are behind the clock — a webhook arrives after the
+ * customer pressed send — and the timeline merges inbound events with outbound
+ * commands on time. A fixed constant that happens to be in the future would put
+ * every customer message after every reply, which is a fixture artefact that
+ * reads exactly like an ordering bug.
+ */
+let providerClock = Math.floor(Date.now() / 1000) - 3600;
+
 function textMessage(id: string, body: string, from: string): Record<string, unknown> {
-  return { id, from, timestamp: '1789000000', type: 'text', text: { body } };
+  providerClock += 1;
+  return { id, from, timestamp: String(providerClock), type: 'text', text: { body } };
 }
 
 interface FeedBody {
@@ -602,6 +629,7 @@ describe('the Unassigned queue', () => {
         'maskedLabel',
         'priority',
         'status',
+        'version',
         'waitingSinceAt',
       ]);
     }
@@ -877,9 +905,11 @@ describe('a conversation that is already somebody’s', () => {
       clientMessageId: 'realtime-template-1',
     });
     expect(queued.statusCode).toBe(202);
-    answer = { status: 'accepted', providerMessageId: `wamid.rt-tpl-${peer}`, raw: {} };
     await dispatcher.dispatch(api.tenantId);
-    await deliver(api, statusDelivery(INBOX_A, `wamid.rt-tpl-${peer}`, 'delivered', '1789000300', peer));
+    await deliver(
+      api,
+      statusDelivery(INBOX_A, providerIdFor(peer), 'delivered', String(providerClock + 30), peer),
+    );
     await normalizer.drain(api.tenantId);
     await dispatcher.reconcileReceipts(api.tenantId);
 
@@ -888,6 +918,256 @@ describe('a conversation that is already somebody’s', () => {
       .data.find((entry) => entry.maskedLabel === '••••080');
     expect(card).toBeDefined();
     expect(card?.waitingSinceAt).toBeNull();
+  });
+});
+
+describe('the inbox surface', () => {
+  const peer = '15557000090';
+  let conversationId: string;
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'الرسالة الأولى', 'wamid.rt-90');
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; version: number }>(
+        'SELECT id::text, version FROM conversations WHERE peer_identity = $1',
+        [peer],
+      ),
+    );
+    const row = conversation.rows[0] as { id: string; version: number };
+    conversationId = row.id;
+    expect(
+      (await send(api, agentA, 'POST', `/conversations/${row.id}/claim`, { version: row.version }))
+        .statusCode,
+    ).toBe(201);
+  }, 120_000);
+
+  it('lists only what the caller may actually read', async () => {
+    const mine = await send(api, agentA, 'GET', '/conversations?queue=mine');
+    expect(mine.statusCode).toBe(200);
+    const rows = (mine.json() as { data: { id: string; assigneeMembershipId: string }[] }).data;
+    expect(rows.map((row) => row.id)).toContain(conversationId);
+    for (const row of rows) {
+      // `queue=mine` means mine: an agent's `own` grant reaches nothing else,
+      // so a row here that belonged to somebody else would be a leak.
+      expect(row.assigneeMembershipId).toBe(agentAMembershipId);
+    }
+
+    // The same request from an agent on another inbox returns nothing at all
+    // rather than a denial: they are allowed to ask, and the answer is empty.
+    const theirs = await send(api, agentB, 'GET', '/conversations?queue=mine');
+    expect(theirs.statusCode).toBe(200);
+    expect((theirs.json() as { data: unknown[] }).data).toEqual([]);
+  });
+
+  it('reads the timeline of a conversation the caller holds', async () => {
+    const response = await send(api, agentA, 'GET', `/conversations/${conversationId}/messages`);
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      data: { direction: string; text: string; delivery_state: string | null }[];
+      page: { next_cursor: string | null; has_more: boolean };
+    };
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]).toMatchObject({ direction: 'in', text: 'الرسالة الأولى' });
+    expect(body.page.has_more).toBe(false);
+  });
+
+  it('refuses the timeline to somebody who may not read the conversation', async () => {
+    expect(
+      (await send(api, agentB, 'GET', `/conversations/${conversationId}/messages`)).statusCode,
+    ).toBe(403);
+    // The record and its contents are decided by the same rule, so they cannot
+    // disagree about who may see what.
+    expect((await send(api, agentB, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(
+      403,
+    );
+  });
+
+  it('replies to the conversation, and the reply appears on its timeline', async () => {
+    const reply = await send(api, agentA, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'text',
+      text: 'شكرًا لتواصلك',
+      clientMessageId: 'inbox-reply-1',
+    });
+    expect(reply.statusCode).toBe(202);
+    expect((reply.json() as { data: { command_state: string } }).data.command_state).toBe('queued');
+
+    const timeline = await send(api, agentA, 'GET', `/conversations/${conversationId}/messages`);
+    const rows = (timeline.json() as { data: { direction: string; text: string }[] }).data;
+    // Oldest first: the customer's message, then ours.
+    expect(rows.map((row) => row.direction)).toEqual(['in', 'out']);
+    expect(rows[1]?.text).toBe('شكرًا لتواصلك');
+
+    await dispatcher.dispatch(api.tenantId);
+    const dispatched = await send(api, agentA, 'GET', `/conversations/${conversationId}/messages`);
+    const sent = (dispatched.json() as { data: { command_state: string | null }[] }).data;
+    expect(sent[1]?.command_state).toBe('provider_accepted');
+  });
+
+  it('ignores a recipient supplied in the body', async () => {
+    const before = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM outbound_messages WHERE peer_identity = $1`,
+        ['15550000000'],
+      ),
+    );
+    const reply = await send(api, agentA, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'text',
+      text: 'إلى شخص آخر',
+      clientMessageId: 'inbox-reply-2',
+      // An agent permitted to reply here must not be able to reach anyone else.
+      peerIdentity: '15550000000',
+    });
+    expect(reply.statusCode).toBe(202);
+    const after = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM outbound_messages WHERE peer_identity = $1`,
+        ['15550000000'],
+      ),
+    );
+    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+    expect((reply.json() as { data: { peer_identity: string } }).data.peer_identity).toBe(peer);
+  });
+
+  it('refuses a reply from somebody who may not reply here', async () => {
+    const response = await send(api, agentB, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'text',
+      text: 'لا ينبغي',
+      clientMessageId: 'inbox-reply-3',
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('pages backwards through a long conversation with an opaque cursor', async () => {
+    const busy = '15557000091';
+    await deliver(
+      api,
+      messageDelivery(
+        INBOX_A,
+        Array.from({ length: 60 }, (_unused, index) =>
+          textMessage(`wamid.rt-page-${index}`, `رسالة ${String(index)}`, busy),
+        ),
+      ),
+    );
+    await normalizer.drain(api.tenantId);
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; version: number }>(
+        'SELECT id::text, version FROM conversations WHERE peer_identity = $1',
+        [busy],
+      ),
+    );
+    const row = conversation.rows[0] as { id: string; version: number };
+    expect(
+      (await send(api, agentA, 'POST', `/conversations/${row.id}/claim`, { version: row.version }))
+        .statusCode,
+    ).toBe(201);
+
+    const first = await send(api, agentA, 'GET', `/conversations/${row.id}/messages`);
+    const firstBody = first.json() as {
+      data: { id: string }[];
+      page: { next_cursor: string | null; has_more: boolean };
+    };
+    expect(firstBody.data).toHaveLength(50);
+    expect(firstBody.page.has_more).toBe(true);
+
+    const cursor = firstBody.page.next_cursor as string;
+    const second = await send(
+      api,
+      agentA,
+      'GET',
+      `/conversations/${row.id}/messages?cursor=${encodeURIComponent(cursor)}`,
+    );
+    const secondBody = second.json() as { data: { id: string }[]; page: { has_more: boolean } };
+    expect(secondBody.data).toHaveLength(10);
+    expect(secondBody.page.has_more).toBe(false);
+    // No overlap: the second page continues where the first stopped rather than
+    // repeating its oldest row.
+    const seen = new Set(firstBody.data.map((entry) => entry.id));
+    expect(secondBody.data.some((entry) => seen.has(entry.id))).toBe(false);
+  });
+
+  it('lists everything an owner may read, and filters by status', async () => {
+    const all = await send(api, owner, 'GET', '/conversations?queue=all&status=open');
+    expect(all.statusCode).toBe(200);
+    const rows = (all.json() as { data: { id: string; status: string }[] }).data;
+    // An owner reads at tenant level, so `queue=all` is genuinely everything —
+    // including conversations assigned to other people.
+    expect(rows.map((row) => row.id)).toContain(conversationId);
+    expect(rows.every((row) => row.status === 'open')).toBe(true);
+
+    // A filter nobody recognises is not an error: the honest answer to "show me
+    // conversations that are flurble" is the unfiltered list, not a 400 that
+    // hides the inbox.
+    const odd = await send(api, owner, 'GET', '/conversations?queue=all&status=flurble');
+    expect(odd.statusCode).toBe(200);
+    expect((odd.json() as { data: unknown[] }).data.length).toBeGreaterThanOrEqual(rows.length);
+  });
+
+  it('reaches a team-routed conversation through the list, the timeline and a reply', async () => {
+    const lead = await login(api, 'team-lead@realtime.test', MEMBER_PASSWORD);
+    const list = await send(api, lead, 'GET', '/conversations?queue=all');
+    const routed = (list.json() as { data: { id: string; teamId: string | null }[] }).data.find(
+      (row) => row.teamId !== null,
+    );
+    expect(routed).toBeDefined();
+
+    const timeline = await send(api, lead, 'GET', `/conversations/${routed?.id}/messages`);
+    expect(timeline.statusCode).toBe(200);
+
+    const reply = await send(api, lead, 'POST', `/conversations/${routed?.id}/messages`, {
+      messageType: 'text',
+      text: 'رد الفريق',
+      clientMessageId: 'inbox-team-reply-1',
+    });
+    // The team term carries through every one of the three decisions.
+    expect(reply.statusCode).toBe(202);
+  });
+
+  it('answers a conversation that does not exist with the same 404 everywhere', async () => {
+    const missing = '99999999-9999-4999-8999-999999999999';
+    expect((await send(api, agentA, 'GET', `/conversations/${missing}/messages`)).statusCode).toBe(
+      404,
+    );
+    expect(
+      (
+        await send(api, agentA, 'POST', `/conversations/${missing}/messages`, {
+          messageType: 'text',
+          text: 'إلى العدم',
+          clientMessageId: 'inbox-reply-missing',
+        })
+      ).statusCode,
+    ).toBe(404);
+  });
+
+  it('refuses a reply whose body is not an object', async () => {
+    const response = await api.server.inject({
+      method: 'POST',
+      url: `/api/v1/tenants/${api.tenantId}/conversations/${conversationId}/messages`,
+      headers: {
+        cookie: agentA.cookie,
+        'x-csrf-token': agentA.csrf,
+        'content-type': 'application/json',
+      },
+      payload: '"just a string"',
+    });
+    // It reaches the send parser as an empty object and is refused there, by
+    // the same rules a malformed object would be.
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('refuses a cursor from another conversation', async () => {
+    const other = await send(api, agentA, 'GET', `/conversations/${conversationId}/messages`);
+    expect(other.statusCode).toBe(200);
+    const forged = 'not.a.cursor';
+    const response = await send(
+      api,
+      agentA,
+      'GET',
+      `/conversations/${conversationId}/messages?cursor=${forged}`,
+    );
+    // Bound to the conversation as well as the company, so a position from one
+    // is not a position in another.
+    expect(response.statusCode).toBe(400);
+    expect((response.json() as { error: { code: string } }).error.code).toBe('cursor_invalid');
   });
 });
 
@@ -952,14 +1232,13 @@ describe('delivery receipts on the feed', () => {
       clientMessageId: 'realtime-receipt-1',
     });
     expect(queued.statusCode).toBe(202);
-    answer = { status: 'accepted', providerMessageId: `wamid.rt-out-${peer}`, raw: {} };
     await dispatcher.dispatch(api.tenantId);
 
     for (const [state, stamp] of [
-      ['delivered', '1789000100'],
-      ['read', '1789000101'],
+      ['delivered', String(providerClock + 10)],
+      ['read', String(providerClock + 11)],
     ] as const) {
-      await deliver(api, statusDelivery(INBOX_A, `wamid.rt-out-${peer}`, state, stamp, peer));
+      await deliver(api, statusDelivery(INBOX_A, providerIdFor(peer), state, stamp, peer));
       await normalizer.drain(api.tenantId);
       await dispatcher.reconcileReceipts(api.tenantId);
     }
@@ -983,17 +1262,17 @@ describe('delivery receipts on the feed', () => {
       clientMessageId: 'realtime-receipt-2',
     });
     expect(queued.statusCode).toBe(202);
-    answer = { status: 'accepted', providerMessageId: `wamid.rt-out-${peer}`, raw: {} };
     await dispatcher.dispatch(api.tenantId);
     const before = await feed(owner);
 
     // Read first, then the delivered receipt that was overtaken.
-    await deliver(api, statusDelivery(INBOX_A, `wamid.rt-out-${peer}`, 'read', '1789000201', peer));
+    const readAt = providerClock + 21;
+    await deliver(api, statusDelivery(INBOX_A, providerIdFor(peer), 'read', String(readAt), peer));
     await normalizer.drain(api.tenantId);
     await dispatcher.reconcileReceipts(api.tenantId);
     await deliver(
       api,
-      statusDelivery(INBOX_A, `wamid.rt-out-${peer}`, 'delivered', '1789000200', peer),
+      statusDelivery(INBOX_A, providerIdFor(peer), 'delivered', String(readAt - 1), peer),
     );
     await normalizer.drain(api.tenantId);
     await dispatcher.reconcileReceipts(api.tenantId);

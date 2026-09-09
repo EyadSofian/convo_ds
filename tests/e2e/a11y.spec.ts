@@ -2,7 +2,15 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import { freezeClock, MATRIX, openInbox, setDirection, setTheme } from './support/workspace';
+import { installApi } from './support/api';
+import {
+  freezeClock,
+  MATRIX,
+  openInbox,
+  openScreen,
+  setDirection,
+  setTheme,
+} from './support/workspace';
 
 /**
  * Accessibility acceptance — task §3, "Run accessibility checks for keyboard,
@@ -61,37 +69,57 @@ test.describe('axe: no WCAG 2.1 AA violations', () => {
     });
   }
 
-  test('inbox with both side zones open', async ({ page }) => {
+  test('inbox with the queue drawer open', async ({ page }) => {
     await openInbox(page);
-    await page.locator('.topbar [data-act="sidebar"]').click();
-    await page.locator('.thread__header [data-act="panel"]').click();
+    await page.locator('.topbar [data-act="list"]').click();
+    expect(describeViolations(await audit(page))).toEqual([]);
+  });
+
+  test('inbox showing this agent’s own conversations', async ({ page }) => {
+    await openInbox(page);
+    await page.locator('[data-act="live-inbox-queue"][data-arg="mine"]').click();
     expect(describeViolations(await audit(page))).toEqual([]);
   });
 
   for (const screen of ['channels', 'people', 'broadcasts', 'analytics', 'settings'] as const) {
     test(`workspace screen — ${screen}`, async ({ page }) => {
-      await freezeClock(page);
-      await page.goto(`/#/${screen}`);
-      await expect(page.locator('.workspace')).toBeVisible();
+      await openScreen(page, screen);
       expect(describeViolations(await audit(page))).toEqual([]);
     });
   }
 
   test('open dialog', async ({ page }) => {
-    await openInbox(page);
-    await page.locator('[data-act="dialog"][data-arg="filters"]').first().click();
+    // Viewed as the role that may draft a campaign: the control is not offered
+    // to a role without the grant, which is the point of the matrix.
+    await openScreen(page, 'broadcasts', '?as=campaign_manager');
+    await page.locator('[data-act="dialog"][data-arg="campaign"]').first().click();
     await expect(page.locator('.dialog')).toBeVisible();
     expect(describeViolations(await audit(page))).toEqual([]);
   });
 
-  test('permission-denied and empty states', async ({ page }) => {
-    await openInbox(page);
-    // The offline state also renders a "retry" button carrying the same
-    // action, so the switcher is addressed as the select specifically.
-    const preview = page.locator('select[data-act="preview"]');
-    for (const state of ['empty', 'offline', 'denied']) {
-      await preview.selectOption(state);
-      expect(describeViolations(await audit(page)), `preview=${state}`).toEqual([]);
+  test('the states the server can put the inbox in', async ({ page }) => {
+    // The empty and refused states are the server's answers now, not a preview
+    // switch: they are produced by scripting the API, which is the only way
+    // they can appear in the shipped product.
+    for (const reply of [
+      { status: 200, body: { data: [] } },
+      { status: 403, body: { error: { code: 'permission_denied', message: 'No.' } } },
+      { status: 500, body: { error: { code: 'internal', message: 'Try later.' } } },
+    ]) {
+      await freezeClock(page);
+      await installApi(page);
+      await page.route('**/conversations/unassigned', (route) =>
+        route.fulfill({
+          status: reply.status,
+          contentType: 'application/json',
+          body: JSON.stringify(reply.body),
+        }),
+      );
+      await page.goto('/#/inbox');
+      await expect(page.locator('.zone--list')).toBeVisible();
+      await expect(page.locator('.zone--list .statebox, .convrow').first()).toBeVisible();
+      expect(describeViolations(await audit(page)), `status=${String(reply.status)}`).toEqual([]);
+      await page.unrouteAll();
     }
   });
 });
@@ -162,7 +190,7 @@ test.describe('keyboard operation', () => {
 
   test('shows a visible focus ring on the focused control', async ({ page }) => {
     await openInbox(page);
-    const target = page.locator('.convrow').first();
+    const target = page.locator('.convrow [data-act="live-inbox-claim"]').first();
     await target.focus();
     const outline = await target.evaluate((element) => {
       const style = window.getComputedStyle(element);
@@ -173,8 +201,8 @@ test.describe('keyboard operation', () => {
   });
 
   test('a dialog can be dismissed with Escape and returns to the page', async ({ page }) => {
-    await openInbox(page);
-    await page.locator('[data-act="dialog"][data-arg="filters"]').first().click();
+    await openScreen(page, 'broadcasts', '?as=campaign_manager');
+    await page.locator('[data-act="dialog"][data-arg="campaign"]').first().click();
     await expect(page.locator('.dialog')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('.dialog')).toHaveCount(0);
@@ -220,10 +248,10 @@ test.describe('motion and zoom', () => {
       await page.setViewportSize({ width: 683, height: 384 });
 
       // Below 1028px the queue is a drawer, so the timeline and composer stay
-      // operable and the list is reached through the back-to-list control —
-      // not four columns crushed together.
+      // operable and the list is reached from the top bar — not two columns
+      // crushed together.
       await expect(page.locator('.composer__input')).toBeVisible();
-      await page.locator('.thread__back').click();
+      await page.locator('.topbar [data-act="list"]').click();
       await expect(page.locator('.convrow').first()).toBeVisible();
 
       const overflow = await page.evaluate(

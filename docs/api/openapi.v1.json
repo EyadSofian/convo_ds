@@ -1013,6 +1013,73 @@
         }
       }
     },
+    "/tenants/{tenantId}/conversations": {
+      "get": {
+        "operationId": "listConversations",
+        "summary": "List the conversations this caller may read",
+        "description": "Returns **records**, and every row is one the caller passed `conversation.read` for — decided per row, not once for the list. Different from the Unassigned queue, which returns projected cards for work nobody holds. `queue=mine` (the default) returns the caller's own conversations; `queue=all` returns everything within their reach, which for an Agent is still only their own.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "queue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "mine",
+                "all"
+              ],
+              "default": "mine"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "snoozed",
+                "resolved"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The conversations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/tenants/{tenantId}/conversations/unassigned": {
       "get": {
         "operationId": "listUnassignedConversations",
@@ -1184,6 +1251,141 @@
             "$ref": "#/components/responses/Error"
           },
           "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/messages": {
+      "get": {
+        "operationId": "listConversationMessages",
+        "summary": "Read one page of a conversation's timeline",
+        "description": "Inbound events and outbound commands merged for reading and returned oldest-first within the page. Authorized exactly like reading the conversation itself. `cursor` walks **backwards** into the history; it is opaque, signed, bound to this company, this conversation and this sort, and expires — a stale or foreign one is answered `cursor_invalid` or `cursor_expired` with a safe refresh path rather than silently restarting at the top.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the timeline.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelineResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "replyToConversation",
+        "summary": "Reply inside a conversation",
+        "description": "Answers **202** once the command and its outbox row have committed; nothing has been sent yet. Requires `conversation.reply` for this conversation, so an Agent may reply to the conversations they hold and to no others. The recipient comes from the conversation record: a `peerIdentity` in the body is ignored, because an agent permitted to reply to one customer must not be able to reach another by editing a field.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The queued command.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboundMessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
             "$ref": "#/components/responses/Error"
           },
           "default": {
@@ -5261,7 +5463,8 @@
           "priority",
           "status",
           "waitingSinceAt",
-          "claimable"
+          "claimable",
+          "version"
         ],
         "properties": {
           "id": {
@@ -5313,6 +5516,11 @@
           },
           "claimable": {
             "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The version to send with a claim. An optimistic-concurrency token, not a fact about the customer: without it the role the queue exists for could not satisfy the version-checked claim (IAM-13)."
           }
         }
       },
@@ -5621,6 +5829,148 @@
                 "description": "Events still waiting beyond this page."
               }
             }
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ConversationListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Conversation"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "TimelineMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "direction",
+          "at",
+          "content_type",
+          "text",
+          "attachments",
+          "author_membership_id",
+          "command_state",
+          "delivery_state",
+          "delivery_anomaly",
+          "provider_message_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ]
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The provider's time for an inbound message, ours for an outbound command."
+          },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "text"
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "مرحبا، أريد التسجيل"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "author_membership_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Outbound only: the agent who wrote it."
+          },
+          "command_state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Outbound only: what we asked the provider to do."
+          },
+          "delivery_state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "sent",
+              "delivered",
+              "read",
+              null
+            ],
+            "description": "Outbound only: what the provider later said happened."
+          },
+          "delivery_anomaly": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "delivered_after_read"
+          },
+          "provider_message_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TimelineResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelineMessage"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
           },
           "request_id": {
             "type": "string"

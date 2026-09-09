@@ -1,51 +1,54 @@
 import { describe, expect, it } from 'vitest';
-import { CURRENT_MEMBER_ID } from './data';
-import { createFilter } from './filters';
 import { parseHash } from './router';
 import {
-  appendTimeline,
   applyRoute,
   clampListWidth,
   createState,
   currentActor,
-  draftKey,
-  findConversation,
   LIST_WIDTH_DEFAULT,
   LIST_WIDTH_MAX,
   LIST_WIDTH_MIN,
   nextId,
-  patchConversation,
-  PREVIEW_STATES,
   pushToast,
-  readDraft,
   routeParamsFor,
   screenTitle,
   VIEWABLE_ROLES,
-  writeDraft,
 } from './state';
 
-const NOW = new Date('2026-09-08T12:00:00.000Z');
+/**
+ * Workspace state, after the Inbox became server-backed.
+ *
+ * What used to live in this state — a local copy of every conversation, the
+ * filters over them, the drafts and the saved views — is gone. The Inbox reads
+ * from `state.live`, which is exercised against a real server elsewhere. What
+ * remains here is the shell: the route, the language, the list column, dialogs
+ * and the seeded dataset the three remaining demo screens still draw from.
+ */
+
+const NOW = new Date('2026-09-09T09:30:00.000Z');
 
 describe('createState', () => {
-  it('boots in Arabic, as a supervisor, with the standard views', () => {
+  it('boots in Arabic, as a supervisor, showing the unassigned queue', () => {
     const state = createState(NOW);
     expect(state.lang).toBe('ar');
     expect(state.role).toBe('supervisor');
-    expect(state.preview).toBe('ready');
-    expect(state.views).toHaveLength(state.dataset.views.length);
+    expect(state.inboxQueue).toBe('unassigned');
+    expect(state.clock).toEqual(NOW);
   });
 
-  /**
-   * Both optional side zones start closed and the timeline starts at full
-   * width (task §3). A default-open panel is what pushed the message area
-   * under 640px on a 1366px screen.
-   */
-  it('starts with both optional side zones closed and focus mode off', () => {
+  it('holds no conversation of its own', () => {
     const state = createState(NOW);
-    expect(state.viewsOpen).toBe(false);
-    expect(state.panelOpen).toBe(false);
+    // The inbox is not seeded locally any more. Everything it shows arrives
+    // from the API, so an empty live state is the honest starting point.
+    expect(state.live.conversations.status).toBe('idle');
+    expect(state.live.unassigned.status).toBe('idle');
+    expect(state.live.openConversationId).toBeNull();
+    expect(state.live.realtime).toEqual({ status: 'idle' });
+  });
+
+  it('starts with the list drawer closed and the timeline at full width', () => {
+    const state = createState(NOW);
     expect(state.listOpen).toBe(false);
-    expect(state.focusMode).toBe(false);
     expect(state.listWidth).toBe(LIST_WIDTH_DEFAULT);
   });
 
@@ -55,144 +58,96 @@ describe('createState', () => {
     expect(clampListWidth(340.4)).toBe(340);
     expect(clampListWidth(Number.NaN)).toBe(LIST_WIDTH_DEFAULT);
   });
-
-  it('copies the timelines so demo edits never mutate the seed', () => {
-    const state = createState(NOW);
-    appendTimeline(state, 'cv-4821', { kind: 'event', id: 'e-x', text: 'x', at: NOW.toISOString() });
-    expect(state.timelines['cv-4821']?.length).toBe(
-      (state.dataset.timelines['cv-4821']?.length ?? 0) + 1,
-    );
-  });
 });
 
 describe('currentActor', () => {
-  it('keeps the identity and swaps only the effective role', () => {
+  it('keeps the identity and changes only the effective role', () => {
     const state = createState(NOW);
+    const before = currentActor(state);
     state.role = 'agent';
-    const actor = currentActor(state);
-    expect(actor.memberId).toBe(CURRENT_MEMBER_ID);
-    expect(actor.role).toBe('agent');
-    expect(actor.inboxIds.length).toBeGreaterThan(0);
+    const after = currentActor(state);
+    expect(after.memberId).toBe(before.memberId);
+    expect(after.role).toBe('agent');
   });
 
-  it('degrades safely when the member record is missing', () => {
+  it('refuses to invent an actor when the seed has no such member', () => {
     const state = createState(NOW);
     state.dataset = { ...state.dataset, members: [] };
-    expect(currentActor(state).name).toBe('CONVO');
-    expect(currentActor(state).inboxIds).toEqual([]);
+    // A placeholder here would render a workspace belonging to nobody, and
+    // every permission decision on screen would be about that nobody.
+    expect(() => currentActor(state)).toThrow(/has no member/);
   });
 });
 
-describe('mutators', () => {
-  it('patches one conversation without touching the others', () => {
+describe('toasts', () => {
+  it('numbers each one and keeps only the last three', () => {
     const state = createState(NOW);
-    patchConversation(state, 'cv-4821', { unreadCount: 0 });
-    expect(findConversation(state, 'cv-4821')?.unreadCount).toBe(0);
-    expect(findConversation(state, 'cv-4817')?.unreadCount).toBeGreaterThan(0);
-    expect(findConversation(state, 'cv-missing')).toBeUndefined();
+    for (const text of ['one', 'two', 'three', 'four']) {
+      pushToast(state, text);
+    }
+    expect(state.toasts.map((toast) => toast.text)).toEqual(['two', 'three', 'four']);
+    expect(new Set(state.toasts.map((toast) => toast.id)).size).toBe(3);
   });
 
-  it('appends to an unseen timeline key', () => {
+  it('carries a tone, defaulting to plain', () => {
     const state = createState(NOW);
-    appendTimeline(state, 'cv-new', { kind: 'event', id: 'e', text: 'x', at: NOW.toISOString() });
-    expect(state.timelines['cv-new']).toHaveLength(1);
+    pushToast(state, 'plain');
+    pushToast(state, 'bad', 'danger');
+    expect(state.toasts[0]?.tone).toBe('default');
+    expect(state.toasts[1]?.tone).toBe('danger');
   });
 
-  it('issues monotonic ids', () => {
+  it('hands out ids that do not repeat', () => {
     const state = createState(NOW);
-    expect(nextId(state, 'msg')).toBe('msg-1');
-    expect(nextId(state, 'msg')).toBe('msg-2');
-  });
-
-  it('keeps at most three toasts', () => {
-    const state = createState(NOW);
-    for (let index = 0; index < 5; index += 1) pushToast(state, `t${index}`);
-    expect(state.toasts).toHaveLength(3);
-    expect(state.toasts[2]?.text).toBe('t4');
-    pushToast(state, 'warn', 'warning');
-    expect(state.toasts[2]?.tone).toBe('warning');
-  });
-
-  it('stores drafts per conversation and per tab', () => {
-    const state = createState(NOW);
-    expect(draftKey('cv-1', 'note')).toBe('cv-1|note');
-    writeDraft(state, 'cv-1', 'reply', 'hello');
-    expect(readDraft(state, 'cv-1', 'reply')).toBe('hello');
-    expect(readDraft(state, 'cv-1', 'note')).toBe('');
-    expect(readDraft(state, 'cv-2', 'reply')).toBe('');
+    expect(nextId(state, 'x')).toBe('x-1');
+    expect(nextId(state, 'x')).toBe('x-2');
   });
 });
 
-describe('URL <-> state', () => {
-  it('encodes only what differs from the defaults', () => {
+describe('URL round-trip', () => {
+  it('encodes only what is worth sharing', () => {
     const state = createState(NOW);
     expect(routeParamsFor(state)).toEqual({});
+
     state.lang = 'en';
-    state.preview = 'offline';
     state.role = 'agent';
-    state.activeViewId = 'v-sla';
-    state.filter = { ...createFilter(), queue: 'mine', sort: 'sla', query: 'شحن' };
-    expect(routeParamsFor(state)).toEqual({
-      lang: 'en',
-      state: 'offline',
-      as: 'agent',
-      view: 'v-sla',
-      queue: 'mine',
-      sort: 'sla',
-      q: 'شحن',
-    });
+    state.inboxQueue = 'mine';
+    expect(routeParamsFor(state)).toEqual({ lang: 'en', as: 'agent', queue: 'mine' });
   });
 
-  it('omits inbox-only parameters on other screens', () => {
+  it('does not encode the queue on another screen', () => {
     const state = createState(NOW);
-    state.route = { screen: 'analytics', conversationId: null, params: {} };
-    state.filter = { ...state.filter, queue: 'mine' };
-    expect(routeParamsFor(state)).toEqual({});
+    state.inboxQueue = 'mine';
+    state.route = { ...state.route, screen: 'channels' };
+    expect(routeParamsFor(state).queue).toBeUndefined();
   });
 
-  it('restores language, preview state, role, queue, sort and query', () => {
+  it('reads the language, the role, the queue and the conversation back', () => {
     const state = createState(NOW);
-    applyRoute(state, parseHash('#/inbox/cv-4820?lang=en&state=loading&as=agent&queue=unread&sort=sla&q=abc'));
+    applyRoute(state, parseHash('#/inbox/cv-4820?lang=en&as=agent&queue=mine'));
     expect(state.lang).toBe('en');
-    expect(state.preview).toBe('loading');
     expect(state.role).toBe('agent');
-    expect(state.filter.queue).toBe('unread');
-    expect(state.filter.sort).toBe('sla');
-    expect(state.filter.query).toBe('abc');
+    expect(state.inboxQueue).toBe('mine');
     expect(state.route.conversationId).toBe('cv-4820');
   });
 
-  it('rebuilds a saved view named in the URL', () => {
+  it('falls back to the defaults for values it does not recognise', () => {
     const state = createState(NOW);
-    applyRoute(state, parseHash('#/inbox?view=v-vip'));
-    expect(state.activeViewId).toBe('v-vip');
-    expect(state.filter.labels).toEqual(['lb-vip']);
-  });
-
-  it('ignores unknown values and falls back to the defaults', () => {
-    const state = createState(NOW);
-    applyRoute(state, parseHash('#/inbox?state=nope&as=nope&queue=nope&sort=nope&view=nope&lang=de'));
-    expect(state.preview).toBe('ready');
+    applyRoute(state, parseHash('#/inbox?as=nope&queue=nope&lang=de'));
     expect(state.role).toBe('supervisor');
-    expect(state.filter.queue).toBe('all');
-    expect(state.filter.sort).toBe('recent');
-    expect(state.activeViewId).toBeNull();
+    expect(state.inboxQueue).toBe('unassigned');
     expect(state.lang).toBe('ar');
   });
 
-  it('leaves the inbox filter alone on a non-inbox route', () => {
+  it('leaves the queue alone on a non-inbox route', () => {
     const state = createState(NOW);
-    state.filter = { ...state.filter, queue: 'mine' };
+    state.inboxQueue = 'mine';
     applyRoute(state, parseHash('#/channels'));
-    expect(state.filter.queue).toBe('mine');
+    expect(state.inboxQueue).toBe('mine');
   });
 
-  it('round-trips every preview state and viewable role', () => {
+  it('round-trips every viewable role', () => {
     const state = createState(NOW);
-    for (const preview of PREVIEW_STATES) {
-      applyRoute(state, parseHash(`#/inbox?state=${preview}`));
-      expect(state.preview).toBe(preview);
-    }
     for (const role of VIEWABLE_ROLES) {
       applyRoute(state, parseHash(`#/inbox?as=${role}`));
       expect(state.role).toBe(role);

@@ -1,5 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
-import { freezeClock, MATRIX, openInbox, setDirection, setTheme } from './support/workspace';
+import { installApi } from './support/api';
+import {
+  freezeClock,
+  MATRIX,
+  openInbox,
+  openScreen,
+  setDirection,
+  setTheme,
+} from './support/workspace';
 
 /**
  * Visual regression — task §3, "Add visual-regression screenshots ... for the
@@ -62,25 +70,18 @@ test.describe('inbox baselines', () => {
     });
   }
 
-  test('inbox with the views sidebar open', async ({ page }) => {
+  test('inbox with the queue drawer open', async ({ page }) => {
     await openInbox(page);
-    await page.locator('.topbar [data-act="sidebar"]').click();
-    await expect(page.locator('.zone--views')).toBeVisible();
-    await expect(page).toHaveScreenshot('inbox-views-open.png');
+    await page.locator('.topbar [data-act="list"]').click();
+    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'open');
+    await expect(page).toHaveScreenshot('inbox-list-open.png');
   });
 
-  test('inbox with the customer panel open', async ({ page }) => {
+  test('inbox showing this agent’s own conversations', async ({ page }) => {
     await openInbox(page);
-    await page.locator('.thread__header [data-act="panel"]').click();
-    await expect(page.locator('.zone--panel')).toBeVisible();
-    await expect(page).toHaveScreenshot('inbox-panel-open.png');
-  });
-
-  test('focus mode', async ({ page }) => {
-    await openInbox(page);
-    await page.locator('[data-act="focus"]').click();
-    await expect(page.locator('.inbox')).toHaveAttribute('data-focus', 'on');
-    await expect(page).toHaveScreenshot('inbox-focus-mode.png');
+    await page.locator('[data-act="live-inbox-queue"][data-arg="mine"]').click();
+    await expect(page.locator('.convrow--record').first()).toBeVisible();
+    await expect(page).toHaveScreenshot('inbox-mine.png');
   });
 
   test('queue list rows in isolation', async ({ page }) => {
@@ -88,40 +89,51 @@ test.describe('inbox baselines', () => {
     await expect(page.locator('.zone--list')).toHaveScreenshot('queue-list.png');
   });
 
-  test('composer in reply and note modes', async ({ page }) => {
+  test('composer, ready to reply', async ({ page }) => {
     await openInbox(page);
     await expect(page.locator('.composer')).toHaveScreenshot('composer-reply.png');
-    await page.locator('[data-act="composer-tab"][data-arg="note"]').click();
-    await expect(page.locator('.composer')).toHaveScreenshot('composer-note.png');
   });
 });
 
 test.describe('state baselines', () => {
-  for (const state of ['loading', 'empty', 'offline', 'denied'] as const) {
-    test(`preview state — ${state}`, async ({ page }) => {
-      await openInbox(page);
-      await page.locator('select[data-act="preview"]').selectOption(state);
-      await expect(page).toHaveScreenshot(`state-${state}.png`);
+  for (const [name, reply] of [
+    ['empty', { status: 200, body: { data: [] } }],
+    ['denied', { status: 403, body: { error: { code: 'permission_denied', message: 'No.' } } }],
+    ['offline', { status: 503, body: { error: { code: 'unavailable', message: 'Try later.' } } }],
+  ] as const) {
+    test(`queue state — ${name}`, async ({ page }) => {
+      // Produced by the server's answer, not by a preview switch: these are the
+      // only ways the shipped screen can reach them.
+      await freezeClock(page);
+      await installApi(page);
+      await page.route('**/conversations/unassigned', (route) =>
+        route.fulfill({
+          status: reply.status,
+          contentType: 'application/json',
+          body: JSON.stringify(reply.body),
+        }),
+      );
+      await page.goto('/#/inbox');
+      await expect(page.locator('.zone--list .statebox')).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      await expect(page).toHaveScreenshot(`state-${name}.png`);
     });
   }
 
   test('projected unassigned queue for an agent', async ({ page }) => {
-    // business-rules.md §4.1: no snippet, no PII, claim-first.
-    await freezeClock(page);
-    await page.goto('/#/inbox?as=agent&queue=unassigned');
+    // business-rules.md §4.1: no snippet, no PII, claim-first. What is drawn
+    // here is exactly what the server sent, because the projection happens
+    // there.
+    await openInbox(page);
     await expect(page.locator('.convrow').first()).toBeVisible();
-    await page.evaluate(() => document.fonts.ready);
-    await expect(page).toHaveScreenshot('queue-projection-agent.png');
+    await expect(page.locator('.zone--list')).toHaveScreenshot('queue-projection-agent.png');
   });
 });
 
 test.describe('workspace screen baselines', () => {
   for (const screen of ['channels', 'people', 'broadcasts', 'analytics', 'settings'] as const) {
     test(`screen — ${screen}`, async ({ page }) => {
-      await freezeClock(page);
-      await page.goto(`/#/${screen}`);
-      await expect(page.locator('.workspace')).toBeVisible();
-      await page.evaluate(() => document.fonts.ready);
+      await openScreen(page, screen);
       await expect(page).toHaveScreenshot(`screen-${screen}.png`);
       // The half the pixels cannot do: this fails the moment a screen is
       // replaced by a different one, however similar the two look.

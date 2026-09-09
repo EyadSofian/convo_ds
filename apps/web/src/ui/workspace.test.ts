@@ -39,6 +39,19 @@ describe('broadcasts', () => {
     expect(text(element)).toContain('القبول من المزوّد ليس تسليمًا');
   });
 
+  it('names a channel it does not have a label for by its own name', () => {
+    const state = stateAs('admin');
+    const first = state.dataset.campaigns[0];
+    if (first === undefined) throw new Error('the seed has no campaign');
+    state.dataset = {
+      ...state.dataset,
+      campaigns: [{ ...first, channel: 'telegram' as typeof first.channel }],
+    };
+    // A newer server naming a channel this build has no word for is
+    // information, not noise: it is shown as itself rather than dropped.
+    expect(text(renderBroadcasts(state))).toContain('telegram');
+  });
+
   it('shows an unfixed audience snapshot honestly', () => {
     expect(text(renderBroadcasts(stateAs('admin')))).toContain('لم تُثبَّت بعد');
   });

@@ -3,11 +3,49 @@ div.workspace
     div.workspace__introtext
       h1.workspace__heading
       p.workspace__lede
-  div.statebox.statebox--denied
-    span.statebox__icon
-      svg
-        rect
-        path
-    p.statebox__title
-    p.statebox__body
-    button.btn.btn--sm [live-channels-reload]
+    div.workspace__actions
+      span.pill
+        bdi
+      button.btn.btn--sm [live-channels-reload]
+        svg
+          path
+          path
+          path
+  section.card
+    div.card__header
+      h2.card__title
+    div.card__body
+      p.field__hint
+      div.filterbar
+        span.searchbox
+          input.input [form-toggle]
+        span.searchbox
+          input.input [form-toggle]
+        span.searchbox
+          input.input [form-toggle]
+        button.btn.btn--primary.btn--sm [live-connect-channel]
+          svg
+            path
+  section.card
+    div.card__header
+      h2.card__title
+    div.card__body
+      div.statebox.statebox--denied
+        span.statebox__icon
+          svg
+            rect
+            path
+        p.statebox__title
+        p.statebox__body
+  section.card
+    div.card__header
+      h2.card__title
+    div.card__body
+      p.field__hint
+      div.statebox.statebox--denied
+        span.statebox__icon
+          svg
+            rect
+            path
+        p.statebox__title
+        p.statebox__body

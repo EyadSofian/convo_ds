@@ -1,7 +1,7 @@
 import type { Campaign } from '../data';
 import { h } from '../dom';
-import { channelLabel } from '../filters';
 import { conversationCount, formatNumber, relativeTime } from '../format';
+import type { Lang } from '../format';
 import { can, ROLE_LABELS } from '../permissions';
 import type { AppState } from '../state';
 import { currentActor } from '../state';
@@ -17,6 +17,23 @@ import {
   stateBox,
   switchControl,
 } from './parts';
+
+/**
+ * A campaign's channel, in the reader's language.
+ *
+ * Local to this screen now that the inbox reads its channel labels from the
+ * server's own vocabulary. The demo campaigns are still seeded data, so their
+ * labels are still ours to write.
+ */
+function channelLabel(channel: string, lang: Lang): string {
+  const labels: Record<string, { ar: string; en: string }> = {
+    whatsapp: { ar: 'واتساب', en: 'WhatsApp' },
+    instagram: { ar: 'إنستغرام', en: 'Instagram' },
+    messenger: { ar: 'ماسنجر', en: 'Messenger' },
+  };
+  const label = labels[channel];
+  return label === undefined ? channel : lang === 'ar' ? label.ar : label.en;
+}
 
 function t(state: AppState, ar: string, en: string): string {
   return state.lang === 'ar' ? ar : en;
@@ -200,11 +217,11 @@ export function renderAnalytics(state: AppState): HTMLElement {
       }),
     ]);
   }
-  const open = state.conversations.filter((entry) => entry.status === 'open').length;
-  const unassigned = state.conversations.filter((entry) => entry.assigneeId === null).length;
-  const breached = state.conversations.filter((entry) => entry.sla === 'breached').length;
-  const resolved = state.conversations.filter((entry) => entry.status === 'resolved').length;
-  const denominator = state.conversations.length;
+  const open = state.dataset.conversations.filter((entry) => entry.status === 'open').length;
+  const unassigned = state.dataset.conversations.filter((entry) => entry.assigneeId === null).length;
+  const breached = state.dataset.conversations.filter((entry) => entry.sla === 'breached').length;
+  const resolved = state.dataset.conversations.filter((entry) => entry.status === 'resolved').length;
+  const denominator = state.dataset.conversations.length;
   return h('div', { class: 'workspace', tabindex: '0', 'data-scroll': 'screen' }, [
     intro(
       state,
@@ -262,7 +279,7 @@ export function renderAnalytics(state: AppState): HTMLElement {
           'div',
           { class: 'bars' },
           state.dataset.inboxes.map((inbox) => {
-            const count = state.conversations.filter((entry) => entry.inboxId === inbox.id).length;
+            const count = state.dataset.conversations.filter((entry) => entry.inboxId === inbox.id).length;
             return barRow(
               state.lang === 'ar' ? inbox.name : inbox.nameEn,
               count / Math.max(denominator, 1),

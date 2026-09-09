@@ -295,9 +295,21 @@ describe('field projection', () => {
       'status',
       'waitingSinceAt',
       'claimable',
+      // The concurrency token, not a fact about the customer: IAM-13 requires a
+      // claim to carry the version the agent saw, and the agent who sees a card
+      // is exactly the one who may not read the conversation to find it.
+      'version',
     ]);
     // No transcript, no PII, no assignment detail.
-    for (const forbidden of ['snippet', 'contactName', 'contactPhone', 'notes', 'attachments']) {
+    for (const forbidden of [
+      'snippet',
+      'contactName',
+      'contactPhone',
+      'notes',
+      'attachments',
+      'peerIdentity',
+      'assigneeMembershipId',
+    ]) {
       expect(QUEUE_CARD_FIELDS as readonly string[]).not.toContain(forbidden);
     }
   });

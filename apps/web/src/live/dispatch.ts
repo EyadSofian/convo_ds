@@ -1,5 +1,12 @@
 import type { ScopeRef } from '../api/people.js';
 import type { LiveContext } from './actions.js';
+import {
+  claimConversation,
+  loadInboxScreen,
+  loadOlderMessages,
+  openConversation,
+  sendReply,
+} from './inbox-actions.js';
 import { rowsOf } from './store.js';
 import {
   addTeamMember,
@@ -108,6 +115,49 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     await loadSession(context);
     await loadChannelsScreen(context);
   },
+
+  /* ----------------------------------------------------------------- inbox -- */
+
+  'live-inbox-reload': async (context) => {
+    await loadSession(context);
+    await loadInboxScreen(context);
+  },
+
+  'live-inbox-queue': (context, arg) => {
+    // A local view switch, not a request: both halves are already loaded, and
+    // re-fetching on a tab click would make the queue flicker for nothing.
+    context.state.inboxQueue = arg === 'mine' ? 'mine' : 'unassigned';
+    context.refresh();
+    return Promise.resolve();
+  },
+
+  'live-inbox-open': async (context, arg) => openConversation(context, arg),
+
+  'live-inbox-claim': async (context, arg) => {
+    const { id, value } = splitArg(arg);
+    const version = Number(value);
+    if (!Number.isInteger(version) || version < 1) {
+      // A control rendered without its version is a bug, and sending a guess
+      // would defeat the conflict check rather than trip it.
+      return false;
+    }
+    return claimConversation(context, id, version);
+  },
+
+  'live-inbox-older': async (context) => loadOlderMessages(context),
+
+  /**
+   * The composer's text.
+   *
+   * Recorded without a re-render: redrawing a textarea on every keystroke moves
+   * the caret, and what the operator has typed is theirs until they press Send.
+   */
+  'live-composer': (context, arg) => {
+    context.live.composer = arg;
+    return Promise.resolve();
+  },
+
+  'live-inbox-send': async (context) => sendReply(context),
 
   'live-connect-channel': async (context) => {
     const connected = await connectChannel(context, {

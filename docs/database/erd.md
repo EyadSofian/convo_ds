@@ -222,6 +222,14 @@ realtime_events          (id, tenant_id, seq, schema_version, type, entity_type,
                           projection cannot be defeated by a payload that carries more than it
                           should (DEL-19, IAM-11).
 
+-- Conversation reads (no migration) -------------------------------------------
+-- The timeline is a **read**, not a table: `inbound_events` and
+-- `outbound_messages` are merged by a `UNION ALL` at query time and paged
+-- backwards with a signed, expiring cursor bound to the company, the
+-- conversation and the sort. Copying them into a `messages` table would create
+-- a second place for a message to exist and drift out of step with the
+-- evidence it was derived from.
+
 -- Receipt watermark (migration 0015) -----------------------------------------
 outbound_messages.receipts_folded_through timestamptz
                           The highest `inbound_events.observed_at` already folded into this

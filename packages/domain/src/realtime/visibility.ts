@@ -12,8 +12,8 @@
  *   written.
  * - `projected` — the caller holds `conversation.unassigned.preview` and the
  *   conversation is unassigned. They get a **queue card**: an object built from
- *   eight named fields, which never contained a transcript, a note, an
- *   attachment or contact PII (business-rules.md §4.1, IAM-11).
+ *   a closed list of named fields, which never contained a transcript, a note,
+ *   an attachment or contact PII (business-rules.md §4.1, IAM-11).
  * - `hidden` — nothing goes out at all. Not an empty event, not an id: a
  *   subscriber must not be able to count another team's conversations.
  *
@@ -92,6 +92,9 @@ export function projectQueueCard(event: RealtimeEnvelope): QueueCard {
     // Claimable exactly when nobody holds it. The server decides this; a client
     // that believes otherwise still loses the version-checked claim.
     claimable: event.scope.assigneeMembershipId === null,
+    // The entity's version at the moment this card was produced — which is what
+    // "the version the agent saw" means.
+    version: event.entity.version,
   };
 }
 

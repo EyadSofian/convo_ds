@@ -30,6 +30,13 @@ export interface ApiError {
   readonly details: readonly ApiErrorDetail[];
 }
 
+/** A page of rows plus the position to continue from. */
+export interface PagedData<T> {
+  readonly data: readonly T[];
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+}
+
 export type ApiResult<T> =
   | { readonly ok: true; readonly data: T }
   | { readonly ok: false; readonly error: ApiError };
@@ -83,6 +90,41 @@ export class ApiClient {
   constructor(private readonly options: ApiClientOptions) {}
 
   async request<T>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<ApiResult<T>> {
+    const result = await this.exchange(method, path, options);
+    return result.ok ? { ok: true, data: dataOf(result.data) as T } : result;
+  }
+
+  /**
+   * A list read that keeps the page envelope.
+   *
+   * `request` unwraps to `data` because that is what almost every caller wants;
+   * a paged list also needs the cursor, and reconstructing it in the screen
+   * would put the paging contract in two places.
+   */
+  async page<T>(path: string): Promise<ApiResult<PagedData<T>>> {
+    const result = await this.exchange('GET', path, {});
+    if (!result.ok) {
+      return result;
+    }
+    const envelope = asRecord(result.data);
+    const rows = envelope === null ? null : envelope['data'];
+    const page = asRecord(envelope?.['page']);
+    const cursor = page?.['next_cursor'];
+    return {
+      ok: true,
+      data: {
+        data: (Array.isArray(rows) ? rows : []) as readonly T[],
+        nextCursor: typeof cursor === 'string' ? cursor : null,
+        hasMore: page?.['has_more'] === true,
+      },
+    };
+  }
+
+  private async exchange(
+    method: HttpMethod,
+    path: string,
+    options: RequestOptions = {},
+  ): Promise<ApiResult<unknown>> {
     const headers: Record<string, string> = { accept: 'application/json' };
     if (options.body !== undefined) {
       headers['content-type'] = 'application/json';
@@ -126,7 +168,7 @@ export class ApiClient {
 
     // 204 carries no body by design; reading one would throw.
     if (response.status === 204) {
-      return { ok: true, data: undefined as T };
+      return { ok: true, data: undefined };
     }
 
     const payload: unknown = await response.json().catch(() => null);
@@ -134,7 +176,7 @@ export class ApiClient {
     if (!response.ok) {
       return { ok: false, error: parseError(payload, response.status) };
     }
-    return { ok: true, data: dataOf(payload) as T };
+    return { ok: true, data: payload };
   }
 
   get<T>(path: string, options?: RequestOptions): Promise<ApiResult<T>> {

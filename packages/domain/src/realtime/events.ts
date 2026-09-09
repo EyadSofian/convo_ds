@@ -86,4 +86,6 @@ export interface QueueCard {
   readonly status: string;
   readonly waitingSinceAt: string | null;
   readonly claimable: boolean;
+  /** The version to claim at. See `QUEUE_CARD_FIELDS`. */
+  readonly version: number;
 }

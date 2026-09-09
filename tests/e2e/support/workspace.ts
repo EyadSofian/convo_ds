@@ -1,5 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
+import { CONVERSATION, installApi } from './api';
 
 /**
  * Shared driving helpers for the layout, accessibility and visual specs.
@@ -28,14 +29,40 @@ export async function freezeClock(page: Page): Promise<void> {
   await page.clock.install({ time: FROZEN_NOW });
 }
 
-/** Opens the inbox and waits for the shell to have rendered. */
+/**
+ * Opens the inbox against the scripted API and waits for it to be populated.
+ *
+ * The Inbox reads everything from the server, so measuring it needs a server
+ * to read from. `installApi` answers the handful of endpoints it calls with
+ * fixed fixtures — see `support/api.ts` for what that is and is not.
+ */
 export async function openInbox(page: Page): Promise<void> {
   await freezeClock(page);
-  await page.goto('/#/inbox');
+  await installApi(page);
+  await page.goto(`/#/inbox/${CONVERSATION}`);
   await expect(page.locator('.shell')).toBeVisible();
   await expect(page.locator('.zone--thread')).toBeVisible();
+  // Wait for the server's answer rather than for a timer: a measurement taken
+  // against a skeleton is a measurement of the skeleton.
+  await expect(page.locator('.convrow').first()).toBeVisible();
+  await expect(page.locator('.msg').first()).toBeVisible();
   // Self-hosted webfonts are part of the layout; measuring before they land
   // gives numbers for a fallback face nobody will ever see.
+  await page.evaluate(() => document.fonts.ready);
+}
+
+/**
+ * Opens a screen, with the API scripted.
+ *
+ * `query` is passed through so a test can view the workspace as a role that
+ * has the control it is about to click — the same "view as" the product
+ * offers, rather than a test-only door into the state.
+ */
+export async function openScreen(page: Page, screen: string, query = ''): Promise<void> {
+  await freezeClock(page);
+  await installApi(page);
+  await page.goto(`/#/${screen}${query}`);
+  await expect(page.locator('.workspace, .inbox')).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
 }
 

@@ -1,6 +1,13 @@
 import type { ChannelCatalogueEntry, ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type {
+  Conversation,
+  ConversationsApi,
+  QueueCard,
+  TimelineMessage,
+} from '../api/conversations.js';
+import type { RealtimeSubscription } from './realtime.js';
+import type {
   Invitation,
   MembershipSummary,
   OwnershipTransfer,
@@ -12,11 +19,12 @@ import type {
 } from '../api/people.js';
 
 /**
- * Server-backed state for the People, Roles and Teams screens.
+ * Server-backed state for the People, Channels and Inbox screens.
  *
- * Everything here describes what the *server* said, and when. The demo dataset
- * in `data.ts` still backs the inbox until its API exists; nothing in this file
- * reads it, and nothing in it is invented locally.
+ * Everything here describes what the *server* said, and when. Nothing in this
+ * file reads the demo dataset, and nothing in it is invented locally — an
+ * inbox that filled a gap with a plausible value would be showing an operator
+ * something no server ever said.
  *
  * A resource is deliberately a four-state value rather than `data | null`. The
  * screens have to tell "not asked yet" from "asked and empty" from "asked and
@@ -66,6 +74,7 @@ export type SessionState =
 export interface LiveState {
   readonly api: PeopleApi;
   readonly channels: ChannelsApi;
+  readonly conversationsApi: ConversationsApi;
   session: SessionState;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
@@ -75,16 +84,54 @@ export interface LiveState {
   transfers: Resource<readonly OwnershipTransfer[]>;
   connections: Resource<readonly ChannelConnection[]>;
   catalogue: Resource<readonly ChannelCatalogueEntry[]>;
+  /**
+   * The Unassigned queue, as **cards**.
+   *
+   * A separate field from `conversations` because it is a separate shape: a
+   * card carries a masked label and no message text, and the two must never be
+   * able to substitute for one another in a view.
+   */
+  unassigned: Resource<readonly QueueCard[]>;
+  /** Conversations this caller may read. Records, not cards. */
+  conversations: Resource<readonly Conversation[]>;
+  openConversationId: string | null;
+  openConversation: Resource<Conversation>;
+  timeline: Resource<readonly TimelineMessage[]>;
+  /** The position to page further back from, or `null` at the beginning. */
+  timelineCursor: string | null;
+  /** What the operator has typed but not sent. Never sent on their behalf. */
+  composer: string;
+  realtime: RealtimeState;
+  subscription: RealtimeSubscription | null;
   busy: string | null;
   error: ApiError | null;
   /** Incremented on every settled mutation, so a view can key off freshness. */
   revision: number;
 }
 
-export function createLiveState(api: PeopleApi, channels: ChannelsApi): LiveState {
+/**
+ * What the live connection is doing, in the operator's terms.
+ *
+ * `stale` is the one that matters: the stream is not delivering, so what is on
+ * screen is a snapshot from a moment ago. Saying so is the difference between a
+ * quiet inbox and a broken one, and an operator cannot tell those apart by
+ * looking.
+ */
+export type RealtimeState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'live'; readonly since: number }
+  | { readonly status: 'stale'; readonly reason: string; readonly retryAt: number }
+  | { readonly status: 'stopped'; readonly reason: string };
+
+export function createLiveState(
+  api: PeopleApi,
+  channels: ChannelsApi,
+  conversations: ConversationsApi,
+): LiveState {
   return {
     api,
     channels,
+    conversations: IDLE,
     session: { status: 'unknown' },
     people: IDLE,
     roles: IDLE,
@@ -94,6 +141,15 @@ export function createLiveState(api: PeopleApi, channels: ChannelsApi): LiveStat
     transfers: IDLE,
     connections: IDLE,
     catalogue: IDLE,
+    unassigned: IDLE,
+    openConversationId: null,
+    openConversation: IDLE,
+    timeline: IDLE,
+    timelineCursor: null,
+    composer: '',
+    realtime: { status: 'idle' },
+    subscription: null,
+    conversationsApi: conversations,
     busy: null,
     error: null,
     revision: 0,
