@@ -1,0 +1,19 @@
+div.workspace
+  div.workspace__intro
+    div.workspace__introtext
+      h1.workspace__heading
+      p.workspace__lede
+  section.card
+    div.card__header
+      h2.card__title
+    div.card__body
+      p
+      div.banner.banner--danger
+      div.field
+        label.field__label
+        input.input [form]
+      div.field
+        label.field__label
+        input.input [form]
+      div.workspace__actions
+        button.btn.btn--primary [live-signin]

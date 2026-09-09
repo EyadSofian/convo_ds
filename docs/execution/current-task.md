@@ -4,7 +4,79 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T5 fifth slice (Milestone B: the People screen, wired to the API)
+## Last completed task — P1-T7 (Milestone C: the channel foundation and the first inbound path)
+
+**Task / requirement IDs:** CH-02, CH-03, CH-WA-02, CH-WA-04, DEL-02, DEL-05, DEL-06, EVT-01, EVT-02, EVT-03 closed. CH-00, CH-01, CH-05, CH-WA-03, CH-WA-05, DEL-01, DEL-03, DEL-04, DEL-07, DEP-01 moved to `partial` with the unbuilt half named. UX-09 gained its second wired screen.
+
+### Behavior delivered
+
+**One path, end to end.** Connect an asset → the provider delivers a signed webhook → the company is resolved from the asset inside it → the raw event is journaled → a normalized inbound event exists. 61 integration tests drive it against real PostgreSQL under FORCE RLS.
+
+**A secret never sits in an ordinary column.** An app secret belongs to the installation, so `channel_apps` holds a *reference* to the configuration key it is read from plus a fingerprint of the value it was created against. A tenant's access token cannot live in configuration — it arrives from an OAuth grant — so it is AES-256-GCM ciphertext bound by additional authenticated data to its tenant, connection and purpose. A ciphertext lifted into another row does not decrypt; it breaks. Rotation appends a version and supersedes the previous one; there is no `DELETE` grant, because a revoked credential is evidence.
+
+**The company comes from the payload, not the caller.** `channel_asset_registry` maps a provider asset to its owner across the whole installation, and its RLS policy admits exactly the row whose fingerprint the ingress derived from a signature-verified body. The test sends two forged tenant headers and asserts the receipt still records the real owner.
+
+**A receipt and a payload are different facts.** `webhook_receipts` is installation-level, carries no content, and records every delivery including the refused ones — "we received bytes that failed to verify" is exactly what an operator needs when a provider claims it delivered. Content lives in a tenant-scoped row and only for a routable delivery: an asset nobody here has connected leaves a receipt, no content, and a 202.
+
+**"Connected" is earned.** Five evidence timestamps, each written only by whatever observed it. `readinessOf` derives the state in one pure function the column and the screen share, so no endpoint can write `healthy`. A submitted form produces `authorization_needed` with four items missing.
+
+**The ingress order is the design.** Raw bytes; HMAC over exactly those bytes, constant-time, with a replay window; company from the verified asset; journal; then ACK. Nothing is parsed until the signature holds — Nest's body parser is off and ours decides per route whether to parse or keep the buffer, because a signature over a re-serialized object verifies a document nobody signed.
+
+**No simulator, deliberately.** The default transport refuses every send and connection test with `provider_not_connected`. One integration suite binds a labelled stub to exercise our own handling; it is bound nowhere in the shipped composition root.
+
+**The Channels screen is wired, and the demo one is gone** — along with the `channel` demo action that answered four verbs with a warning toast. The token is dropped from form state whether the connect succeeds or is refused.
+
+**The visual gate was broken and is fixed.** Replacing the Channels screen wholesale passed `toHaveScreenshot`. Measured: Arabic glyph jitter is ~1.4% of a text-dense screen and the replacement moved ~2%, so a pixel ratio cannot separate them. Every screen baseline is now paired with a **structural** snapshot — a DOM skeleton with all text removed — which rasterisation cannot move and a renamed action fails.
+
+**Two gates stopped being `exit 1` echoes.** `test:contracts` and `test:security` are real. Wiring the audit found 9 high and 1 critical advisories in the HTTP stack — middleware and authentication bypasses in `@fastify/middie`, `fastify` and `@nestjs/platform-fastify` — and those are upgraded.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0010_channels.sql` | apps, connections, versioned credentials, the asset registry, receipts, events, the work queue, normalized inbound |
+| `packages/database/src/context.ts` | the credential setting is a parameter now, so two carve-outs cannot widen each other |
+| `packages/domain/src/channels/` | the versioned port, five capability matrices, the send policy, Meta signature verification, the WhatsApp normalizer |
+| `apps/api/src/channels/credential-cipher.ts` | AES-256-GCM with a binding, a key version and an HMAC fingerprint |
+| `apps/api/src/channels/ingress.service.ts` | verify → resolve → journal → ACK, in that order |
+| `apps/api/src/channels/raw-body.ts` | one JSON parser; webhook routes keep the bytes |
+| `apps/api/src/channels/normalization.service.ts` | the inbound worker, with a durable lease |
+| `apps/web/src/ui/channels-screen.ts` | the screen; the demo one is gone |
+| `tests/integration/api-channels.test.ts` | 61 tests: signature, replay, routing, dedupe, quarantine, isolation, lifecycle |
+| `playwright.config.ts` + `tests/e2e/visual.spec.ts` | the structural snapshots that make the visual gate mean something |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web bundle 164.48 kB / 51.42 kB gzip |
+| `pnpm test:unit` | **0** | 56 files, 984 tests |
+| `pnpm test:integration` | **0** | 18 files, **230 tests** against real PostgreSQL 17.4 |
+| `pnpm test:coverage` | **0** | 74 files, **1214 tests**, 100% lines / statements / functions / branches |
+| `pnpm test:contracts` | **0** | adapter + OpenAPI contract suites |
+| `pnpm test:security` | **0** | isolation, authorization, signature suites + `pnpm audit --audit-level high --prod` |
+| `pnpm test:e2e` | **0** | 146 |
+| `pnpm test:a11y` | **0** | 22, no WCAG 2.1 AA violations |
+| `pnpm test:visual` | **0** | 19, now including structural snapshots |
+| `pnpm test:mutation` | **1** | `not_run` — wired in P4 |
+| `pnpm test:load:target` | **1** | `blocked_env` — k6 not installed, no staging target |
+| `pnpm test:recovery` | **1** | `blocked_env` — no restore target |
+
+The pinned OpenAPI carries **40 operations**; the bidirectional route/spec drift test passes. Coverage stayed at 100% with no threshold lowered and no exclusion added.
+
+### Honest remaining scope
+
+- **No outbound path at all.** No outbox, no delivery state machine, no `outcome_unknown` handling in a real send, no per-conversation ordering. `permitSend` exists and is tested but is not wired to a send, so CH-WA-05's "draft preserved" is untested.
+- **One adapter.** Messenger, Instagram, Website Chat and Custom Channel have matrices and policy but no adapter; connecting one is refused with a typed `not_supported`.
+- **One process.** The seven roles are configurable and the inbound worker is a service with a durable lease, but they are not separate processes with their own queues.
+- **No realtime**, no inbox, no contacts, no broadcasts, no CRM integration, no deployment configuration.
+- **Every provider-live check is `blocked_no_asset`.** The signature scheme is genuinely verified against the documented algorithm; whether Meta's live deliveries match it needs an authorized app.
+
+---
+
+## Previously completed — P1-T5 fifth slice (Milestone B: the People screen, wired to the API)
 
 **Task / requirement IDs:** UX-09 moved from `planned` to `partial` with the unwired screens named. IAM-14, IAM-15, IAM-16, IAM-24 gained their operator surface. API-02 incremental: two read models widened, one patch made genuinely partial.
 
@@ -387,19 +459,20 @@ These block only the named live/deployment checks. Independent implementation co
 
 ---
 
-## Next task — Milestone C (channel adapters, webhooks, ingress and workers)
+## Next task — Milestone C remainder (the outbound path and the other four adapters)
 
-**Task:** the first real channel, end to end, and the machinery every later channel reuses.
+**Task:** the half of Milestone C the inbound slice did not cover.
 
-**Requirement IDs:** CH-01…CH-08, ING-01…ING-06, RT-01…RT-04, WRK-01…WRK-05, API-02 (incremental), API-08 (202/429), DEP-01.
+**Requirement IDs:** CH-WA-01, CH-MSG-01…03, CH-IG-01…04, CH-04, DEL-07…DEL-22, SEND-01…04, EVT-04, API-08 (202/429), DEP-01.
 
 **Scope:**
 
-1. A channel port with adapters for WhatsApp Cloud, Facebook Messenger, Instagram, Website Chat and a Custom Channel — each behind the same interface, none of them special-cased in the domain.
-2. Webhook ingress: raw-byte HMAC verification before parsing, the challenge/verify handshake, replay and duplicate suppression, and a durable inbound record written before any acknowledgement.
-3. Realtime delivery to the browser and the worker roles that drain sends, retries and delivery-status updates, with separate concurrency configuration per role (DEP-01).
-4. `202 Accepted` only after the durable transaction, and `429` with guidance — the first operations that make API-08's remaining halves real.
+1. The outbound path end to end: a permit that re-checks permission, window, consent, template and identity at dispatch time; an outbox row written in the same transaction as the domain effect; a durable attempt recorded **before** the network call; bounded retry with a lease; and the three-valued outcome, with `outcome_unknown` never blindly resent (ADR-0006).
+2. Command state and provider delivery state as separate columns that fold independently, so a `read` arriving before its `delivered` leaves the timeline at `read` and a late `failed` never erases a confirmed delivery.
+3. Messenger, Instagram, Website Chat and Custom Channel adapters — each with its own fixtures, its own policy and its own contract tests. Nothing inherited across them.
+4. Realtime delivery to the browser, and the worker roles as separate processes with their own concurrency.
+5. `202 Accepted` only after the durable transaction, and `429` with guidance.
 
-**Exit checks:** the same eight commands above, with coverage staying at 100/100/100/100 and no exclusion added.
+**Exit checks:** the eleven commands above, with coverage staying at 100/100/100/100 and no exclusion added.
 
-**Blocked, and stays blocked:** every provider-live check remains `blocked_no_asset` until a Meta app, WABA, test number and authorized recipient exist (open dependencies 1 and 2). Adapters are built and tested against recorded contracts and a local simulator; **a simulator is not a live integration and will not be reported as one.**
+**Blocked, and stays blocked:** every provider-live check remains `blocked_no_asset` until a Meta app, WABA, test number, Page, Instagram professional account and authorized recipient exist. The outbound path will be built and tested against recorded contracts; **there is no provider simulator in the shipped composition root, and the default transport refuses every send.** A send that cannot reach a provider is reported as refused, never as sent.

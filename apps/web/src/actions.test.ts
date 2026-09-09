@@ -723,20 +723,6 @@ describe('dialogs and views', () => {
 });
 
 describe('workspace actions', () => {
-  it('explains every channel verb and ignores unknown ones', () => {
-    const app = harness();
-    for (const verb of ['test', 'reconnect', 'connect', 'disconnect']) {
-      app.run('channel', `${verb}:cn-wa-1`);
-      expect(app.state.toasts[app.state.toasts.length - 1]?.tone).toBe('warning');
-    }
-    const before = app.state.toasts.length;
-    app.run('channel', 'nonsense');
-    expect(app.state.toasts).toHaveLength(before);
-    app.run('lang', 'en');
-    app.run('channel', 'test:cn-wa-1');
-    expect(lastToast(app.state)).toContain('no provider is connected');
-  });
-
   it('rejects launching an unapproved campaign', () => {
     const app = harness();
     app.run('campaign', 'launch:cm-vip');

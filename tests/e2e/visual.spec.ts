@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { freezeClock, MATRIX, openInbox, setDirection, setTheme } from './support/workspace';
 
 /**
@@ -15,7 +15,42 @@ import { freezeClock, MATRIX, openInbox, setDirection, setTheme } from './suppor
  * that, a baseline taken an hour earlier differs in every clock time and every
  * "4m ago". Animations are disabled by the config. A diff therefore means the
  * design changed, not that the day moved on.
+ *
+ * **Pixels are only half of it.** A screenshot comparison cannot tell a screen
+ * being replaced from Arabic glyphs rasterising a subpixel differently: both
+ * land around 2% of the image, and only glyph pixels ever differ enough to
+ * count. This file therefore pairs every screen baseline with a **structural**
+ * snapshot — a DOM skeleton of tags, classes and the actions each control
+ * dispatches, with all text removed. Rasterisation cannot move it, and swapping
+ * a screen cannot help but change it.
  */
+
+/**
+ * A rasterisation-independent fingerprint of what is on screen.
+ *
+ * Tag, class list and `data-act` per element, indented by depth. No text, so
+ * copy edits and seeded timestamps do not churn it; every structural element,
+ * so a replaced screen or a lost control is a diff.
+ */
+async function structureOf(page: Page, selector: string): Promise<string> {
+  return page.locator(selector).evaluate((root) => {
+    const lines: string[] = [];
+    const walk = (element: Element, depth: number): void => {
+      const classes = element.getAttribute('class');
+      const act = element.getAttribute('data-act');
+      lines.push(
+        `${'  '.repeat(depth)}${element.tagName.toLowerCase()}` +
+          `${classes === null ? '' : `.${classes.trim().split(/\s+/).join('.')}`}` +
+          `${act === null ? '' : ` [${act}]`}`,
+      );
+      for (const child of element.children) {
+        walk(child, depth + 1);
+      }
+    };
+    walk(root, 0);
+    return lines.join('\n');
+  });
+}
 
 test.describe('inbox baselines', () => {
   for (const { direction, theme } of MATRIX) {
@@ -88,6 +123,11 @@ test.describe('workspace screen baselines', () => {
       await expect(page.locator('.workspace')).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
       await expect(page).toHaveScreenshot(`screen-${screen}.png`);
+      // The half the pixels cannot do: this fails the moment a screen is
+      // replaced by a different one, however similar the two look.
+      expect(await structureOf(page, '.workspace')).toMatchSnapshot(
+        `screen-${screen}-structure.txt`,
+      );
     });
   }
 });

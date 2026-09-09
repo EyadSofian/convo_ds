@@ -640,34 +640,6 @@ const dismissToast: ActionHandler = (context, arg) => {
 };
 
 /** Channel actions are demo-local: they never claim a provider result. */
-const channelAction: ActionHandler = (context, arg) => {
-  const state = context.state;
-  const separator = arg.indexOf(':');
-  const verb = separator === -1 ? arg : arg.slice(0, separator);
-  const messages: Record<string, { ar: string; en: string }> = {
-    test: {
-      ar: 'اختبار الاتصال غير متاح — لا يوجد مزوّد متصل في هذه النسخة التجريبية',
-      en: 'Connection test unavailable — no provider is connected in this demo',
-    },
-    reconnect: {
-      ar: 'إعادة التفويض تبدأ من حساب المزوّد — غير مفعّلة في العرض التجريبي',
-      en: 'Re-authorization starts at the provider — disabled in the demo',
-    },
-    connect: {
-      ar: 'الربط يتطلب تفويض OAuth حقيقيًا — غير مفعّل في العرض التجريبي',
-      en: 'Connecting needs a real OAuth grant — disabled in the demo',
-    },
-    disconnect: {
-      ar: 'الفصل يتطلب صلاحية channel.manage وتأكيدًا ثانيًا',
-      en: 'Disconnecting needs channel.manage and a second confirmation',
-    },
-  };
-  const message = messages[verb];
-  if (message === undefined) return;
-  pushToast(state, state.lang === 'ar' ? message.ar : message.en, 'warning');
-  context.refresh();
-};
-
 const campaignAction: ActionHandler = (context, arg) => {
   const state = context.state;
   const separator = arg.indexOf(':');
@@ -762,7 +734,6 @@ export const ACTIONS: Readonly<Record<string, ActionHandler>> = {
   'save-view': saveView,
   'delete-view': deleteView,
   toast: dismissToast,
-  channel: channelAction,
   campaign: campaignAction,
   demo: noop,
 };

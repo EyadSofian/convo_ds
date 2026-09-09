@@ -152,6 +152,78 @@ function signedInApi(): FakeApi {
     .on(`GET /tenants/${TENANT}/ownership-transfers`, { status: 200, body: { data: [] } });
 }
 
+function channelDelivery(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'cn-1',
+    kind: 'whatsapp',
+    provider: 'meta',
+    display_name: 'Enrollment line',
+    external_asset_id: 'phone-1',
+    status: 'authorization_needed',
+    capabilities: WHATSAPP_MATRIX,
+    evidence: [
+      { kind: 'asset_verified', satisfied: true, observed_at: NOW.toISOString() },
+      { kind: 'credential_verified', satisfied: false, observed_at: null },
+      { kind: 'webhook_subscribed', satisfied: false, observed_at: null },
+      { kind: 'first_inbound', satisfied: false, observed_at: null },
+      { kind: 'first_outbound', satisfied: false, observed_at: null },
+    ],
+    missing_evidence: ['credential_verified', 'webhook_subscribed', 'first_inbound', 'first_outbound'],
+    last_error_code: null,
+    last_error_at: null,
+    created_at: NOW.toISOString(),
+    disconnected_at: null,
+    credential_held: true,
+    credential_fingerprint: 'f'.repeat(64),
+    ...overrides,
+  };
+}
+
+const WHATSAPP_MATRIX = {
+  kind: 'whatsapp',
+  version: 'v21.0',
+  host: 'graph.facebook.com',
+  inboundEvents: ['messages', 'statuses'],
+  outboundTypes: ['text', 'template'],
+  attachmentTypes: ['image'],
+  textLimit: { characters: 4096, bytes: 4096 },
+  windowHours: 24,
+  businessInitiated: true,
+  templates: true,
+  deliveryReceipts: true,
+  readReceipts: true,
+};
+
+const INSTAGRAM_MATRIX = {
+  ...WHATSAPP_MATRIX,
+  kind: 'instagram',
+  host: 'graph.instagram.com',
+  textLimit: { characters: 1000, bytes: 1000 },
+  businessInitiated: false,
+  templates: false,
+  readReceipts: false,
+};
+
+/** The People workspace, plus the two channel reads. */
+function channelApi(): FakeApi {
+  return signedInApi()
+    .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [channelDelivery()] } })
+    .on(`GET /tenants/${TENANT}/channels/catalogue`, {
+      status: 200,
+      body: {
+        data: [
+          { kind: 'whatsapp', provider: 'meta', implemented: true, capabilities: WHATSAPP_MATRIX },
+          {
+            kind: 'instagram',
+            provider: 'meta',
+            implemented: false,
+            capabilities: INSTAGRAM_MATRIX,
+          },
+        ],
+      },
+    });
+}
+
 function createHost(hash = '#/people'): RouterHost {
   const listeners: (() => void)[] = [];
   let current = hash;
@@ -204,6 +276,23 @@ function start(api: FakeApi): { app: AppHandle; root: HTMLElement } {
   const app = mount({
     root,
     host: createHost(),
+    now: NOW,
+    fetch: api.fetch,
+    readCsrfToken: () => 'csrf-token',
+    newKey: () => `key-${String((keys += 1))}`,
+  });
+  handle = app;
+  app.dispatch('lang', 'en');
+  return { app, root };
+}
+
+/** The same, on the Channels route. */
+function startChannels(api: FakeApi): { app: AppHandle; root: HTMLElement } {
+  const root = mountRoot();
+  let keys = 0;
+  const app = mount({
+    root,
+    host: createHost('#/channels'),
     now: NOW,
     fetch: api.fetch,
     readCsrfToken: () => 'csrf-token',
@@ -1063,5 +1152,421 @@ describe('the transport the browser actually gets', () => {
     expect(api.calls.find((call) => call.method === 'POST')?.headers['x-csrf-token']).toBe(
       'cookie-token',
     );
+  });
+});
+
+/* ----------------------------------------------------------------- channels -- */
+
+describe('the Channels screen', () => {
+  it('loads connections and the catalogue, and only those', async () => {
+    const api = channelApi();
+    const { root } = startChannels(api);
+    await settle();
+
+    expect(text(root)).toContain('Enrollment line');
+    // Opening Channels does not fetch the People lists: each screen loads what
+    // it shows.
+    expect(api.calls.some((call) => call.path.endsWith('/people'))).toBe(false);
+    expect(api.calls.filter((call) => call.path.endsWith('/channels'))).toHaveLength(1);
+  });
+
+  it('shows the separate evidence behind a state, not just the state', async () => {
+    const { root } = startChannels(channelApi());
+    await settle();
+
+    const card = find(root, '[data-connection="cn-1"]');
+    expect(card.textContent).toContain('Authorization needed');
+    expect(card.textContent).toContain('Asset registered');
+    expect(card.textContent).toContain('Provider accepted the credential');
+    expect(card.textContent).toContain('An inbound message arrived');
+    // Exactly one of the five is satisfied, and the screen says which.
+    expect(card.querySelectorAll('.checklist__mark--yes')).toHaveLength(1);
+    expect(card.querySelectorAll('.checklist__mark--no')).toHaveLength(4);
+  });
+
+  it('never claims a channel works because a token was pasted', async () => {
+    const { root } = startChannels(channelApi());
+    await settle();
+    // The word does not appear anywhere on a screen whose only connection is
+    // still waiting for the provider to accept its credential.
+    expect(text(root)).not.toContain('Healthy');
+    expect(text(root)).toContain('Pasting a token proves nothing');
+  });
+
+  it('shows pending on the test control and toasts only after the server answers', async () => {
+    const api = channelApi();
+    const release = api.hold(`POST /tenants/${TENANT}/channels/cn-1/test`);
+    const { app, root } = startChannels(api);
+    await settle();
+
+    click(root, '[data-act="live-test-channel"]');
+    await settle();
+    expect(text(root)).toContain('Testing…');
+    expect(isDisabled(root, '[data-act="live-test-channel"]')).toBe(true);
+    expect(app.state.toasts).toHaveLength(0);
+
+    release({
+      status: 200,
+      body: { data: channelDelivery({ last_error_code: 'provider_not_connected' }) },
+    });
+    await settle();
+    // The server's own reason, repeated. Not a message this screen invents.
+    expect(app.state.toasts.map((toast) => toast.text)).toEqual([
+      'The provider refused: provider_not_connected',
+    ]);
+  });
+
+  it('reports the provider accepting a credential, and shows the new state', async () => {
+    const api = channelApi().on(`POST /tenants/${TENANT}/channels/cn-1/test`, {
+      status: 200,
+      body: { data: channelDelivery({ status: 'webhook_pending' }) },
+    });
+    const { app, root } = startChannels(api);
+    await settle();
+
+    api.on(`GET /tenants/${TENANT}/channels`, {
+      status: 200,
+      body: {
+        data: [
+          channelDelivery({
+            status: 'webhook_pending',
+            evidence: [
+              { kind: 'asset_verified', satisfied: true, observed_at: NOW.toISOString() },
+              { kind: 'credential_verified', satisfied: true, observed_at: NOW.toISOString() },
+              { kind: 'webhook_subscribed', satisfied: false, observed_at: null },
+              { kind: 'first_inbound', satisfied: false, observed_at: null },
+              { kind: 'first_outbound', satisfied: false, observed_at: null },
+            ],
+          }),
+        ],
+      },
+    });
+    click(root, '[data-act="live-test-channel"]');
+    await settle();
+
+    expect(app.state.toasts.map((toast) => toast.text)).toContain(
+      'The provider accepted the credential',
+    );
+    // Re-read from the server, and still not healthy: two pieces of evidence
+    // are still missing.
+    expect(find(root, '[data-connection="cn-1"]').textContent).toContain(
+      'Waiting for the first event',
+    );
+  });
+
+  it('shows the last error the server recorded', async () => {
+    const api = channelApi().on(`GET /tenants/${TENANT}/channels`, {
+      status: 200,
+      body: { data: [channelDelivery({ status: 'degraded', last_error_code: 'token_expired' })] },
+    });
+    const { root } = startChannels(api);
+    await settle();
+    expect(text(root)).toContain('Degraded');
+    expect(text(root)).toContain('token_expired');
+  });
+
+  it('connects an asset and never keeps the token in the form', async () => {
+    const api = channelApi().on(`POST /tenants/${TENANT}/channels`, {
+      status: 201,
+      body: { data: channelDelivery({ id: 'cn-2', display_name: 'Support line' }) },
+    });
+    const { app, root } = startChannels(api);
+    await settle();
+
+    expect(isDisabled(root, '[data-act="live-connect-channel"]')).toBe(true);
+    type(root, '[data-form="channelAsset"]', 'phone-2');
+    type(root, '[data-form="channelName"]', 'Support line');
+    type(root, '[data-form="channelToken"]', 'EAAGtoken0001');
+    expect(isDisabled(root, '[data-act="live-connect-channel"]')).toBe(false);
+
+    click(root, '[data-act="live-connect-channel"]');
+    await settle();
+
+    const post = api.calls.find((call) => call.method === 'POST' && call.path.endsWith('/channels'));
+    expect(post?.body).toEqual({
+      kind: 'whatsapp',
+      externalAssetId: 'phone-2',
+      displayName: 'Support line',
+      accessToken: 'EAAGtoken0001',
+    });
+    expect(post?.headers['idempotency-key']).toBe('key-1');
+    expect(post?.headers['x-csrf-token']).toBe('csrf-token');
+    // The toast says what actually happened: added, and not yet working.
+    expect(app.state.toasts.map((toast) => toast.text)).toEqual([
+      'Added Support line — it is not working yet',
+    ]);
+    expect(app.state.dialogForm['channelToken']).toBeUndefined();
+  });
+
+  it('drops the token from the form even when the connect is refused', async () => {
+    const api = channelApi().on(`POST /tenants/${TENANT}/channels`, {
+      status: 409,
+      body: {
+        error: { code: 'asset_already_connected', message: 'That provider asset is already connected.' },
+      },
+    });
+    const { app, root } = startChannels(api);
+    await settle();
+
+    type(root, '[data-form="channelAsset"]', 'phone-taken');
+    type(root, '[data-form="channelName"]', 'Taken');
+    type(root, '[data-form="channelToken"]', 'EAAGtoken0002');
+    click(root, '[data-act="live-connect-channel"]');
+    await settle();
+
+    expect(text(root)).toContain('That provider asset is already connected.');
+    expect(app.state.toasts).toHaveLength(0);
+    // A credential left in a form field is a credential in a screenshot.
+    expect(app.state.dialogForm['channelToken']).toBeUndefined();
+    // The other two survive, so the attempt can be corrected.
+    expect(app.state.dialogForm['channelAsset']).toBe('phone-taken');
+  });
+
+  it('rotates a credential and clears its field', async () => {
+    const api = channelApi().on(`POST /tenants/${TENANT}/channels/cn-1/credential`, {
+      status: 200,
+      body: { data: channelDelivery({ credential_fingerprint: 'a'.repeat(64) }) },
+    });
+    const { app, root } = startChannels(api);
+    await settle();
+
+    expect(isDisabled(root, '[data-act="live-rotate-channel"]')).toBe(true);
+    type(root, '[data-form="channelToken_cn-1"]', 'EAAGrotated0001');
+    click(root, '[data-act="live-rotate-channel"]');
+    await settle();
+
+    expect(api.calls.find((call) => call.path.endsWith('/credential'))?.body).toEqual({
+      accessToken: 'EAAGrotated0001',
+    });
+    expect(app.state.toasts.map((toast) => toast.text)).toContain(
+      'The new credential is stored — test it to prove it works',
+    );
+    expect(app.state.dialogForm['channelToken_cn-1']).toBeUndefined();
+  });
+
+  it('disconnects, and shows the connection as disconnected rather than hiding it', async () => {
+    const api = channelApi().on(`DELETE /tenants/${TENANT}/channels/cn-1`, {
+      status: 204,
+      body: null,
+    });
+    const { app, root } = startChannels(api);
+    await settle();
+
+    api.on(`GET /tenants/${TENANT}/channels`, {
+      status: 200,
+      body: {
+        data: [channelDelivery({ status: 'disconnected', disconnected_at: NOW.toISOString() })],
+      },
+    });
+    click(root, '[data-act="live-disconnect-channel"]');
+    await settle();
+
+    expect(app.state.toasts.map((toast) => toast.text)).toContain(
+      'Disconnected, and its credentials revoked',
+    );
+    expect(text(root)).toContain('Disconnected');
+    expect(text(root)).toContain('Its history is kept');
+    // No controls on a disconnected connection: there is nothing to test or
+    // rotate.
+    expect(root.querySelector('[data-act="live-test-channel"]')).toBeNull();
+  });
+
+  it('shows an unimplemented channel as disabled rather than hiding it', async () => {
+    const { root } = startChannels(channelApi());
+    await settle();
+
+    const instagram = find(root, '[data-channel-kind="instagram"]');
+    expect(instagram.textContent).toContain('Not implemented yet');
+    // Its real matrix is shown, including the differences that matter.
+    expect(instagram.textContent).toContain('graph.instagram.com');
+    expect(instagram.textContent).toContain('Customer-initiated only');
+    expect(instagram.textContent).toContain('No templates');
+    expect(instagram.textContent).toContain('Read receipts not available');
+    expect(instagram.textContent).toContain('1000 chars / 1000 bytes');
+  });
+
+  it('reports a refused channel list as a permission state', async () => {
+    const api = channelApi().on(`GET /tenants/${TENANT}/channels`, {
+      status: 403,
+      body: { error: { code: 'permission_denied', message: 'Denied.' } },
+    });
+    const { root } = startChannels(api);
+    await settle();
+    expect(text(root)).toContain('You do not have permission to manage channels');
+    expect(text(root)).toContain('Hiding the control is not an authorization control');
+  });
+
+  it('separates an unreachable server from a rejection, and offers a retry', async () => {
+    const api = channelApi();
+    api.on(`GET /tenants/${TENANT}/channels/catalogue`, () => {
+      throw new Error('connection refused');
+    });
+    const { root } = startChannels(api);
+    await settle();
+    expect(text(root)).toContain('Could not reach the server');
+    expect(root.querySelector('[data-act="live-channels-reload"]')).not.toBeNull();
+  });
+
+  it('offers a way back when there is no session', async () => {
+    const api = new FakeApi().on('GET /auth/session', NO_SESSION);
+    const { root } = startChannels(api);
+    await settle();
+    expect(text(root)).toContain('You need a session');
+    click(root, '[data-act="live-channels-reload"]');
+    await settle();
+    expect(api.calls.filter((call) => call.path === '/auth/session').length).toBeGreaterThan(1);
+  });
+
+  it('says so when the account belongs to no active company', async () => {
+    const api = channelApi().on('GET /me/memberships', { status: 200, body: { data: [] } });
+    const { root } = startChannels(api);
+    await settle();
+    expect(text(root)).toContain('No active membership');
+  });
+
+  it('marks the lists busy until they land', async () => {
+    const api = channelApi();
+    const release = api.hold(`GET /tenants/${TENANT}/channels`);
+    const { root } = startChannels(api);
+    await settle();
+    expect(root.querySelector('[aria-busy="true"]')).not.toBeNull();
+    release({ status: 200, body: { data: [] } });
+    await settle();
+    expect(text(root)).toContain('No channels yet');
+  });
+
+  it('names an evidence kind this build does not know, rather than hiding it', async () => {
+    const api = channelApi().on(`GET /tenants/${TENANT}/channels`, {
+      status: 200,
+      body: {
+        data: [
+          channelDelivery({
+            evidence: [{ kind: 'quota_confirmed', satisfied: false, observed_at: null }],
+          }),
+        ],
+      },
+    });
+    const { root } = startChannels(api);
+    await settle();
+    // A newer server naming a new piece of evidence is information, not noise.
+    expect(text(root)).toContain('quota_confirmed');
+  });
+
+  it('speaks Arabic by default here too', async () => {
+    const root = mountRoot();
+    handle = mount({
+      root,
+      host: createHost('#/channels'),
+      now: NOW,
+      fetch: channelApi().fetch,
+      readCsrfToken: () => 'csrf-token',
+    });
+    await settle();
+    expect(text(root)).toContain('القنوات');
+    expect(text(root)).toContain('تحتاج تفويضًا');
+  });
+
+  it('offers a sign-in again when the channel list says the session has ended', async () => {
+    const api = channelApi().on(`GET /tenants/${TENANT}/channels`, NO_SESSION);
+    const { root } = startChannels(api);
+    await settle();
+    expect(text(root)).toContain('Your session ended');
+  });
+
+  it('quotes the server’s message and request id on an ordinary rejection', async () => {
+    const api = channelApi().on(`GET /tenants/${TENANT}/channels`, {
+      status: 500,
+      body: { error: { code: 'internal_error', message: 'Something broke.', request_id: 'r-91' } },
+    });
+    const { root } = startChannels(api);
+    await settle();
+    expect(text(root)).toContain('The server rejected the request');
+    expect(text(root)).toContain('Something broke. · r-91');
+  });
+
+  it('shows every field of a rejection beside the connect form', async () => {
+    const api = channelApi().on(`POST /tenants/${TENANT}/channels`, {
+      status: 400,
+      body: {
+        error: {
+          code: 'invalid_input',
+          message: 'The request is not valid.',
+          details: [
+            { field: 'externalAssetId', code: 'malformed', message: 'That is not an asset id.' },
+          ],
+        },
+      },
+    });
+    const { root } = startChannels(api);
+    await settle();
+    type(root, '[data-form="channelAsset"]', 'nope');
+    type(root, '[data-form="channelName"]', 'Bad');
+    type(root, '[data-form="channelToken"]', 'EAAGtoken0003');
+    click(root, '[data-act="live-connect-channel"]');
+    await settle();
+    expect(text(root)).toContain('externalAssetId: That is not an asset id.');
+  });
+
+  it('names a channel with no reply window as having none', async () => {
+    const api = channelApi().on(`GET /tenants/${TENANT}/channels/catalogue`, {
+      status: 200,
+      body: {
+        data: [
+          {
+            kind: 'web_chat',
+            provider: 'web_chat',
+            implemented: false,
+            capabilities: { ...WHATSAPP_MATRIX, kind: 'web_chat', host: 'self', windowHours: null },
+          },
+        ],
+      },
+    });
+    const { root } = startChannels(api);
+    await settle();
+    // Our own channel obeys no provider window, which is different from a
+    // window of zero hours.
+    expect(find(root, '[data-channel-kind="web_chat"]').textContent).toContain('No window');
+  });
+
+  it('names a channel kind this build does not know', async () => {
+    const api = channelApi().on(`GET /tenants/${TENANT}/channels/catalogue`, {
+      status: 200,
+      body: {
+        data: [
+          {
+            kind: 'telegram',
+            provider: 'custom',
+            implemented: false,
+            capabilities: { ...WHATSAPP_MATRIX, kind: 'telegram' },
+          },
+        ],
+      },
+    });
+    const { root } = startChannels(api);
+    await settle();
+    expect(find(root, '[data-channel-kind="telegram"]').textContent).toContain('telegram');
+  });
+
+  it('sends nothing at all when there is no tenant to send it to', async () => {
+    const api = channelApi().on('GET /me/memberships', { status: 200, body: { data: [] } });
+    const { app } = startChannels(api);
+    await settle();
+    const before = api.calls.length;
+    app.dispatch('live-test-channel', 'cn-1');
+    await settle();
+    expect(api.calls.length).toBe(before);
+    expect(app.state.toasts).toHaveLength(0);
+  });
+
+  it('moves between the two server-backed screens without re-probing the session', async () => {
+    const api = channelApi();
+    const { app, root } = startChannels(api);
+    await settle();
+    const probes = api.calls.filter((call) => call.path === '/auth/session').length;
+
+    app.dispatch('nav', 'people');
+    await settle();
+    expect(text(root)).toContain('hana@digital-school.example');
+    expect(api.calls.filter((call) => call.path === '/auth/session')).toHaveLength(probes);
   });
 });

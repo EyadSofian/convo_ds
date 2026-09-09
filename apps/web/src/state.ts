@@ -11,7 +11,7 @@ import type { FilterState, QueueSegment } from './filters';
 import { createFilter, filterFromView, QUEUE_SEGMENTS, SORT_VALUES } from './filters';
 import type { Lang } from './format';
 import type { Actor } from './permissions';
-import { disconnectedApi } from './api/people';
+import { disconnectedApi, disconnectedChannelsApi } from './api/people';
 import type { LiveState } from './live/store';
 import { createLiveState } from './live/store';
 import type { Route, ScreenId } from './router';
@@ -112,7 +112,7 @@ export interface AppState {
  * work, and anything that asks the API reports a network failure rather than
  * inventing a success. `mount` always passes the real one.
  */
-export function createState(now: Date, live: LiveState = createLiveState(disconnectedApi())): AppState {
+export function createState(now: Date, live: LiveState = createLiveState(disconnectedApi(), disconnectedChannelsApi())): AppState {
   const dataset = buildDataset(now);
   return {
     lang: 'ar',

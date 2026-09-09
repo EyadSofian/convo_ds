@@ -7,19 +7,24 @@ import {
   changeRole,
   changeScopes,
   changeStatus,
+  connectChannel,
   createRole,
   createTeam,
   deleteRole,
+  disconnectChannel,
   invitePerson,
+  loadChannelsScreen,
   loadPeopleScreen,
   loadSession,
   offerOwnership,
   removeTeamMember,
   renameRole,
+  rotateChannelCredential,
   revokeInvitation,
   settleOwnership,
   signIn,
   signOut,
+  testChannel,
 } from './actions.js';
 
 /**
@@ -79,6 +84,11 @@ export function roleNameField(roleId: string): string {
   return `roleName_${roleId}`;
 }
 
+/** The form key for a connection's credential-rotation field. */
+export function channelTokenField(connectionId: string): string {
+  return `channelToken_${connectionId}`;
+}
+
 export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-signin': async (context) => {
     await signIn(context, form(context, 'signinEmail'), form(context, 'signinPassword'));
@@ -93,6 +103,42 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     await loadSession(context);
     await loadPeopleScreen(context);
   },
+
+  'live-channels-reload': async (context) => {
+    await loadSession(context);
+    await loadChannelsScreen(context);
+  },
+
+  'live-connect-channel': async (context) => {
+    const connected = await connectChannel(context, {
+      kind: 'whatsapp',
+      externalAssetId: form(context, 'channelAsset'),
+      displayName: form(context, 'channelName'),
+      accessToken: form(context, 'channelToken'),
+    });
+    // The token is dropped from state whatever the answer was — a credential
+    // left in a form field is a credential in a screenshot. The other two are
+    // kept on a refusal, so the attempt can be corrected rather than retyped.
+    clearForm(context, connected ? ['channelAsset', 'channelName', 'channelToken'] : ['channelToken']);
+    context.refresh();
+  },
+
+  'live-test-channel': async (context, arg) => testChannel(context, arg),
+
+  'live-rotate-channel': async (context, arg) => {
+    const rotated = await rotateChannelCredential(
+      context,
+      arg,
+      form(context, channelTokenField(arg)),
+    );
+    if (rotated) {
+      clearForm(context, [channelTokenField(arg)]);
+      context.refresh();
+    }
+    return rotated;
+  },
+
+  'live-disconnect-channel': async (context, arg) => disconnectChannel(context, arg),
 
   'live-invite': async (context) => {
     const email = form(context, 'inviteEmail');

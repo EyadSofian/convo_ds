@@ -24,8 +24,23 @@ export default defineConfig({
   expect: {
     timeout: 10_000,
     toHaveScreenshot: {
-      // Font rasterisation differs by a hair across machines; anything larger
-      // than this is a real visual change, not noise.
+      /*
+       * What this ratio can and cannot catch, measured rather than assumed.
+       *
+       * Arabic glyph rasterisation varies run to run on the same machine by
+       * about 1.4% of the pixels of a text-dense screen — the diff is a
+       * scattering of subpixel edges with identical text. Replacing the
+       * Channels screen wholesale, four cards of demo data becoming one state
+       * box, moved about 2%. Those two numbers are too close for a ratio to
+       * separate, because most of both screens is near-white on near-white and
+       * only glyph pixels ever count.
+       *
+       * So this stays at 2%: it catches a colour token drifting, a control
+       * losing its border, a layout collapsing — real work, and all it can
+       * honestly claim. "This screen is no longer the same screen" is caught by
+       * the structural snapshots in visual.spec.ts instead, which compare a DOM
+       * skeleton and involve no rasterisation at all.
+       */
       maxDiffPixelRatio: 0.02,
       animations: 'disabled',
       caret: 'hide',

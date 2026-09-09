@@ -1,3 +1,4 @@
+import type { ConnectChannelInput } from '../api/channels.js';
 import type { ApiResult } from '../api/client.js';
 import type { Role, ScopeRef } from '../api/people.js';
 import type { AppState } from '../state.js';
@@ -131,6 +132,97 @@ export async function loadPeopleScreen(context: LiveContext): Promise<void> {
   context.refresh();
 }
 
+/* -------------------------------------------------------------- channels -- */
+
+/**
+ * Loads the Channels screen.
+ *
+ * The catalogue and the connections are separate reads because they answer
+ * separate questions: what this build can serve at all, and what this company
+ * has actually connected. A screen that showed only the second would make an
+ * unimplemented channel look like a missing one.
+ */
+export async function loadChannelsScreen(context: LiveContext): Promise<void> {
+  const { live } = context;
+  const tenantId = currentTenantId(live);
+  if (tenantId === null) {
+    return;
+  }
+  live.connections = LOADING;
+  live.catalogue = LOADING;
+  context.refresh();
+
+  const [connections, catalogue] = await Promise.all([
+    live.channels.connections(tenantId),
+    live.channels.catalogue(tenantId),
+  ]);
+  const now = context.now();
+  live.connections = fromResult(connections, now);
+  live.catalogue = fromResult(catalogue, now);
+  context.refresh();
+}
+
+export function connectChannel(
+  context: LiveContext,
+  input: ConnectChannelInput,
+): Promise<boolean> {
+  const key = context.newKey();
+  return mutateChannels(
+    context,
+    'connect-channel',
+    (tenantId) => context.live.channels.connect(tenantId, input, key),
+    (connection) =>
+      t(
+        context.state,
+        `أُضيفت القناة ${connection.display_name} — لم تُثبت جاهزيتها بعد`,
+        `Added ${connection.display_name} — it is not working yet`,
+      ),
+  );
+}
+
+export function testChannel(context: LiveContext, connectionId: string): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `test-channel:${connectionId}`,
+    (tenantId) => context.live.channels.test(tenantId, connectionId),
+    (connection) =>
+      connection.last_error_code === null
+        ? t(context.state, 'قبل المزوّد بيانات الاعتماد', 'The provider accepted the credential')
+        : t(
+            context.state,
+            `رفض المزوّد: ${connection.last_error_code}`,
+            `The provider refused: ${connection.last_error_code}`,
+          ),
+  );
+}
+
+export function rotateChannelCredential(
+  context: LiveContext,
+  connectionId: string,
+  accessToken: string,
+): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `rotate-channel:${connectionId}`,
+    (tenantId) => context.live.channels.rotate(tenantId, connectionId, accessToken),
+    () =>
+      t(
+        context.state,
+        'حُفظ الاعتماد الجديد — يحتاج اختبارًا ليُثبت أنه يعمل',
+        'The new credential is stored — test it to prove it works',
+      ),
+  );
+}
+
+export function disconnectChannel(context: LiveContext, connectionId: string): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `disconnect-channel:${connectionId}`,
+    (tenantId) => context.live.channels.disconnect(tenantId, connectionId),
+    () => t(context.state, 'فُصلت القناة وأُلغيت اعتماداتها', 'Disconnected, and its credentials revoked'),
+  );
+}
+
 /* ------------------------------------------------------------- mutations -- */
 
 /**
@@ -166,6 +258,36 @@ async function mutate<T>(
   // The toast is here, after the server committed — never on the click.
   pushToast(state, onOk(result.data));
   await loadPeopleScreen(context);
+  return true;
+}
+
+/** The same discipline as `mutate`, reloading the Channels screen instead. */
+async function mutateChannels<T>(
+  context: LiveContext,
+  busyKey: string,
+  run: (tenantId: string) => Promise<ApiResult<T>>,
+  onOk: (value: T) => string,
+): Promise<boolean> {
+  const { live, state } = context;
+  const tenantId = currentTenantId(live);
+  if (tenantId === null) {
+    return false;
+  }
+  live.busy = busyKey;
+  live.error = null;
+  context.refresh();
+
+  const result = await run(tenantId);
+  live.busy = null;
+  live.revision += 1;
+
+  if (!result.ok) {
+    live.error = result.error;
+    context.refresh();
+    return false;
+  }
+  pushToast(state, onOk(result.data));
+  await loadChannelsScreen(context);
   return true;
 }
 
@@ -386,4 +508,6 @@ function resetResources(live: LiveState): void {
   live.invitations = gone;
   live.permissions = gone;
   live.transfers = gone;
+  live.connections = gone;
+  live.catalogue = gone;
 }

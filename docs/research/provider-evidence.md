@@ -6,14 +6,16 @@ Every row separates **what a source said**, **when we observed it**, and **what 
 
 | Item | Status as of 2026-09-07 |
 |---|---|
-| Meta app, WABA, phone number, Page, IG professional account | **Not supplied.** No connection, no send, no token. |
+| Meta app, WABA, phone number, Page, IG professional account | **Not supplied.** No connection, no send, no token. The WhatsApp adapter, the ingress, the credential store and the Channels screen are implemented and tested against fixtures; **no provider transport is configured at all**, so every send and every connection test refuses with `provider_not_connected`. |
 | Odoo instance and service account | **Not supplied.** |
 | Figma editable nodes | **Not accessible.** Connector unauthenticated; `WebFetch` of the Community page returned HTTP 403. |
 | Several Meta documentation pages | Returned **HTTP 429** to text fetches during the v2 research. |
 | Instagram messaging documentation | **Directly read in a browser** during v2 research (page dated 6 May 2026). |
 | Chatwoot reference | Cached at pinned commit `c9f1867369ea87580adac3df9f2058bc63da1ef2`; licences read; **not executed**. |
 
-Therefore: every `Live` status in the traceability registry is `blocked_no_asset` or `n/a`. The adapters, simulators, fixtures, policy engines and UI are **not** blocked by this and proceed at full scope.
+Therefore: every `Live` status in the traceability registry is `blocked_no_asset` or `n/a`. The adapters, fixtures, policy engines and UI are **not** blocked by this and proceed at full scope.
+
+**On simulators.** There is deliberately no provider simulator bound anywhere in the shipped composition root. A simulator that answered "accepted" would make the Channels screen show a working channel, and that would be a lie told by our own code rather than by a provider. The default transport refuses every call with a typed reason, and one integration suite binds a clearly-labelled **stub** to exercise our own success and failure handling — it produces no message id, claims no send, and exists only inside that test file.
 
 ## 2. WhatsApp Cloud API
 
@@ -26,7 +28,9 @@ Therefore: every `Live` status in the traceability registry is `blocked_no_asset
 | Throughput, portfolio rolling unique-recipient limits and template pacing are **different** limits | BSP references: [AWS throughput](https://docs.aws.amazon.com/social-messaging/latest/userguide/increase-message-throughput.html), [360dialog messaging limits](https://docs.360dialog.com/docs/resources/wabas/messaging-limits) | Modelled as separate configurable limits, each with observed value, provenance and effective date. **Provisional — BSP-derived, not Meta-authoritative** (CH-WA-06). |
 | Identity: BSUIDs / phone-absent identities exist | [Twilio key concepts](https://www.twilio.com/docs/whatsapp/key-concepts), [WhatsApp usernames FAQ](https://faq.whatsapp.com/1131753190029163) | Contacts have nullable phone; identities are scoped with validity intervals and rotation (CT-01, CT-02). Provisional. |
 
-**Pinned Graph version:** to be set in adapter config at P2 from current official documentation at that moment, and recorded here with its source URL and date. It is **not** guessed now.
+**Pinned Graph version: `v21.0`**, set 2026-09-09 in `packages/domain/src/channels/capabilities.ts` as `PINNED_GRAPH_VERSION`. It is a **pin, not a claim about the latest supported version**: Meta's version pages returned HTTP 429 to text fetches during this work, so the number was chosen as a conservative, widely-supported version rather than read from a live page. Bumping it is a config change plus a fixture re-record plus a capability-matrix diff (ADR-0009), and the capability snapshot test fails if a bump changes the matrix without that. When a documentation page can actually be read, this row gets its source URL and observation date and the version is re-confirmed or moved.
+
+**Webhook signature (CH-WA-02):** `X-Hub-Signature-256`, HMAC-SHA-256 over the exact raw request bytes, constant-time comparison, plus a 300-second replay window on `X-Hub-Timestamp` when the sender supplies one. Implemented in `packages/domain/src/channels/meta-signature.ts` and asserted against altered bytes, a wrong secret, a `sha1=` downgrade, a malformed digest and a stale timestamp. **This half is genuinely verified**: the test computes the signature exactly as the provider would, with the app secret the installation configures, so nothing about it is simulated. What remains unverified is only whether Meta's *live* deliveries match the documented scheme, which needs an authorized app.
 
 ## 3. Instagram
 

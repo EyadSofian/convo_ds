@@ -1,3 +1,4 @@
+import { ChannelsApi } from './channels.js';
 import type { ApiResult } from './client.js';
 import { ApiClient, API_BASE_URL } from './client.js';
 
@@ -242,11 +243,18 @@ export class PeopleApi {
  * behaves better than production.
  */
 export function disconnectedApi(): PeopleApi {
-  return new PeopleApi(
-    new ApiClient({
-      baseUrl: API_BASE_URL,
-      fetch: () => Promise.reject(new Error('No HTTP transport is configured.')),
-      readCsrfToken: () => null,
-    }),
-  );
+  return new PeopleApi(deadClient());
+}
+
+/** The same, for the channel operations. */
+export function disconnectedChannelsApi(): ChannelsApi {
+  return new ChannelsApi(deadClient());
+}
+
+function deadClient(): ApiClient {
+  return new ApiClient({
+    baseUrl: API_BASE_URL,
+    fetch: () => Promise.reject(new Error('No HTTP transport is configured.')),
+    readCsrfToken: () => null,
+  });
 }

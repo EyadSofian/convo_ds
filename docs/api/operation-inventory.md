@@ -225,6 +225,30 @@ Every operation below needs: one `operationId`, request/response/error schemas, 
 | Probes | `GET /health/live` | `healthLive` | public, minimal | P1 |
 | Probes | `GET /health/ready` | `healthReady` | public, minimal; diagnostics private | P1 |
 
+## Channel operations (P2)
+
+Implemented in Milestone C, pinned in the spec, and covered in both directions by the drift test.
+
+| Group | Method + path | operationId | Permission / scope | Phase |
+|---|---|---|---|---|
+| Channels | `GET T/channels` | `listChannelConnections` | `channel.manage` | P2 |
+| Channels | `GET T/channels/catalogue` | `listChannelCatalogue` | `channel.manage` | P2 |
+| Channels | `POST T/channels` | `connectChannel` | `channel.manage` + CSRF + `Idempotency-Key` | P2 |
+| Channels | `POST T/channels/{id}/test` | `testChannelConnection` | `channel.manage` + CSRF | P2 |
+| Channels | `POST T/channels/{id}/credential` | `rotateChannelCredential` | **`credential.rotate`** + CSRF | P2 |
+| Channels | `DELETE T/channels/{id}` | `disconnectChannel` | `channel.manage` + CSRF | P2 |
+
+Only `connectChannel` carries an `Idempotency-Key`: it is the one operation whose
+replay would duplicate an effect — a second connection racing the first for the
+same inbound messages. Test, rotate and disconnect converge on the same state, so
+requiring a key there would be ceremony without a reason.
+
+Rotation is separated from management by permission key on purpose. Reaching a
+provider credential is the narrower act, and the catalogue already distinguishes
+`credential.rotate` from `channel.manage`; an operator who may reorganise
+channels is not thereby an operator who may replace the token that sends as the
+company.
+
 ## Deliberate divergences from the minimum inventory
 
 The rows above are the minimum from MASTER-PROMPT §19. Where the implementation
@@ -234,6 +258,7 @@ that exists today.
 
 | Inventory row | As implemented | Why |
 |---|---|---|
+| `POST /webhooks/meta/{app_connection_id}` | same path; the parameter is a **channel app id**, not a connection id | The delivery names the app it came from, which is what selects the secret to verify with. The *connection* is resolved afterwards, from the asset id inside the verified payload — a path parameter is never authority (DEL-02). The inventory's name is kept so the route matches; this row records what the value actually is. |
 | `DELETE T/teams/{id}` | `PATCH T/teams/{id}` with `{"archived": true}` | A team is the addressee of past routing and assignment. Deleting one would orphan that history or force a cascade that rewrites it; archiving keeps the record and frees the name, and `{"archived": false}` restores it. |
 | `PUT T/teams/{id}/members/{member_id}` | `POST T/teams/{id}/members` with `{"membershipId": …}` | The member is identified by a *membership* id, which is tenant-scoped and not the caller's to choose. Putting it in the path invites a caller to treat it as a name it may create; the body makes it an existing row that is looked up and refused with a 404 when it is not this tenant's. Adding the same membership twice is still idempotent. |
 

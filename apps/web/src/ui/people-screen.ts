@@ -559,7 +559,8 @@ function roleCard(state: AppState, live: LiveState, role: Role): HTMLElement {
               placeholder: role.name,
               'aria-label': t(state, `اسم جديد للدور ${role.name}`, `New name for ${role.name}`),
               value: state.dialogForm[nameField] ?? '',
-              'data-act': 'form',
+              // `form-toggle`, because this value gates the Rename button.
+              'data-act': 'form-toggle',
               'data-form': nameField,
             }),
           ]),

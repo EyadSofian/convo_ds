@@ -353,12 +353,6 @@ describe('delegated interaction', () => {
     expect(root.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false');
   });
 
-  it('surfaces a channel action as an honest demo warning', () => {
-    const { root } = start('#/channels');
-    click(root, '[data-arg^="test:"]');
-    expect(root.querySelector('.toast--warning')?.textContent).toContain('لا يوجد مزوّد متصل');
-  });
-
   it('ignores clicks with no action and stops listening after destroy', () => {
     const { root, app } = start();
     root.querySelector('.thread__body')?.dispatchEvent(new window.Event('click', { bubbles: true }));

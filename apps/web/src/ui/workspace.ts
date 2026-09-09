@@ -1,4 +1,4 @@
-import type { Campaign, ChannelConnection } from '../data';
+import type { Campaign } from '../data';
 import { h } from '../dom';
 import { channelLabel } from '../filters';
 import { conversationCount, formatNumber, relativeTime } from '../format';
@@ -9,7 +9,6 @@ import {
   barRow,
   button,
   card,
-  checkItem,
   isolated,
   metric,
   notice,
@@ -17,7 +16,6 @@ import {
   selectControl,
   stateBox,
   switchControl,
-  type Tone,
 } from './parts';
 
 function t(state: AppState, ar: string, en: string): string {
@@ -39,146 +37,7 @@ function intro(
   ]);
 }
 
-const READINESS_TONE: Record<ChannelConnection['readiness'], Tone> = {
-  not_configured: 'neutral',
-  authorization_pending: 'warning',
-  verifying: 'warning',
-  connected: 'success',
-  degraded: 'warning',
-  reauthorization_required: 'danger',
-  disconnected: 'danger',
-};
-
-function readinessLabel(state: AppState, value: ChannelConnection['readiness']): string {
-  const labels: Record<ChannelConnection['readiness'], { ar: string; en: string }> = {
-    not_configured: { ar: 'غير مُهيّأة', en: 'Not configured' },
-    authorization_pending: { ar: 'بانتظار التفويض', en: 'Authorization pending' },
-    verifying: { ar: 'جارٍ التحقق', en: 'Verifying' },
-    connected: { ar: 'متصلة', en: 'Connected' },
-    degraded: { ar: 'متدهورة', en: 'Degraded' },
-    reauthorization_required: { ar: 'يلزم إعادة تفويض', en: 'Re-authorization required' },
-    disconnected: { ar: 'مفصولة', en: 'Disconnected' },
-  };
-  return t(state, labels[value].ar, labels[value].en);
-}
-
 /* ---------------------------------------------------------------- channels -- */
-
-export function renderChannels(state: AppState): HTMLElement {
-  const actor = currentActor(state);
-  const manage = can(actor, 'channel.manage');
-  return h('div', { class: 'workspace', tabindex: '0', 'data-scroll': 'screen' }, [
-    intro(
-      state,
-      t(state, 'القنوات', 'Channels'),
-      t(
-        state,
-        'كل أصل لدى المزوّد له معرّف اتصال مستقل، وحالة «متصلة» تتطلب خمسة أدلة منفصلة — وجود رمز في الحقل لا يثبت شيئًا.',
-        'Every provider asset has its own connection ID, and “connected” requires five separate pieces of evidence — a non-empty token field proves nothing.',
-      ),
-      manage
-        ? [
-            button({
-              label: t(state, 'ربط قناة', 'Connect a channel'),
-              icon: 'plus',
-              act: 'dialog',
-              arg: 'connect-channel',
-              variant: 'primary',
-            }),
-          ]
-        : [],
-    ),
-    manage
-      ? null
-      : notice(
-          'warning',
-          'lock',
-          t(
-            state,
-            'دورك لا يملك channel.manage — العرض للقراءة فقط، والخادم يرفض أي تعديل بغض النظر عن الواجهة.',
-            'Your role lacks channel.manage — this is read-only, and the server rejects writes regardless of the UI.',
-          ),
-        ),
-    notice(
-      'info',
-      'info',
-      t(
-        state,
-        'بيانات تجريبية — لا يوجد مزوّد متصل فعليًا في هذه النسخة.',
-        'Demo data — no provider is actually connected in this build.',
-      ),
-    ),
-    h(
-      'div',
-      { class: 'grid2' },
-      state.dataset.channels.map((connection) =>
-        card(
-          t(state, connection.label, connection.labelEn),
-          [pill(readinessLabel(state, connection.readiness), READINESS_TONE[connection.readiness], 'shield')],
-          [
-            h('dl', { class: 'attrgrid' }, [
-              h('dt', {}, [t(state, 'النوع', 'Kind')]),
-              h('dd', {}, [channelLabel(connection.kind, state.lang)]),
-              h('dt', {}, [t(state, 'الأصل', 'Asset')]),
-              h('dd', {}, [isolated(connection.asset, true)]),
-              h('dt', {}, [t(state, 'معرّف الاتصال', 'Connection ID')]),
-              h('dd', {}, [isolated(connection.id, true)]),
-              h('dt', {}, [t(state, 'نافذة الرد', 'Reply window')]),
-              h('dd', {}, [isolated(`${formatNumber(connection.windowHours, state.lang)} h`)]),
-            ]),
-            h('div', { class: 'field' }, [
-              h('span', { class: 'field__label' }, [t(state, 'أدلة الجاهزية', 'Readiness evidence')]),
-              h(
-                'ul',
-                { class: 'checklist' },
-                connection.evidence.map((item) =>
-                  checkItem(t(state, item.label, item.labelEn), item.done),
-                ),
-              ),
-            ]),
-            notice('plain', 'info', t(state, connection.note, connection.noteEn)),
-            h('div', { class: 'workspace__actions', style: 'margin-inline-start:0' }, [
-              button({
-                label: t(state, 'اختبار', 'Test'),
-                icon: 'refresh',
-                act: 'channel',
-                arg: `test:${connection.id}`,
-                small: true,
-                disabled: !manage,
-              }),
-              connection.readiness === 'not_configured'
-                ? button({
-                    label: t(state, 'ربط', 'Connect'),
-                    act: 'channel',
-                    arg: `connect:${connection.id}`,
-                    small: true,
-                    variant: 'primary',
-                    disabled: !manage,
-                  })
-                : button({
-                    label: t(state, 'إعادة تفويض', 'Reconnect'),
-                    act: 'channel',
-                    arg: `reconnect:${connection.id}`,
-                    small: true,
-                    disabled: !manage,
-                  }),
-              button({
-                label: t(state, 'فصل', 'Disconnect'),
-                act: 'channel',
-                arg: `disconnect:${connection.id}`,
-                small: true,
-                variant: 'danger',
-                disabled: !manage,
-              }),
-            ]),
-          ],
-        ),
-      ),
-    ),
-  ]);
-}
-
-/* -------------------------------------------------------------- broadcasts -- */
 
 export function renderBroadcasts(state: AppState): HTMLElement {
   const actor = currentActor(state);

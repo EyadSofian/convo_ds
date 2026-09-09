@@ -1,0 +1,105 @@
+div.workspace
+  div.workspace__intro
+    div.workspace__introtext
+      h1.workspace__heading
+      p.workspace__lede
+    div.workspace__actions
+      button.btn.btn--primary [demo]
+        svg
+          path
+  div.grid2
+    section.card
+      div.card__header
+        h3.card__title
+        span.card__spacer
+      div.card__body
+        label.field
+          span.field__label
+          input.input [form]
+        label.field
+          span.field__label
+          select.select [form]
+            option
+            option
+            option
+            option
+        label.field
+          span.field__label
+          select.select [lang]
+            option
+            option
+        div.notice
+          span.notice__icon
+            svg
+              circle
+              path
+          span
+    section.card
+      div.card__header
+        h3.card__title
+        span.card__spacer
+      div.card__body
+        div.field
+          span.switch
+            button.switch__track [form-toggle]
+            span
+        div.field
+          span.switch
+            button.switch__track [form-toggle]
+            span
+        dl.attrgrid
+          dt
+          dd
+            bdi
+          dt
+          dd
+          dt
+          dd
+            bdi
+    section.card
+      div.card__header
+        h3.card__title
+        span.card__spacer
+      div.card__body
+        label.field
+          span.field__label
+          select.select [form]
+            option
+            option
+            option
+        div.notice.notice--warning
+          span.notice__icon
+            svg
+              path
+              path
+          span
+        div.field
+          span.switch
+            button.switch__track [form-toggle]
+            span
+    section.card
+      div.card__header
+        h3.card__title
+        span.card__spacer
+        span.pill.pill--accent
+          svg
+            circle
+            path
+      div.card__body
+        dl.attrgrid
+          dt
+          dd
+          dt
+          dd
+            bdi
+          dt
+          dd
+            bdi
+        div.notice
+          span.notice__icon
+            svg
+              path
+              path
+          span
+        div.workspace__actions
+          button.btn.btn--danger.btn--sm [demo]

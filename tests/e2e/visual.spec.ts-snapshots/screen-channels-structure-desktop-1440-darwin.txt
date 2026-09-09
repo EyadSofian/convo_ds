@@ -1,0 +1,13 @@
+div.workspace
+  div.workspace__intro
+    div.workspace__introtext
+      h1.workspace__heading
+      p.workspace__lede
+  div.statebox.statebox--denied
+    span.statebox__icon
+      svg
+        rect
+        path
+    p.statebox__title
+    p.statebox__body
+    button.btn.btn--sm [live-channels-reload]

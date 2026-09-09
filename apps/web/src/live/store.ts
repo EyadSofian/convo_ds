@@ -1,3 +1,4 @@
+import type { ChannelCatalogueEntry, ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type {
   Invitation,
@@ -64,6 +65,7 @@ export type SessionState =
  */
 export interface LiveState {
   readonly api: PeopleApi;
+  readonly channels: ChannelsApi;
   session: SessionState;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
@@ -71,15 +73,18 @@ export interface LiveState {
   invitations: Resource<readonly Invitation[]>;
   permissions: Resource<readonly Permission[]>;
   transfers: Resource<readonly OwnershipTransfer[]>;
+  connections: Resource<readonly ChannelConnection[]>;
+  catalogue: Resource<readonly ChannelCatalogueEntry[]>;
   busy: string | null;
   error: ApiError | null;
   /** Incremented on every settled mutation, so a view can key off freshness. */
   revision: number;
 }
 
-export function createLiveState(api: PeopleApi): LiveState {
+export function createLiveState(api: PeopleApi, channels: ChannelsApi): LiveState {
   return {
     api,
+    channels,
     session: { status: 'unknown' },
     people: IDLE,
     roles: IDLE,
@@ -87,6 +92,8 @@ export function createLiveState(api: PeopleApi): LiveState {
     invitations: IDLE,
     permissions: IDLE,
     transfers: IDLE,
+    connections: IDLE,
+    catalogue: IDLE,
     busy: null,
     error: null,
     revision: 0,

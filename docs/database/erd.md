@@ -75,6 +75,65 @@ ownership_transfers      (id, tenant_id, from_membership, to_membership, status,
                           company (partial unique index). No token: it is an offer the
                           recipient accepts while signed in, not a link.
 
+-- Channels (migration 0010) -------------------------------------------------
+channel_apps             (id, provider, external_app_id, secret_ref, secret_fingerprint,
+                          verify_token_hash, graph_version, status, created_at, rotated_at)
+                          Installation level, NOT tenant-scoped, and the runtime role has
+                          only SELECT. The app secret is never here: `secret_ref` names the
+                          configuration key it is read from, and `secret_fingerprint` makes
+                          a rotation that skipped this row a visible mismatch rather than a
+                          webhook that quietly stops verifying.
+channel_connections      (id, tenant_id, app_id, kind, external_asset_id, display_name, status,
+                          capabilities jsonb, asset_verified_at, credential_verified_at,
+                          webhook_subscribed_at, first_inbound_at, first_outbound_at,
+                          last_error_code, last_error_at, created_at, disconnected_at)
+                          kind ∈ whatsapp|messenger|instagram|web_chat|custom. Readiness is
+                          derived from the five evidence timestamps, never written directly.
+                          UNIQUE INDEX (tenant_id, kind, external_asset_id)
+                            WHERE disconnected_at IS NULL
+channel_credentials      (id, tenant_id, connection_id, purpose, version, ciphertext bytea,
+                          iv bytea, auth_tag bytea, key_version, fingerprint, status,
+                          expires_at, created_at, revoked_at)
+                          AES-256-GCM with the tenant, connection and purpose as additional
+                          authenticated data, so a ciphertext moved to another row does not
+                          decrypt. Rotation appends a version and supersedes the previous
+                          one; there is no DELETE grant. Exactly one active version per
+                          (connection, purpose), by partial unique index.
+channel_asset_registry   (asset_fingerprint PK, provider, kind, external_asset_id,
+                          tenant_id, connection_id, claimed_at)
+                          Installation-wide: one provider asset belongs to one company
+                          (CH-03). asset_fingerprint = sha256(provider:kind:external_asset_id).
+                          RLS admits the row whose fingerprint matches
+                          convo.asset_fingerprint, so a webhook can resolve its owner with no
+                          tenant context and see nothing else. Writes still need the ordinary
+                          tenant context.
+webhook_receipts         (id, app_id, route_key, received_at, body_sha256, body_bytes,
+                          signature_valid, outcome, tenant_id, event_count)
+                          Installation level and deliberately contentless: evidence that
+                          bytes arrived and whether they verified. outcome ∈ routed|
+                          unknown_asset|signature_invalid|unsupported|malformed, and only a
+                          routed receipt names a tenant.
+channel_events           (id, tenant_id, connection_id, receipt_id, dedupe_key, event_type,
+                          payload jsonb, normalized jsonb, schema_version, status,
+                          quarantine_reason, received_at, processed_at)
+                          The tenant-scoped raw journal, written before the ACK. `payload` is
+                          the provider's own element (the evidence); `normalized` is what the
+                          adapter made of it. UNIQUE (tenant_id, dedupe_key) is what makes a
+                          redelivery one effect. A quarantined element keeps its payload.
+channel_event_queue      (event_id PK, tenant_id, enqueued_at, attempts, leased_by,
+                          lease_until, last_error)
+                          Installation level and contentless, so a worker can ask "is there
+                          work anywhere" with no tenant context without a carve-out on the
+                          table that holds the messages. Written in the same transaction as
+                          the event it points at.
+inbound_events           (id, tenant_id, connection_id, event_id, kind, provider_message_id,
+                          peer_identity, asset_identity, content_type, text_body,
+                          attachments jsonb, detail jsonb, occurred_at, observed_at)
+                          The normalized projection everything downstream reads. Both times
+                          are kept because they disagree. UNIQUE INDEX
+                          (tenant_id, event_id, kind, coalesce(provider_message_id, ''))
+                          makes re-running the projection idempotent.
+
 platform_admins          (id, user_id, granted_at)          -- no tenant membership
 support_grants           (id, tenant_id, platform_admin_id, scope jsonb, reason, expires_at, revoked_at)
 

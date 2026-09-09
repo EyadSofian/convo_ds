@@ -1,9 +1,10 @@
 import type { ActionContext } from './actions';
 import { runAction } from './actions';
 import { ApiClient, API_BASE_URL, csrfFromCookie, type FetchLike } from './api/client';
-import { disconnectedApi, PeopleApi } from './api/people';
+import { ChannelsApi } from './api/channels';
+import { disconnectedApi, disconnectedChannelsApi, PeopleApi } from './api/people';
 import type { LiveContext } from './live/actions';
-import { loadPeopleScreen, loadSession } from './live/actions';
+import { loadChannelsScreen, loadPeopleScreen, loadSession } from './live/actions';
 import { runLiveAction } from './live/dispatch';
 import { createLiveState } from './live/store';
 import { attrOf, closestWithAttr, h, replace } from './dom';
@@ -26,12 +27,8 @@ import { defaultConversationId, renderInbox } from './ui/inbox';
 import { renderDialog } from './ui/dialogs';
 import { button, isolated, selectControl } from './ui/parts';
 import { initials } from './format';
-import {
-  renderAnalytics,
-  renderBroadcasts,
-  renderChannels,
-  renderSettings,
-} from './ui/workspace';
+import { renderAnalytics, renderBroadcasts, renderSettings } from './ui/workspace';
+import { renderChannels } from './ui/channels-screen';
 import { renderPeople } from './ui/people-screen';
 
 function t(state: AppState, ar: string, en: string): string {
@@ -348,19 +345,19 @@ export function boot(document_: Document, host: RouterHost): AppHandle {
 
 export function mount(options: MountOptions): AppHandle {
   const transport = options.fetch;
-  const api =
+  // No transport was injected, so this page has no API behind it. Every request
+  // fails as a network error, which is what such a screen shows.
+  const client =
     transport === undefined
-      ? // No transport was injected, so this page has no API behind it. Every
-        // request fails as a network error, which is what such a screen shows.
-        disconnectedApi()
-      : new PeopleApi(
-          new ApiClient({
-            baseUrl: API_BASE_URL,
-            fetch: transport,
-            readCsrfToken: options.readCsrfToken ?? (() => null),
-          }),
-        );
-  const state = createState(options.now ?? new Date(), createLiveState(api));
+      ? null
+      : new ApiClient({
+          baseUrl: API_BASE_URL,
+          fetch: transport,
+          readCsrfToken: options.readCsrfToken ?? (() => null),
+        });
+  const api = client === null ? disconnectedApi() : new PeopleApi(client);
+  const channels = client === null ? disconnectedChannelsApi() : new ChannelsApi(client);
+  const state = createState(options.now ?? new Date(), createLiveState(api, channels));
   const root = options.root;
   const host = options.host;
   let sessionRequested = false;
@@ -535,12 +532,25 @@ export function mount(options: MountOptions): AppHandle {
    * demo screens working with no API reachable, and means a workspace that
    * never opens People never makes a request.
    */
+  /**
+   * Resolves the session the first time a server-backed screen is opened.
+   *
+   * Not on boot: the demo screens work with no API reachable, and a workspace
+   * that never opens People or Channels never makes a request. Each screen then
+   * loads its own lists, so opening Channels does not fetch the People ones.
+   */
   const ensureLiveSession = (): void => {
-    if (sessionRequested || state.route.screen !== 'people') {
+    const screen = state.route.screen;
+    if (screen !== 'people' && screen !== 'channels') {
+      return;
+    }
+    const load = screen === 'people' ? loadPeopleScreen : loadChannelsScreen;
+    if (sessionRequested) {
+      void load(liveContext);
       return;
     }
     sessionRequested = true;
-    void loadSession(liveContext).then(() => loadPeopleScreen(liveContext));
+    void loadSession(liveContext).then(() => load(liveContext));
   };
 
   const handleRoute = (route: Route): void => {

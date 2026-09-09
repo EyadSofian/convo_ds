@@ -8,7 +8,6 @@ import { createState } from '../state';
 import {
   renderAnalytics,
   renderBroadcasts,
-  renderChannels,
   renderSettings,
 } from './workspace';
 
@@ -24,43 +23,6 @@ function stateAs(role: RoleId = 'supervisor', lang: 'ar' | 'en' = 'ar'): AppStat
 function text(element: HTMLElement): string {
   return element.textContent ?? '';
 }
-
-describe('channels', () => {
-  it('renders one card per connection with readiness evidence', () => {
-    const element = renderChannels(stateAs('admin'));
-    expect(element.querySelectorAll('.card')).toHaveLength(5);
-    expect(element.querySelectorAll('.checklist li').length).toBe(25);
-    expect(text(element)).toContain('متصلة');
-    expect(text(element)).toContain('يلزم إعادة تفويض');
-    expect(text(element)).toContain('غير مُهيّأة');
-  });
-
-  it('labels demo data and never claims a live provider', () => {
-    const element = renderChannels(stateAs('admin'));
-    expect(text(element)).toContain('بيانات تجريبية');
-    expect(text(element)).toContain('لا يوجد مزوّد متصل فعليًا');
-  });
-
-  it('offers connect for an unconfigured asset and reconnect otherwise', () => {
-    const element = renderChannels(stateAs('admin'));
-    expect(element.querySelector('[data-arg^="connect:"]')).not.toBeNull();
-    expect(element.querySelector('[data-arg^="reconnect:"]')).not.toBeNull();
-    expect(element.querySelector('[data-arg^="disconnect:"]')).not.toBeNull();
-    expect(element.querySelector('[data-act="dialog"][data-arg="connect-channel"]')).not.toBeNull();
-  });
-
-  it('disables management and explains why without channel.manage', () => {
-    const element = renderChannels(stateAs('supervisor'));
-    expect(text(element)).toContain('channel.manage');
-    expect(element.querySelector('[data-arg="connect-channel"]')).toBeNull();
-    expect(element.querySelectorAll('button[disabled]').length).toBeGreaterThan(0);
-  });
-
-  it('renders in English', () => {
-    expect(text(renderChannels(stateAs('admin', 'en')))).toContain('Connect a channel');
-  });
-});
-
 
 describe('broadcasts', () => {
   it('renders one card per campaign with its ledger', () => {
