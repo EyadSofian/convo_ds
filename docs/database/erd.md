@@ -419,6 +419,21 @@ conversations            (id, tenant_id, inbox_id, contact_id, contact_identity_
                             WHERE archived_at IS NULL AND status IN ('open','pending','snoozed')
 conversation_participants(tenant_id, conversation_id, membership_id, role, joined_at)
 conversation_episodes    (id, tenant_id, conversation_id, opened_at, resolved_at, reopened_from_id)
+conversation_audit       (id, tenant_id, conversation_id, actor_membership_id NULLABLE,
+                          act, from_value, to_value, at_version, detail jsonb, at)
+                          append-only to the runtime role
+conversation_handoffs    (id, tenant_id, conversation_id, from_membership_id,
+                          to_membership_id, state, note, based_on_version,
+                          based_on_assignee_membership_id, created_at, expires_at,
+                          settled_at, settled_by_membership_id)
+                          state ∈ pending|accepted|declined|cancelled|expired
+                          UNIQUE (tenant_id, conversation_id) WHERE state = 'pending'
+conversation_handoff_expiries(handoff_id, tenant_id, conversation_id, expires_at)
+                          ids and times only; swept by worker-inbound without exposing note text
+conversation_collaborators(id, tenant_id, conversation_id, membership_id,
+                          added_by_membership_id, added_at, removed_at)
+                          UNIQUE (tenant_id, conversation_id, membership_id)
+                            WHERE removed_at IS NULL
 
 messages                 (id, tenant_id, conversation_id, direction, kind, body jsonb,
                           author_membership_id NULLABLE, is_private bool,
@@ -435,6 +450,8 @@ attachments              (id, tenant_id, owner_kind, owner_id, storage_key, mime
 ```
 
 `seq` is a per-conversation monotonic sequence used for cursors and read state. `is_private` on both message and attachment is the structural guarantee behind COL-01/MEDIA-04.
+
+Assignment, handoff acceptance and self-claim set `owner_state = human_active` and increment both the conversation fence and `owner_version`. A pending handoff does not move the assignee. Its stored expiry is consumed by `worker-inbound`; acceptance re-checks the recipient and the assignee premise inside the transaction. Participants record action and are never deleted; collaborators are removable invitations, so ending one stops future collaborator reach without erasing authorship.
 
 ## 6. Delivery
 

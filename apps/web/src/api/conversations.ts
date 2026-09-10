@@ -53,6 +53,9 @@ export interface Conversation {
   readonly resolution: string | null;
   readonly resolvedAt: string | null;
   readonly lastActivityAt: string;
+  /** ADR-0008's bot-versus-human dimension. Always `human_active` in this build. */
+  readonly ownerState: string;
+  readonly ownerVersion: number;
   /**
    * Whether **this** caller has seen the newest activity.
    *
@@ -61,6 +64,36 @@ export interface Conversation {
    * another's unread state.
    */
   readonly unread?: boolean;
+}
+
+export interface DirectoryAgent {
+  readonly membershipId: string;
+  readonly label: string;
+  readonly assigned: boolean;
+}
+
+export interface Handoff {
+  readonly id: string;
+  readonly conversationId: string;
+  readonly fromMembershipId: string;
+  readonly fromLabel: string;
+  readonly toMembershipId: string;
+  readonly toLabel: string;
+  readonly state: string;
+  readonly note: string | null;
+  readonly basedOnVersion: number;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly settledAt: string | null;
+  readonly settledByMembershipId: string | null;
+}
+
+export interface Collaborator {
+  readonly membershipId: string;
+  readonly label: string;
+  readonly addedAt: string;
+  /** True when this person actually acted. No removal can undo that. */
+  readonly participated: boolean;
 }
 
 export interface Episode {
@@ -243,6 +276,112 @@ export class ConversationsApi {
     return this.client.post<{ readonly readThrough: string }>(
       `/tenants/${tenantId}/conversations/${conversationId}/read`,
       { body: {} },
+    );
+  }
+
+  /* -------------------------------------------------------------- routing -- */
+
+  /**
+   * The people who could actually take this conversation.
+   *
+   * Deliberately not the People screen's endpoint: that needs `member.manage`
+   * and carries roles, scopes and login emails, none of which belongs in an
+   * assignee picker.
+   */
+  assignableAgents(
+    tenantId: string,
+    conversationId: string,
+  ): Promise<ApiResult<readonly DirectoryAgent[]>> {
+    return this.client.get<readonly DirectoryAgent[]>(
+      `/tenants/${tenantId}/directory/agents?conversation_id=${encodeURIComponent(conversationId)}`,
+    );
+  }
+
+  /** `null` takes it off every desk, which is an operation and not a gap. */
+  assign(
+    tenantId: string,
+    conversationId: string,
+    version: number,
+    assigneeMembershipId: string | null,
+  ): Promise<ApiResult<Conversation>> {
+    return this.client.post<Conversation>(
+      `/tenants/${tenantId}/conversations/${conversationId}/assignments`,
+      { body: { version, assigneeMembershipId } },
+    );
+  }
+
+  handoffs(tenantId: string, conversationId: string): Promise<ApiResult<readonly Handoff[]>> {
+    return this.client.get<readonly Handoff[]>(
+      `/tenants/${tenantId}/conversations/${conversationId}/handoffs`,
+    );
+  }
+
+  requestHandoff(
+    tenantId: string,
+    conversationId: string,
+    input: {
+      readonly version: number;
+      readonly toMembershipId: string;
+      readonly note: string | null;
+    },
+  ): Promise<ApiResult<Handoff>> {
+    return this.client.post<Handoff>(
+      `/tenants/${tenantId}/conversations/${conversationId}/handoffs`,
+      { body: input },
+    );
+  }
+
+  settleHandoff(
+    tenantId: string,
+    handoffId: string,
+    action: 'accept' | 'decline' | 'cancel',
+  ): Promise<ApiResult<Handoff>> {
+    return this.client.post<Handoff>(`/tenants/${tenantId}/handoffs/${handoffId}/${action}`, {
+      body: {},
+    });
+  }
+
+  setPriority(
+    tenantId: string,
+    conversationId: string,
+    version: number,
+    priority: string,
+  ): Promise<ApiResult<Conversation>> {
+    return this.client.patch<Conversation>(
+      `/tenants/${tenantId}/conversations/${conversationId}/priority`,
+      { body: { version, priority } },
+    );
+  }
+
+  collaborators(
+    tenantId: string,
+    conversationId: string,
+  ): Promise<ApiResult<readonly Collaborator[]>> {
+    return this.client.get<readonly Collaborator[]>(
+      `/tenants/${tenantId}/conversations/${conversationId}/collaborators`,
+    );
+  }
+
+  addCollaborator(
+    tenantId: string,
+    conversationId: string,
+    version: number,
+    membershipId: string,
+  ): Promise<ApiResult<readonly Collaborator[]>> {
+    return this.client.post<readonly Collaborator[]>(
+      `/tenants/${tenantId}/conversations/${conversationId}/collaborators`,
+      { body: { version, membershipId } },
+    );
+  }
+
+  removeCollaborator(
+    tenantId: string,
+    conversationId: string,
+    version: number,
+    membershipId: string,
+  ): Promise<ApiResult<readonly Collaborator[]>> {
+    return this.client.delete<readonly Collaborator[]>(
+      `/tenants/${tenantId}/conversations/${conversationId}/collaborators/${membershipId}?version=${String(version)}`,
     );
   }
 

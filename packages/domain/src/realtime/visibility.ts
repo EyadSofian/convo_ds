@@ -53,12 +53,13 @@ export function visibilityOf(
     return 'full';
   }
 
-  // A private note has no projected form. A queue card cannot carry one — it is
-  // a closed list of fields and a note is not among them — but the *existence*
-  // of a note is itself internal: an agent who may only preview an unclaimed
-  // conversation has no business learning that colleagues are discussing it.
-  // Filtered by the event's own type, before any payload is read.
-  if (event.type === 'conversation.note') {
+  // Neither a private note nor a handoff offer has a projected form. A queue
+  // card cannot carry one — it is a closed list of fields and neither is among
+  // them — but their *existence* is itself internal: an agent who may only
+  // preview an unclaimed conversation has no business learning that colleagues
+  // are discussing it, or negotiating who takes it. Filtered by the event's own
+  // type, before any payload is read.
+  if (event.type === 'conversation.note' || event.type === 'conversation.handoff') {
     return 'hidden';
   }
 

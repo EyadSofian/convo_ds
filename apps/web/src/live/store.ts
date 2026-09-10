@@ -1,9 +1,12 @@
 import type { ChannelCatalogueEntry, ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type {
+  Collaborator,
   Conversation,
   ConversationsApi,
+  DirectoryAgent,
   Episode,
+  Handoff,
   Note,
   QueueCard,
   TimelineMessage,
@@ -127,6 +130,33 @@ export interface LiveState {
   episodes: Resource<readonly Episode[]>;
   /** Which lifecycle control is expanded, if any. Never two at once. */
   lifecyclePanel: 'wait' | 'snooze' | 'resolve' | null;
+  /**
+   * Work routing on the open conversation.
+   *
+   * The directory is loaded only when somebody opens the picker: it is a list
+   * of colleagues computed per conversation, and fetching it for every thread
+   * an agent glances at would be a request per glance. It is also deliberately
+   * a *suggestion* — the server re-checks the target inside the write, so a
+   * stale entry costs a typed refusal rather than a wrong assignment.
+   */
+  assignees: Resource<readonly DirectoryAgent[]>;
+  handoffs: Resource<readonly Handoff[]>;
+  collaborators: Resource<readonly Collaborator[]>;
+  /** Which routing control is expanded. Never two at once, for the same reason. */
+  routingPanel: 'assign' | 'handoff' | 'priority' | 'collaborators' | null;
+  /** What the operator picked in the assignee or collaborator list, before they pressed anything. */
+  routingChoice: string;
+  handoffNote: string;
+  /**
+   * True when a conversation this person **was** reading became unreadable.
+   *
+   * Different from any other denial, and worth its own flag: a first read that
+   * is refused means the conversation was never theirs, while a re-read that is
+   * refused means it moved — a handoff was accepted, or a supervisor reassigned
+   * it out from under them. Telling somebody "this moved" about a thread they
+   * never had would be a lie about what just happened.
+   */
+  lostAccess: boolean;
   realtime: RealtimeState;
   subscription: RealtimeSubscription | null;
   /** The contact behind the open conversation, for the customer panel. */
@@ -187,6 +217,13 @@ export function createLiveState(
     noteEdit: '',
     episodes: IDLE,
     lifecyclePanel: null,
+    assignees: IDLE,
+    handoffs: IDLE,
+    collaborators: IDLE,
+    routingPanel: null,
+    routingChoice: '',
+    handoffNote: '',
+    lostAccess: false,
     realtime: { status: 'idle' },
     subscription: null,
     openContact: IDLE,

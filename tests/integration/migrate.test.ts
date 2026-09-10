@@ -1,6 +1,8 @@
+import { readdirSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Pool } from 'pg';
 import { migrate } from '../../packages/database/src/migrate.js';
@@ -18,6 +20,11 @@ import {
  * so it was exercised but never measured, and its failure paths were never
  * exercised at all.
  */
+/** Every migration on disk, which is what a fresh database ends up holding. */
+const MIGRATION_FILES = readdirSync(
+  fileURLToPath(new URL('../../packages/database/migrations', import.meta.url)),
+).filter((name) => name.endsWith('.sql'));
+
 describe('migrate', () => {
   let names: DatabaseNames;
   let pool: Pool;
@@ -52,6 +59,7 @@ describe('migrate', () => {
       '0015_receipt_watermark.sql',
       '0016_contacts.sql',
       '0017_conversation_lifecycle.sql',
+      '0018_work_routing.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -78,7 +86,11 @@ describe('migrate', () => {
       'consents',
       'contact_identities',
       'contacts',
+      'conversation_audit',
+      'conversation_collaborators',
       'conversation_episodes',
+      'conversation_handoff_expiries',
+      'conversation_handoffs',
       'conversation_notes',
       'conversation_participants',
       'conversation_reads',
@@ -119,7 +131,9 @@ describe('migrate', () => {
     const recorded = await pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM schema_migrations',
     );
-    expect(recorded.rows[0]?.count).toBe('17');
+    // Counted from the directory rather than pinned: a forward-only migration
+    // added by a later slice must not make this assertion a lie somebody edits.
+    expect(recorded.rows[0]?.count).toBe(String(MIGRATION_FILES.length));
   });
 
   /**

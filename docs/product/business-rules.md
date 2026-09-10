@@ -145,6 +145,7 @@ Estimated, reserved, committed and reconciled usage are four distinct quantities
 | Reply / private note | Tenant | Tenant | Scoped | Own | No | No | No |
 | View unassigned / claim | Tenant | Tenant | Scoped | Scoped | No | No | No |
 | Assign others / override routing | Tenant | Tenant | Scoped | No | No | No | No |
+| Ask a colleague to take a conversation | Tenant | Tenant | Scoped | Own | No | No | No |
 | Close / reopen / snooze | Tenant | Tenant | Scoped | Own | No | No | No |
 | Edit contact business fields | Tenant | Tenant | Scoped | Own conversation's contact | Scoped campaign contacts | No | No |
 | Merge / export contacts | Tenant | Tenant | Extra grant | No | Extra grant | No | No |
@@ -165,7 +166,7 @@ Estimated, reserved, committed and reconciled usage are four distinct quantities
 **Platform Super Admin** is outside this table. It manages installations, tenant lifecycle, placement, quotas and health through `/platform`. No membership, no chat read, no campaign send by default.
 
 Permission keys (checked by key, never by role name):
-`conversation.read`, `conversation.unassigned.preview`, `conversation.reply`, `conversation.note`, `conversation.claim`, `conversation.assign`, `conversation.close`, `contact.read`, `contact.edit`, `contact.merge`, `contact.export`, `consent.read`, `consent.record`, `suppression.write`, `campaign.read`, `campaign.draft`, `campaign.approve`, `campaign.launch`, `campaign.control`, `channel.manage`, `credential.rotate`, `member.manage`, `role.manage`, `integration.manage`, `api_key.manage`, `report.read`, `audit.read`, `retention.manage`, `tenant.delete`.
+`conversation.read`, `conversation.unassigned.preview`, `conversation.reply`, `conversation.note`, `conversation.claim`, `conversation.assign`, `conversation.handoff.request`, `conversation.close`, `contact.read`, `contact.edit`, `contact.merge`, `contact.export`, `consent.read`, `consent.record`, `suppression.write`, `campaign.read`, `campaign.draft`, `campaign.approve`, `campaign.launch`, `campaign.control`, `channel.manage`, `credential.rotate`, `member.manage`, `role.manage`, `integration.manage`, `api_key.manage`, `report.read`, `audit.read`, `retention.manage`, `tenant.delete`.
 
 Revocation target: within **30 seconds**, all session/socket/cached-read access reflects removal. New write/send permits reauthorize against current policy **immediately**. Tenant switch or revoked membership purges affected UI caches and drafts.
 

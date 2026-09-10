@@ -9,7 +9,10 @@ import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
+import { AuthService } from '../../apps/api/src/auth/auth.service.js';
+import { OutboundService } from '../../apps/api/src/channels/outbound.service.js';
 import { LifecycleService } from '../../apps/api/src/conversations/lifecycle.service.js';
+import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig, encodeCursor } from '../../packages/domain/src/index.js';
 import type { SendOutcome } from '../../packages/domain/src/index.js';
@@ -331,6 +334,9 @@ let agentB: Browser;
 let agentAMembershipId: string;
 let agentBMembershipId: string;
 let secondAgentA: Browser;
+let secondAgentAMembershipId: string;
+let supervisor: Browser;
+let supervisorMembershipId: string;
 let inboxA: string;
 let inboxB: string;
 let normalizer: ChannelNormalizationService;
@@ -387,10 +393,19 @@ beforeAll(async () => {
   agentBMembershipId = await addMember(api, 'agent-b@realtime.test', 'agent', [
     { type: 'inbox', id: inboxB },
   ]);
-  await addMember(api, 'agent-a2@realtime.test', 'agent', [{ type: 'inbox', id: inboxA }]);
+  secondAgentAMembershipId = await addMember(api, 'agent-a2@realtime.test', 'agent', [
+    { type: 'inbox', id: inboxA },
+  ]);
   agentA = await login(api, 'agent-a@realtime.test', MEMBER_PASSWORD);
   agentB = await login(api, 'agent-b@realtime.test', MEMBER_PASSWORD);
   secondAgentA = await login(api, 'agent-a2@realtime.test', MEMBER_PASSWORD);
+
+  // Routing authority scoped to one inbox: the case the matrix distinguishes
+  // from an Owner's tenant reach and from an Agent's none.
+  supervisorMembershipId = await addMember(api, 'supervisor-routing@realtime.test', 'supervisor', [
+    { type: 'inbox', id: inboxA },
+  ]);
+  supervisor = await login(api, 'supervisor-routing@realtime.test', MEMBER_PASSWORD);
 }, 240_000);
 
 afterAll(async () => {
@@ -682,6 +697,21 @@ describe('claiming', () => {
     expect(claimed.statusCode).toBe(200);
     const detail = (claimed.json() as { data: Record<string, unknown> }).data;
     expect(detail['assigneeMembershipId']).toBe(agentAMembershipId);
+    expect(detail['ownerState']).toBe('human_active');
+    expect(detail['ownerVersion']).toBe(2);
+
+    const audit = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ act: string; to_value: string | null; detail: Record<string, unknown> }>(
+        `SELECT act, to_value, detail FROM conversation_audit
+          WHERE conversation_id = $1 ORDER BY at DESC LIMIT 1`,
+        [card.id],
+      ),
+    );
+    expect(audit.rows[0]).toMatchObject({
+      act: 'claim',
+      to_value: agentAMembershipId,
+      detail: { ownerStateTo: 'human_active', ownerVersion: 2 },
+    });
 
     const read = await send(api, agentA, 'GET', `/conversations/${card.id}`);
     expect(read.statusCode).toBe(200);
@@ -2571,6 +2601,1345 @@ describe('private notes and the read cursor', () => {
     );
     // New activity past the cursor makes it unread again.
     expect(again?.unread).toBe(true);
+  });
+});
+
+/* ========================================================== work routing == */
+
+/**
+ * Assignment, handoff, priority and collaborators, against real PostgreSQL.
+ *
+ * Three acts move a conversation between people and this suite exists to prove
+ * they stay apart (ADR-0017): a **claim** takes work nobody holds, an
+ * **assignment** puts work on a named desk, and a **handoff** asks a colleague
+ * who may decline. The claims worth the transactions are the ones about what
+ * cannot happen — an Agent reassigning somebody else's work, a stale version
+ * silently taking a conversation, a pending offer quietly moving it, an audit
+ * row that can be rewritten, a directory that leaks the People screen.
+ */
+describe('direct assignment', () => {
+  const peer = '15557000700';
+  let conversationId: string;
+  async function current(): Promise<{
+    version: number;
+    assigneeMembershipId: string | null;
+    priority: string;
+    ownerState: string;
+    ownerVersion: number;
+  }> {
+    const response = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect(response.statusCode, response.payload).toBe(200);
+    return (
+      response.json() as {
+        data: {
+          version: number;
+          assigneeMembershipId: string | null;
+          priority: string;
+          ownerState: string;
+          ownerVersion: number;
+        };
+      }
+    ).data;
+  }
+
+  async function assignTo(
+    browser: Browser,
+    target: string | null,
+    version?: number,
+  ): Promise<LightMyRequestResponse> {
+    const at = version ?? (await current()).version;
+    return send(api, browser, 'POST', `/conversations/${conversationId}/assignments`, {
+      version: at,
+      assigneeMembershipId: target,
+    });
+  }
+
+  async function auditOf(): Promise<readonly { act: string; from_value: string | null; to_value: string | null }[]> {
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ act: string; from_value: string | null; to_value: string | null }>(
+        `SELECT act, from_value::text, to_value::text FROM conversation_audit
+          WHERE conversation_id = $1 ORDER BY at, act`,
+        [conversationId],
+      ),
+    );
+    return rows.rows;
+  }
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'من فضلكم', 'wamid.rt-700');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity = $1', [
+        peer,
+      ]),
+    );
+    conversationId = row.rows[0]?.id as string;
+  }, 120_000);
+
+  it('starts owned by people, at ownership version one', async () => {
+    const record = await current();
+    // ADR-0008's dimension, backfilled truthfully: no bot exists, so every
+    // conversation in this build is worked by humans.
+    expect(record.ownerState).toBe('human_active');
+    expect(record.ownerVersion).toBe(1);
+    expect(record.assigneeMembershipId).toBeNull();
+  });
+
+  it('lets an Owner put a conversation on a named desk', async () => {
+    const response = await assignTo(owner, agentAMembershipId);
+    expect(response.statusCode, response.payload).toBe(200);
+    const record = await current();
+    expect(record.assigneeMembershipId).toBe(agentAMembershipId);
+    // Being given a conversation is an ownership transition, which is the
+    // mechanism behind ADR-0008's "the bot resumes only by an explicit resume
+    // or reassignment".
+    expect(record.ownerVersion).toBe(2);
+
+    const audit = await auditOf();
+    expect(audit.at(-1)).toMatchObject({ act: 'assign', from_value: null, to_value: agentAMembershipId });
+  });
+
+  it('refuses an Agent the authority to reassign anybody', async () => {
+    // business-rules.md §7: "Assign others / override routing" is `No` for an
+    // Agent, even on a conversation they hold.
+    const response = await assignTo(agentA, agentAMembershipId);
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('lets a Supervisor assign inside their scope and nowhere else', async () => {
+    expect((await assignTo(supervisor, supervisorMembershipId)).statusCode).toBe(200);
+    expect((await current()).assigneeMembershipId).toBe(supervisorMembershipId);
+
+    // A conversation on the inbox they were never granted.
+    const elsewhere = '15557000701';
+    await customerWrites(INBOX_B, elsewhere, 'سؤال آخر', 'wamid.rt-701');
+    const other = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; version: number }>(
+        'SELECT id::text, version FROM conversations WHERE peer_identity = $1',
+        [elsewhere],
+      ),
+    );
+    const denied = await send(
+      api,
+      supervisor,
+      'POST',
+      `/conversations/${other.rows[0]?.id as string}/assignments`,
+      { version: other.rows[0]?.version, assigneeMembershipId: agentBMembershipId },
+    );
+    expect(denied.statusCode).toBe(403);
+  });
+
+  it('refuses a target who could not work the conversation', async () => {
+    // Same answer for every kind of unusable target: a caller with routing
+    // authority may learn that a person is not eligible, and must not be able
+    // to tell "wrong inbox" from "no such membership" and enumerate the company.
+    for (const target of [
+      agentBMembershipId, // real, active, wrong inbox
+      '00000000-0000-4000-8000-0000000000aa', // no such membership
+      'not-a-uuid',
+    ]) {
+      const response = await assignTo(owner, target);
+      expect(response.statusCode, `${target}: ${response.payload}`).toBe(422);
+      expect((response.json() as { error: { code: string } }).error.code).toBe(
+        'assignee_not_eligible',
+      );
+    }
+  });
+
+  it('refuses a revoked membership, re-derived inside the write', async () => {
+    const membershipId = await addMember(api, 'agent-leaving@realtime.test', 'agent', [
+      { type: 'inbox', id: inboxA },
+    ]);
+    // Eligible at first — the directory would have listed them a moment ago.
+    expect((await assignTo(owner, membershipId)).statusCode).toBe(200);
+
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(`UPDATE memberships SET status = 'revoked' WHERE id = $1`, [membershipId]),
+    );
+    const response = await assignTo(owner, membershipId);
+    expect(response.statusCode).toBe(422);
+  });
+
+  it('produces exactly one winner when two people assign at one version', async () => {
+    const { version } = await current();
+    const [first, second] = await Promise.all([
+      assignTo(owner, agentAMembershipId, version),
+      assignTo(owner, supervisorMembershipId, version),
+    ]);
+    const codes = [first.statusCode, second.statusCode].sort();
+    expect(codes).toEqual([200, 409]);
+    const loser = first.statusCode === 409 ? first : second;
+    expect((loser.json() as { error: { code: string } }).error.code).toBe(
+      'conversation_version_conflict',
+    );
+  });
+
+  it('produces exactly one winner between a claim and an assignment', async () => {
+    // Unassign first, so a claim is possible at all.
+    expect((await assignTo(owner, null)).statusCode).toBe(200);
+    const { version } = await current();
+
+    const [claimed, assigned] = await Promise.all([
+      send(api, agentA, 'POST', `/conversations/${conversationId}/claim`, { version }),
+      assignTo(owner, supervisorMembershipId, version),
+    ]);
+    expect([claimed.statusCode, assigned.statusCode].sort()).toEqual([200, 409]);
+    // Whoever lost, nobody was quietly overwritten: the record names exactly one.
+    const record = await current();
+    expect(record.assigneeMembershipId).not.toBeNull();
+  });
+
+  it('takes a conversation off every desk without erasing who worked it', async () => {
+    expect((await assignTo(owner, agentAMembershipId)).statusCode).toBe(200);
+    expect((await assignTo(owner, null)).statusCode).toBe(200);
+
+    const record = await current();
+    expect(record.assigneeMembershipId).toBeNull();
+
+    const participants = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ membership_id: string }>(
+        'SELECT membership_id::text FROM conversation_participants WHERE conversation_id = $1',
+        [conversationId],
+      ),
+    );
+    // Participation outlives assignment. Deleting it to make the queue look
+    // tidy would erase the authorship of whatever those people wrote.
+    expect(participants.rows.map((r) => r.membership_id)).toContain(agentAMembershipId);
+    expect((await auditOf()).at(-1)).toMatchObject({ act: 'unassign', to_value: null });
+  });
+
+  it('treats re-assigning to the same person as no change at all', async () => {
+    expect((await assignTo(owner, agentAMembershipId)).statusCode).toBe(200);
+    const before = await current();
+    const auditBefore = (await auditOf()).length;
+
+    expect((await assignTo(owner, agentAMembershipId)).statusCode).toBe(200);
+    const after = await current();
+    // No version bump and no audit row: a re-pressed button must not produce
+    // evidence that the conversation moved when it did not.
+    expect(after.version).toBe(before.version);
+    expect((await auditOf()).length).toBe(auditBefore);
+  });
+
+  it('keeps the audit append-only, even for the runtime role', async () => {
+    await expect(
+      withTenant(api.pool, api.tenantId, (client) =>
+        client.query('UPDATE conversation_audit SET act = $1 WHERE conversation_id = $2', [
+          'claim',
+          conversationId,
+        ]),
+      ),
+    ).rejects.toThrow(/permission denied/i);
+    await expect(
+      withTenant(api.pool, api.tenantId, (client) =>
+        client.query('DELETE FROM conversation_audit WHERE conversation_id = $1', [conversationId]),
+      ),
+    ).rejects.toThrow(/permission denied/i);
+  });
+
+  it('answers 404 for a conversation in another company, however it is guessed', async () => {
+    const foreign = '00000000-0000-4000-8000-0000000000bb';
+    const response = await send(api, owner, 'POST', `/conversations/${foreign}/assignments`, {
+      version: 1,
+      assigneeMembershipId: agentAMembershipId,
+    });
+    expect(response.statusCode).toBe(404);
+  });
+});
+
+describe('the assignee directory', () => {
+  const peer = '15557000710';
+  let conversationId: string;
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'مرحبا', 'wamid.rt-710');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity = $1', [
+        peer,
+      ]),
+    );
+    conversationId = row.rows[0]?.id as string;
+  }, 120_000);
+
+  async function directory(browser: Browser): Promise<LightMyRequestResponse> {
+    return send(api, browser, 'GET', `/directory/agents?conversation_id=${conversationId}`);
+  }
+
+  it('lists only people who could actually work this conversation', async () => {
+    const response = await directory(supervisor);
+    expect(response.statusCode, response.payload).toBe(200);
+    const ids = (response.json() as { data: { membershipId: string }[] }).data.map(
+      (entry) => entry.membershipId,
+    );
+    // On this inbox.
+    expect(ids).toContain(agentAMembershipId);
+    // On the other one. Listing them would offer an assignment the write would
+    // then refuse, which reads as the software being unreliable.
+    expect(ids).not.toContain(agentBMembershipId);
+  });
+
+  it('exposes an allowlist and nothing the People screen would show', async () => {
+    const response = await directory(supervisor);
+    const entries = (response.json() as { data: Record<string, unknown>[] }).data;
+    for (const entry of entries) {
+      expect(Object.keys(entry).sort()).toEqual(['assigned', 'label', 'membershipId']);
+    }
+    // No role, no scopes, no status, and above all no login address: a
+    // Supervisor may route work and may not administer memberships. (The
+    // labels themselves come from the email local part in this fixture, so the
+    // check is on the field names and on the address, not on a substring that
+    // a legitimate name could contain.)
+    expect(response.payload).not.toContain('@realtime.test');
+    for (const field of ['"role"', '"scopes"', '"status"', '"email"', '"mfa']) {
+      expect(response.payload).not.toContain(field);
+    }
+  });
+
+  it('names people rather than showing internal identifiers', async () => {
+    const response = await directory(supervisor);
+    const entries = (response.json() as { data: { label: string; membershipId: string }[] }).data;
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(entry.label.length).toBeGreaterThan(0);
+      expect(entry.label).not.toBe(entry.membershipId);
+    }
+  });
+
+  it('omits a membership that is no longer active', async () => {
+    const membershipId = await addMember(api, 'agent-suspended@realtime.test', 'agent', [
+      { type: 'inbox', id: inboxA },
+    ]);
+    expect(
+      (await directory(supervisor)).payload.includes(membershipId),
+      'active member should be listed',
+    ).toBe(true);
+
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(`UPDATE memberships SET status = 'suspended' WHERE id = $1`, [membershipId]),
+    );
+    expect((await directory(supervisor)).payload.includes(membershipId)).toBe(false);
+  });
+
+  it('answers an Agent only about a conversation that is theirs', async () => {
+    // Unassigned, so an Agent has nothing to offer and no reason for the names.
+    expect((await directory(agentA)).statusCode).toBe(403);
+
+    const record = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ version: number }>('SELECT version FROM conversations WHERE id = $1', [
+        conversationId,
+      ]),
+    );
+    expect(
+      (await send(api, agentA, 'POST', `/conversations/${conversationId}/claim`, {
+        version: record.rows[0]?.version,
+      })).statusCode,
+    ).toBe(200);
+
+    // Now it is theirs. An Agent cannot assign, but ADR-0017 lets them ask —
+    // and refusing them the list would make the one request they are allowed to
+    // make unusable.
+    expect((await directory(agentA)).statusCode).toBe(200);
+  });
+
+  it('refuses somebody with no reason to be near the conversation', async () => {
+    await addMember(api, 'analyst-directory@realtime.test', 'analyst', [
+      { type: 'tenant', id: null },
+    ]);
+    const analyst = await login(api, 'analyst-directory@realtime.test', MEMBER_PASSWORD);
+    expect((await directory(analyst)).statusCode).toBe(403);
+    // An agent on another inbox learns nothing about this conversation at all.
+    expect((await directory(agentB)).statusCode).toBe(403);
+  });
+
+  it('requires a conversation to be about', async () => {
+    const response = await send(api, supervisor, 'GET', '/directory/agents');
+    expect(response.statusCode).toBe(400);
+    expect((response.json() as { error: { code: string } }).error.code).toBe('validation_failed');
+  });
+});
+
+describe('person-to-person handoff', () => {
+  const peer = '15557000720';
+  let conversationId: string;
+
+  async function assigneeOf(): Promise<string | null> {
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ assignee_membership_id: string | null }>(
+        'SELECT assignee_membership_id::text FROM conversations WHERE id = $1',
+        [conversationId],
+      ),
+    );
+    return rows.rows[0]?.assignee_membership_id ?? null;
+  }
+
+  async function stateOf(handoffId: string): Promise<string> {
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ state: string }>('SELECT state FROM conversation_handoffs WHERE id = $1', [
+        handoffId,
+      ]),
+    );
+    return rows.rows[0]?.state as string;
+  }
+
+  /** Puts the conversation on agentA's desk and clears any live offer. */
+  async function giveToAgentA(): Promise<void> {
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `UPDATE conversation_handoffs SET state = 'cancelled', settled_at = now()
+          WHERE conversation_id = $1 AND state = 'pending'`,
+        [conversationId],
+      ),
+    );
+    const record = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ version: number }>('SELECT version FROM conversations WHERE id = $1', [
+        conversationId,
+      ]),
+    );
+    const response = await send(api, owner, 'POST', `/conversations/${conversationId}/assignments`, {
+      version: record.rows[0]?.version,
+      assigneeMembershipId: agentAMembershipId,
+    });
+    expect(response.statusCode, response.payload).toBe(200);
+  }
+
+  async function offer(
+    browser: Browser,
+    to: string,
+    body: Record<string, unknown> = {},
+  ): Promise<LightMyRequestResponse> {
+    const record = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ version: number }>('SELECT version FROM conversations WHERE id = $1', [
+        conversationId,
+      ]),
+    );
+    return send(api, browser, 'POST', `/conversations/${conversationId}/handoffs`, {
+      version: record.rows[0]?.version,
+      toMembershipId: to,
+      ...body,
+    });
+  }
+
+  async function settle(
+    browser: Browser,
+    handoffId: string,
+    action: string,
+  ): Promise<LightMyRequestResponse> {
+    return send(api, browser, 'POST', `/handoffs/${handoffId}/${action}`);
+  }
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'أحتاج متابعة', 'wamid.rt-720');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity = $1', [
+        peer,
+      ]),
+    );
+    conversationId = row.rows[0]?.id as string;
+    await giveToAgentA();
+  }, 120_000);
+
+  it('lets an Agent offer their own conversation without moving it', async () => {
+    const response = await offer(agentA, secondAgentAMembershipId, { note: 'لديك خبرة بالحالة' });
+    expect(response.statusCode, response.payload).toBe(201);
+    const created = (response.json() as { data: { id: string; state: string } }).data;
+    expect(created.state).toBe('pending');
+
+    // The whole point: an unanswered request is not limbo. Somebody is still
+    // responsible for the customer, and it is whoever was responsible before.
+    expect(await assigneeOf()).toBe(agentAMembershipId);
+    expect(await settle(agentA, created.id, 'cancel')).toMatchObject({ statusCode: 200 });
+  });
+
+  it('refuses to create an offer from a stale screen', async () => {
+    const version = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ version: number }>('SELECT version FROM conversations WHERE id = $1', [
+        conversationId,
+      ]),
+    );
+    const response = await offer(agentA, secondAgentAMembershipId, {
+      version: (version.rows[0]?.version ?? 1) - 1,
+    });
+    expect(response.statusCode).toBe(409);
+    expect((response.json() as { error: { code: string } }).error.code).toBe(
+      'conversation_version_conflict',
+    );
+  });
+
+  it('refuses an Agent a handoff from somebody else’s conversation', async () => {
+    const response = await offer(secondAgentA, agentAMembershipId);
+    // `own` scope. An Agent may offer what they are holding and nothing else.
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('refuses a handoff addressed to yourself', async () => {
+    const response = await offer(agentA, agentAMembershipId);
+    expect(response.statusCode).toBe(422);
+    expect((response.json() as { error: { code: string } }).error.code).toBe('handoff_to_self');
+  });
+
+  it('refuses a recipient who could never take it', async () => {
+    const response = await offer(agentA, agentBMembershipId);
+    // Offering a conversation to somebody on another inbox produces a request
+    // that can only ever expire, and an audit row saying they ignored you.
+    expect(response.statusCode).toBe(422);
+    expect((response.json() as { error: { code: string } }).error.code).toBe(
+      'assignee_not_eligible',
+    );
+  });
+
+  it('refuses an expiry that is not a real window', async () => {
+    const soon = await offer(agentA, secondAgentAMembershipId, {
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    });
+    expect(soon.statusCode).toBe(422);
+    expect((soon.json() as { error: { code: string } }).error.code).toBe('handoff_expiry_too_soon');
+
+    const far = await offer(agentA, secondAgentAMembershipId, {
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    expect(far.statusCode).toBe(422);
+    expect((far.json() as { error: { code: string } }).error.code).toBe('handoff_expiry_too_far');
+  });
+
+  it('allows only one live offer per conversation', async () => {
+    const first = await offer(agentA, secondAgentAMembershipId);
+    expect(first.statusCode).toBe(201);
+    const second = await offer(agentA, supervisorMembershipId);
+    // "Who is being asked" has to have one answer.
+    expect(second.statusCode).toBe(409);
+    expect((second.json() as { error: { code: string } }).error.code).toBe(
+      'handoff_already_pending',
+    );
+    await settle(agentA, (first.json() as { data: { id: string } }).data.id, 'cancel');
+  });
+
+  it('lets only the named recipient answer', async () => {
+    const created = (
+      (await offer(agentA, secondAgentAMembershipId)).json() as { data: { id: string } }
+    ).data;
+
+    // The requester cannot answer on their colleague's behalf, and neither can
+    // a supervisor: answering for somebody is not an answer.
+    expect((await settle(agentA, created.id, 'accept')).statusCode).toBe(403);
+    expect((await settle(supervisor, created.id, 'decline')).statusCode).toBe(403);
+    expect(await stateOf(created.id)).toBe('pending');
+
+    expect((await settle(secondAgentA, created.id, 'decline')).statusCode).toBe(200);
+    expect(await stateOf(created.id)).toBe('declined');
+    // A decline changes no assignment at all.
+    expect(await assigneeOf()).toBe(agentAMembershipId);
+  });
+
+  it('lets the requester or an assigner withdraw, and nobody else', async () => {
+    const mine = ((await offer(agentA, secondAgentAMembershipId)).json() as { data: { id: string } })
+      .data;
+    expect((await settle(secondAgentA, mine.id, 'cancel')).statusCode).toBe(403);
+    expect((await settle(agentA, mine.id, 'cancel')).statusCode).toBe(200);
+    expect(await assigneeOf()).toBe(agentAMembershipId);
+
+    const again = (
+      (await offer(agentA, secondAgentAMembershipId)).json() as { data: { id: string } }
+    ).data;
+    // Tidying up a stale offer is a routing act, so somebody who could have
+    // made the assignment outright may withdraw it.
+    expect((await settle(supervisor, again.id, 'cancel')).statusCode).toBe(200);
+  });
+
+  it('applies the reassignment exactly once on acceptance', async () => {
+    const created = (
+      (await offer(agentA, secondAgentAMembershipId)).json() as { data: { id: string } }
+    ).data;
+    expect((await settle(secondAgentA, created.id, 'accept')).statusCode).toBe(200);
+    expect(await assigneeOf()).toBe(secondAgentAMembershipId);
+    expect(await stateOf(created.id)).toBe('accepted');
+
+    // A retry cannot apply the transfer twice or reopen the offer.
+    const retry = await settle(secondAgentA, created.id, 'accept');
+    expect(retry.statusCode).toBe(409);
+    expect((retry.json() as { error: { code: string } }).error.code).toBe('handoff_not_pending');
+
+    const accepted = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>(
+        `SELECT count(*)::text FROM conversation_audit
+          WHERE conversation_id = $1 AND act = 'handoff_accepted'`,
+        [conversationId],
+      ),
+    );
+    expect(accepted.rows[0]?.count).toBe('1');
+    await giveToAgentA();
+  });
+
+  it('records the settlement as evidence, not only as a state', async () => {
+    const created = (
+      (await offer(agentA, secondAgentAMembershipId, { note: 'خذها من فضلك' }))
+        .json() as { data: { id: string } }
+    ).data;
+    await settle(secondAgentA, created.id, 'decline');
+
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ act: string; actor_membership_id: string | null }>(
+        `SELECT act, actor_membership_id::text FROM conversation_audit
+          WHERE conversation_id = $1 AND act LIKE 'handoff%' ORDER BY at`,
+        [conversationId],
+      ),
+    );
+    const acts = rows.rows.map((r) => r.act);
+    expect(acts).toContain('handoff_requested');
+    expect(acts).toContain('handoff_declined');
+    // Every state change is audited in the same transaction as its effect, so
+    // the trail survives even though the offer row itself carries only the
+    // terminal state.
+    expect(rows.rows.at(-1)?.actor_membership_id).toBe(secondAgentAMembershipId);
+  });
+
+  it('refuses an offer whose recipient has since lost the inbox', async () => {
+    const membershipId = await addMember(api, 'agent-departing@realtime.test', 'agent', [
+      { type: 'inbox', id: inboxA },
+    ]);
+    const departing = await login(api, 'agent-departing@realtime.test', MEMBER_PASSWORD);
+    const created = ((await offer(agentA, membershipId)).json() as { data: { id: string } }).data;
+
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('DELETE FROM membership_scopes WHERE membership_id = $1', [membershipId]),
+    );
+
+    const response = await settle(departing, created.id, 'accept');
+    // Eligibility is re-checked inside the write, not only when the offer was
+    // made: an offer from last week must not let somebody back into an inbox
+    // they no longer have.
+    expect([403, 422]).toContain(response.statusCode);
+    expect(await assigneeOf()).toBe(agentAMembershipId);
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `UPDATE conversation_handoffs SET state = 'cancelled', settled_at = now()
+          WHERE id = $1 AND state = 'pending'`,
+        [created.id],
+      ),
+    );
+  });
+
+  it('expires an offer from a stored instant, and assigns nothing', async () => {
+    const created = ((await offer(agentA, secondAgentAMembershipId)).json() as { data: { id: string } })
+      .data;
+    // Backdated in the database rather than waited out: expiry is a fact about
+    // a stored instant, so the sweep is what has to notice it. `created_at`
+    // moves too, because the table refuses an offer that expires before it was
+    // made — this is an offer from two hours ago with a one-hour window, not an
+    // impossible row.
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      await client.query(
+        `UPDATE conversation_handoffs
+            SET created_at = now() - interval '2 hours',
+                expires_at = now() - interval '1 hour'
+          WHERE id = $1`,
+        [created.id],
+      );
+      // Replaced rather than edited: the schedule is written once and removed
+      // when the offer is answered, and the runtime role holds no UPDATE on it
+      // for exactly that reason.
+      await client.query('DELETE FROM conversation_handoff_expiries WHERE handoff_id = $1', [
+        created.id,
+      ]);
+      await client.query(
+        `INSERT INTO conversation_handoff_expiries
+           (handoff_id, tenant_id, conversation_id, expires_at)
+         VALUES ($1, $2, $3, now() - interval '1 hour')`,
+        [created.id, api.tenantId, conversationId],
+      );
+    });
+
+    // Past its instant, it is already unusable — before any worker has run.
+    const early = await settle(secondAgentA, created.id, 'accept');
+    expect(early.statusCode).toBe(409);
+    expect((early.json() as { error: { code: string } }).error.code).toBe('handoff_expired');
+
+    const worker = await tickFor('worker-inbound', { app: api.app, concurrency: 1 })();
+    expect(worker.handled).toBeGreaterThanOrEqual(1);
+    expect(await stateOf(created.id)).toBe('expired');
+    expect(await assigneeOf()).toBe(agentAMembershipId);
+
+    const expired = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ actor_membership_id: string | null }>(
+        `SELECT actor_membership_id::text FROM conversation_audit
+          WHERE conversation_id = $1 AND act = 'handoff_expired'`,
+        [conversationId],
+      ),
+    );
+    // Nobody caused it. The clock did, and the audit says so rather than
+    // attributing the expiry to whoever happened to run the sweep.
+    expect(expired.rows[0]?.actor_membership_id).toBeNull();
+  });
+
+  it('makes an offer unusable once the conversation has moved on', async () => {
+    const created = (
+      (await offer(agentA, secondAgentAMembershipId)).json() as { data: { id: string } }
+    ).data;
+
+    // A supervisor reassigns it outright while the offer stands.
+    const record = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ version: number }>('SELECT version FROM conversations WHERE id = $1', [
+        conversationId,
+      ]),
+    );
+    expect(
+      (await send(api, supervisor, 'POST', `/conversations/${conversationId}/assignments`, {
+        version: record.rows[0]?.version,
+        assigneeMembershipId: supervisorMembershipId,
+      })).statusCode,
+    ).toBe(200);
+
+    const late = await settle(secondAgentA, created.id, 'accept');
+    // The acceptance is fenced on the version at the moment of acceptance, so
+    // an offer made against an older one cannot take the conversation from
+    // whoever holds it now.
+    expect(late.statusCode).toBe(409);
+    expect(await assigneeOf()).toBe(supervisorMembershipId);
+    await giveToAgentA();
+  });
+
+  it('keeps a handoff off a preview-only agent’s feed', async () => {
+    // The conversation is assigned, so an agent without `conversation.read` for
+    // it sees nothing anyway — but the event type is what does the filtering,
+    // before any payload is read.
+    const before = await feed(agentB);
+    const created = (
+      (await offer(agentA, secondAgentAMembershipId)).json() as { data: { id: string } }
+    ).data;
+    const after = await feed(agentB, before.cursor);
+    expect(after.events.filter((event) => event.scope.conversationId === conversationId)).toEqual([]);
+    await settle(agentA, created.id, 'cancel');
+  });
+
+  it('lists the offers on a conversation, settled ones included', async () => {
+    const created = (
+      (await offer(agentA, secondAgentAMembershipId, { note: 'راجعها من فضلك' }))
+        .json() as { data: { id: string } }
+    ).data;
+    await settle(secondAgentA, created.id, 'decline');
+
+    const response = await send(api, agentA, 'GET', `/conversations/${conversationId}/handoffs`);
+    expect(response.statusCode, response.payload).toBe(200);
+    const rows = (response.json() as { data: { id: string; state: string; toLabel: string }[] }).data;
+    const mine = rows.find((row) => row.id === created.id);
+    // Newest first, with the settled history behind it: "who was asked and what
+    // did they say" is a question about the past as much as the present.
+    expect(rows[0]?.id).toBe(created.id);
+    expect(mine?.state).toBe('declined');
+    // Named, not identified: the list carries the label a company shows.
+    expect(mine?.toLabel.length).toBeGreaterThan(0);
+  });
+
+  it('refuses the offers to somebody with no part in them', async () => {
+    // Neither named in an offer, nor holding routing authority here.
+    const response = await send(api, agentB, 'GET', `/conversations/${conversationId}/handoffs`);
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('hides an offer from a bystander who could not have made it', async () => {
+    const created = (
+      (await offer(agentA, secondAgentAMembershipId)).json() as { data: { id: string } }
+    ).data;
+    // agentB is named in nothing and may not assign here: the offer is not
+    // theirs to see, let alone to answer, and it is concealed rather than
+    // refused with a reason that confirms it exists.
+    expect((await settle(agentB, created.id, 'cancel')).statusCode).toBe(404);
+    await settle(agentA, created.id, 'cancel');
+  });
+
+  it('answers 404 for an offer id from another company', async () => {
+    const response = await settle(owner, '00000000-0000-4000-8000-0000000000cc', 'cancel');
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('knows only three answers to an offer', async () => {
+    const created = (
+      (await offer(agentA, secondAgentAMembershipId)).json() as { data: { id: string } }
+    ).data;
+    // A fourth verb is not a bad request, it is a route that does not exist.
+    expect((await settle(agentA, created.id, 'ignore')).statusCode).toBe(404);
+    await settle(agentA, created.id, 'cancel');
+  });
+
+  it('refuses an expiry that is not a timestamp', async () => {
+    for (const expiresAt of ['next tuesday', 42, true]) {
+      const response = await offer(agentA, secondAgentAMembershipId, { expiresAt });
+      expect(response.statusCode, JSON.stringify(expiresAt)).toBe(400);
+    }
+  });
+});
+
+describe('priority and collaborators', () => {
+  const peer = '15557000730';
+  let conversationId: string;
+
+  async function versionOf(): Promise<number> {
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ version: number }>('SELECT version FROM conversations WHERE id = $1', [
+        conversationId,
+      ]),
+    );
+    return rows.rows[0]?.version as number;
+  }
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'عاجل', 'wamid.rt-730');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity = $1', [
+        peer,
+      ]),
+    );
+    conversationId = row.rows[0]?.id as string;
+  }, 120_000);
+
+  it('changes priority, fenced and audited with the value it replaced', async () => {
+    const response = await send(api, supervisor, 'PATCH', `/conversations/${conversationId}/priority`, {
+      version: await versionOf(),
+      priority: 'urgent',
+      reason: 'العميل ينتظر منذ الصباح',
+    });
+    expect(response.statusCode, response.payload).toBe(200);
+    expect((response.json() as { data: { priority: string } }).data.priority).toBe('urgent');
+
+    const audit = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ from_value: string; to_value: string; detail: { reason?: string } }>(
+        `SELECT from_value, to_value, detail FROM conversation_audit
+          WHERE conversation_id = $1 AND act = 'priority_changed' ORDER BY at DESC LIMIT 1`,
+        [conversationId],
+      ),
+    );
+    // The previous value, not just the new one: a report that cannot say what a
+    // conversation was raised *from* cannot say anything about escalation.
+    expect(audit.rows[0]).toMatchObject({ from_value: 'normal', to_value: 'urgent' });
+    expect(audit.rows[0]?.detail.reason).toBe('العميل ينتظر منذ الصباح');
+  });
+
+  it('refuses a stale version and a value outside the four', async () => {
+    const stale = await send(api, supervisor, 'PATCH', `/conversations/${conversationId}/priority`, {
+      version: 1,
+      priority: 'high',
+    });
+    expect(stale.statusCode).toBe(409);
+
+    const invalid = await send(api, supervisor, 'PATCH', `/conversations/${conversationId}/priority`, {
+      version: await versionOf(),
+      priority: 'catastrophic',
+    });
+    expect(invalid.statusCode).toBe(400);
+  });
+
+  it('treats setting the priority it already has as no change', async () => {
+    const before = await versionOf();
+    const current = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    const priority = (current.json() as { data: { priority: string } }).data.priority;
+
+    const response = await send(api, supervisor, 'PATCH', `/conversations/${conversationId}/priority`, {
+      version: before,
+      priority,
+    });
+    expect(response.statusCode).toBe(200);
+    // No version bump and no audit row: re-pressing a button that already
+    // happened must not produce evidence that something changed.
+    expect(await versionOf()).toBe(before);
+  });
+
+  it('refuses an Agent, because priority is routing', async () => {
+    const response = await send(api, agentA, 'PATCH', `/conversations/${conversationId}/priority`, {
+      version: await versionOf(),
+      priority: 'low',
+    });
+    // business-rules.md §7: "Assign others / override routing" is `No` for an
+    // Agent, and priority is routing (ADR-0017).
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('gives a collaborator reach, and takes it away again without erasing them', async () => {
+    // agentB is on another inbox and cannot read this conversation. 403 rather
+    // than 404 is this repository's in-tenant rule: 404 conceals whether a
+    // *company* exists, and is asserted for a cross-tenant id elsewhere in this
+    // file; inside a company a member is told plainly that an action is denied.
+    expect((await send(api, agentB, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(403);
+
+    const added = await send(api, owner, 'POST', `/conversations/${conversationId}/collaborators`, {
+      version: await versionOf(),
+      membershipId: secondAgentAMembershipId,
+    });
+    expect(added.statusCode, added.payload).toBe(200);
+    const listed = (added.json() as { data: { membershipId: string; participated: boolean }[] }).data;
+    expect(listed.map((entry) => entry.membershipId)).toContain(secondAgentAMembershipId);
+    // Invited, not yet acted.
+    expect(listed[0]?.participated).toBe(false);
+
+    // An invitation is reach: `own` grants now find them on this conversation.
+    expect((await send(api, secondAgentA, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(
+      200,
+    );
+
+    const removed = await send(
+      api,
+      owner,
+      'DELETE',
+      `/conversations/${conversationId}/collaborators/${secondAgentAMembershipId}?version=${String(await versionOf())}`,
+    );
+    expect(removed.statusCode, removed.payload).toBe(200);
+    expect((removed.json() as { data: unknown[] }).data).toEqual([]);
+    // Removal ends the invitation for the future.
+    expect((await send(api, secondAgentA, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(
+      403,
+    );
+
+    // And the row is still there, closed rather than deleted.
+    const history = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ removed_at: Date | null }>(
+        `SELECT removed_at FROM conversation_collaborators
+          WHERE conversation_id = $1 AND membership_id = $2`,
+        [conversationId, secondAgentAMembershipId],
+      ),
+    );
+    expect(history.rows).toHaveLength(1);
+    expect(history.rows[0]?.removed_at).not.toBeNull();
+  });
+
+  it('cannot erase somebody who actually did something', async () => {
+    // Give it to agentA and have them write a note: that is participation, and
+    // participation is not an invitation anybody can withdraw.
+    const assigned = await send(api, owner, 'POST', `/conversations/${conversationId}/assignments`, {
+      version: await versionOf(),
+      assigneeMembershipId: agentAMembershipId,
+    });
+    expect(assigned.statusCode).toBe(200);
+    expect(
+      (await send(api, agentA, 'POST', `/conversations/${conversationId}/notes`, { body: 'راجعت' }))
+        .statusCode,
+    ).toBe(201);
+
+    // There is no API that removes a participant, and the runtime role cannot
+    // do it directly either.
+    await expect(
+      withTenant(api.pool, api.tenantId, (client) =>
+        client.query('DELETE FROM conversation_participants WHERE conversation_id = $1', [
+          conversationId,
+        ]),
+      ),
+    ).rejects.toThrow(/permission denied/i);
+
+    // Removing a collaboration they never had changes nothing about them.
+    const removed = await send(
+      api,
+      owner,
+      'DELETE',
+      `/conversations/${conversationId}/collaborators/${agentAMembershipId}?version=${String(await versionOf())}`,
+    );
+    expect(removed.statusCode).toBe(200);
+    expect((await send(api, agentA, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(200);
+  });
+
+  it('refuses to invite somebody who could not work the conversation', async () => {
+    const response = await send(api, owner, 'POST', `/conversations/${conversationId}/collaborators`, {
+      version: await versionOf(),
+      membershipId: agentBMembershipId,
+    });
+    // Adding somebody grants them access, so the target is checked exactly as
+    // an assignment target is.
+    expect(response.statusCode).toBe(422);
+  });
+
+  it('lists the collaborators through the API, not only the database', async () => {
+    const added = await send(api, owner, 'POST', `/conversations/${conversationId}/collaborators`, {
+      version: await versionOf(),
+      membershipId: secondAgentAMembershipId,
+    });
+    expect(added.statusCode).toBe(200);
+
+    const listed = await send(api, owner, 'GET', `/conversations/${conversationId}/collaborators`);
+    expect(listed.statusCode, listed.payload).toBe(200);
+    const rows = (listed.json() as { data: { membershipId: string; label: string }[] }).data;
+    expect(rows.map((row) => row.membershipId)).toContain(secondAgentAMembershipId);
+    expect(rows[0]?.label.length).toBeGreaterThan(0);
+    // No login address in a list a Supervisor may read.
+    expect(listed.payload).not.toContain('@realtime.test');
+
+    await send(
+      api,
+      owner,
+      'DELETE',
+      `/conversations/${conversationId}/collaborators/${secondAgentAMembershipId}?version=${String(await versionOf())}`,
+    );
+  });
+
+  it('refuses a collaborator change against a version somebody moved past', async () => {
+    const response = await send(api, owner, 'POST', `/conversations/${conversationId}/collaborators`, {
+      version: 1,
+      membershipId: secondAgentAMembershipId,
+    });
+    expect(response.statusCode).toBe(409);
+    expect((response.json() as { error: { code: string } }).error.code).toBe(
+      'conversation_version_conflict',
+    );
+  });
+
+  it('records a priority change with no reason given', async () => {
+    const response = await send(api, supervisor, 'PATCH', `/conversations/${conversationId}/priority`, {
+      version: await versionOf(),
+      priority: 'low',
+    });
+    expect(response.statusCode, response.payload).toBe(200);
+    const audit = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ detail: Record<string, unknown> }>(
+        `SELECT detail FROM conversation_audit
+          WHERE conversation_id = $1 AND act = 'priority_changed' ORDER BY at DESC LIMIT 1`,
+        [conversationId],
+      ),
+    );
+    // An absent reason is absent, not an empty string somebody has to interpret.
+    expect(audit.rows[0]?.detail).toEqual({});
+  });
+
+  it('refuses an Agent the collaborator list they cannot change', async () => {
+    const response = await send(api, agentA, 'POST', `/conversations/${conversationId}/collaborators`, {
+      version: await versionOf(),
+      membershipId: secondAgentAMembershipId,
+    });
+    expect(response.statusCode).toBe(403);
+  });
+});
+
+describe('the ownership barrier', () => {
+  const peer = '15557000760';
+  let conversationId: string;
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'سؤال', 'wamid.rt-760');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity = $1', [
+        peer,
+      ]),
+    );
+    conversationId = row.rows[0]?.id as string;
+  }, 120_000);
+
+  async function reply(id: string): Promise<LightMyRequestResponse> {
+    return send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'text',
+      text: 'أهلًا',
+      trafficClass: 'interactive',
+      clientMessageId: id,
+    });
+  }
+
+  async function setOwnership(state: string): Promise<void> {
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('UPDATE conversations SET owner_state = $2 WHERE id = $1', [
+        conversationId,
+        state,
+      ]),
+    );
+  }
+
+  it('lets a person reply while people own the conversation', async () => {
+    expect((await reply('ownership-human-1')).statusCode).toBe(202);
+  });
+
+  it('stops a human send while a bot request may be with the provider', async () => {
+    // No bot exists in this build, so the state is set directly: the point of
+    // the test is that the ENFORCEMENT POINT reads the stored state, and it is
+    // the send permit rather than the browser that refuses.
+    await setOwnership('handoff_pending');
+    const response = await reply('ownership-barrier-1');
+    expect(response.statusCode).toBe(409);
+    const error = (response.json() as { error: { code: string; message: string } }).error;
+    expect(error.code).toBe('handoff_barrier_pending');
+    // ADR-0008: never a claim that the automated message was cancelled.
+    expect(error.message).not.toMatch(/cancel/i);
+
+    const written = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>(
+        `SELECT count(*)::text FROM outbound_messages WHERE client_message_id = $1`,
+        ['ownership-barrier-1'],
+      ),
+    );
+    // Refused at the permit, so no command exists to be dispatched later.
+    expect(written.rows[0]?.count).toBe('0');
+  });
+
+  it('lets a person take over from a bot rather than refusing them', async () => {
+    await setOwnership('bot_active');
+    // A human replying IS the takeover. Refusing it would make taking over
+    // impossible without a separate button nobody presses in a hurry.
+    expect((await reply('ownership-takeover-1')).statusCode).toBe(202);
+    await setOwnership('human_active');
+  });
+
+  it('records the ownership each accepted command was permitted under', async () => {
+    expect((await reply('ownership-recorded-1')).statusCode).toBe(202);
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ permitted_owner_version: number | null }>(
+        'SELECT permitted_owner_version FROM outbound_messages WHERE client_message_id = $1',
+        ['ownership-recorded-1'],
+      ),
+    );
+    // ADR-0008 requires a dispatch-time re-check for an AI result; this is what
+    // it will compare against.
+    expect(rows.rows[0]?.permitted_owner_version).toBeGreaterThan(0);
+  });
+
+  it('refuses to send into a conversation that is not there', async () => {
+    const outbound = api.app.get(OutboundService);
+    const connection = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ connection_id: string }>(
+        'SELECT connection_id::text FROM conversations WHERE id = $1',
+        [conversationId],
+      ),
+    );
+    const session = await api.app
+      .get(AuthService)
+      .authenticate(owner.cookie);
+    await expect(
+      outbound.queue(
+        session,
+        api.tenantId,
+        connection.rows[0]?.connection_id as string,
+        {
+          peerIdentity: peer,
+          messageType: 'text',
+          text: 'إلى العدم',
+          trafficClass: 'interactive',
+          clientMessageId: 'ownership-missing-1',
+        },
+        {},
+        // A conversation id that does not name one. The permit reads ownership
+        // from the row, so there is nothing to read and nothing to permit.
+        '00000000-0000-4000-8000-0000000000dd',
+      ),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('records nothing to compare for a send with no conversation at all', async () => {
+    const connection = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ connection_id: string }>(
+        'SELECT connection_id::text FROM conversations WHERE id = $1',
+        [conversationId],
+      ),
+    );
+    const direct = await send(
+      api,
+      owner,
+      'POST',
+      `/channels/${connection.rows[0]?.connection_id as string}/messages`,
+      {
+        peerIdentity: peer,
+        messageType: 'text',
+        text: 'رسالة مباشرة',
+        trafficClass: 'interactive',
+        clientMessageId: 'ownership-direct-1',
+      },
+    );
+    expect(direct.statusCode, direct.payload).toBe(202);
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ permitted_owner_version: number | null }>(
+        'SELECT permitted_owner_version FROM outbound_messages WHERE client_message_id = $1',
+        ['ownership-direct-1'],
+      ),
+    );
+    // Nothing owns it, so there is no ownership the permit was granted under —
+    // recorded as absent rather than as a zero somebody would compare against.
+    expect(rows.rows[0]?.permitted_owner_version).toBeNull();
+  });
+});
+
+describe('when a routing write fails late', () => {
+  const peer = '15557000740';
+  let conversationId: string;
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'تجربة', 'wamid.rt-740');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity = $1', [
+        peer,
+      ]),
+    );
+    conversationId = row.rows[0]?.id as string;
+  }, 120_000);
+
+  it('rolls the assignment, the audit and the event back together', async () => {
+    const before = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ version: number; assignee_membership_id: string | null }>(
+        'SELECT version, assignee_membership_id::text FROM conversations WHERE id = $1',
+        [conversationId],
+      ),
+    );
+    const version = before.rows[0]?.version as number;
+
+    // The event is written last, so a failure there is the interesting one: it
+    // is the shape that would otherwise leave an assignment nobody can explain.
+    const admin = scratchMigrationPool(api.names);
+    try {
+      await admin.query(
+        "CREATE FUNCTION fail_routing_event() RETURNS trigger LANGUAGE plpgsql AS $$ " +
+          "BEGIN IF NEW.type = 'conversation.assigned' THEN " +
+          "RAISE EXCEPTION 'forced realtime failure'; END IF; RETURN NEW; END; $$",
+      );
+      await admin.query(
+        'CREATE TRIGGER fail_routing_event BEFORE INSERT ON realtime_events ' +
+          'FOR EACH ROW EXECUTE FUNCTION fail_routing_event()',
+      );
+
+      const response = await send(api, owner, 'POST', `/conversations/${conversationId}/assignments`, {
+        version,
+        assigneeMembershipId: agentAMembershipId,
+      });
+      expect(response.statusCode).toBe(500);
+      // The internal reason never reaches the caller.
+      expect(response.body).not.toContain('forced realtime failure');
+    } finally {
+      await admin.query('DROP TRIGGER IF EXISTS fail_routing_event ON realtime_events');
+      await admin.query('DROP FUNCTION IF EXISTS fail_routing_event()');
+      await admin.end();
+    }
+
+    const after = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ version: number; assignee_membership_id: string | null }>(
+        'SELECT version, assignee_membership_id::text FROM conversations WHERE id = $1',
+        [conversationId],
+      ),
+    );
+    // Nothing moved: not the assignee, not the version.
+    expect(after.rows[0]).toEqual(before.rows[0]);
+
+    const audit = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>(
+        `SELECT count(*)::text FROM conversation_audit WHERE conversation_id = $1`,
+        [conversationId],
+      ),
+    );
+    // And no audit row claiming it did.
+    expect(audit.rows[0]?.count).toBe('0');
+
+    // The same call succeeds once the injected failure is gone, which proves the
+    // rollback was the trigger and not a permission the test lacked.
+    const retry = await send(api, owner, 'POST', `/conversations/${conversationId}/assignments`, {
+      version,
+      assigneeMembershipId: agentAMembershipId,
+    });
+    expect(retry.statusCode, retry.payload).toBe(200);
+  });
+});
+
+describe('what a reassigned agent keeps, and what they lose', () => {
+  const peer = '15557000750';
+  let conversationId: string;
+  let leaving: Browser;
+  let leavingMembershipId: string;
+
+  beforeAll(async () => {
+    leavingMembershipId = await addMember(api, 'agent-moved@realtime.test', 'agent', [
+      { type: 'inbox', id: inboxA },
+    ]);
+    leaving = await login(api, 'agent-moved@realtime.test', MEMBER_PASSWORD);
+    await customerWrites(INBOX_A, peer, 'مساء الخير', 'wamid.rt-750');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; version: number }>(
+        'SELECT id::text, version FROM conversations WHERE peer_identity = $1',
+        [peer],
+      ),
+    );
+    conversationId = row.rows[0]?.id as string;
+    expect(
+      (await send(api, owner, 'POST', `/conversations/${conversationId}/assignments`, {
+        version: row.rows[0]?.version,
+        assigneeMembershipId: leavingMembershipId,
+      })).statusCode,
+    ).toBe(200);
+  }, 120_000);
+
+  it('keeps read access to work they actually did, after being reassigned away', async () => {
+    expect(
+      (await send(api, leaving, 'POST', `/conversations/${conversationId}/messages`, {
+        messageType: 'text',
+        text: 'سأتحقق من الطلب',
+        trafficClass: 'interactive',
+        clientMessageId: 'reply-before-reassignment',
+      })).statusCode,
+    ).toBe(202);
+
+    const record = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ version: number }>('SELECT version FROM conversations WHERE id = $1', [
+        conversationId,
+      ]),
+    );
+    expect(
+      (await send(api, owner, 'POST', `/conversations/${conversationId}/assignments`, {
+        version: record.rows[0]?.version,
+        assigneeMembershipId: agentAMembershipId,
+      })).statusCode,
+    ).toBe(200);
+
+    // Participation outlives assignment: they wrote to this customer, and a
+    // build that hid what they said would make their own work unreviewable.
+    expect((await send(api, leaving, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(200);
+    const timeline = await send(api, leaving, 'GET', `/conversations/${conversationId}/messages`);
+    expect(timeline.statusCode).toBe(200);
+    expect(timeline.payload).toContain('سأتحقق من الطلب');
+  });
+
+  it('loses it the moment the inbox scope goes, without logging out', async () => {
+    const before = await feed(leaving);
+
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('DELETE FROM membership_scopes WHERE membership_id = $1', [leavingMembershipId]),
+    );
+
+    // Same session, same cookie. business-rules.md §4.1: losing inbox access
+    // overrides assignment and participation, immediately.
+    expect((await send(api, leaving, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(403);
+    expect(
+      (await send(api, leaving, 'GET', `/conversations/${conversationId}/messages`)).statusCode,
+    ).toBe(403);
+
+    await customerWrites(INBOX_A, peer, 'هل من جديد؟', 'wamid.rt-751');
+    const after = await feed(leaving, before.cursor);
+    // And the socket stops too, at the next poll rather than the next login.
+    expect(after.events.filter((event) => event.scope.conversationId === conversationId)).toEqual([]);
+  });
+
+  it('never names a conversation to somebody with no reach at all', async () => {
+    // agentB has neither assignment, participation nor scope here.
+    const list = await send(api, agentB, 'GET', '/conversations?queue=all');
+    expect(list.statusCode).toBe(200);
+    expect(list.payload).not.toContain(conversationId);
+
+    const queue = await send(api, agentB, 'GET', '/conversations/unassigned');
+    expect(queue.payload).not.toContain(conversationId);
+  });
+
+  it('moves a card between the queue and a person’s list as assignment changes', async () => {
+    const spare = '15557000752';
+    await customerWrites(INBOX_A, spare, 'سؤال سريع', 'wamid.rt-752');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; version: number }>(
+        'SELECT id::text, version FROM conversations WHERE peer_identity = $1',
+        [spare],
+      ),
+    );
+    const id = row.rows[0]?.id as string;
+
+    // Unassigned: a projected card, and nothing an agent could reconstruct a
+    // transcript from.
+    const queue = await send(api, agentA, 'GET', '/conversations/unassigned');
+    const card = (queue.json() as { data: { id: string }[] }).data.find((entry) => entry.id === id);
+    expect(card).toBeDefined();
+    expect(queue.payload).not.toContain(spare);
+
+    expect(
+      (await send(api, owner, 'POST', `/conversations/${id}/assignments`, {
+        version: row.rows[0]?.version,
+        assigneeMembershipId: agentAMembershipId,
+      })).statusCode,
+    ).toBe(200);
+
+    // Off the queue, onto their list, as a record this time.
+    const after = await send(api, agentA, 'GET', '/conversations/unassigned');
+    expect((after.json() as { data: { id: string }[] }).data.map((e) => e.id)).not.toContain(id);
+    const mine = await send(api, agentA, 'GET', '/conversations?queue=mine');
+    expect((mine.json() as { data: { id: string }[] }).data.map((e) => e.id)).toContain(id);
   });
 });
 

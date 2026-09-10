@@ -120,6 +120,7 @@ export const BUILTIN_ROLES: Readonly<Record<BuiltinRoleKey, BuiltinRole>> = Obje
       'conversation.note': 'scoped',
       'conversation.claim': 'scoped',
       'conversation.assign': 'scoped',
+      'conversation.handoff.request': 'scoped',
       'conversation.close': 'scoped',
       'contact.read': 'scoped',
       'contact.edit': 'scoped',
@@ -145,6 +146,10 @@ export const BUILTIN_ROLES: Readonly<Record<BuiltinRoleKey, BuiltinRole>> = Obje
       'conversation.claim': 'scoped',
       'conversation.reply': 'own',
       'conversation.note': 'own',
+      // `own`, and `conversation.assign` stays absent: an Agent may offer the
+      // conversation they are holding to a colleague, and still cannot reassign
+      // anybody else's work (ADR-0017, business-rules.md §7).
+      'conversation.handoff.request': 'own',
       'conversation.close': 'own',
       'contact.read': 'own',
       'contact.edit': 'own',

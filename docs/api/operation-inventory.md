@@ -93,7 +93,7 @@ Every operation below needs: one `operationId`, request/response/error schemas, 
 | Conversation | `PATCH T/conversations/{id}` | `updateConversation` | action-specific + `If-Match` | P2 |
 | Conversation | `POST T/conversations/{id}/claim` | `claimConversation` | `conversation.claim`, atomic | P2 |
 | Conversation | `POST T/conversations/{id}/assignments` | `assignConversation` | `conversation.assign` | P2 |
-| Conversation | `POST T/conversations/{id}/handoffs` | `requestHandoff` | ownership policy | P2 |
+| Conversation | `POST T/conversations/{id}/handoffs` | `requestHandoff` | `conversation.handoff.request` + version | P2 |
 | Conversation | `POST T/conversations/{id}/read` | `updateReadCursor` | participant | P2 |
 | Messages | `GET T/conversations/{id}/messages` | `listMessages` | `conversation.read` | P2 |
 | Messages | `POST T/conversations/{id}/messages` | `sendMessage` | `conversation.reply` + `Idempotency-Key` + `If-Match` | P2 |
@@ -284,6 +284,15 @@ company.
 | Notes | `PATCH T/notes/{noteId}` | `updateNote` | `conversation.note` **and** authorship + CSRF | P2 |
 | Notes | `DELETE T/notes/{noteId}` | `deleteNote` | `conversation.note` **and** authorship + CSRF | P2 |
 | Reading | `POST T/conversations/{id}/read` | `markConversationRead` | `conversation.read` + CSRF | P2 |
+| Routing | `GET T/directory/agents?conversation_id=` | `listAssignableAgents` | routing reader; allowlisted fields | P2 |
+| Routing | `POST T/conversations/{id}/assignments` | `assignConversation` | `conversation.assign` + CSRF + version | P2 |
+| Routing | `GET T/conversations/{id}/handoffs` | `listConversationHandoffs` | routing reader | P2 |
+| Routing | `POST T/conversations/{id}/handoffs` | `requestHandoff` | `conversation.handoff.request` + CSRF + version | P2 |
+| Routing | `POST T/handoffs/{id}/{accept\|decline\|cancel}` | `settleHandoff` | named party or assigner, action-specific | P2 |
+| Routing | `PATCH T/conversations/{id}/priority` | `setConversationPriority` | `conversation.assign` + CSRF + version | P2 |
+| Routing | `GET T/conversations/{id}/collaborators` | `listConversationCollaborators` | routing reader | P2 |
+| Routing | `POST T/conversations/{id}/collaborators` | `addConversationCollaborator` | `conversation.assign` + CSRF + version | P2 |
+| Routing | `DELETE T/conversations/{id}/collaborators/{membershipId}` | `removeConversationCollaborator` | `conversation.assign` + CSRF + version | P2 |
 | Realtime | `GET T/realtime/events` | `catchUpRealtimeEvents` | session; each event authorized individually | P2 |
 | Realtime | `GET T/realtime/stream` | `streamRealtimeEvents` | session; each event authorized individually | P2 |
 
@@ -301,6 +310,14 @@ claiming at the same version produce exactly one winner; the loser is told
 `conversation_version_conflict` (IAM-13). It carries no `Idempotency-Key`
 because the version already makes a replay a no-op conflict rather than a second
 claim.
+
+Assignment and handoff stay separate operations. Assignment moves work immediately
+and requires `conversation.assign`; a handoff is an offer that leaves the current
+assignee responsible until the named recipient accepts. Both creation paths carry
+the conversation version the operator saw. The assignee directory returns only a
+membership id, display label and current-assignee flag, and the write re-derives
+the target's eligibility inside its transaction. Handoff expiry is a durable queue
+consumed by `worker-inbound`, not a browser timer.
 
 **One transitions endpoint, not five verbs.** `transitionConversation` takes a
 `command` — `wait`, `snooze`, `resolve`, `reopen` or `archive` — because they are
@@ -370,6 +387,7 @@ that exists today.
 | `POST /webhooks/meta/{app_connection_id}` | same path; the parameter is a **channel app id**, not a connection id | The delivery names the app it came from, which is what selects the secret to verify with. The *connection* is resolved afterwards, from the asset id inside the verified payload — a path parameter is never authority (DEL-02). The inventory's name is kept so the route matches; this row records what the value actually is. |
 | `DELETE T/teams/{id}` | `PATCH T/teams/{id}` with `{"archived": true}` | A team is the addressee of past routing and assignment. Deleting one would orphan that history or force a cascade that rewrites it; archiving keeps the record and frees the name, and `{"archived": false}` restores it. |
 | `PUT T/teams/{id}/members/{member_id}` | `POST T/teams/{id}/members` with `{"membershipId": …}` | The member is identified by a *membership* id, which is tenant-scoped and not the caller's to choose. Putting it in the path invites a caller to treat it as a name it may create; the body makes it an existing row that is looked up and refused with a 404 when it is not this tenant's. Adding the same membership twice is still idempotent. |
+| `GET T/directory/agents?inbox_id=` | `GET T/directory/agents?conversation_id=` | Eligibility depends on the actual conversation's inbox, team and current assignee. Passing the conversation lets the directory use the same `authorize` decision as the write instead of rebuilding a weaker inbox-only approximation. |
 | `POST T/contacts` (`createContact`) | **absent, and stays absent** | A contact exists because somebody wrote to us. A create endpoint would let a caller type a phone number and call it a person — the identity claim nobody verified, which is the inference CT-03 exists to refuse. Contacts are created by `ContactService.resolve` when a customer's first message is normalized, from the scoped triple the provider actually delivered. |
 | `GET T/contacts/{id}/consents` (`listConsents`) | folded into `GET T/contacts/{id}` | The consent history and the suppressions come back **with** the record, because every question worth asking of them ("may we message this person?") is a question about the person. A separate endpoint would let a screen render a contact with its consent still loading, and an operator would read the gap as "no consent recorded". |
 | `POST T/contacts/{id}/suppression` (`recordSuppression`) | not built; a withdrawal is recorded through `POST T/contacts/{id}/consents` | Suppression is written by the opt-out path, keyed by identity in `channel_suppressions`. Exposing a write endpoint for it before CT-13's explicit re-opt-in workflow exists would offer a way *out* of a suppression with no way to audit it. |

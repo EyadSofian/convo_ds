@@ -1,9 +1,17 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { CapabilityMatrix, ChannelKind, ResourceRef, SqlExecutor } from '@convo/domain';
-import { capabilitiesFor, permitSend } from '@convo/domain';
+import type {
+  CapabilityMatrix,
+  ChannelKind,
+  OwnerState,
+  OwnershipRefusal,
+  ResourceRef,
+  SqlExecutor,
+} from '@convo/domain';
+import { capabilitiesFor, ownershipPermits, permitSend } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { LifecycleService } from '../conversations/lifecycle.service.js';
+import { readConversation } from '../conversations/record.js';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
 import { parseSendMessage } from './outbound-request.js';
@@ -131,6 +139,18 @@ export class OutboundService {
           throw new ApiHttpError(422, shape.reason, shape.detail);
         }
 
+        // ── ownership (ADR-0008) ────────────────────────────────────────
+        // Read from the row, not from the request: a generation that started
+        // while a bot held the conversation must not become a valid send
+        // because a screen changed in between. Centralised here so every send
+        // passes the same barrier, and bound to `owner_version` so the audit
+        // says which ownership the permit was issued under.
+        const ownership = await requireOwnership(sql, conversationId);
+        const barrier = ownershipPermits(ownership.state, 'human');
+        if (barrier !== null) {
+          throw new ApiHttpError(409, barrier, OWNERSHIP_MESSAGE[barrier]);
+        }
+
         // The command and its outbox entry, in one transaction (DEL-07).
         const existing = await sql.query<{ id: string }>(
           'SELECT id::text FROM outbound_messages WHERE client_message_id = $1',
@@ -145,8 +165,9 @@ export class OutboundService {
         const inserted = await sql.query<{ id: string }>(
           `INSERT INTO outbound_messages
              (tenant_id, connection_id, peer_identity, author_membership, message_type,
-              text_body, template_name, template_language, client_message_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+              text_body, template_name, template_language, client_message_id,
+              permitted_owner_version)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            RETURNING id::text`,
           [
             tenantId,
@@ -158,6 +179,13 @@ export class OutboundService {
             request.template?.name ?? null,
             request.template?.language ?? null,
             request.clientMessageId,
+            // The permit is bound to the ownership it was granted under, so a
+            // dispatch-time re-check has something to compare against. Nothing
+            // re-checks it today: the only sender is a person, and a human
+            // reply must not be dropped because a colleague was reassigned
+            // between the queue and the wire. The re-check lands with the AI
+            // path it exists for (OWN-02, OWN-03).
+            ownership.version === 0 ? null : ownership.version,
           ],
         );
         const messageId = requireRow(inserted.rows, 'message insert returned no id').id;
@@ -318,3 +346,37 @@ async function readMessages(
       })),
   }));
 }
+
+/**
+ * The conversation's ownership, or the permissive default.
+ *
+ * A send addressed straight at a connection has no conversation to own it —
+ * a campaign-neutral contact activity, or the first outbound to somebody nobody
+ * has heard from — and there is nothing for the barrier to be about. Absent is
+ * treated as `human_active`, which is what it is: a person is sending it.
+ */
+async function requireOwnership(
+  sql: SqlExecutor,
+  conversationId: string | null,
+): Promise<{ readonly state: OwnerState; readonly version: number }> {
+  if (conversationId === null) {
+    return { state: 'human_active', version: 0 };
+  }
+  // `readConversation` narrows the stored state to ADR-0008's four and throws
+  // loudly on anything else, so the barrier is never handed a state it has no
+  // rule for. A missing row is a conversation that is not there to send into.
+  const conversation = await readConversation(sql, conversationId);
+  if (conversation === null) {
+    throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+  }
+  return { state: conversation.ownerState, version: conversation.ownerVersion };
+}
+
+const OWNERSHIP_MESSAGE: Readonly<Record<OwnershipRefusal, string>> = {
+  // Deliberately not "the message was cancelled": ADR-0008 exists because
+  // nobody can recall a request a provider has already accepted.
+  handoff_barrier_pending:
+    'An automated reply may already be with the provider. Human ownership is confirmed once that clears.',
+  ownership_is_human: 'A person is handling this conversation.',
+  bot_is_paused: 'Automated replies are paused on this conversation.',
+};

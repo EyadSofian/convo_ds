@@ -1,0 +1,100 @@
+import type { LiveState } from './store.js';
+
+/**
+ * What the signed-in person may do to a conversation's routing, for drawing the
+ * screen.
+ *
+ * Invariant I4: **a hidden button is not an authorization control.** Every act
+ * below is decided again on the server against a principal read from the
+ * database, and this exists only so an operator is not offered a control that
+ * would always refuse — which teaches them the software is unreliable rather
+ * than that they lack the authority.
+ *
+ * Two keys, mirrored from `business-rules.md` §7 and ADR-0017, and kept honest
+ * by a unit test that regenerates this table from `BUILTIN_ROLES` in
+ * `@convo/domain`. The domain is a **devDependency** of this app: a test-time
+ * oracle, never a runtime import, so the bundle stays dependency-free.
+ */
+
+export interface RoutingAbility {
+  /** `conversation.assign` — put work on somebody else's desk, agreed or not. */
+  readonly mayAssign: boolean;
+  /** `conversation.handoff.request` — offer your own conversation to a colleague. */
+  readonly mayAsk: boolean;
+}
+
+/**
+ * The scope level each built-in role holds for the two routing keys.
+ *
+ * Only presence matters here, not the level: whether a *particular*
+ * conversation is in scope is a question the server answers, and answering it
+ * in the browser would be a second implementation of `authorize` that could
+ * disagree with the first.
+ */
+export const ROUTING_GRANTS: Readonly<Record<string, RoutingAbility>> = {
+  owner: { mayAssign: true, mayAsk: true },
+  admin: { mayAssign: true, mayAsk: true },
+  supervisor: { mayAssign: true, mayAsk: true },
+  // The clarification ADR-0017 exists for: an Agent may ask, and may not assign.
+  agent: { mayAssign: false, mayAsk: true },
+  campaign_manager: { mayAssign: false, mayAsk: false },
+  analyst: { mayAssign: false, mayAsk: false },
+  integration_developer: { mayAssign: false, mayAsk: false },
+};
+
+const LEGACY_ROUTING_PERMISSIONS: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  Object.entries(ROUTING_GRANTS).map(([roleKey, ability]) => [
+    roleKey,
+    [
+      ...(ability.mayAssign ? ['conversation.assign'] : []),
+      ...(ability.mayAsk ? ['conversation.handoff.request'] : []),
+    ],
+  ]),
+);
+
+const NONE: RoutingAbility = { mayAssign: false, mayAsk: false };
+
+/** The membership being used right now, or `null` when there is no session. */
+export function currentMembership(
+  live: LiveState,
+): { readonly id: string; readonly roleKey: string; readonly permissions: readonly string[] } | null {
+  if (live.session.status !== 'signed_in') {
+    return null;
+  }
+  // A `null` tenant is left to miss the lookup rather than checked separately:
+  // "no active membership" and "no membership for the company being viewed" are
+  // the same answer, and two ways to say it is one of them going stale.
+  const tenantId = live.session.tenantId;
+  const membership = live.session.memberships.find((entry) => entry.tenant.id === tenantId);
+  return membership === undefined
+    ? null
+    : {
+        id: membership.id,
+        roleKey: membership.role.key,
+        // New servers always send the keys. The fallback keeps a rolling
+        // deployment safe while an older API instance may still answer a new
+        // browser: built-in roles use the pinned matrix and an unknown/custom
+        // role gets no guessed authority until its keys arrive.
+        permissions:
+          membership.permissions ??
+          LEGACY_ROUTING_PERMISSIONS[membership.role.key] ??
+          [],
+      };
+}
+
+/**
+ * What to offer this person.
+ *
+ * The server returns the actual permission keys for the current membership, so
+ * a custom role behaves like its grants instead of being hidden merely because
+ * this browser has never heard its name. Scope remains a server-side decision.
+ */
+export function routingAbility(live: LiveState): RoutingAbility {
+  const membership = currentMembership(live);
+  return membership === null
+    ? NONE
+    : {
+        mayAssign: membership.permissions.includes('conversation.assign'),
+        mayAsk: membership.permissions.includes('conversation.handoff.request'),
+      };
+}

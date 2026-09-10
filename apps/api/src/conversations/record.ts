@@ -1,5 +1,5 @@
-import type { ConversationState, Principal, SqlExecutor } from '@convo/domain';
-import { authorize, isConversationState } from '@convo/domain';
+import type { ConversationState, OwnerState, Principal, SqlExecutor } from '@convo/domain';
+import { authorize, isConversationState, isOwnerState } from '@convo/domain';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
 
@@ -33,6 +33,14 @@ export interface ConversationRow {
   readonly resolution: string | null;
   readonly resolvedAt: Date | null;
   readonly lastActivityAt: Date;
+  /**
+   * Bot-versus-human ownership (ADR-0008). A different dimension from `status`,
+   * from each person's read cursor and from provider delivery state — invariant
+   * I12 — and never folded into any of them.
+   */
+  readonly ownerState: OwnerState;
+  /** The fence a future AI result is re-checked against, at submit and at dispatch. */
+  readonly ownerVersion: number;
 }
 
 export interface RawConversation {
@@ -52,6 +60,8 @@ export interface RawConversation {
   readonly resolution: string | null;
   readonly resolved_at: Date | null;
   readonly last_activity_at: Date;
+  readonly owner_state: string;
+  readonly owner_version: number;
 }
 
 export interface ConversationDetail extends ConversationRow {
@@ -63,13 +73,14 @@ export interface ConversationDetail extends ConversationRow {
 export const SELECT_COLUMNS = `id::text, connection_id::text, peer_identity, team_id::text,
                         assignee_membership_id::text, status, priority, version, waiting_since,
                         contact_id::text, pending_reason, snoozed_until, snooze_timezone,
-                        resolution, resolved_at, last_activity_at`;
+                        resolution, resolved_at, last_activity_at, owner_state, owner_version`;
 
 /** The same columns, qualified, for the joined reads. */
 export const DETAIL_COLUMNS = `c.id::text, c.connection_id::text, c.peer_identity, c.team_id::text,
                         c.assignee_membership_id::text, c.status, c.priority, c.version,
                         c.waiting_since, c.contact_id::text, c.pending_reason, c.snoozed_until,
-                        c.snooze_timezone, c.resolution, c.resolved_at, c.last_activity_at`;
+                        c.snooze_timezone, c.resolution, c.resolved_at, c.last_activity_at,
+                        c.owner_state, c.owner_version`;
 
 /** The read decision, in one place, so a record and its contents agree. */
 export function requireReadable(principal: Principal, detail: ConversationDetail): void {
@@ -148,12 +159,30 @@ export async function readDetail(
   };
 }
 
+/**
+ * Everybody an `own` grant reaches on this conversation.
+ *
+ * The union of two different facts, deliberately read together because
+ * `authorize` asks one question:
+ *
+ * - **participants** are people who actually *acted*. Append-only by grant, and
+ *   never removed: a colleague who replied keeps permitted read access to what
+ *   they wrote, and erasing that to tidy up a reassignment would erase the
+ *   authorship of real messages.
+ * - **collaborators** are people who were *invited* and have not necessarily
+ *   said anything. That invitation can be withdrawn, so only the live interval
+ *   counts — a removed collaborator loses future access, while anything they
+ *   did leaves them a participant and keeps what that gives them.
+ */
 export async function participantIds(
   sql: SqlExecutor,
   conversationId: string,
 ): Promise<readonly string[]> {
   const rows = await sql.query<{ membership_id: string }>(
-    `SELECT membership_id::text FROM conversation_participants WHERE conversation_id = $1`,
+    `SELECT membership_id::text FROM conversation_participants WHERE conversation_id = $1
+      UNION
+     SELECT membership_id::text FROM conversation_collaborators
+      WHERE conversation_id = $1 AND removed_at IS NULL`,
     [conversationId],
   );
   return rows.rows.map((row) => row.membership_id);
@@ -177,7 +206,24 @@ export function rowOf(row: RawConversation): ConversationRow {
     resolution: row.resolution,
     resolvedAt: row.resolved_at,
     lastActivityAt: row.last_activity_at,
+    ownerState: ownerStateOf(row.owner_state),
+    ownerVersion: row.owner_version,
   };
+}
+
+/**
+ * Narrows the stored ownership state to ADR-0008's vocabulary.
+ *
+ * The same drift guard `stateOf` is: the column has a CHECK naming exactly
+ * these four, so a row that failed this test would mean the schema and the
+ * domain had parted company — worth a loud failure rather than a silent cast
+ * that would let the send permit reason about a state it has no rule for.
+ */
+function ownerStateOf(state: string): OwnerState {
+  if (!isOwnerState(state)) {
+    throw new Error(`a conversation holds the unknown ownership state ${state}`);
+  }
+  return state;
 }
 
 /**

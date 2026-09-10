@@ -4,6 +4,7 @@ import type { LiveContext } from './actions.js';
 import { loadOpenContact } from './contact-actions.js';
 import { refreshInboxLists } from './inbox-lists.js';
 import { loadEpisodes, loadNotes, markConversationRead } from './lifecycle-actions.js';
+import { loadRouting } from './routing-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
 import { currentTenantId, failed, forTenant, fromResult, LOADING, ready } from './store.js';
@@ -74,6 +75,15 @@ export async function openConversation(context: LiveContext, id: string): Promis
     live.notes = LOADING;
     live.episodes = LOADING;
     live.lifecyclePanel = null;
+    live.routingPanel = null;
+    live.routingChoice = '';
+    live.handoffNote = '';
+    // The directory is not loaded here: it is a per-conversation list that goes
+    // stale immediately, so it is fetched when a picker actually opens.
+    live.assignees = { status: 'idle' };
+    live.handoffs = LOADING;
+    live.collaborators = LOADING;
+    live.lostAccess = false;
     // The open conversation belongs in the URL: a reload, a back button or a
     // link pasted to a colleague should land on the same thread. `refresh`
     // syncs the address bar from the route.
@@ -89,6 +99,8 @@ export async function openConversation(context: LiveContext, id: string): Promis
       live.openContact = { status: 'idle' };
       live.notes = failed(conversation.error);
       live.episodes = failed(conversation.error);
+      live.handoffs = failed(conversation.error);
+      live.collaborators = failed(conversation.error);
       context.refresh();
       return;
     }
@@ -99,6 +111,7 @@ export async function openConversation(context: LiveContext, id: string): Promis
       loadOpenContact(context, conversation.data.contactId),
       loadNotes(context, id),
       loadEpisodes(context, id),
+      loadRouting(context, id),
     ]);
     // Read last, and only once the contents are actually on screen: a cursor
     // moved before the messages arrived would mark as seen what a failed
@@ -339,7 +352,16 @@ export async function applyRealtimeEvent(
   const tasks: Promise<unknown>[] = [refreshInboxLists(context)];
   if (event.scope.conversationId === live.openConversationId) {
     tasks.push(loadTimeline(context, event.scope.conversationId));
-    if (event.type === 'conversation.state' || event.type === 'conversation.assigned') {
+    if (event.type === 'conversation.handoff') {
+      // The offers moved; the record did not. Re-reading the whole conversation
+      // for an offer somebody made would be a request for a banner.
+      tasks.push(loadRouting(context, event.scope.conversationId));
+    }
+    if (
+      event.type === 'conversation.state' ||
+      event.type === 'conversation.assigned' ||
+      event.type === 'conversation.routing'
+    ) {
       // The record moved, not only its contents: a colleague resolved it, a
       // wake fired, or it was assigned elsewhere. Re-read it, because the
       // lifecycle controls on screen are drawn from the status and the version,

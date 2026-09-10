@@ -89,6 +89,8 @@ const KNOWN_TYPES = new Set([
   'conversation.assigned',
   'conversation.state',
   'conversation.note',
+  'conversation.handoff',
+  'conversation.routing',
 ]);
 
 export function subscribe(options: RealtimeOptions): RealtimeSubscription {

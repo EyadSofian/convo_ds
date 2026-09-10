@@ -3895,6 +3895,616 @@
           }
         }
       }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/assignments": {
+      "post": {
+        "operationId": "assignConversation",
+        "summary": "Assign or reassign a conversation to a named person",
+        "description": "Requires `conversation.assign`, checked by key and effective scope. The target’s eligibility is re-derived inside the write transaction, so a directory result is a suggestion and never an authorization. A stale `version` is 409 `conversation_version_conflict` rather than a silent takeover; an ineligible target is 422 `assignee_not_eligible`, deliberately the same answer for a missing, foreign and out-of-scope membership so the endpoint is not a membership enumeration oracle. The previous assignee keeps their recorded participation.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignConversationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The conversation, as it now stands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/directory/agents": {
+      "get": {
+        "operationId": "listAssignableAgents",
+        "summary": "The people who could actually take a conversation",
+        "description": "Eligibility is computed the same way the assignment endpoint computes it — by loading each candidate’s principal and asking `authorize` — so the picker and the check cannot disagree. Deliberately not `GET /people`, which requires `member.manage` and returns roles, scopes and login emails: a Supervisor may route work and may not administer memberships. The presentation fields are an allowlist.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversation_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The conversation the assignee is for. The master inventory spells this `inbox_id`; the conversation is passed instead so the server evaluates the real target, including its team and its current assignee (recorded in operation-inventory.md)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eligible assignees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryAgentListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/handoffs": {
+      "get": {
+        "operationId": "listConversationHandoffs",
+        "summary": "The handoff offers on a conversation, newest first",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The offers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandoffListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "requestHandoff",
+        "summary": "Offer the conversation to a named colleague",
+        "description": "An offer, not a transfer (ADR-0017): while it is pending the current assignee is still the assignee. Requires `conversation.handoff.request`, which an Agent holds at `own` scope so they can offer their own conversation without being able to reassign anybody else’s. At most one live offer per conversation, enforced by a partial unique index — a second is 409 `handoff_already_pending`.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestHandoffRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The offer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandoffResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/handoffs/{handoffId}/{action}": {
+      "post": {
+        "operationId": "settleHandoff",
+        "summary": "Accept, decline or withdraw a handoff offer",
+        "description": "Only the named recipient may accept or decline; only the requester, or somebody who could have made the assignment outright, may cancel. Acceptance settles the offer **and** applies the reassignment in one transaction, fenced on the conversation version at that moment — so an offer made against a conversation that has since moved cannot take it from whoever holds it now. Decline, cancel and expiry change no assignment at all.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "handoffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "accept",
+                "decline",
+                "cancel"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The settled offer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandoffResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/priority": {
+      "patch": {
+        "operationId": "setConversationPriority",
+        "summary": "Change the queue position a conversation argues for",
+        "description": "Governed by `conversation.assign`: business-rules.md §7’s row is \"Assign others / override routing\", and priority is routing (ADR-0017). A dedicated route rather than a general `PATCH /conversations/{id}`, whose authorization would depend on which keys happen to be in the body. Version-fenced and recorded in append-only audit evidence with the previous value.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPriorityRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The conversation, as it now stands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/collaborators": {
+      "get": {
+        "operationId": "listConversationCollaborators",
+        "summary": "The people invited to help with a conversation",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The live invitations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollaboratorListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "addConversationCollaborator",
+        "summary": "Invite somebody to help with a conversation",
+        "description": "An access-granting act, so the target is validated exactly as an assignment target is. Recorded as an interval rather than a row in `conversation_participants`, which records who actually acted and is never rewritten.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCollaboratorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The live invitations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollaboratorListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/collaborators/{membershipId}": {
+      "delete": {
+        "operationId": "removeConversationCollaborator",
+        "summary": "End an invitation to help",
+        "description": "Ends the invitation, for the future only. Whatever this person actually did stays on the record and keeps giving them permitted read access to it — historical participation is never erased to make a removal look tidy.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "membershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "The conversation version the operator saw. In the query because a DELETE carries no body."
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The live invitations that remain.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollaboratorListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4990,7 +5600,8 @@
         "required": [
           "id",
           "tenant",
-          "role"
+          "role",
+          "permissions"
         ],
         "properties": {
           "id": {
@@ -5038,6 +5649,13 @@
                 "type": "string"
               }
             }
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Permission keys held by this membership's role. Conversation scope is still enforced by the server."
           }
         }
       },
@@ -6294,7 +6912,9 @@
           "inboxLabel",
           "channel",
           "participantMembershipIds",
-          "contactId"
+          "contactId",
+          "ownerState",
+          "ownerVersion"
         ],
         "properties": {
           "id": {
@@ -6415,6 +7035,21 @@
           "unread": {
             "type": "boolean",
             "description": "Whether THIS caller has seen the newest activity. Only the list carries it: unread is a fact about a person, not about the conversation."
+          },
+          "ownerState": {
+            "type": "string",
+            "enum": [
+              "bot_active",
+              "handoff_pending",
+              "human_active",
+              "bot_paused"
+            ],
+            "description": "Bot-versus-human ownership (ADR-0008). A different dimension from `status`, from each person’s read cursor and from provider delivery state, and never folded into any of them. No bot exists in this build, so every conversation is `human_active`."
+          },
+          "ownerVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The fence an AI result is re-checked against, at submission and again before dispatch. Bumped by every human ownership change."
           }
         }
       },
@@ -7255,6 +7890,335 @@
           },
           "request_id": {
             "type": "string"
+          }
+        }
+      },
+      "AssignConversationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "assigneeMembershipId"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The conversation version the operator saw. A stale one is refused rather than silently taking work from somebody."
+          },
+          "assigneeMembershipId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Who to give it to. `null` takes it off every desk, which is an operation rather than a missing field."
+          }
+        }
+      },
+      "DirectoryAgent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "membershipId",
+          "label",
+          "assigned"
+        ],
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string",
+            "description": "The name this company shows for the person. Never their login email."
+          },
+          "assigned": {
+            "type": "boolean",
+            "description": "Whether this person currently holds the conversation."
+          }
+        }
+      },
+      "DirectoryAgentListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryAgent"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Handoff": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "conversationId",
+          "fromMembershipId",
+          "fromLabel",
+          "toMembershipId",
+          "toLabel",
+          "state",
+          "note",
+          "basedOnVersion",
+          "createdAt",
+          "expiresAt",
+          "settledAt",
+          "settledByMembershipId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "conversationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fromMembershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fromLabel": {
+            "type": "string"
+          },
+          "toMembershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "toLabel": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "declined",
+              "cancelled",
+              "expired"
+            ],
+            "description": "While `pending` the current assignee is still the assignee: an unanswered offer is not limbo."
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "basedOnVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The conversation version the offer was made against. Acceptance is fenced on the version at acceptance, not on this one."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "A stored instant swept durably. A browser timer may grey out a button; it never expires an offer."
+          },
+          "settledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "settledByMembershipId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "HandoffResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Handoff"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "HandoffListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Handoff"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RequestHandoffRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "toMembershipId"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The conversation version the requester saw. A stale version is refused."
+          },
+          "toMembershipId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The colleague being asked. Never yourself."
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Between five minutes and seven days from now. Absent means one hour."
+          }
+        }
+      },
+      "Collaborator": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "membershipId",
+          "label",
+          "addedAt",
+          "participated"
+        ],
+        "properties": {
+          "membershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string"
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "participated": {
+            "type": "boolean",
+            "description": "Whether this person actually acted. Removing an invitation cannot undo that, and does not try to."
+          }
+        }
+      },
+      "CollaboratorListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Collaborator"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AddCollaboratorRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "membershipId"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "membershipId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "SetPriorityRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "priority"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high",
+              "urgent"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
           }
         }
       }

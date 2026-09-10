@@ -18,4 +18,11 @@ export default defineWorkspace([
       hookTimeout: 180_000,
     },
   },
+  {
+    test: {
+      name: 'property',
+      include: ['tests/property/**/*.test.ts'],
+      environment: 'node',
+    },
+  },
 ]);

@@ -19,15 +19,40 @@ import {
   SCOPE_LEVELS,
 } from './roles.js';
 
-const MIGRATION = readFileSync(
-  fileURLToPath(new URL('../../../database/migrations/0003_permission_catalogue.sql', import.meta.url)),
-  'utf8',
-);
-
 const ROLE_MIGRATION = readFileSync(
   fileURLToPath(new URL('../../../database/migrations/0007_role_matrix.sql', import.meta.url)),
   'utf8',
 );
+
+/**
+ * Migrations are forward-only, so the matrix a tenant actually holds is the sum
+ * of every migration that seeded into it — not whichever one created the table.
+ * Reading only 0007 would let a later migration add a grant this module has
+ * never heard of, which is exactly the drift these tests exist to catch.
+ */
+const GRANT_MIGRATIONS = ['0007_role_matrix.sql', '0018_work_routing.sql'].map((name) =>
+  readFileSync(fileURLToPath(new URL(`../../../database/migrations/${name}`, import.meta.url)), 'utf8'),
+);
+
+const PERMISSION_MIGRATIONS = ['0003_permission_catalogue.sql', '0018_work_routing.sql'].map((name) =>
+  readFileSync(fileURLToPath(new URL(`../../../database/migrations/${name}`, import.meta.url)), 'utf8'),
+);
+
+/**
+ * Every occurrence of one statement in a migration, bounded at its semicolon.
+ *
+ * A migration that seeds permissions and then seeds grants would otherwise have
+ * its first block run past the second, and the role keys in the later statement
+ * would be read as permission keys.
+ */
+function* statementsOf(migration: string, prefix: string): Generator<string> {
+  let from = migration.indexOf(prefix);
+  while (from !== -1) {
+    const end = migration.indexOf(';', from);
+    yield migration.slice(from, end === -1 ? undefined : end);
+    from = migration.indexOf(prefix, from + prefix.length);
+  }
+}
 
 describe('migration 0007 seeds exactly this matrix', () => {
   /**
@@ -51,9 +76,12 @@ describe('migration 0007 seeds exactly this matrix', () => {
   });
 
   it('seeds the same grants at the same scope levels', () => {
-    const block = ROLE_MIGRATION.slice(ROLE_MIGRATION.indexOf('INSERT INTO builtin_role_grants'));
-    const seeded = [...block.matchAll(/^\s*\('([a-z_]+)', '([a-z_.]+)', '([a-z]+)'\)/gm)].map(
-      (m) => `${m[1] as string}|${m[2] as string}|${m[3] as string}`,
+    const seeded = GRANT_MIGRATIONS.flatMap((migration) =>
+      [...statementsOf(migration, 'INSERT INTO builtin_role_grants')].flatMap((block) =>
+        [...block.matchAll(/^\s*\('([a-z_]+)',\s+'([a-z_.]+)', '([a-z]+)'\)/gm)].map(
+          (m) => `${m[1] as string}|${m[2] as string}|${m[3] as string}`,
+        ),
+      ),
     );
     const expected = BUILTIN_ROLE_KEYS.flatMap((role) =>
       grantsOf(role).map(([key, scope]) => `${role}|${key}|${scope}`),
@@ -85,14 +113,23 @@ describe('permission catalogue', () => {
    * the domain is reasoning about permissions the server does not have.
    */
   it('matches the seeded catalogue exactly', () => {
-    const seeded = [...MIGRATION.matchAll(/^\s*\('([a-z_.]+)',/gm)].map((m) => m[1] as string);
-    expect(seeded.length).toBe(29);
+    // Every migration that inserts into `permissions`, not just the one that
+    // created the table: a key seeded later is a key the database holds.
+    const seeded = PERMISSION_MIGRATIONS.flatMap((migration) =>
+      [...statementsOf(migration, 'INSERT INTO permissions')].flatMap((block) =>
+        [...block.matchAll(/^\s*\('([a-z_.]+)',/gm)].map((m) => m[1] as string),
+      ),
+    );
     expect([...seeded].sort()).toEqual([...PERMISSION_KEYS].sort());
+    // No key seeded twice, in one migration or across two.
+    expect(new Set(seeded).size).toBe(seeded.length);
   });
 
   it('matches the seeded delegable flags exactly', () => {
-    const nonDelegable = [...MIGRATION.matchAll(/^\s*\('([a-z_.]+)',[^)]*?\bfalse\)/gm)].map(
-      (m) => m[1] as string,
+    const nonDelegable = PERMISSION_MIGRATIONS.flatMap((migration) =>
+      [...statementsOf(migration, 'INSERT INTO permissions')].flatMap((block) =>
+        [...block.matchAll(/^\s*\('([a-z_.]+)',[^)]*?\bfalse\)/gm)].map((m) => m[1] as string),
+      ),
     );
     expect([...nonDelegable].sort()).toEqual([...NON_DELEGABLE_PERMISSIONS].sort());
   });

@@ -199,3 +199,31 @@ export type {
   SnoozeRefusal,
   SnoozeRequest,
 } from './conversations/lifecycle.js';
+
+export {
+  ASSIGNMENT_ACTS,
+  checkHandoffAction,
+  checkHandoffExpiry,
+  HANDOFF_ACTIONS,
+  HANDOFF_DEFAULT_TTL_MS,
+  HANDOFF_MAX_TTL_MS,
+  HANDOFF_MIN_TTL_MS,
+  HANDOFF_STATES,
+  isLiveHandoff,
+  isOwnerState,
+  OWNER_STATES,
+  ownershipPermits,
+  settledStateOf,
+} from './conversations/routing.js';
+export type {
+  AssignmentAct,
+  HandoffAction,
+  HandoffActor,
+  HandoffOffer,
+  HandoffRefusal,
+  HandoffState,
+  HandoffTtlRefusal,
+  OwnerState,
+  OwnershipRefusal,
+  SendActor,
+} from './conversations/routing.js';

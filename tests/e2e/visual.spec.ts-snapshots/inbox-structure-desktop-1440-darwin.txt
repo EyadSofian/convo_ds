@@ -349,6 +349,15 @@ div.inbox.inbox--live
             button.btn.btn--sm [live-consent-panel]
             button.btn.btn--sm [live-consent-panel]
           p.field__hint
+      section.routing
+        h3.contact__heading
+        div.routing__current
+          p.routing__assignee
+            span.routing__key
+            bdi
+          div.routing__actions
+            span.pill.pill--neutral
+            button.btn.btn--sm [live-routing-open]
       section.notes
         h3.contact__heading
         p.field__hint

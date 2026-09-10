@@ -24,6 +24,7 @@ export interface MembershipSummary {
   readonly id: string;
   readonly tenant: { readonly id: string; readonly name: string; readonly slug: string };
   readonly role: { readonly id: string; readonly key: string; readonly name: string };
+  readonly permissions: readonly string[];
 }
 
 export interface ScopeRef {

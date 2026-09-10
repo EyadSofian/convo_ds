@@ -17,6 +17,16 @@ export const PERMISSION_KEYS = [
   'conversation.note',
   'conversation.claim',
   'conversation.assign',
+  /**
+   * Offer your own conversation to a named colleague, who may decline.
+   *
+   * Deliberately not `conversation.assign` (ADR-0017). Requesting a handoff from
+   * work you are holding is a different act from putting work on somebody
+   * else's desk, and business-rules.md §7 gives an Agent the first and denies
+   * them the second. Borrowing the assign key would have handed every agent the
+   * authority Supervisor exists to hold.
+   */
+  'conversation.handoff.request',
   'conversation.close',
   'contact.read',
   'contact.edit',

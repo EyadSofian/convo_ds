@@ -63,6 +63,14 @@ function mine(): readonly Record<string, unknown>[] {
     channel: ['whatsapp', 'messenger', 'instagram', 'web_chat'][index % 4],
     participantMembershipIds: [MEMBERSHIP],
     contactId: index === 0 ? CONTACT : null,
+    pendingReason: null,
+    snoozedUntil: null,
+    snoozeTimezone: null,
+    resolution: null,
+    resolvedAt: null,
+    lastActivityAt: new Date(Date.UTC(2026, 8, 9, 9, 15 - index)).toISOString(),
+    ownerState: 'human_active',
+    ownerVersion: 1,
   }));
 }
 
@@ -227,6 +235,7 @@ export async function installApi(page: Page): Promise<void> {
             id: MEMBERSHIP,
             tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' },
             role: { id: 'agent-role', key: 'agent', name: 'Agent' },
+            permissions: ['conversation.handoff.request'],
           },
         ],
       });
@@ -252,6 +261,13 @@ export async function installApi(page: Page): Promise<void> {
     }
     if (path.endsWith('/episodes')) {
       return json(route, paged(episodes()));
+    }
+    // Routing is loaded beside the opened conversation. These are collection
+    // responses, not conversation records: letting them fall through to the
+    // generic `/conversations/:id` fixture turns `value` into an object and a
+    // later render fails when it tries to search the collection.
+    if (path.endsWith('/handoffs') || path.endsWith('/collaborators')) {
+      return json(route, { data: [] });
     }
     if (path.endsWith('/read')) {
       return json(route, { data: { readThrough: new Date(Date.UTC(2026, 8, 9, 9, 30)).toISOString() } });

@@ -21,6 +21,14 @@ import {
   loadNotes,
   transitionConversation,
 } from './lifecycle-actions.js';
+import {
+  assignConversation,
+  loadAssignees,
+  requestHandoff,
+  setCollaborator,
+  setPriority,
+  settleHandoff,
+} from './routing-actions.js';
 import { rowsOf } from './store.js';
 import {
   addTeamMember,
@@ -355,6 +363,80 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     }
     return moved;
   },
+
+  /* --------------------------------------------------------------- routing -- */
+
+  /**
+   * Opens one of the routing controls.
+   *
+   * Opening the assignee or collaborator picker loads the directory, because it
+   * is a per-conversation list and fetching it for every thread somebody
+   * glances at would be a request per glance. The previous choice is cleared:
+   * a colleague selected for one act and abandoned must not still be selected
+   * when a different one is opened.
+   */
+  'live-routing-open': async (context, arg) => {
+    if (arg !== 'assign' && arg !== 'handoff' && arg !== 'priority' && arg !== 'collaborators') {
+      return;
+    }
+    const { live } = context;
+    live.routingPanel = arg;
+    live.routingChoice = '';
+    context.refresh();
+    if (arg !== 'priority') {
+      await loadAssignees(context);
+    }
+  },
+
+  'live-routing-close': (context) => {
+    const { live } = context;
+    live.routingPanel = null;
+    live.routingChoice = '';
+    live.handoffNote = '';
+    context.refresh();
+    return Promise.resolve();
+  },
+
+  /**
+   * The colleague a picker has selected.
+   *
+   * Re-renders, unlike the text drafts: the confirm button beside it is
+   * disabled until somebody is chosen, so a choice nobody redrew would leave a
+   * live selection behind a dead button.
+   */
+  'live-routing-choice': (context, arg) => {
+    context.live.routingChoice = arg;
+    context.refresh();
+    return Promise.resolve();
+  },
+
+  'live-routing-assign': async (context) =>
+    assignConversation(context, context.live.routingChoice),
+
+  'live-routing-unassign': async (context) => assignConversation(context, null),
+
+  'live-routing-ask': async (context) => requestHandoff(context, context.live.routingChoice),
+
+  'live-routing-priority': async (context, arg) => setPriority(context, arg),
+
+  'live-handoff-settle': async (context, arg) => {
+    const { id, value } = splitArg(arg);
+    if (value !== 'accept' && value !== 'decline' && value !== 'cancel') {
+      return false;
+    }
+    return settleHandoff(context, id, value);
+  },
+
+  /** The handoff note's text, recorded without a re-render like every draft. */
+  'live-handoff-note': (context, arg) => {
+    context.live.handoffNote = arg;
+    return Promise.resolve();
+  },
+
+  'live-collaborator-add': async (context) =>
+    setCollaborator(context, context.live.routingChoice, true),
+
+  'live-collaborator-remove': async (context, arg) => setCollaborator(context, arg, false),
 
   /* ----------------------------------------------------------------- notes -- */
 

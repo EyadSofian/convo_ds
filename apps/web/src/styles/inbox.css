@@ -946,4 +946,151 @@
     line-height: var(--leading-normal);
     overflow-wrap: anywhere;
   }
+
+  /* ---------------------------------------------------- work routing --
+     Sits at the top of the customer panel, above the notes: who holds the
+     conversation is the first question somebody opening a thread asks, and it
+     is the one thing on this panel that another person can change while you
+     are reading it.
+     ------------------------------------------------------------------ */
+
+  .routing {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-5) var(--space-6);
+    border-block-start: 1px solid var(--border-subtle);
+  }
+
+  .routing__current {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .routing__assignee {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin: 0;
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+    overflow-wrap: anywhere;
+  }
+
+  .routing__key {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .routing__nobody {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .routing__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  /* The unanswered offer. Tinted, because it is the one thing on this panel
+     that is waiting on a person rather than describing one. */
+  .routing__offer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--surface-sunken);
+    border-inline-start: 2px solid var(--accent);
+  }
+
+  .routing__offertext {
+    margin: 0;
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+  }
+
+  .routing__offernote {
+    margin: 0;
+    font-size: var(--text-xs);
+    line-height: var(--leading-relaxed);
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  .routing__offerwhen {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .routing__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--surface-sunken);
+  }
+
+  .routing__prompt {
+    margin: 0;
+    font-size: 11px;
+    line-height: var(--leading-normal);
+    color: var(--text-muted);
+  }
+
+  .routing__priorities {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .routing__note {
+    inline-size: 100%;
+    resize: vertical;
+    font-family: inherit;
+  }
+
+  .routing__formactions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .routing__collaborators {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: flex-start;
+  }
+
+  .routing__collablist {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    inline-size: 100%;
+  }
+
+  .routing__collab {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    font-size: var(--text-xs);
+  }
+
+  .routing__collabwhen {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-inline-end: auto;
+  }
 }

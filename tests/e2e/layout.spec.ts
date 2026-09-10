@@ -18,6 +18,19 @@ import {
  */
 
 test.describe('shell geometry', () => {
+  test('loads and redraws without an uncaught browser error', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    await openInbox(page);
+    await page.locator('[data-act="live-inbox-queue"][data-arg="mine"]').click();
+    await expect(page.locator('.convrow--record').first()).toBeVisible();
+    await page.locator('.topbar [data-act="list"]').click();
+    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'open');
+
+    expect(errors).toEqual([]);
+  });
+
   for (const { direction, theme } of MATRIX) {
     test(`fills exactly 100dvh with no page scrolling — ${direction}/${theme}`, async ({ page }) => {
       await openInbox(page);

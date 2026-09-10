@@ -8,6 +8,8 @@ export interface MembershipSummary {
   readonly id: string;
   readonly tenant: { readonly id: string; readonly name: string; readonly slug: string };
   readonly role: { readonly id: string; readonly key: string; readonly name: string };
+  /** Permission keys held by this role. Scope is still enforced by the server. */
+  readonly permissions: readonly string[];
 }
 
 @Injectable()
@@ -31,10 +33,17 @@ export class MembershipService {
             role_id: string;
             role_key: string;
             role_name: string;
+            permissions: string[];
           }>(
             `SELECT m.id::text AS membership_id, t.id::text AS tenant_id,
                t.name AS tenant_name, t.slug::text AS tenant_slug,
-               r.id::text AS role_id, r.key AS role_key, r.name AS role_name
+               r.id::text AS role_id, r.key AS role_key, r.name AS role_name,
+               ARRAY(
+                 SELECT rp.permission_key
+                   FROM role_permissions rp
+                  WHERE rp.tenant_id = m.tenant_id AND rp.role_id = m.role_id
+                  ORDER BY rp.permission_key
+               ) AS permissions
              FROM memberships m
              JOIN tenants t ON t.id = m.tenant_id
              JOIN roles r ON r.tenant_id = m.tenant_id AND r.id = m.role_id
@@ -58,10 +67,12 @@ function mapMembership(row: {
   readonly role_id: string;
   readonly role_key: string;
   readonly role_name: string;
+  readonly permissions: readonly string[];
 }): MembershipSummary {
   return {
     id: row.membership_id,
     tenant: { id: row.tenant_id, name: row.tenant_name, slug: row.tenant_slug },
     role: { id: row.role_id, key: row.role_key, name: row.role_name },
+    permissions: row.permissions,
   };
 }

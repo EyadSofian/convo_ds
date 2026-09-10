@@ -13,7 +13,7 @@ import { rowOf } from './record.js';
  * surface as a conversation that silently refuses every transition.
  */
 
-function raw(status: string): RawConversation {
+function raw(status: string, ownerState = 'human_active'): RawConversation {
   const now = new Date('2026-09-10T09:30:00.000Z');
   return {
     id: '22222222-2222-4222-8222-222222222222',
@@ -32,12 +32,23 @@ function raw(status: string): RawConversation {
     resolution: null,
     resolved_at: null,
     last_activity_at: now,
+    owner_state: ownerState,
+    owner_version: 1,
   };
 }
 
 describe('rowOf', () => {
   it.each(CONVERSATION_STATES)('accepts %s, which the CHECK constraint allows', (status) => {
     expect(rowOf(raw(status)).status).toBe(status);
+  });
+
+  it('refuses an ownership state ADR-0008 has no rule for', () => {
+    // The send permit's ownership term is total over the four states. A silent
+    // cast here would hand it a fifth and there would be no rule to apply.
+    expect(() => rowOf(raw('open', 'daydreaming'))).toThrow(
+      /unknown ownership state daydreaming/,
+    );
+    expect(rowOf(raw('open', 'bot_paused')).ownerState).toBe('bot_paused');
   });
 
   it('refuses a status the lifecycle table has no row for', () => {

@@ -8,7 +8,13 @@ import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { LIST_WIDTH_MAX, LIST_WIDTH_MIN } from '../state.js';
 import type { IconName } from '../icons.js';
+import { routingAbility } from '../live/ability.js';
 import { renderContactPanel } from './contact-panel.js';
+import {
+  movedAway,
+  priorityPill,
+  routingSection,
+} from './routing-panel.js';
 import {
   episodesSection,
   lifecycleControls,
@@ -18,7 +24,6 @@ import {
   statusPill,
 } from './lifecycle-panel.js';
 import { avatar, button, CHANNEL_ICON, isolated, pill, stateBox } from './parts.js';
-import type { Tone } from './parts.js';
 
 /**
  * The Inbox, backed entirely by the API.
@@ -44,12 +49,6 @@ function t(state: AppState, ar: string, en: string): string {
   return state.lang === 'ar' ? ar : en;
 }
 
-const PRIORITY_TONE: Readonly<Record<string, Tone>> = {
-  low: 'neutral',
-  normal: 'neutral',
-  high: 'warning',
-  urgent: 'danger',
-};
 
 const DELIVERY_LABEL: Readonly<Record<string, { ar: string; en: string }>> = {
   sent: { ar: 'أُرسلت', en: 'Sent' },
@@ -109,6 +108,14 @@ export function renderInbox(state: AppState): HTMLElement {
       state.live.openConversationId === null
         ? null
         : renderContactPanel(state, state.live, [
+            state.live.openConversation.status === 'ready'
+              ? routingSection(
+                  state,
+                  state.live,
+                  state.live.openConversation.value,
+                  routingAbility(state.live),
+                )
+              : null,
             notesSection(state, state.live),
             episodesSection(state, state.live),
           ]),
@@ -362,7 +369,7 @@ function queueRow(state: AppState, card: QueueCard): HTMLElement {
         h('div', { class: 'convrow__meta' }, [
           pill(labelled(state, CHANNEL_LABEL, card.channel)),
           pill(card.inboxLabel),
-          pill(card.priority, PRIORITY_TONE[card.priority] ?? 'neutral'),
+          priorityPill(state, card.priority),
         ]),
       ]),
       h('div', { class: 'convrow__tail' }, [
@@ -421,7 +428,7 @@ function conversationRow(state: AppState, live: LiveState, conversation: Convers
           statusPill(state, conversation.status),
           // The same cue the queue card carries: an agent triaging their own
           // list needs it as much as one picking work up.
-          pill(conversation.priority, PRIORITY_TONE[conversation.priority] ?? 'neutral'),
+          priorityPill(state, conversation.priority),
         ]),
       ]),
     ],
@@ -469,7 +476,12 @@ function renderThreadZone(state: AppState, live: LiveState): HTMLElement {
   }
   if (live.openConversation.status === 'error') {
     return zone('thread', t(state, 'المحادثة', 'Conversation'), [
-      errorView(state, live.openConversation.error, 'live-inbox-reload'),
+      // A permission loss here is a normal outcome of routing — a handoff moves
+      // a conversation away, a supervisor reassigns one out from under whoever
+      // is reading it — so it is named as such rather than reported as a fault.
+      live.lostAccess && isDenial(live.openConversation.error)
+        ? movedAway(state)
+        : errorView(state, live.openConversation.error, 'live-inbox-reload'),
     ]);
   }
   if (live.openConversation.status !== 'ready') {
@@ -509,7 +521,7 @@ function threadHeader(
     h('span', { class: 'thread__toolspacer' }),
     h('div', { class: 'thread__toolbar' }, [
       statusPill(state, conversation.status),
-      pill(conversation.priority, PRIORITY_TONE[conversation.priority] ?? 'neutral'),
+      priorityPill(state, conversation.priority),
       lifecycleControls(state, live, conversation),
     ]),
   ]);

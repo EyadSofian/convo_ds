@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import { parseApiConfig, type ApiConfig } from '../../apps/api/src/config.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
-import { applyInstallationConfig } from '../../packages/domain/src/index.js';
+import { applyInstallationConfig, PERMISSION_KEYS } from '../../packages/domain/src/index.js';
 import type { DatabaseNames } from '../../packages/database/src/types.js';
 import {
   clusterCredentials,
@@ -270,6 +270,10 @@ describe('local authentication and permission boundary', () => {
         {
           tenant: { id: api.tenantId, name: 'Auth Company', slug: 'auth-company' },
           role: { key: 'owner' },
+          permissions: expect.arrayContaining([
+            'conversation.assign',
+            'conversation.handoff.request',
+          ]),
         },
       ],
     });
@@ -280,7 +284,7 @@ describe('local authentication and permission boundary', () => {
       headers: { cookie: owner.cookie },
     });
     expect(permissions.statusCode).toBe(200);
-    expect((permissions.json() as { data: unknown[] }).data).toHaveLength(29);
+    expect((permissions.json() as { data: unknown[] }).data).toHaveLength(PERMISSION_KEYS.length);
   });
 
   it('denies another role and hides nonexistent tenant membership', async () => {

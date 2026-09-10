@@ -41,6 +41,22 @@ export const REALTIME_EVENT_TYPES = [
   'conversation.state',
   /** A private note was written. Never projected, never previewed. */
   'conversation.note',
+  /**
+   * An offer between two named people was made or answered.
+   *
+   * Its own type rather than a flavour of `conversation.assigned`, because it
+   * must be filtered like a note: an agent who may only *preview* an unclaimed
+   * conversation has no business learning that colleagues are negotiating who
+   * takes it. Filtered by the type before any payload is read.
+   */
+  'conversation.handoff',
+  /**
+   * Priority or collaborators changed.
+   *
+   * Projected rather than hidden: priority is a field of the queue card, so an
+   * agent deciding what to pick up is entitled to know it moved.
+   */
+  'conversation.routing',
 ] as const;
 
 export type RealtimeEventType = (typeof REALTIME_EVENT_TYPES)[number];

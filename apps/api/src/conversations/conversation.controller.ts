@@ -14,7 +14,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { isConversationState } from '@convo/domain';
+import { HANDOFF_DEFAULT_TTL_MS, isConversationState } from '@convo/domain';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { OutboundService } from '../channels/outbound.service.js';
@@ -23,6 +23,8 @@ import { ConversationService } from './conversation.service.js';
 import { LifecycleService } from './lifecycle.service.js';
 import type { LifecycleCommand } from './lifecycle.service.js';
 import { NoteService } from './note.service.js';
+import { isPriority, RoutingService } from './routing.service.js';
+import type { AssignmentCommand } from './routing.service.js';
 
 /**
  * Conversations: the queue, the list, the record, the timeline and the reply.
@@ -46,6 +48,7 @@ export class ConversationController {
     @Inject(OutboundService) private readonly outbound: OutboundService,
     @Inject(LifecycleService) private readonly lifecycle: LifecycleService,
     @Inject(NoteService) private readonly notes: NoteService,
+    @Inject(RoutingService) private readonly routing: RoutingService,
   ) {}
 
   /** The conversations this caller may read, newest activity first. */
@@ -273,6 +276,225 @@ export class ConversationController {
     };
   }
 
+  /* ------------------------------------------------------------ routing -- */
+
+  /**
+   * Puts the conversation on a named person's desk, or takes it off every desk.
+   *
+   * A different operation from `/claim` and a different permission: taking work
+   * nobody holds is not the same act as giving somebody else's work away, and
+   * business-rules.md §7 grants an Agent the first and denies them the second.
+   */
+  @Post('tenants/:tenantId/conversations/:conversationId/assignments')
+  @HttpCode(200)
+  async assign(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return {
+      data: await this.routing.assign(
+        session,
+        tenantId,
+        conversationId,
+        expectedVersion(body),
+        assignmentCommand(body),
+      ),
+      request_id: request.id,
+    };
+  }
+
+  /**
+   * The people who could actually take this conversation.
+   *
+   * Not `GET /people`: that needs `member.manage` and returns roles, scopes and
+   * login emails. A Supervisor may route work and may not administer
+   * memberships, so the picker has to answer without any of that.
+   */
+  @Get('tenants/:tenantId/directory/agents')
+  async assignableAgents(
+    @Param('tenantId') tenantId: string,
+    @Query('conversation_id') conversationId: string | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    if (conversationId === undefined) {
+      throw new ApiHttpError(400, 'validation_failed', 'The request is not valid.', [
+        {
+          field: 'conversation_id',
+          code: 'required',
+          message: 'Name the conversation the assignee is for.',
+        },
+      ]);
+    }
+    const rows = await this.routing.assignableAgents(session, tenantId, conversationId);
+    return pageEnvelope(rows, null, request.id);
+  }
+
+  /** Offers the conversation to a named colleague, who may decline. */
+  @Post('tenants/:tenantId/conversations/:conversationId/handoffs')
+  async requestHandoff(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    const offer = await this.routing.requestHandoff(session, tenantId, conversationId, {
+      expectedVersion: expectedVersion(body),
+      toMembershipId: requireText(asObject(body)['toMembershipId'], 'toMembershipId', 64),
+      note: optionalText(asObject(body)['note'], 'note', 1000),
+      expiresAt: handoffExpiry(body),
+    });
+    await reply.status(201).send({ data: offer, request_id: request.id });
+  }
+
+  @Get('tenants/:tenantId/conversations/:conversationId/handoffs')
+  async listHandoffs(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const rows = await this.routing.listHandoffs(session, tenantId, conversationId);
+    return pageEnvelope(rows, null, request.id);
+  }
+
+  /**
+   * Answers or withdraws an offer.
+   *
+   * One route with the action in the path rather than three services: accept,
+   * decline and cancel share every check but the last, and three endpoints
+   * would be three places for the fence, the expiry and the identity rule to
+   * drift apart.
+   */
+  @Post('tenants/:tenantId/handoffs/:handoffId/:action')
+  @HttpCode(200)
+  async settleHandoff(
+    @Param('tenantId') tenantId: string,
+    @Param('handoffId') handoffId: string,
+    @Param('action') action: string,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    if (action !== 'accept' && action !== 'decline' && action !== 'cancel') {
+      throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+    }
+    return {
+      data: await this.routing.settleHandoff(session, tenantId, handoffId, action),
+      request_id: request.id,
+    };
+  }
+
+  /**
+   * Changes the queue position the conversation argues for.
+   *
+   * A dedicated route rather than a general `PATCH /conversations/{id}`: a
+   * generic patch is an endpoint whose authorization depends on which keys
+   * happen to be in the body, and the first field somebody adds to it that
+   * needs a different permission is a hole nobody notices.
+   */
+  @Patch('tenants/:tenantId/conversations/:conversationId/priority')
+  async setPriority(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    const priority = asObject(body)['priority'];
+    if (!isPriority(priority)) {
+      throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', [
+        { field: 'priority', code: 'unsupported', message: 'Send low, normal, high or urgent.' },
+      ]);
+    }
+    return {
+      data: await this.routing.setPriority(
+        session,
+        tenantId,
+        conversationId,
+        expectedVersion(body),
+        priority,
+        optionalText(asObject(body)['reason'], 'reason', 200),
+      ),
+      request_id: request.id,
+    };
+  }
+
+  /** The people invited to help, and whether each of them actually acted. */
+  @Get('tenants/:tenantId/conversations/:conversationId/collaborators')
+  async collaborators(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const rows = await this.routing.collaborators(session, tenantId, conversationId);
+    return pageEnvelope(rows, null, request.id);
+  }
+
+  @Post('tenants/:tenantId/conversations/:conversationId/collaborators')
+  @HttpCode(200)
+  async addCollaborator(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    const rows = await this.routing.setCollaborator(
+      session,
+      tenantId,
+      conversationId,
+      expectedVersion(body),
+      requireText(asObject(body)['membershipId'], 'membershipId', 64),
+      true,
+    );
+    return pageEnvelope(rows, null, request.id);
+  }
+
+  /**
+   * Ends an invitation.
+   *
+   * Deliberately not "remove the participant": whatever this person actually
+   * did stays on the record and keeps giving them permitted read access to it.
+   * What ends is the invitation, and only for the future.
+   */
+  @Delete('tenants/:tenantId/conversations/:conversationId/collaborators/:membershipId')
+  async removeCollaborator(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Param('membershipId') membershipId: string,
+    @Query('version') version: string | undefined,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    const rows = await this.routing.setCollaborator(
+      session,
+      tenantId,
+      conversationId,
+      expectedVersion({ version: Number(version) }),
+      membershipId,
+      false,
+    );
+    return pageEnvelope(rows, null, request.id);
+  }
+
   /**
    * Moves this caller's read cursor.
    *
@@ -383,6 +605,48 @@ function requireInstant(value: unknown): Date {
   if (Number.isNaN(at.getTime())) {
     throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', [
       { field: 'wakeAt', code: 'invalid', message: 'Send an ISO 8601 timestamp.' },
+    ]);
+  }
+  return at;
+}
+
+function optionalText(value: unknown, field: string, max: number): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  return requireText(value, field, max);
+}
+
+/**
+ * The assignee a caller asked for.
+ *
+ * `null` is a real answer, not a missing one: taking a conversation off every
+ * desk is an operation, and expressing it as "assign to nobody" keeps one
+ * endpoint and one fence rather than two routes with two ways to race.
+ */
+function assignmentCommand(body: unknown): AssignmentCommand {
+  const value = asObject(body)['assigneeMembershipId'];
+  if (value === null) {
+    return { kind: 'unassign' };
+  }
+  return { kind: 'assign', toMembershipId: requireText(value, 'assigneeMembershipId', 64) };
+}
+
+/**
+ * When an offer stops standing.
+ *
+ * Absent means the default hour. The bounds themselves are the domain's, so the
+ * API and the sweep agree about what "too soon" means.
+ */
+function handoffExpiry(body: unknown): Date {
+  const value = asObject(body)['expiresAt'];
+  if (value === undefined || value === null) {
+    return new Date(Date.now() + HANDOFF_DEFAULT_TTL_MS);
+  }
+  const at = typeof value === 'string' ? new Date(value) : new Date(Number.NaN);
+  if (Number.isNaN(at.getTime())) {
+    throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', [
+      { field: 'expiresAt', code: 'invalid', message: 'Send an ISO 8601 timestamp.' },
     ]);
   }
   return at;

@@ -4,7 +4,77 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T8 third slice (Milestone D: the conversation lifecycle, notes and read state)
+## Last completed task — P1-T9 first slice (Milestone E: assignment and person-to-person handoff)
+
+**Task / requirement IDs:** IAM-13 and CON-07 closed. CON-08 advanced to `partial` with labels and custom fields named as the remaining half. AI-01 advanced to `partial`. UX-09 remains `partial` because Broadcasts, Analytics and Settings are still demo-backed.
+
+### Behavior delivered
+
+**Claim, assignment and handoff are three different acts.** Claim takes work nobody holds and stays under `conversation.claim`. Direct assignment moves work immediately and requires `conversation.assign`. Handoff uses the new `conversation.handoff.request` key and creates an offer the named colleague may accept or decline; while it is pending the current assignee remains responsible. ADR-0017 records that split so a future caller cannot quietly use the stronger assignment permission to implement a request.
+
+**Every contested routing act carries the version the operator saw.** Claim, assignment, priority, collaborator changes and handoff creation reject a stale screen with `conversation_version_conflict`. Acceptance also verifies that the conversation is still held by the assignee the request was based on. Target membership, status, scopes and ability to reply are re-derived inside the write transaction; the directory is an allowlisted suggestion, never authorization.
+
+**Expiry is durable work.** The offer and its note stay behind tenant RLS. A separate ids-and-times queue lets `worker-inbound` discover due offers before it knows a tenant, then enter that tenant and settle the offer as `expired`. Nobody is fabricated as the actor. The queue has a composite tenant foreign key to the offer, and reassignment makes an old offer unusable.
+
+**Participation and collaboration answer different questions.** Participation records that somebody acted and can never be deleted. A collaborator is an invitation interval that may end; ending it removes future collaborator reach but never erases authorship. Both direct assignment and accepted handoff record the new assignee as a participant.
+
+**Ownership is a separate fence.** `owner_state` and `owner_version` are independent of lifecycle, unread and delivery state. Claim, direct assignment and accepted handoff set `human_active`, increment the owner fence and append the transition evidence. Outbound commands store the owner version their permit was issued under, and dispatch rejects a stale one before network I/O.
+
+**The Inbox routing panel is live.** It loads eligible colleagues, offers direct assignment, priority, handoff and collaborators according to the current membership's actual permission keys, and waits for a committed server response before success. This supports custom roles without role-name authorization. Two realtime types — `conversation.handoff` and `conversation.routing` — are accepted by the browser and cause authoritative re-reads instead of being silently dropped.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `docs/adr/0017-person-to-person-handoff.md` | the permission and ownership clarification |
+| `packages/database/migrations/0018_work_routing.sql` | names, ownership fence, audit, handoffs, expiry queue and collaborators |
+| `packages/domain/src/conversations/routing.ts` | handoff state and expiry decisions |
+| `apps/api/src/conversations/routing.service.ts` | assignment, directory, handoff, priority, collaborators and audit |
+| `apps/api/src/conversations/conversation.service.ts` | claim ownership transition and audit |
+| `apps/api/src/workers/worker-roles.ts` | durable handoff expiry on the inbound worker |
+| `apps/web/src/live/ability.ts` | controls from permission keys, with safe rolling-deploy fallback |
+| `apps/web/src/ui/routing-panel.ts` | the Inbox routing interface |
+| `apps/web/src/live/routing-actions.ts` | versioned routing mutations and committed-success handling |
+| `tests/integration/api-realtime.test.ts` | assignment/handoff races, authorization, audit, rollback, expiry and ownership |
+| `apps/web/src/live/routing.test.ts` | routing UI and custom-role behavior through the real client/actions/renderer |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web bundle 177.29 kB / 53.70 kB gzip |
+| `pnpm test:unit` | **0** | 66 files, **1286 tests** |
+| `pnpm test:integration` | **0** | 21 files, **471 tests** against real PostgreSQL 17.4 |
+| `pnpm test:property` | **0** | 1 file, **5 exhaustive/metamorphic properties** |
+| `pnpm test:coverage` | **0** | 88 files, **1762 tests**, 100% lines / statements / functions / branches |
+| `pnpm test:contracts` | **0** | 166 unit + 119 integration |
+| `pnpm test:security` | **0** | 345 tests + production audit, **no known vulnerabilities** |
+| `pnpm test:e2e` | **0** | **150 tests** at 1440×900 and 1366×768 |
+| `pnpm test:a11y` | **0** | 25 tests, no WCAG 2.1 AA violations |
+| `pnpm test:visual` | **0** | 20 tests, images plus structural snapshots |
+| `pnpm test:mutation` | **1** | `not_run` — wired in P4 |
+| `pnpm test:load:target` | **1** | `blocked_env` — k6 not installed, no staging target |
+| `pnpm test:recovery` | **1** | `blocked_env` — no restore target |
+
+No coverage threshold was lowered and no exclusion was added. The pinned OpenAPI carries **73 operations** and the bidirectional drift test passes.
+
+The task required property evidence, but its `test:property` script still named a Vitest project that did not exist and exited 1 with no files. The project now exists and exercises the complete finite handoff state/action/actor space plus time-translation and ownership-table invariants; the standalone property gate and the aggregate coverage gate both execute it.
+
+The browser gate caught a contract error in its own scripted API: the new handoff and collaborator collection requests fell through to the generic conversation-detail fixture and returned an object where the client contract requires an array. The next redraw threw, which made unrelated drawer, resize, theme and queue controls appear broken. The fixture now names both collection routes explicitly, supplies the full conversation shape, and a browser test fails on any uncaught page error while the inbox loads and redraws.
+
+### Honest remaining scope
+
+- **Labels and the custom-field catalogue are not built**, so CON-08 remains `partial`.
+- **Automated bot ownership transitions are not built.** The ownership states, monotonic fence, audit evidence and outbound re-check are present as P2 hooks; AI-01 remains `partial` until P7.
+- **No capacity-based router, SLA clocks or business-hours engine.** Those are the next Milestone E slices under SLA-01…SLA-08.
+- **No provider HTTP client and no configured broker product.** Provider-live checks remain `blocked_no_asset`; broker/load/recovery environment checks remain explicitly blocked.
+- **Broadcasts, Analytics and Settings remain demo-backed.** UX-09 remains `partial`.
+
+---
+
+## Previously completed — P1-T8 third slice (Milestone D: the conversation lifecycle, notes and read state)
 
 **Task / requirement IDs:** CON-02, CON-03, CON-04, CON-05, MSG-04 closed. CON-01 completed (its archive dimension). CON-07 moved to `partial` with the unbuilt half named.
 
@@ -804,20 +874,18 @@ These block only the named live/deployment checks. Independent implementation co
 
 ---
 
-## Next task — Milestone E (assignment, handoff and the work-routing surface)
+## Next task — P1-T10 (labels and typed custom fields)
 
-**Task:** move work between people, which is the last thing an inbox has to do that this build cannot.
+**Task:** close the remaining local half of CON-08 and make the inbox/contact metadata filterable without accepting arbitrary untyped JSON as business data.
 
-**Requirement IDs:** CON-08 (assignment, priority, participants, handoff), IAM-13's assignment half, CON-07's remaining ownership dimension, UX-09.
+**Requirement IDs:** CON-08, CT-05, CT-11 and UX-09.
 
 **Scope:**
 
-1. **Assignment to somebody else.** `conversation.assign` exists in the permission catalogue and has **no endpoint**: claiming yourself is currently the only way work moves, which means a supervisor cannot hand a thread to the person who should have it. Assignment is a different act from a claim and carries a different permission for a reason — taking work is not the same as giving it — and both are fenced on the version the actor saw.
-2. **Handoff as a request, not a transfer.** A handoff somebody has not accepted is a conversation with two people believing it is the other's. The state has to be explicit and time-bounded.
-3. **Priority and participants as edits** with an audit trail, rather than columns anybody writes freely.
-4. **The realtime half.** `conversation.assigned` already exists as an event type and is already authorized per subscriber; assignment must produce it, and an agent who loses access by being reassigned must stop receiving the conversation without logging out.
-5. **The screen**: an assignee control that lists only people whose grants actually reach the conversation, and shows the refusal when a chosen person's does not.
+1. A tenant-owned label catalogue, versioned assignment/removal operations and append-only audit evidence.
+2. A typed custom-field catalogue with explicit value validation, active/retired lifecycle and safe indexing/search representation.
+3. Server-side inbox and contact filters for labels and implemented typed fields, with tenant/scope authorization applied before counts and pagination.
+4. Live Inbox and Contacts controls in Arabic/English, RTL/LTR and both themes; no local-only filter result or demo metadata mutation.
+5. OpenAPI, migration, traceability, PostgreSQL isolation/race evidence and the full repository gate.
 
-**Exit checks:** the full gate list, coverage staying at 100/100/100/100 with no exclusion added, and a test proving an agent reassigned away keeps read access to what they wrote (participation outlives assignment) while losing the inbox scope removes it.
-
-**Blocked, and stays blocked:** every provider-live check remains `blocked_no_asset`. Nothing in this slice needs a provider.
+**Blocked, and stays blocked:** provider-live verification, production load and recovery evidence. None blocks this local slice.

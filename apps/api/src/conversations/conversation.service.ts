@@ -24,6 +24,7 @@ import {
   SELECT_COLUMNS,
 } from './record.js';
 import type { ConversationDetail, ConversationRow, RawConversation } from './record.js';
+import { recordConversationAudit } from './routing.service.js';
 import {
   readTimeline,
   TIMELINE_PAGE_SIZE,
@@ -444,12 +445,13 @@ export class ConversationService {
       if (!decision.allowed) {
         throw denied();
       }
-      const claimed = await sql.query<{ version: number }>(
+      const claimed = await sql.query<{ version: number; owner_version: number }>(
         `UPDATE conversations
             SET assignee_membership_id = $2, waiting_since = NULL,
+                owner_state = 'human_active', owner_version = owner_version + 1,
                 last_activity_at = now(), version = version + 1
           WHERE id = $1 AND version = $3 AND assignee_membership_id IS NULL
-          RETURNING version`,
+          RETURNING version, owner_version`,
         [conversationId, principal.membershipId, expectedVersion],
       );
       const row = claimed.rows[0];
@@ -463,6 +465,19 @@ export class ConversationService {
         );
       }
       await recordParticipation(sql, tenantId, conversationId, principal.membershipId);
+      await recordConversationAudit(sql, tenantId, {
+        conversationId,
+        actorMembershipId: principal.membershipId,
+        act: 'claim',
+        fromValue: null,
+        toValue: principal.membershipId,
+        atVersion: row.version,
+        detail: {
+          ownerStateFrom: existing.ownerState,
+          ownerStateTo: 'human_active',
+          ownerVersion: row.owner_version,
+        },
+      });
       await this.realtime.emit(sql, tenantId, {
         type: 'conversation.assigned',
         entityType: 'conversation',
@@ -572,5 +587,4 @@ function deliveryRank(state: string): number {
 function present(detail: ConversationDetail | null): detail is ConversationDetail {
   return detail !== null;
 }
-
 

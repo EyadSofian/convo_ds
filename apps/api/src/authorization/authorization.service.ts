@@ -142,6 +142,34 @@ export interface AuthorizedContext extends PrincipalContext {
  * wrong: the policy denies it before this query sees it.
  */
 async function loadPrincipal(sql: SqlExecutor, userId: string): Promise<Principal | null> {
+  return loadPrincipalBy(sql, 'm.user_id = $1', userId);
+}
+
+/**
+ * The same principal, for somebody who is not the caller.
+ *
+ * Needed wherever the server has to answer "could *they* do this" rather than
+ * "may *you*" — choosing an assignee, or re-checking a handoff recipient inside
+ * the write. It deliberately builds the identical `Principal` the request path
+ * builds, so the picker and the endpoint that enforces it cannot disagree; a
+ * list derived from a role name or a scope join would eventually drift, and the
+ * drift would look like a bug in the picker rather than a hole in the check.
+ *
+ * Read under the caller's tenant context like everything else, so a membership
+ * from another company cannot enter it even by id.
+ */
+export async function loadPrincipalForMembership(
+  sql: SqlExecutor,
+  membershipId: string,
+): Promise<Principal | null> {
+  return loadPrincipalBy(sql, 'm.id = $1', membershipId);
+}
+
+async function loadPrincipalBy(
+  sql: SqlExecutor,
+  predicate: string,
+  value: string,
+): Promise<Principal | null> {
   const membership = await sql.query<{
     membership_id: string;
     membership_status: Principal['membershipStatus'];
@@ -152,8 +180,8 @@ async function loadPrincipal(sql: SqlExecutor, userId: string): Promise<Principa
             t.status AS tenant_status, m.role_id::text AS role_id
        FROM memberships m
        JOIN tenants t ON t.id = m.tenant_id
-      WHERE m.user_id = $1`,
-    [userId],
+      WHERE ${predicate}`,
+    [value],
   );
   const row = membership.rows[0];
   if (row === undefined) {

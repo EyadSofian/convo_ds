@@ -36,6 +36,7 @@ import { ConversationController } from './conversations/conversation.controller.
 import { ConversationService } from './conversations/conversation.service.js';
 import { LifecycleService } from './conversations/lifecycle.service.js';
 import { NoteService } from './conversations/note.service.js';
+import { RoutingService } from './conversations/routing.service.js';
 import { RealtimeController } from './realtime/realtime.controller.js';
 import { RealtimeService } from './realtime/realtime.service.js';
 import { PermissionController } from './authorization/permission.controller.js';
@@ -156,6 +157,7 @@ export class ApiModule {
         ContactService,
         ConversationService,
         LifecycleService,
+        RoutingService,
         NoteService,
         ChannelNormalizationService,
         ChannelDispatcherService,

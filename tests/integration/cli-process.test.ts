@@ -108,6 +108,7 @@ describe('convo-db entry point', () => {
       'applied 0015_receipt_watermark.sql',
       'applied 0016_contacts.sql',
       'applied 0017_conversation_lifecycle.sql',
+      'applied 0018_work_routing.sql',
     ]);
 
     const second = await runBin(['migrate'], env);
