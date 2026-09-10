@@ -4,7 +4,76 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T8 second slice (Milestone D: Contacts, identity and consent)
+## Last completed task — P1-T8 third slice (Milestone D: the conversation lifecycle, notes and read state)
+
+**Task / requirement IDs:** CON-02, CON-03, CON-04, CON-05, MSG-04 closed. CON-01 completed (its archive dimension). CON-07 moved to `partial` with the unbuilt half named.
+
+### Behavior delivered
+
+**§18.1 is a table, not a set of `if`s.** The eleven rows live in `packages/domain/src/conversations/lifecycle.ts` as data, decided by one function. Three properties follow that do not survive scattering the rules across handlers. A trigger that changes nothing is an *explicit row* — a receipt, a typing indicator and a private note reopen nothing, and that is stated rather than falling through. A refusal is a **value**, so the API turns it into a 409 named after the refusal and the browser renders it in the operator's words. And the side effects are named by the row, so *start a new reporting episode* cannot be forgotten by the one caller that reopens a conversation from an unusual place.
+
+**Triggers are causes, not commands.** `customer_inbound` is a fact that arrived; the table decides what it means from where the conversation already was. An endpoint named `reopen` would let a caller assert an outcome instead of reporting a cause — so there is one `POST .../transitions` taking a command, fenced on the version the agent saw.
+
+**A snooze stores the instant *and* the zone.** They answer different questions: the instant is when the job fires, the zone is what the operator meant. A system keeping only the instant cannot re-derive "tomorrow morning" after a DST change. The zone is validated against the runtime's own IANA database at the door, so an unknown one fails in front of the person who chose it rather than in a worker six hours later. The wake is a row in `conversation_wakes` fenced by `wake_version`: re-snoozing bumps it so the job already scheduled matches nothing, and the sweeper's guarded `UPDATE` makes a stale job a no-op that is deleted rather than one that fires early. The browser sends an **instant**, never a duration — a duration would be resolved against the server's clock while the operator picked it against theirs.
+
+**A reopen starts a new episode.** Reusing the first would start the second issue's clock at the first issue's first message and make every resolution-time report a lie. The first episode keeps its own numbers. `first_response_at` is written inside the **same transaction as the reply command** and coalesces, so the first response is the first — that also fixed a real gap: `noteResponse` existed with **no callers**, so `first_response_at` would have been null forever and the metric silently useless.
+
+**The identity is held until archival, not until resolution.** The uniqueness constraint became a partial index over non-archived rows, which is what lets an archived thread keep its history while the customer's next message opens a thread of its own.
+
+**A note is never a message.** Its own composer, its own draft field, its own table, and an explicit no-op row in the lifecycle table so it cannot reopen anything. A deletion keeps the row and its attribution and drops only the text — a thread that silently lost an internal remark could not be reconstructed. Only the author may edit or delete, which is a **403 rather than a 404**, because the caller may read it.
+
+**Unread is derived, not counted.** One `conversation_reads` row per person compared against `last_activity_at`, so there is no count for anybody to keep correct and two agents never see each other's state. The cursor never moves backwards and refuses a read of the future. The browser marks read only once the timeline is actually on screen: a cursor moved before the messages arrived would mark as seen what a failed load never showed anybody.
+
+**An offered control is one the server can accept.** The browser holds a copy of §18.1's availability, and a unit test **regenerates it from `applyTrigger`** and fails on any divergence — so a button that would always be refused cannot ship. `@convo/domain` is a **devDependency** of `@convo/web` for exactly this: a test-time oracle, never a runtime import, and the bundle stays dependency-free.
+
+**Four defects this work surfaced.** `noteResponse` had no callers, as above. `relativeTime` is past-only, so a future wake time fell into its first branch and read as *now* — the one answer that is certainly wrong for a snooze; `futureTime` was written beside it and a test asserts the two disagree. `mount({ now })` was overwritten by the first render, so the injected clock made nothing deterministic and a snooze offset could not be asserted at all. And the visual suite's own doc claimed every screen baseline was paired with a structural snapshot, but the Inbox had images only — so an entire panel section could be added below the fold of a scrolling zone without moving a pixel; it now has one.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0017_conversation_lifecycle.sql` | the five states, the wake job, episodes, notes and read cursors |
+| `packages/domain/src/conversations/lifecycle.ts` | §18.1 as data, and the snooze check |
+| `apps/api/src/conversations/lifecycle.service.ts` | authorize → ask the table → fence the version → write → announce |
+| `apps/api/src/conversations/note.service.ts` | notes, the authorship rule, and the read cursor |
+| `apps/api/src/conversations/record.ts` | the shared conversation read, and the schema/domain drift guard |
+| `apps/web/src/ui/lifecycle-panel.ts` | the controls, the notes and the episodes |
+| `apps/web/src/live/lifecycle-actions.ts` | transitions, notes and the read cursor, with the refusals in the operator's words |
+| `apps/web/src/live/lifecycle.test.ts` | 57 tests, opening with the one that regenerates the browser's table from the domain's |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web bundle 161.57 kB / 49.26 kB gzip |
+| `pnpm test:coverage` | **0** | **1616 tests**, 100% on all four metrics |
+| `pnpm test:contracts` | **0** | 166 unit + 119 integration |
+| `pnpm test:security` | **0** | 283 tests + production audit, **no known vulnerabilities** |
+| `pnpm test:e2e` | **0** | 148 |
+| `pnpm test:a11y` | **0** | 25, no WCAG 2.1 AA violations |
+| `pnpm test:visual` | **0** | 20, images plus structural snapshots |
+| `pnpm test:mutation` | **1** | `not_run` — wired in P4 |
+| `pnpm test:load:target` | **1** | `blocked_env` — k6 not installed, no staging target |
+| `pnpm test:recovery` | **1** | `blocked_env` — no restore target |
+
+The pinned OpenAPI carries **64 operations**; the bidirectional drift test passes.
+
+A production dependency audit finding was fixed rather than waived: `@nestjs/platform-fastify` pins `fastify@5.11.3` exactly, so the **running** server loaded a copy with two moderate advisories even though our own direct dependency was already patched. A `pnpm.overrides` entry collapses both copies onto `5.12.3`, and `pnpm audit --prod` is now clean.
+
+### Honest remaining scope
+
+- **No assignment to others, no handoff, no labels, no SLA.** `conversation.assign` exists as a permission and has no endpoint; claiming yourself is the only way work moves.
+- **No bot/human ownership dimension**, which is why CON-07 is `partial`: there is no bot.
+- **Snooze offers offsets and a specific time, not calendar phrases.** "Tomorrow morning" is a question about a zone, a working day and a DST rule; offsets are one instant everywhere, so that is what the presets are.
+- **Notes have no mentions, no attachments and no search.**
+- **Drafts still live in memory.** A failed send keeps what was typed; a reload does not.
+- **Still no provider HTTP client and no broker product.** Every provider-live check stays `blocked_no_asset`; DEL-08/DEL-09 stay `blocked_env`.
+
+---
+
+## Previously completed — P1-T8 second slice (Milestone D: Contacts, identity and consent)
 
 **Task / requirement IDs:** CT-01, CT-02, CT-03, CT-06, CT-08 closed. CT-07 partial, with the unbuilt half named.
 
@@ -735,21 +804,20 @@ These block only the named live/deployment checks. Independent implementation co
 
 ---
 
-## Next task — Milestone E (the conversation lifecycle: notes, read cursor, status, snooze and reopen)
+## Next task — Milestone E (assignment, handoff and the work-routing surface)
 
-**Task:** the half of P2 item 6 that the Inbox slice deliberately left out, plus the lifecycle table it depends on.
+**Task:** move work between people, which is the last thing an inbox has to do that this build cannot.
 
-**Requirement IDs:** CON-02, CON-03, CON-04, MSG-02 (the unbuilt half), UX-09, and the notes/read-cursor rows of §18.
+**Requirement IDs:** CON-08 (assignment, priority, participants, handoff), IAM-13's assignment half, CON-07's remaining ownership dimension, UX-09.
 
 **Scope:**
 
-1. **The lifecycle as explicit transitions**, one per row of master §18.1 — not a `status` column somebody writes freely. `open → snoozed → open`, `open → resolved`, `resolved → open` on new inbound. Each transition names its actor, its cause and its authorization, and each is a realtime event with a type of its own.
-2. **Private notes.** A note is not a message: it is never sent, never enters the outbound path, and is visible only to principals whose grant reaches the conversation. The existing `realtime_events` type `conversation.note` exists precisely so a subscriber authorized for receipts and not for notes can be filtered without reading either — that filter must now be exercised by a real note.
-3. **Snooze with a durable, versioned wake job.** UTC wake time **and** the source timezone stored separately (CON-03): "tomorrow morning" is a question about the operator's calendar, not about UTC. A restart must not lose a wake, and re-snoozing must invalidate the old job rather than racing it.
-4. **Reopen on new inbound** to the latest non-archived resolved thread, opening a **new reporting episode** while the original episode's metrics are retained (CON-04). A reopen that silently re-uses the first episode makes every resolution-time report a lie.
-5. **A read cursor per participant**, so "unread" is a fact about a person rather than a badge the browser maintains. Read state is not a receipt: an agent reading a customer's message is not the customer reading ours, and the two must never fold into one column.
-6. **The screen**: the status control, the snooze picker, the note composer beside the reply composer, and unread counts that come from the server. Every one of them calls the backend and shows loading, error, retry and permission states — no demo affordances.
+1. **Assignment to somebody else.** `conversation.assign` exists in the permission catalogue and has **no endpoint**: claiming yourself is currently the only way work moves, which means a supervisor cannot hand a thread to the person who should have it. Assignment is a different act from a claim and carries a different permission for a reason — taking work is not the same as giving it — and both are fenced on the version the actor saw.
+2. **Handoff as a request, not a transfer.** A handoff somebody has not accepted is a conversation with two people believing it is the other's. The state has to be explicit and time-bounded.
+3. **Priority and participants as edits** with an audit trail, rather than columns anybody writes freely.
+4. **The realtime half.** `conversation.assigned` already exists as an event type and is already authorized per subscriber; assignment must produce it, and an agent who loses access by being reassigned must stop receiving the conversation without logging out.
+5. **The screen**: an assignee control that lists only people whose grants actually reach the conversation, and shows the refusal when a chosen person's does not.
 
-**Exit checks:** the full gate list, coverage staying at 100/100/100/100 with no exclusion added, and the lifecycle table asserted one test per row.
+**Exit checks:** the full gate list, coverage staying at 100/100/100/100 with no exclusion added, and a test proving an agent reassigned away keeps read access to what they wrote (participation outlives assignment) while losing the inbox scope removes it.
 
-**Blocked, and stays blocked:** every provider-live check remains `blocked_no_asset`. Nothing in this slice needs a provider, which is exactly why it is next: it is the largest piece of remaining product value that is not waiting on Meta.
+**Blocked, and stays blocked:** every provider-live check remains `blocked_no_asset`. Nothing in this slice needs a provider.

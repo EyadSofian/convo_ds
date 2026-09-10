@@ -1507,6 +1507,489 @@
         }
       }
     },
+    "/tenants/{tenantId}/conversations/{conversationId}/transitions": {
+      "post": {
+        "operationId": "transitionConversation",
+        "summary": "Move a conversation through its lifecycle",
+        "description": "Wait, snooze, resolve, reopen or archive. One endpoint because it is one decision: the lifecycle table answers all five, and splitting them across routes would let a future route answer differently. Waiting and snoozing need `conversation.reply`; resolving, reopening and archiving need `conversation.close`. Every command is fenced on the version the caller saw and answers 409 `conversation_version_conflict` on a stale one. A move the table refuses is a 409 naming the reason (`already_open`, `not_resolved`, `archived_conversation_is_immutable`, `not_waiting_on_a_customer`); an invalid snooze is a 422 (`wake_time_in_the_past`, `wake_time_too_far_ahead`, `unknown_timezone`).",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationTransitionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The conversation after the transition.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/episodes": {
+      "get": {
+        "operationId": "listConversationEpisodes",
+        "summary": "The reporting episodes of a conversation",
+        "description": "Oldest first. Requires `conversation.read` for the conversation.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The episodes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "page",
+                    "request_id"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Episode"
+                      }
+                    },
+                    "page": {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/notes": {
+      "get": {
+        "operationId": "listConversationNotes",
+        "summary": "The private notes on a conversation",
+        "description": "Requires `conversation.note` — not merely `conversation.read`. An analyst who may read conversations for reporting has no business reading what colleagues said to each other about a customer.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The notes, oldest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "page",
+                    "request_id"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Note"
+                      }
+                    },
+                    "page": {
+                      "$ref": "#/components/schemas/Page"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createConversationNote",
+        "summary": "Write a private note",
+        "description": "Requires `conversation.note`. The note never enters the outbound path, does not reopen the conversation, does not mark a customer reply delivered and does not reset the channel window.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The note.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/read": {
+      "post": {
+        "operationId": "markConversationRead",
+        "summary": "Move this caller's read cursor",
+        "description": "Unread is a fact about a person: this moves only the caller's cursor and is never a provider receipt. The cursor only moves forward, so opening an old conversation cannot un-read the newer part of it.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The cursor as stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkReadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/notes/{noteId}": {
+      "patch": {
+        "operationId": "updateNote",
+        "summary": "Edit a private note",
+        "description": "Only the author. A note is attributed speech, and an edit by somebody else would leave a sentence standing under a name that did not write it. The edit is marked; 403 `not_the_author` otherwise.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "noteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The edited note.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteNote",
+        "summary": "Delete a private note",
+        "description": "Only the author. The row is kept and marked rather than removed: a note that vanished without trace is a note somebody can deny having written, and the colleague who acted on it could not show what they read.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "noteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The note, marked deleted and stripped of its text.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/tenants/{tenantId}/conversations/{conversationId}/messages": {
       "get": {
         "operationId": "listConversationMessages",
@@ -5890,6 +6373,48 @@
             ],
             "format": "uuid",
             "description": "Resolved from the customer's first message. Null on a conversation opened by an outbound message to somebody nobody has heard from."
+          },
+          "pendingReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why an agent said they were waiting. Present only while the status is `pending`."
+          },
+          "snoozedUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "snoozeTimezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The IANA zone the wake time was chosen in. Kept beside the instant because the instant cannot say what the operator meant."
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolvedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastActivityAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unread": {
+            "type": "boolean",
+            "description": "Whether THIS caller has seen the newest activity. Only the list carries it: unread is a fact about a person, not about the conversation."
           }
         }
       },
@@ -6497,6 +7022,239 @@
               "null"
             ],
             "example": "call-2026-09-10"
+          }
+        }
+      },
+      "ConversationTransitionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command",
+          "version"
+        ],
+        "description": "One of the five agent-driven rows of the conversation lifecycle. `wait` requires a reason, `snooze` a future `wakeAt` and an IANA `timezone`, `resolve` a disposition. The table decides whether the move is legal from the state the conversation is actually in; an illegal one is a 409 naming the reason.",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "wait",
+              "snooze",
+              "resolve",
+              "reopen",
+              "archive"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The version the agent saw."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Required by `wait`."
+          },
+          "wakeAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Required by `snooze`. Must be in the future and within a year."
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Required by `snooze`. An IANA zone name, stored beside the instant."
+          },
+          "resolution": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Required by `resolve`."
+          }
+        }
+      },
+      "Episode": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "seq",
+          "openedAt",
+          "openedBy",
+          "firstInboundAt",
+          "firstResponseAt",
+          "closedAt",
+          "resolution"
+        ],
+        "description": "One reporting episode. A reopened conversation starts a new one and the previous episode's metrics are retained, so a second issue's first-response clock does not start at the first issue's first message.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "openedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "openedBy": {
+            "type": "string",
+            "enum": [
+              "customer_inbound",
+              "agent_reopen",
+              "outbound_contact"
+            ]
+          },
+          "firstInboundAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "firstResponseAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "closedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Note": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "conversationId",
+          "authorMembershipId",
+          "body",
+          "createdAt",
+          "editedAt",
+          "deletedAt"
+        ],
+        "description": "A private note. Internal only: it has no provider, no delivery state and no channel window, and no endpoint can put one on a wire. A deleted note keeps its row and its attribution and loses only its text.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "conversationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorMembershipId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "editedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deletedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "NoteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      },
+      "NoteResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Note"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "MarkReadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Moves only this caller's read cursor. It is not a receipt: nothing here reaches the customer and nothing here changes the conversation's state.",
+        "properties": {
+          "readThrough": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Absent means now. A time in the future is clamped to now, so a caller cannot claim to have read what has not happened."
+          }
+        }
+      },
+      "MarkReadResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "readThrough"
+            ],
+            "properties": {
+              "readThrough": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "request_id": {
+            "type": "string"
           }
         }
       }

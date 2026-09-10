@@ -2,9 +2,11 @@ import type { ApiError } from '../api/client.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { loadOpenContact } from './contact-actions.js';
+import { refreshInboxLists } from './inbox-lists.js';
+import { loadEpisodes, loadNotes, markConversationRead } from './lifecycle-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
-import { currentTenantId, failed, fromResult, LOADING, ready } from './store.js';
+import { currentTenantId, failed, forTenant, fromResult, LOADING, ready } from './store.js';
 
 /**
  * The Inbox, against the real API.
@@ -30,23 +32,6 @@ function t(context: LiveContext, ar: string, en: string): string {
   return context.state.lang === 'ar' ? ar : en;
 }
 
-/**
- * Runs `work` for the company being viewed, or does nothing.
- *
- * One guard rather than one per action. Every inbox action needs a company and
- * none of them can invent one; a session with no active membership renders a
- * screen with no controls, so this is the single place that says "there is
- * nothing here to act on".
- */
-async function forTenant<T>(
-  context: LiveContext,
-  fallback: T,
-  work: (tenantId: string) => Promise<T>,
-): Promise<T> {
-  const tenantId = currentTenantId(context.live);
-  return tenantId === null ? fallback : work(tenantId);
-}
-
 /* ------------------------------------------------------------------ lists -- */
 
 /** Loads both halves of the inbox: the queue and the caller's own work. */
@@ -68,29 +53,6 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
   });
 }
 
-/**
- * Re-reads the lists without blanking them first.
- *
- * A realtime event should not make the queue flash empty and refill; the rows
- * on screen stay until the newer ones replace them.
- */
-export async function refreshInboxLists(context: LiveContext): Promise<void> {
-  const { live } = context;
-  return forTenant(context, undefined, async (tenantId) => {
-    const [unassigned, mine] = await Promise.all([
-      live.conversationsApi.unassigned(tenantId),
-      live.conversationsApi.list(tenantId, 'mine'),
-    ]);
-    const now = context.now();
-    if (unassigned.ok) {
-      live.unassigned = ready(unassigned.data, now);
-    }
-    if (mine.ok) {
-      live.conversations = ready(mine.data, now);
-    }
-    context.refresh();
-  });
-}
 
 /* ---------------------------------------------------------------- reading -- */
 
@@ -103,6 +65,15 @@ export async function openConversation(context: LiveContext, id: string): Promis
     live.timeline = LOADING;
     live.timelineCursor = null;
     live.composer = '';
+    // The note draft belongs to the conversation it was being written about.
+    // Carrying it to the next thread is how an internal remark about one
+    // customer ends up filed against another.
+    live.noteDraft = '';
+    live.editingNoteId = null;
+    live.noteEdit = '';
+    live.notes = LOADING;
+    live.episodes = LOADING;
+    live.lifecyclePanel = null;
     // The open conversation belongs in the URL: a reload, a back button or a
     // link pasted to a colleague should land on the same thread. `refresh`
     // syncs the address bar from the route.
@@ -116,6 +87,8 @@ export async function openConversation(context: LiveContext, id: string): Promis
       // rather than spinning forever beside an error.
       live.timeline = failed(conversation.error);
       live.openContact = { status: 'idle' };
+      live.notes = failed(conversation.error);
+      live.episodes = failed(conversation.error);
       context.refresh();
       return;
     }
@@ -124,7 +97,34 @@ export async function openConversation(context: LiveContext, id: string): Promis
       // The customer beside the conversation. A conversation nobody has written
       // to has no contact, and the panel says so rather than inventing one.
       loadOpenContact(context, conversation.data.contactId),
+      loadNotes(context, id),
+      loadEpisodes(context, id),
     ]);
+    // Read last, and only once the contents are actually on screen: a cursor
+    // moved before the messages arrived would mark as seen what a failed
+    // timeline never showed anybody.
+    await markConversationRead(context, id);
+  });
+}
+
+/**
+ * Re-reads the open record in place.
+ *
+ * Deliberately does not blank it first: the thread header, the status pill and
+ * the lifecycle controls would all flicker through a skeleton for a change that
+ * usually moves one field. A failed re-read leaves the last good record
+ * standing rather than replacing a working screen with an error somebody did
+ * not ask for — the next action against a stale version is refused by the
+ * server's fence anyway.
+ */
+async function refreshOpenConversation(context: LiveContext, id: string): Promise<void> {
+  const { live } = context;
+  return forTenant(context, undefined, async (tenantId) => {
+    const fresh = await live.conversationsApi.read(tenantId, id);
+    if (fresh.ok) {
+      live.openConversation = ready(fresh.data, context.now());
+      context.refresh();
+    }
   });
 }
 
@@ -339,6 +339,13 @@ export async function applyRealtimeEvent(
   const tasks: Promise<unknown>[] = [refreshInboxLists(context)];
   if (event.scope.conversationId === live.openConversationId) {
     tasks.push(loadTimeline(context, event.scope.conversationId));
+    if (event.type === 'conversation.state' || event.type === 'conversation.assigned') {
+      // The record moved, not only its contents: a colleague resolved it, a
+      // wake fired, or it was assigned elsewhere. Re-read it, because the
+      // lifecycle controls on screen are drawn from the status and the version,
+      // and acting on a stale pair is exactly what the fence exists to refuse.
+      tasks.push(refreshOpenConversation(context, event.scope.conversationId));
+    }
   }
   await Promise.all(tasks);
 }

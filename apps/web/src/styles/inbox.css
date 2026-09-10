@@ -756,4 +756,194 @@
     margin: 0;
     overflow-wrap: anywhere;
   }
+
+  /* ------------------------------------------------ lifecycle and notes --
+     The transition controls sit in the thread header beside the status; the
+     form they open is a band under it rather than a popover, because it holds
+     a text field somebody may spend a minute on and a layer that closes on
+     blur would lose it.
+     ---------------------------------------------------------------------- */
+
+  .lifecycle__controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .lifecycle__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    flex: none;
+    padding: var(--space-4) var(--space-6);
+    border-block-end: 1px solid var(--border-subtle);
+    background: var(--surface-sunken);
+  }
+
+  .lifecycle__prompt {
+    margin: 0;
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+    color: var(--text-muted);
+  }
+
+  .lifecycle__presets {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .lifecycle__formactions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+
+  .lifecycle__notice {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    flex: none;
+    margin: 0;
+    padding: var(--space-3) var(--space-6);
+    border-block-end: 1px solid var(--border-subtle);
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+    color: var(--text-secondary);
+  }
+
+  .lifecycle__noticekey {
+    color: var(--text-muted);
+  }
+
+  .lifecycle__noticezone {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  /* ---------------------------------------------------- internal notes -- */
+
+  .notes,
+  .episodes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-5) var(--space-6);
+    border-block-start: 1px solid var(--border-subtle);
+  }
+
+  .notes__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .notes__item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    /* A tint rather than the reply bubble's colour: a note must never read as
+       something that was said to the customer. */
+    background: var(--surface-sunken);
+    border-inline-start: 2px solid var(--border-strong);
+  }
+
+  .notes__item--editing {
+    gap: var(--space-2);
+    border-inline-start-color: var(--accent);
+  }
+
+  .notes__item--deleted {
+    border-inline-start-color: var(--border-subtle);
+    color: var(--text-muted);
+  }
+
+  .notes__body {
+    margin: 0;
+    font-size: var(--text-xs);
+    line-height: var(--leading-relaxed);
+    overflow-wrap: anywhere;
+  }
+
+  .notes__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .notes__when,
+  .notes__edited {
+    white-space: nowrap;
+  }
+
+  .notes__composer {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-2);
+  }
+
+  .notes__field {
+    inline-size: 100%;
+    resize: vertical;
+    min-block-size: calc(var(--space-8) * 1.5);
+    font-family: inherit;
+  }
+
+  /* ------------------------------------------------ reporting episodes -- */
+
+  .episodes__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .episodes__item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-block-end: var(--space-3);
+    border-block-end: 1px solid var(--border-subtle);
+  }
+
+  .episodes__item:last-child {
+    border-block-end: 0;
+    padding-block-end: 0;
+  }
+
+  .episodes__top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 11px;
+  }
+
+  .episodes__seq {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+  }
+
+  .episodes__when {
+    margin-inline-start: auto;
+    color: var(--text-muted);
+  }
+
+  .episodes__resolution {
+    margin: 0;
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+    overflow-wrap: anywhere;
+  }
 }

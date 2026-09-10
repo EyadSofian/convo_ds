@@ -131,6 +131,26 @@ describe('visibility', () => {
     expect(visibilityOf(agent, event())).toBe('hidden');
   });
 
+  it('hides a private note from an agent who may only preview', () => {
+    const agent = principal({ 'conversation.unassigned.preview': 'scoped' }, [
+      { type: 'inbox', id: INBOX },
+    ]);
+    // A note has no projected form — a queue card is a closed list of fields
+    // and a note is not among them. But the *existence* of one is itself
+    // internal: an agent who may only preview an unclaimed conversation has no
+    // business learning that colleagues are discussing it. Filtered by the
+    // event's own type, before any payload is read.
+    expect(visibilityOf(agent, event({ type: 'conversation.note' }))).toBe('hidden');
+    // The same principal still gets the same conversation's other events.
+    expect(visibilityOf(agent, event())).toBe('projected');
+  });
+
+  it('still gives a full reader the note', () => {
+    expect(
+      visibilityOf(principal({ 'conversation.read': 'tenant' }), event({ type: 'conversation.note' })),
+    ).toBe('full');
+  });
+
   it('hides an assigned conversation from an agent who may only preview', () => {
     const agent = principal({ 'conversation.unassigned.preview': 'scoped' }, [
       { type: 'inbox', id: INBOX },

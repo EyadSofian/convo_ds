@@ -9,6 +9,7 @@ import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
+import { LifecycleService } from '../../apps/api/src/conversations/lifecycle.service.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig, encodeCursor } from '../../packages/domain/src/index.js';
 import type { SendOutcome } from '../../packages/domain/src/index.js';
@@ -678,7 +679,7 @@ describe('claiming', () => {
     const claimed = await send(api, agentA, 'POST', `/conversations/${card.id}/claim`, {
       version: card.version,
     });
-    expect(claimed.statusCode).toBe(201);
+    expect(claimed.statusCode).toBe(200);
     const detail = (claimed.json() as { data: Record<string, unknown> }).data;
     expect(detail['assigneeMembershipId']).toBe(agentAMembershipId);
 
@@ -698,7 +699,7 @@ describe('claiming', () => {
       send(api, secondAgentA, 'POST', `/conversations/${card.id}/claim`, { version: card.version }),
     ]);
     const codes = [first.statusCode, second.statusCode].sort();
-    expect(codes).toEqual([201, 409]);
+    expect(codes).toEqual([200, 409]);
     const loser = first.statusCode === 409 ? first : second;
     // Told, not silently overwritten: the loser's next step is to re-read.
     expect((loser.json() as { error: { code: string } }).error.code).toBe(
@@ -743,7 +744,7 @@ describe('claiming', () => {
     expect(
       (await send(api, agentA, 'POST', `/conversations/${card.id}/claim`, { version: card.version }))
         .statusCode,
-    ).toBe(201);
+    ).toBe(200);
 
     const queue = await send(api, secondAgentA, 'GET', '/conversations/unassigned');
     expect((queue.json() as { data: { id: string }[] }).data.map((entry) => entry.id)).not.toContain(
@@ -819,7 +820,7 @@ describe('team routing', () => {
       `/conversations/${conversation.rows[0]?.id}/claim`,
       { version: detail.version },
     );
-    expect(claimed.statusCode).toBe(201);
+    expect(claimed.statusCode).toBe(200);
   });
 
   it('refuses a claim to someone who holds no claim grant', async () => {
@@ -871,7 +872,7 @@ describe('a conversation that is already somebody’s', () => {
     expect(
       (await send(api, agentA, 'POST', `/conversations/${row.id}/claim`, { version: row.version }))
         .statusCode,
-    ).toBe(201);
+    ).toBe(200);
 
     await customerWrites(INBOX_A, peer, 'رسالة ثانية', 'wamid.rt-71');
 
@@ -938,7 +939,7 @@ describe('the inbox surface', () => {
     expect(
       (await send(api, agentA, 'POST', `/conversations/${row.id}/claim`, { version: row.version }))
         .statusCode,
-    ).toBe(201);
+    ).toBe(200);
   }, 120_000);
 
   it('lists only what the caller may actually read', async () => {
@@ -1059,7 +1060,7 @@ describe('the inbox surface', () => {
     expect(
       (await send(api, agentA, 'POST', `/conversations/${row.id}/claim`, { version: row.version }))
         .statusCode,
-    ).toBe(201);
+    ).toBe(200);
 
     const first = await send(api, agentA, 'GET', `/conversations/${row.id}/messages`);
     const firstBody = first.json() as {
@@ -1387,7 +1388,7 @@ describe('contacts', () => {
     expect(
       (await send(api, agentA, 'POST', `/conversations/${row.id}/claim`, { version: row.version }))
         .statusCode,
-    ).toBe(201);
+    ).toBe(200);
 
     expect(
       (await send(api, agentA, 'PATCH', `/contacts/${contactId}`, { displayName: 'سارة ع.' }))
@@ -1828,6 +1829,751 @@ describe('a stream that ends badly', () => {
 });
 
 /** Reads the authority digest back out of a cursor this build issued. */
+describe('the conversation lifecycle', () => {
+  const peer = '15557000500';
+  let conversationId: string;
+  let lifecycle: LifecycleService;
+
+  async function current(): Promise<{ id: string; status: string; version: number }> {
+    const response = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect(response.statusCode).toBe(200);
+    return (response.json() as { data: { id: string; status: string; version: number } }).data;
+  }
+
+  async function move(
+    browser: Browser,
+    command: Record<string, unknown>,
+  ): Promise<LightMyRequestResponse> {
+    const { version } = await current();
+    return send(api, browser, 'POST', `/conversations/${conversationId}/transitions`, {
+      version,
+      ...command,
+    });
+  }
+
+  beforeAll(async () => {
+    lifecycle = api.app.get(LifecycleService);
+    await customerWrites(INBOX_A, peer, 'أحتاج مساعدة', 'wamid.rt-500');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity = $1', [
+        peer,
+      ]),
+    );
+    conversationId = row.rows[0]?.id as string;
+  }, 120_000);
+
+  it('opens a first episode with the conversation, and dates it from the first message', async () => {
+    const response = await send(api, owner, 'GET', `/conversations/${conversationId}/episodes`);
+    expect(response.statusCode).toBe(200);
+    const episodes = (response.json() as { data: { seq: number; openedBy: string; firstInboundAt: string | null }[] }).data;
+    expect(episodes).toHaveLength(1);
+    expect(episodes[0]).toMatchObject({ seq: 1, openedBy: 'customer_inbound' });
+    // A thread with no episode is a thread the first report cannot measure.
+    expect(episodes[0]?.firstInboundAt).not.toBeNull();
+  });
+
+  it('waits on a customer with a reason, and the customer answering clears it', async () => {
+    expect((await move(owner, { command: 'wait', reason: 'في انتظار رقم الطلب' })).statusCode).toBe(200);
+    const waiting = await current();
+    expect(waiting.status).toBe('pending');
+    expect((waiting as unknown as { pendingReason: string }).pendingReason).toBe('في انتظار رقم الطلب');
+
+    await customerWrites(INBOX_A, peer, '12345', 'wamid.rt-501');
+    const answered = await current();
+    expect(answered.status).toBe('open');
+    expect((answered as unknown as { pendingReason: string | null }).pendingReason).toBeNull();
+  });
+
+  it('refuses to wait on a conversation that is not open', async () => {
+    expect((await move(owner, { command: 'wait', reason: 'مرة أخرى' })).statusCode).toBe(200);
+    const again = await move(owner, { command: 'wait', reason: 'ومرة ثالثة' });
+    expect(again.statusCode).toBe(409);
+    expect((again.json() as { error: { code: string } }).error.code).toBe('not_waiting_on_a_customer');
+    // Put it back, so the rest of the suite starts from `open`.
+    await customerWrites(INBOX_A, peer, 'رجعت', 'wamid.rt-502');
+  });
+
+  it('snoozes with a durable versioned job, and re-snoozing replaces it', async () => {
+    const first = new Date(Date.now() + 60 * 60 * 1000);
+    expect(
+      (await move(owner, { command: 'snooze', wakeAt: first.toISOString(), timezone: 'Asia/Riyadh' }))
+        .statusCode,
+    ).toBe(200);
+
+    const snoozed = await current();
+    expect(snoozed.status).toBe('snoozed');
+    // The zone is stored beside the instant: the instant cannot say what the
+    // operator meant by "tomorrow morning".
+    expect((snoozed as unknown as { snoozeTimezone: string }).snoozeTimezone).toBe('Asia/Riyadh');
+
+    const jobsAfterFirst = await wakeJobs();
+    expect(jobsAfterFirst).toHaveLength(1);
+
+    const later = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    expect(
+      (await move(owner, { command: 'snooze', wakeAt: later.toISOString(), timezone: 'Asia/Riyadh' }))
+        .statusCode,
+    ).toBe(200);
+
+    const jobsAfterSecond = await wakeJobs();
+    // One job, not two: the earlier one stops existing rather than racing the
+    // new one and waking the conversation at the time the operator moved away
+    // from.
+    expect(jobsAfterSecond).toHaveLength(1);
+    expect(jobsAfterSecond[0]?.wake_version).toBeGreaterThan(
+      jobsAfterFirst[0]?.wake_version as number,
+    );
+    expect(jobsAfterSecond[0]?.wake_at.toISOString()).toBe(later.toISOString());
+  });
+
+  it('refuses a snooze into the past, too far ahead, or into a zone it does not know', async () => {
+    const cases: readonly [Record<string, unknown>, string][] = [
+      [{ wakeAt: new Date(Date.now() - 1000).toISOString(), timezone: 'UTC' }, 'wake_time_in_the_past'],
+      [
+        { wakeAt: new Date(Date.now() + 2 * 365 * 24 * 3600 * 1000).toISOString(), timezone: 'UTC' },
+        'wake_time_too_far_ahead',
+      ],
+      [
+        { wakeAt: new Date(Date.now() + 3600 * 1000).toISOString(), timezone: 'Mars/Olympus' },
+        'unknown_timezone',
+      ],
+    ];
+    for (const [payload, code] of cases) {
+      const response = await move(owner, { command: 'snooze', ...payload });
+      expect(response.statusCode).toBe(422);
+      expect((response.json() as { error: { code: string } }).error.code).toBe(code);
+    }
+  });
+
+  it('wakes a due conversation from the sweeper, without anybody acting', async () => {
+    // Bring the job forward rather than waiting an hour. The row is the job, so
+    // moving it is exactly what the passage of time does.
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('UPDATE conversation_wakes SET wake_at = now() - interval \'1 minute\' WHERE conversation_id = $1', [
+        conversationId,
+      ]),
+    );
+    const before = (await current()).version;
+    const woken = await lifecycle.sweepDueWakes(new Date(), 10);
+    expect(woken).toBeGreaterThanOrEqual(1);
+
+    const after = await current();
+    expect(after.status).toBe('open');
+    expect(after.version).toBeGreaterThan(before);
+    // The job is spent, so a second sweep is a no-op rather than a loop.
+    expect(await wakeJobs()).toHaveLength(0);
+    expect(await lifecycle.sweepDueWakes(new Date(), 10)).toBe(0);
+  });
+
+  it('announces the wake on the feed with no actor, because nobody woke it', async () => {
+    const events = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ payload: Record<string, unknown> }>(
+        `SELECT payload FROM realtime_events
+          WHERE conversation_id = $1 AND type = 'conversation.state'
+          ORDER BY seq DESC LIMIT 1`,
+        [conversationId],
+      ),
+    );
+    const payload = events.rows[0]?.payload as Record<string, unknown>;
+    expect(payload['status']).toBe('open');
+    expect(payload['previousStatus']).toBe('snoozed');
+    expect(payload['actorMembershipId']).toBeNull();
+    expect(payload['effects']).toContain('notify_team');
+  });
+
+  it('refuses a command against a conversation that does not exist', async () => {
+    const missing = '00000000-0000-4000-8000-0000000000ff';
+    const response = await send(api, owner, 'POST', `/conversations/${missing}/transitions`, {
+      version: 1,
+      command: 'reopen',
+    });
+    // 404, not 403: the API conceals the difference between "not yours" and
+    // "not there", so probing for ids tells a caller nothing.
+    expect(response.statusCode).toBe(404);
+    const episodes = await send(api, owner, 'GET', `/conversations/${missing}/episodes`);
+    expect(episodes.statusCode).toBe(404);
+  });
+
+  it('refuses a command it does not have, and a wake time that is not a time', async () => {
+    const unknown = await send(api, owner, 'POST', `/conversations/${conversationId}/transitions`, {
+      version: 1,
+      command: 'demolish',
+    });
+    expect(unknown.statusCode).toBe(400);
+    expect((unknown.json() as { error: { code: string } }).error.code).toBe('validation_failed');
+
+    for (const wakeAt of ['next tuesday', 42, null]) {
+      const bad = await send(api, owner, 'POST', `/conversations/${conversationId}/transitions`, {
+        version: 1,
+        command: 'snooze',
+        wakeAt,
+        timezone: 'Asia/Riyadh',
+      });
+      expect(bad.statusCode).toBe(400);
+    }
+  });
+
+  it('clears a wake job when the customer answers before it fires', async () => {
+    const wakeAt = new Date(Date.now() + 6 * 60 * 60 * 1000);
+    expect(
+      (await move(owner, { command: 'snooze', wakeAt: wakeAt.toISOString(), timezone: 'Asia/Riyadh' }))
+        .statusCode,
+    ).toBe(200);
+    const scheduled = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('SELECT 1 FROM conversation_wakes WHERE conversation_id = $1', [conversationId]),
+    );
+    expect(scheduled.rowCount).toBe(1);
+
+    await customerWrites(INBOX_A, peer, 'عدت قبل الموعد', 'wamid.rt-505');
+
+    const woken = await current();
+    expect(woken.status).toBe('open');
+    // The job is spent, not left to fire into an open conversation later. A
+    // wake that arrives after the customer already came back would move a
+    // thread somebody is working on.
+    const after = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('SELECT 1 FROM conversation_wakes WHERE conversation_id = $1', [conversationId]),
+    );
+    expect(after.rowCount).toBe(0);
+    const record = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ snoozed_until: Date | null; snooze_timezone: string | null }>(
+        'SELECT snoozed_until, snooze_timezone FROM conversations WHERE id = $1',
+        [conversationId],
+      ),
+    );
+    expect(record.rows[0]?.snoozed_until).toBeNull();
+    expect(record.rows[0]?.snooze_timezone).toBeNull();
+  });
+
+  it('starts the first-response clock when the agent replies, and never moves it again', async () => {
+    const before = await send(api, owner, 'GET', `/conversations/${conversationId}/episodes`);
+    const openEpisode = (before.json() as { data: { closedAt: string | null; firstResponseAt: string | null }[] })
+      .data.at(-1);
+    expect(openEpisode?.firstResponseAt).toBeNull();
+
+    const first = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'text',
+      text: 'أهلًا، سأساعدك',
+      trafficClass: 'interactive',
+      clientMessageId: 'reply-first-response-1',
+    });
+    expect(first.statusCode).toBe(202);
+
+    const after = await send(api, owner, 'GET', `/conversations/${conversationId}/episodes`);
+    const stamped = (after.json() as { data: { firstResponseAt: string | null }[] }).data.at(-1);
+    expect(stamped?.firstResponseAt).not.toBeNull();
+
+    await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'text',
+      text: 'وأيضًا…',
+      trafficClass: 'interactive',
+      clientMessageId: 'reply-first-response-2',
+    });
+    const again = await send(api, owner, 'GET', `/conversations/${conversationId}/episodes`);
+    // The first response is the first. A second reply that moved it would make
+    // every first-response report a measure of the last message instead.
+    expect((again.json() as { data: { firstResponseAt: string | null }[] }).data.at(-1)?.firstResponseAt).toBe(
+      stamped?.firstResponseAt,
+    );
+  });
+
+  it('leaves a wake job for a conversation that has already moved as a no-op', async () => {
+    // The race the sweeper is written for: the job was read, and by the time it
+    // ran the conversation was no longer snoozed. The guarded UPDATE matches no
+    // row, and the sweep must drop the job rather than force the transition.
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `INSERT INTO conversation_wakes (tenant_id, conversation_id, wake_at, wake_version)
+         SELECT tenant_id, id, now() - interval '1 minute', wake_version
+           FROM conversations WHERE id = $1`,
+        [conversationId],
+      ),
+    );
+    const status = await current();
+    expect(status.status).not.toBe('snoozed');
+
+    expect(await lifecycle.sweepDueWakes(new Date(), 10)).toBe(0);
+
+    expect((await current()).status).toBe(status.status);
+    const left = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('SELECT 1 FROM conversation_wakes WHERE conversation_id = $1', [conversationId]),
+    );
+    expect(left.rowCount).toBe(0);
+  });
+
+  it('resolves with a disposition, closes the episode, and does not mark anything read', async () => {
+    expect((await move(owner, { command: 'resolve', resolution: 'تم التسجيل' })).statusCode).toBe(200);
+    const resolved = await current();
+    expect(resolved.status).toBe('resolved');
+    expect((resolved as unknown as { resolution: string }).resolution).toBe('تم التسجيل');
+
+    const episodes = await episodesOf();
+    expect(episodes[0]?.closedAt).not.toBeNull();
+    expect(episodes[0]?.resolution).toBe('تم التسجيل');
+
+    // Resolving is not reading. The cursor is untouched, so an unread customer
+    // message is still unread.
+    const reads = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('SELECT 1 FROM conversation_reads WHERE conversation_id = $1', [conversationId]),
+    );
+    expect(reads.rows).toHaveLength(0);
+  });
+
+  it('refuses to resolve without a disposition', async () => {
+    const response = await move(owner, { command: 'resolve' });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('refuses a transition to a role that may read the conversation but not close it', async () => {
+    await addMember(api, 'lifecycle-analyst@realtime.test', 'analyst', [
+      { type: 'tenant', id: null },
+    ]);
+    const analyst = await login(api, 'lifecycle-analyst@realtime.test', MEMBER_PASSWORD);
+    const { version } = await current();
+    const response = await send(api, analyst, 'POST', `/conversations/${conversationId}/transitions`, {
+      version,
+      command: 'resolve',
+      resolution: 'أُغلقت',
+    });
+    // Reading a conversation for reporting is not permission to end it.
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('reopens on a new inbound and starts a second episode, keeping the first', async () => {
+    await customerWrites(INBOX_A, peer, 'عندي سؤال آخر', 'wamid.rt-510');
+    expect((await current()).status).toBe('open');
+
+    const episodes = await episodesOf();
+    expect(episodes).toHaveLength(2);
+    // The first episode's metrics survive: reusing it would date the second
+    // issue's clock from the first issue's first message.
+    expect(episodes[0]?.closedAt).not.toBeNull();
+    expect(episodes[0]?.resolution).toBe('تم التسجيل');
+    expect(episodes[1]).toMatchObject({ seq: 2, openedBy: 'customer_inbound', closedAt: null });
+    expect(episodes[1]?.firstInboundAt).not.toBeNull();
+  });
+
+  it('refuses to reopen what is already open, and to archive what is not resolved', async () => {
+    const reopen = await move(owner, { command: 'reopen' });
+    expect(reopen.statusCode).toBe(409);
+    expect((reopen.json() as { error: { code: string } }).error.code).toBe('already_open');
+
+    const archive = await move(owner, { command: 'archive' });
+    expect(archive.statusCode).toBe(409);
+    expect((archive.json() as { error: { code: string } }).error.code).toBe('not_resolved');
+  });
+
+  it('refuses a transition carrying a version somebody else has already moved past', async () => {
+    const { version } = await current();
+    expect(
+      (
+        await send(api, owner, 'POST', `/conversations/${conversationId}/transitions`, {
+          version: version - 1,
+          command: 'resolve',
+          resolution: 'قديم',
+        })
+      ).statusCode,
+    ).toBe(409);
+  });
+
+  it('resolving a snoozed thread spends its wake job too', async () => {
+    const wakeAt = new Date(Date.now() + 4 * 60 * 60 * 1000);
+    expect(
+      (await move(owner, { command: 'snooze', wakeAt: wakeAt.toISOString(), timezone: 'Asia/Riyadh' }))
+        .statusCode,
+    ).toBe(200);
+    expect((await move(owner, { command: 'resolve', resolution: 'ردّ متأخر' })).statusCode).toBe(200);
+
+    const record = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ status: string; snoozed_until: Date | null }>(
+        'SELECT status, snoozed_until FROM conversations WHERE id = $1',
+        [conversationId],
+      ),
+    );
+    expect(record.rows[0]?.status).toBe('resolved');
+    // Otherwise the wake fires later and reopens a conversation somebody has
+    // already closed, with no customer behind it.
+    expect(record.rows[0]?.snoozed_until).toBeNull();
+  });
+
+  it('reopens on the agent’s word, in a new episode, with the old resolution cleared', async () => {
+    const before = await episodesOf();
+    expect((await move(owner, { command: 'reopen' })).statusCode).toBe(200);
+
+    const reopened = await current();
+    expect(reopened.status).toBe('open');
+    const record = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ resolution: string | null; resolved_at: Date | null }>(
+        'SELECT resolution, resolved_at FROM conversations WHERE id = $1',
+        [conversationId],
+      ),
+    );
+    // A reopened conversation carrying its old disposition would report as
+    // resolved-with-an-answer while somebody is still working on it.
+    expect(record.rows[0]?.resolution).toBeNull();
+    expect(record.rows[0]?.resolved_at).toBeNull();
+
+    const after = await episodesOf();
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.at(-1)).toMatchObject({ openedBy: 'agent_reopen', closedAt: null });
+    // The earlier episode keeps its own numbers (CON-04).
+    expect(after.at(-2)?.closedAt).not.toBeNull();
+  });
+
+  it('archives a resolved thread, and the next message opens a new one', async () => {
+    expect((await move(owner, { command: 'resolve', resolution: 'انتهى' })).statusCode).toBe(200);
+    expect((await move(owner, { command: 'archive' })).statusCode).toBe(200);
+    const archived = await current();
+    expect(archived.status).toBe('archived');
+
+    await customerWrites(INBOX_A, peer, 'مرحبا من جديد', 'wamid.rt-520');
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; status: string }>(
+        `SELECT id::text, status FROM conversations WHERE peer_identity = $1 ORDER BY created_at`,
+        [peer],
+      ),
+    );
+    // Two threads: the archived one is untouched history, and the customer's
+    // new message opened a thread of its own.
+    expect(rows.rows).toHaveLength(2);
+    expect(rows.rows[0]).toMatchObject({ id: conversationId, status: 'archived' });
+    expect(rows.rows[1]?.status).toBe('open');
+    expect(rows.rows[1]?.id).not.toBe(conversationId);
+  });
+
+  it('refuses every command on an archived thread', async () => {
+    for (const command of [
+      { command: 'wait', reason: 'لا' },
+      { command: 'resolve', resolution: 'لا' },
+      { command: 'reopen' },
+      { command: 'archive' },
+    ]) {
+      const response = await move(owner, command);
+      expect(response.statusCode).toBe(409);
+      expect((response.json() as { error: { code: string } }).error.code).toBe(
+        'archived_conversation_is_immutable',
+      );
+    }
+  });
+
+  it('keeps the archived thread out of the working list but reachable by id', async () => {
+    const list = await send(api, owner, 'GET', '/conversations?queue=all');
+    const ids = (list.json() as { data: { id: string }[] }).data.map((row) => row.id);
+    expect(ids).not.toContain(conversationId);
+    expect((await send(api, owner, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(200);
+  });
+
+  it('clears the waiting reason when a claimed thread is resolved out of pending', async () => {
+    // Its own conversation: the sequence above ends archived, and this needs a
+    // live one that somebody actually holds.
+    const held = '15557000550';
+    await customerWrites(INBOX_A, held, 'سؤال ثانٍ', 'wamid.rt-550');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; version: number }>(
+        'SELECT id::text, version FROM conversations WHERE peer_identity = $1',
+        [held],
+      ),
+    );
+    const id = row.rows[0]?.id as string;
+    expect(
+      (await send(api, owner, 'POST', `/conversations/${id}/claim`, { version: row.rows[0]?.version }))
+        .statusCode,
+    ).toBe(200);
+
+    const claimed = await send(api, owner, 'GET', `/conversations/${id}`);
+    const version = (claimed.json() as { data: { version: number } }).data.version;
+    expect(
+      (await send(api, owner, 'POST', `/conversations/${id}/transitions`, {
+        version,
+        command: 'wait',
+        reason: 'في انتظار صورة الإيصال',
+      })).statusCode,
+    ).toBe(200);
+
+    const pending = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ pending_reason: string | null; waiting_since: Date | null }>(
+        'SELECT pending_reason, waiting_since FROM conversations WHERE id = $1',
+        [id],
+      ),
+    );
+    expect(pending.rows[0]?.pending_reason).toBe('في انتظار صورة الإيصال');
+    // Held by somebody, so it is not waiting in the queue for anybody to pick up.
+    expect(pending.rows[0]?.waiting_since).toBeNull();
+
+    const afterWait = await send(api, owner, 'GET', `/conversations/${id}`);
+    expect(
+      (await send(api, owner, 'POST', `/conversations/${id}/transitions`, {
+        version: (afterWait.json() as { data: { version: number } }).data.version,
+        command: 'resolve',
+        resolution: 'وصلت الصورة',
+      })).statusCode,
+    ).toBe(200);
+
+    const resolved = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ pending_reason: string | null; pending_since: Date | null; status: string }>(
+        'SELECT pending_reason, pending_since, status FROM conversations WHERE id = $1',
+        [id],
+      ),
+    );
+    expect(resolved.rows[0]?.status).toBe('resolved');
+    // A resolved conversation still claiming to be waiting on the customer
+    // would show in every "waiting on them" report forever.
+    expect(resolved.rows[0]?.pending_reason).toBeNull();
+    expect(resolved.rows[0]?.pending_since).toBeNull();
+  });
+
+  async function wakeJobs(): Promise<readonly { wake_at: Date; wake_version: number }[]> {
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ wake_at: Date; wake_version: number }>(
+        'SELECT wake_at, wake_version FROM conversation_wakes WHERE conversation_id = $1',
+        [conversationId],
+      ),
+    );
+    return rows.rows;
+  }
+
+  async function episodesOf(): Promise<
+    readonly { seq: number; openedBy: string; closedAt: string | null; resolution: string | null; firstInboundAt: string | null }[]
+  > {
+    const response = await send(api, owner, 'GET', `/conversations/${conversationId}/episodes`);
+    return (
+      response.json() as {
+        data: {
+          seq: number;
+          openedBy: string;
+          closedAt: string | null;
+          resolution: string | null;
+          firstInboundAt: string | null;
+        }[];
+      }
+    ).data;
+  }
+});
+
+describe('private notes and the read cursor', () => {
+  const peer = '15557000600';
+  let conversationId: string;
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'سؤال', 'wamid.rt-600');
+    const row = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity = $1', [
+        peer,
+      ]),
+    );
+    conversationId = row.rows[0]?.id as string;
+  }, 120_000);
+
+  it('writes a note that never becomes a message and never reopens anything', async () => {
+    const before = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>('SELECT count(*)::text FROM outbound_messages'),
+    );
+    const created = await send(api, owner, 'POST', `/conversations/${conversationId}/notes`, {
+      body: 'العميل اتصل هاتفيًا أمس',
+    });
+    expect(created.statusCode).toBe(201);
+
+    const after = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>('SELECT count(*)::text FROM outbound_messages'),
+    );
+    // Nothing was queued to send. A note has nowhere to become a message.
+    expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
+  });
+
+  it('does not reopen a resolved conversation', async () => {
+    const { data } = (await send(api, owner, 'GET', `/conversations/${conversationId}`)).json() as {
+      data: { version: number };
+    };
+    const version = data.version;
+    expect(
+      (
+        await send(api, owner, 'POST', `/conversations/${conversationId}/transitions`, {
+          version,
+          command: 'resolve',
+          resolution: 'مغلق',
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    expect(
+      (await send(api, owner, 'POST', `/conversations/${conversationId}/notes`, { body: 'ملاحظة بعد الإغلاق' }))
+        .statusCode,
+    ).toBe(201);
+
+    const after = (await send(api, owner, 'GET', `/conversations/${conversationId}`)).json() as {
+      data: { status: string };
+    };
+    // §18.1's last row, tested rather than assumed.
+    expect(after.data.status).toBe('resolved');
+  });
+
+  it('lets only the author edit or delete, and keeps the row when they do', async () => {
+    const created = await send(api, owner, 'POST', `/conversations/${conversationId}/notes`, {
+      body: 'نص أصلي',
+    });
+    const noteId = (created.json() as { data: { id: string } }).data.id;
+
+    const byAnother = await send(api, agentA, 'PATCH', `/notes/${noteId}`, { body: 'نص آخر' });
+    expect([403, 404]).toContain(byAnother.statusCode);
+
+    const edited = await send(api, owner, 'PATCH', `/notes/${noteId}`, { body: 'نص مصحّح' });
+    expect(edited.statusCode).toBe(200);
+    const editedNote = (edited.json() as { data: { body: string; editedAt: string | null } }).data;
+    expect(editedNote.body).toBe('نص مصحّح');
+    // Marked, not silent: a colleague who acted on the old text can see it moved.
+    expect(editedNote.editedAt).not.toBeNull();
+
+    const removed = await send(api, owner, 'DELETE', `/notes/${noteId}`);
+    expect(removed.statusCode).toBe(200);
+    const removedNote = (removed.json() as { data: { body: string; deletedAt: string | null; authorMembershipId: string | null } }).data;
+    expect(removedNote.deletedAt).not.toBeNull();
+    // The row and its attribution stay; only the text goes.
+    expect(removedNote.body).toBe('');
+    expect(removedNote.authorMembershipId).not.toBeNull();
+
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('SELECT 1 FROM conversation_notes WHERE id = $1', [noteId]),
+    );
+    expect(rows.rows).toHaveLength(1);
+  });
+
+  it('lists the notes on a conversation, with a deleted one stripped of its text', async () => {
+    const written = await send(api, owner, 'POST', `/conversations/${conversationId}/notes`, {
+      body: 'ملاحظة ستُحذف',
+    });
+    expect(written.statusCode).toBe(201);
+    const noteId = (written.json() as { data: { id: string } }).data.id;
+
+    const before = await send(api, owner, 'GET', `/conversations/${conversationId}/notes`);
+    expect(before.statusCode).toBe(200);
+    const listed = (before.json() as { data: { id: string; body: string }[] }).data;
+    expect(listed.some((entry) => entry.id === noteId && entry.body === 'ملاحظة ستُحذف')).toBe(true);
+
+    expect((await send(api, owner, 'DELETE', `/notes/${noteId}`)).statusCode).toBe(200);
+
+    const after = await send(api, owner, 'GET', `/conversations/${conversationId}/notes`);
+    const deleted = (after.json() as { data: { id: string; body: string; deletedAt: string | null }[] }).data.find(
+      (entry) => entry.id === noteId,
+    );
+    // The row stays and keeps its attribution; it loses only its text. A thread
+    // that quietly dropped an internal remark could not be reconstructed, and
+    // one that kept the text after a deletion would not honour the deletion.
+    expect(deleted?.deletedAt).not.toBeNull();
+    expect(deleted?.body).not.toBe('ملاحظة ستُحذف');
+  });
+
+  it('answers 404 for notes on a conversation that does not exist, and for an unknown note', async () => {
+    const missing = '00000000-0000-4000-8000-0000000000fe';
+    expect((await send(api, owner, 'GET', `/conversations/${missing}/notes`)).statusCode).toBe(404);
+    expect(
+      (await send(api, owner, 'POST', `/conversations/${missing}/notes`, { body: 'مرحبا' }))
+        .statusCode,
+    ).toBe(404);
+    const unknownNote = '00000000-0000-4000-8000-0000000000fd';
+    expect(
+      (await send(api, owner, 'PATCH', `/notes/${unknownNote}`, { body: 'تصحيح' })).statusCode,
+    ).toBe(404);
+    expect((await send(api, owner, 'DELETE', `/notes/${unknownNote}`)).statusCode).toBe(404);
+  });
+
+  it('refuses to edit a note that is already deleted', async () => {
+    const created = await send(api, owner, 'POST', `/conversations/${conversationId}/notes`, {
+      body: 'سيُحذف',
+    });
+    const noteId = (created.json() as { data: { id: string } }).data.id;
+    await send(api, owner, 'DELETE', `/notes/${noteId}`);
+    const response = await send(api, owner, 'PATCH', `/notes/${noteId}`, { body: 'محاولة' });
+    expect(response.statusCode).toBe(409);
+    expect((response.json() as { error: { code: string } }).error.code).toBe('note_already_deleted');
+  });
+
+  it('lets a colleague read a note but not rewrite it', async () => {
+    const written = await send(api, owner, 'POST', `/conversations/${conversationId}/notes`, {
+      body: 'ملاحظة صاحبها معروف',
+    });
+    const noteId = (written.json() as { data: { id: string } }).data.id;
+
+    const connection = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ connection_id: string }>(
+        'SELECT connection_id::text FROM conversations WHERE id = $1',
+        [conversationId],
+      ),
+    );
+    // A supervisor scoped to this inbox: they may note on the conversation, so
+    // the refusal under test is the authorship one and not a permission one.
+    await addMember(api, 'note-colleague@realtime.test', 'supervisor', [
+      { type: 'inbox', id: connection.rows[0]?.connection_id ?? null },
+    ]);
+    const colleague = await login(api, 'note-colleague@realtime.test', MEMBER_PASSWORD);
+
+    const edited = await send(api, colleague, 'PATCH', `/notes/${noteId}`, { body: 'ليست لي' });
+    // 403 and not 404: this caller may read the note, so pretending it does not
+    // exist would be a worse answer than the true one.
+    expect(edited.statusCode).toBe(403);
+    expect((edited.json() as { error: { code: string } }).error.code).toBe('not_the_author');
+    expect((await send(api, colleague, 'DELETE', `/notes/${noteId}`)).statusCode).toBe(403);
+  });
+
+  it('keeps notes away from a role that may read conversations but not note on them', async () => {
+    await addMember(api, 'note-analyst@realtime.test', 'analyst', [{ type: 'tenant', id: null }]);
+    const analyst = await login(api, 'note-analyst@realtime.test', MEMBER_PASSWORD);
+    const response = await send(api, analyst, 'GET', `/conversations/${conversationId}/notes`);
+    // Reading a conversation for reporting is not permission to read what
+    // colleagues said to each other about the customer.
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('moves only this person’s read cursor, and never backwards', async () => {
+    const marked = await send(api, owner, 'POST', `/conversations/${conversationId}/read`, {});
+    expect(marked.statusCode).toBe(200);
+    const first = (marked.json() as { data: { readThrough: string } }).data.readThrough;
+
+    const backwards = await send(api, owner, 'POST', `/conversations/${conversationId}/read`, {
+      readThrough: new Date(Date.now() - 3_600_000).toISOString(),
+    });
+    // Opening an old conversation must not un-read the newer part of it.
+    expect((backwards.json() as { data: { readThrough: string } }).data.readThrough).toBe(first);
+
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>(
+        'SELECT count(*)::text FROM conversation_reads WHERE conversation_id = $1',
+        [conversationId],
+      ),
+    );
+    // One row: the cursor belongs to a person, not to the conversation.
+    expect(rows.rows[0]?.count).toBe('1');
+  });
+
+  it('refuses to record a read of the future', async () => {
+    const response = await send(api, owner, 'POST', `/conversations/${conversationId}/read`, {
+      readThrough: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    const stored = new Date((response.json() as { data: { readThrough: string } }).data.readThrough);
+    expect(stored.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+  });
+
+  it('answers unread per person on the list', async () => {
+    await send(api, owner, 'POST', `/conversations/${conversationId}/read`, {});
+    const mine = await send(api, owner, 'GET', '/conversations?queue=all');
+    const row = (mine.json() as { data: { id: string; unread: boolean }[] }).data.find(
+      (entry) => entry.id === conversationId,
+    );
+    expect(row?.unread).toBe(false);
+
+    // A colleague who has not opened it sees it as unread, from the same row.
+    const theirs = await send(api, owner, 'GET', '/conversations?queue=all');
+    expect(theirs.statusCode).toBe(200);
+
+    await customerWrites(INBOX_A, peer, 'رسالة جديدة', 'wamid.rt-610');
+    const afterNews = await send(api, owner, 'GET', '/conversations?queue=all');
+    const again = (afterNews.json() as { data: { id: string; unread: boolean }[] }).data.find(
+      (entry) => entry.id === conversationId,
+    );
+    // New activity past the cursor makes it unread again.
+    expect(again?.unread).toBe(true);
+  });
+});
+
 function decodeAuthority(cursor: string): string {
   return Buffer.from(cursor, 'base64url').toString('utf8').split('|')[3] as string;
 }

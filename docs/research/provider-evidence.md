@@ -25,6 +25,10 @@ Therefore: every `Live` status in the traceability registry is `blocked_no_asset
 
 Consent is our own record of what happened here — who said what, through which channel, for which purpose, on whose word. No provider is the source of a consent row, and none is consulted before one is written. A customer writing to us is recorded as `customer_message` because that is a fact this installation observed; an import can never be recorded as a grant at all.
 
+**On the conversation lifecycle (added 2026-09-10).** The lifecycle needs no provider, and the reason it is recorded here is that one of its states could be mistaken for a provider fact. A conversation's `status` is **our** record of what this company decided to do about a customer's issue: waiting, snoozed, resolved, archived. It is not a claim about the customer, and it is not derived from anything a provider said. In particular, a conversation moving to `open` because a wake time arrived is a fact about *our scheduler* — the customer did nothing — and the realtime event says so by carrying no actor at all rather than attributing the change to a person.
+
+The two dimensions that do come from a provider — `delivery_state` and its anomalies — stay in their own columns and never fold into the lifecycle. Resolving a conversation does not mark anything read, and a read cursor is a fact about one of our own operators, never a read receipt sent to or received from a customer. A build that let those three meet in one column would eventually show a customer's "read" tick because a colleague closed a ticket.
+
 ## 2. WhatsApp Cloud API
 
 | Observation | Source | Decision in CONVO |

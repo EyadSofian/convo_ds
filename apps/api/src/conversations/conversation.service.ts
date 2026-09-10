@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Principal, QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
+import type { QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
 import { authorize, projectQueueCard, REALTIME_SCHEMA_VERSION } from '@convo/domain';
 import type { Pool } from 'pg';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
@@ -9,6 +9,21 @@ import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG, API_POOL } from '../tokens.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
+import { LifecycleService } from './lifecycle.service.js';
+import {
+  denied,
+  DETAIL_COLUMNS,
+  inboxOf,
+  notFound,
+  participantIds,
+  readConversation,
+  readDetail,
+  recordParticipation,
+  requireReadable,
+  rowOf,
+  SELECT_COLUMNS,
+} from './record.js';
+import type { ConversationDetail, ConversationRow, RawConversation } from './record.js';
 import {
   readTimeline,
   TIMELINE_PAGE_SIZE,
@@ -16,6 +31,20 @@ import {
   timelineCodec,
 } from './timeline.js';
 import type { TimelinePage } from './timeline.js';
+
+export type { ConversationDetail, ConversationRow } from './record.js';
+
+/**
+ * A conversation as it appears in somebody's list.
+ *
+ * `unread` is not on `ConversationDetail` because it is not a property of the
+ * conversation: it is the answer to "has *this* person seen the newest activity",
+ * and putting it on the record would invite a caller to cache it and show one
+ * agent another's unread state.
+ */
+export interface ConversationListRow extends ConversationDetail {
+  readonly unread: boolean;
+}
 
 /**
  * Conversations: the thing an inbox is a list of.
@@ -37,38 +66,6 @@ import type { TimelinePage } from './timeline.js';
  *   from the endpoint as well as from the socket.
  */
 
-export interface ConversationRow {
-  readonly id: string;
-  readonly connectionId: string;
-  readonly peerIdentity: string;
-  readonly teamId: string | null;
-  readonly assigneeMembershipId: string | null;
-  readonly status: string;
-  readonly priority: string;
-  readonly version: number;
-  readonly waitingSince: Date | null;
-  readonly contactId: string | null;
-}
-
-interface RawConversation {
-  readonly id: string;
-  readonly connection_id: string;
-  readonly peer_identity: string;
-  readonly team_id: string | null;
-  readonly assignee_membership_id: string | null;
-  readonly status: string;
-  readonly priority: string;
-  readonly version: number;
-  readonly waiting_since: Date | null;
-  readonly contact_id: string | null;
-}
-
-export interface ConversationDetail extends ConversationRow {
-  readonly inboxLabel: string;
-  readonly channel: string;
-  readonly participantMembershipIds: readonly string[];
-}
-
 /**
  * How long a timeline page position stays usable.
  *
@@ -77,10 +74,6 @@ export interface ConversationDetail extends ConversationRow {
  */
 const CURSOR_TTL_SECONDS = 3600;
 
-const SELECT_COLUMNS = `id::text, connection_id::text, peer_identity, team_id::text,
-                        assignee_membership_id::text, status, priority, version, waiting_since,
-                        contact_id::text`;
-
 @Injectable()
 export class ConversationService {
   constructor(
@@ -88,6 +81,7 @@ export class ConversationService {
     @Inject(API_CONFIG) private readonly config: ApiConfig,
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(RealtimeService) private readonly realtime: RealtimeService,
+    @Inject(LifecycleService) private readonly lifecycle: LifecycleService,
   ) {}
 
   /**
@@ -103,16 +97,28 @@ export class ConversationService {
     tenantId: string,
     connectionId: string,
     peerIdentity: string,
+    openedBy: 'customer_inbound' | 'outbound_contact' = 'customer_inbound',
   ): Promise<ConversationRow> {
-    await sql.query(
+    // The conflict target names the index's predicate because the index is
+    // partial: an archived thread keeps its row, so the identity it once held
+    // is free again and this insert must be allowed to take it (§18.1).
+    const inserted = await sql.query<{ id: string }>(
       `INSERT INTO conversations (tenant_id, connection_id, peer_identity)
        VALUES ($1, $2, $3)
-       ON CONFLICT (tenant_id, connection_id, peer_identity) DO NOTHING`,
+       ON CONFLICT (tenant_id, connection_id, peer_identity) WHERE status <> 'archived'
+       DO NOTHING
+       RETURNING id::text`,
       [tenantId, connectionId, peerIdentity],
     );
+    const created = inserted.rows[0];
+    if (created !== undefined) {
+      // A thread never exists without an episode to account for it, or the
+      // first report to ask "how long did this take" finds nothing to measure.
+      await this.lifecycle.openFirstEpisode(sql, tenantId, created.id, openedBy, new Date());
+    }
     const rows = await sql.query<RawConversation>(
       `SELECT ${SELECT_COLUMNS} FROM conversations
-        WHERE connection_id = $1 AND peer_identity = $2`,
+        WHERE connection_id = $1 AND peer_identity = $2 AND status <> 'archived'`,
       [connectionId, peerIdentity],
     );
     return rowOf(requireRow(rows.rows, 'the conversation vanished after being ensured'));
@@ -144,25 +150,14 @@ export class ConversationService {
     },
   ): Promise<void> {
     const inbox = await inboxOf(sql, conversation.connectionId);
-    const updated = await sql.query<{ version: number; waiting_since: Date | null }>(
-      `UPDATE conversations
-          SET last_inbound_at = greatest(coalesce(last_inbound_at, $2), $2),
-              last_activity_at = now(),
-              waiting_since = CASE
-                WHEN assignee_membership_id IS NULL THEN coalesce(waiting_since, $2)
-                ELSE waiting_since
-              END,
-              status = CASE WHEN status = 'resolved' THEN 'open' ELSE status END,
-              -- Attached once and then left alone: re-resolving on every message
-              -- would let a later identity rotation quietly re-attribute an
-              -- older conversation.
-              contact_id = coalesce(contact_id, $3),
-              version = version + 1
-        WHERE id = $1
-        RETURNING version, waiting_since`,
-      [conversation.id, inbound.occurredAt, inbound.contactId],
-    );
-    const row = requireRow(updated.rows, 'the conversation vanished while recording a message');
+    // The lifecycle decides what the message means. A resolved thread reopens
+    // with a new reporting episode, a snoozed one wakes and invalidates its
+    // job, a pending one stops waiting — none of which this method should be
+    // deciding for itself.
+    const row = await this.lifecycle.noteCustomerInbound(sql, tenantId, conversation, {
+      occurredAt: inbound.occurredAt,
+      contactId: inbound.contactId,
+    });
     await this.realtime.emit(sql, tenantId, {
       type: 'message.inbound',
       entityType: 'conversation',
@@ -181,8 +176,10 @@ export class ConversationService {
         channel: inbox.kind,
         peerIdentity: conversation.peerIdentity,
         priority: conversation.priority,
-        status: conversation.status,
-        waitingSinceAt: row.waiting_since?.toISOString() ?? null,
+        status: row.status,
+        previousStatus: row.outcome.from,
+        lifecycleEffects: row.outcome.effects,
+        waitingSinceAt: row.waitingSince?.toISOString() ?? null,
       },
     });
   }
@@ -316,22 +313,30 @@ export class ConversationService {
     session: AuthenticatedSession,
     tenantId: string,
     query: { readonly queue: 'mine' | 'all'; readonly status: string | null },
-  ): Promise<readonly ConversationDetail[]> {
+  ): Promise<readonly ConversationListRow[]> {
     return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
-      const rows = await sql.query<RawConversation & { display_name: string; kind: string }>(
-        `SELECT c.id::text, c.connection_id::text, c.peer_identity, c.team_id::text,
-                c.assignee_membership_id::text, c.status, c.priority, c.version, c.waiting_since,
-                c.contact_id::text, n.display_name, n.kind
+      const rows = await sql.query<
+        RawConversation & { display_name: string; kind: string; read_through: Date | null }
+      >(
+        // The read cursor is joined for THIS membership only. Unread is a fact
+        // about a person, so a row's unread flag is not a property of the row —
+        // two agents looking at the same list see different answers, correctly.
+        `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, r.read_through
            FROM conversations c
            JOIN channel_connections n ON n.id = c.connection_id
+           LEFT JOIN conversation_reads r
+             ON r.conversation_id = c.id AND r.membership_id = $3
           WHERE ($1::text IS NULL OR c.status = $1)
             AND ($2::uuid IS NULL OR c.assignee_membership_id = $2)
+            -- Archived threads are history. They are reachable by id and by an
+            -- explicit status filter, never by the working list.
+            AND ($1::text IS NOT NULL OR c.status <> 'archived')
           ORDER BY c.last_activity_at DESC, c.id
           LIMIT 200`,
-        [query.status, query.queue === 'mine' ? principal.membershipId : null],
+        [query.status, query.queue === 'mine' ? principal.membershipId : null, principal.membershipId],
       );
 
-      const visible: ConversationDetail[] = [];
+      const visible: ConversationListRow[] = [];
       for (const row of rows.rows) {
         const participants = await participantIds(sql, row.id);
         // Decided per row against the same terms the socket uses. A list route
@@ -348,6 +353,9 @@ export class ConversationService {
             inboxLabel: row.display_name,
             channel: row.kind,
             participantMembershipIds: participants,
+            unread:
+              row.read_through === null ||
+              row.read_through.getTime() < row.last_activity_at.getTime(),
           });
         }
       }
@@ -454,13 +462,7 @@ export class ConversationService {
           'This conversation was claimed or changed by someone else. Reload it and try again.',
         );
       }
-      // Participation outlives assignment: an agent reassigned tomorrow keeps
-      // read access to what they wrote today.
-      await sql.query(
-        `INSERT INTO conversation_participants (tenant_id, conversation_id, membership_id)
-         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-        [tenantId, conversationId, principal.membershipId],
-      );
+      await recordParticipation(sql, tenantId, conversationId, principal.membershipId);
       await this.realtime.emit(sql, tenantId, {
         type: 'conversation.assigned',
         entityType: 'conversation',
@@ -550,30 +552,7 @@ export class ConversationService {
   }
 }
 
-/** The read decision, in one place, so a record and its contents agree. */
-function requireReadable(principal: Principal, detail: ConversationDetail): void {
-  const decision = authorize(principal, 'conversation.read', {
-    inboxId: detail.connectionId,
-    ...(detail.teamId === null ? {} : { teamId: detail.teamId }),
-    assigneeMembershipId: detail.assigneeMembershipId,
-    participantMembershipIds: detail.participantMembershipIds,
-  });
-  if (!decision.allowed) {
-    throw denied();
-  }
-}
 
-/** The inbox's label and channel, for the card fields on an event. */
-async function inboxOf(
-  sql: SqlExecutor,
-  connectionId: string,
-): Promise<{ readonly display_name: string; readonly kind: string }> {
-  const rows = await sql.query<{ display_name: string; kind: string }>(
-    'SELECT display_name, kind FROM channel_connections WHERE id = $1',
-    [connectionId],
-  );
-  return requireRow(rows.rows, 'the conversation names a channel that does not exist');
-}
 
 /**
  * The delivery rank, used as the event's entity version.
@@ -586,81 +565,12 @@ function deliveryRank(state: string): number {
   return state === 'read' ? 3 : 2;
 }
 
-async function readConversation(
-  sql: SqlExecutor,
-  conversationId: string,
-): Promise<ConversationRow | null> {
-  const rows = await sql.query<RawConversation>(
-    `SELECT ${SELECT_COLUMNS} FROM conversations WHERE id = $1`,
-    [conversationId],
-  );
-  const row = rows.rows[0];
-  return row === undefined ? null : rowOf(row);
-}
 
-async function readDetail(
-  sql: SqlExecutor,
-  conversationId: string,
-): Promise<ConversationDetail | null> {
-  const rows = await sql.query<RawConversation & { display_name: string; kind: string }>(
-    `SELECT c.id::text, c.connection_id::text, c.peer_identity, c.team_id::text,
-            c.assignee_membership_id::text, c.status, c.priority, c.version, c.waiting_since,
-            c.contact_id::text, n.display_name, n.kind
-       FROM conversations c
-       JOIN channel_connections n ON n.id = c.connection_id
-      WHERE c.id = $1`,
-    [conversationId],
-  );
-  const row = rows.rows[0];
-  if (row === undefined) {
-    return null;
-  }
-  return {
-    ...rowOf(row),
-    inboxLabel: row.display_name,
-    channel: row.kind,
-    participantMembershipIds: await participantIds(sql, conversationId),
-  };
-}
 
-async function participantIds(
-  sql: SqlExecutor,
-  conversationId: string,
-): Promise<readonly string[]> {
-  const rows = await sql.query<{ membership_id: string }>(
-    `SELECT membership_id::text FROM conversation_participants WHERE conversation_id = $1`,
-    [conversationId],
-  );
-  return rows.rows.map((row) => row.membership_id);
-}
 
-function rowOf(row: RawConversation): ConversationRow {
-  return {
-    id: row.id,
-    connectionId: row.connection_id,
-    peerIdentity: row.peer_identity,
-    teamId: row.team_id,
-    assigneeMembershipId: row.assignee_membership_id,
-    status: row.status,
-    priority: row.priority,
-    version: row.version,
-    waitingSince: row.waiting_since,
-    contactId: row.contact_id,
-  };
-}
 
 function present(detail: ConversationDetail | null): detail is ConversationDetail {
   return detail !== null;
 }
 
-function notFound(): ApiHttpError {
-  return new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
-}
 
-function denied(): ApiHttpError {
-  return new ApiHttpError(
-    403,
-    'permission_denied',
-    'You do not have permission to perform this action.',
-  );
-}

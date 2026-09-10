@@ -1,10 +1,28 @@
-import { Body, Controller, Get, Headers, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  HttpCode,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { isConversationState } from '@convo/domain';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { OutboundService } from '../channels/outbound.service.js';
 import { pageEnvelope } from '../pagination.js';
 import { ConversationService } from './conversation.service.js';
+import { LifecycleService } from './lifecycle.service.js';
+import type { LifecycleCommand } from './lifecycle.service.js';
+import { NoteService } from './note.service.js';
 
 /**
  * Conversations: the queue, the list, the record, the timeline and the reply.
@@ -26,6 +44,8 @@ export class ConversationController {
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(ConversationService) private readonly conversations: ConversationService,
     @Inject(OutboundService) private readonly outbound: OutboundService,
+    @Inject(LifecycleService) private readonly lifecycle: LifecycleService,
+    @Inject(NoteService) private readonly notes: NoteService,
   ) {}
 
   /** The conversations this caller may read, newest activity first. */
@@ -118,6 +138,7 @@ export class ConversationController {
       target.connectionId,
       { ...asObject(body), peerIdentity: target.peerIdentity },
       target.resource,
+      conversationId,
     );
     await reply.status(202).send({ data: queued, request_id: request.id });
   }
@@ -130,6 +151,7 @@ export class ConversationController {
    * with a different permission (`conversation.assign`).
    */
   @Post('tenants/:tenantId/conversations/:conversationId/claim')
+  @HttpCode(200)
   async claim(
     @Param('tenantId') tenantId: string,
     @Param('conversationId') conversationId: string,
@@ -149,6 +171,130 @@ export class ConversationController {
       request_id: request.id,
     };
   }
+
+  /**
+   * Moves a conversation through its lifecycle.
+   *
+   * One endpoint for five commands rather than five endpoints, because they are
+   * one decision: §18.1's table answers all of them, and splitting it across
+   * routes would let a future route answer differently. The command is in the
+   * body; the version the caller saw is required on every one of them.
+   */
+  @Post('tenants/:tenantId/conversations/:conversationId/transitions')
+  @HttpCode(200)
+  async transition(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return {
+      data: await this.lifecycle.command(
+        session,
+        tenantId,
+        conversationId,
+        expectedVersion(body),
+        lifecycleCommand(body),
+      ),
+      request_id: request.id,
+    };
+  }
+
+  /** The reporting episodes of one conversation, oldest first. */
+  @Get('tenants/:tenantId/conversations/:conversationId/episodes')
+  async episodes(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const rows = await this.lifecycle.episodes(session, tenantId, conversationId);
+    return pageEnvelope(rows, null, request.id);
+  }
+
+  /** The private notes on a conversation. Never sent, never on a wire. */
+  @Get('tenants/:tenantId/conversations/:conversationId/notes')
+  async listNotes(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const rows = await this.notes.list(session, tenantId, conversationId);
+    return pageEnvelope(rows, null, request.id);
+  }
+
+  @Post('tenants/:tenantId/conversations/:conversationId/notes')
+  async addNote(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    const note = await this.notes.add(session, tenantId, conversationId, noteBody(body));
+    await reply.status(201).send({ data: note, request_id: request.id });
+  }
+
+  @Patch('tenants/:tenantId/notes/:noteId')
+  async editNote(
+    @Param('tenantId') tenantId: string,
+    @Param('noteId') noteId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return {
+      data: await this.notes.edit(session, tenantId, noteId, noteBody(body)),
+      request_id: request.id,
+    };
+  }
+
+  @Delete('tenants/:tenantId/notes/:noteId')
+  async deleteNote(
+    @Param('tenantId') tenantId: string,
+    @Param('noteId') noteId: string,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return {
+      data: await this.notes.remove(session, tenantId, noteId),
+      request_id: request.id,
+    };
+  }
+
+  /**
+   * Moves this caller's read cursor.
+   *
+   * Not a receipt. Nothing here reaches the customer, and nothing here changes
+   * the conversation's state: reading a thread is bookkeeping for one person.
+   */
+  @Post('tenants/:tenantId/conversations/:conversationId/read')
+  @HttpCode(200)
+  async markRead(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return {
+      data: await this.notes.markRead(session, tenantId, conversationId, readThrough(body)),
+      request_id: request.id,
+    };
+  }
 }
 
 /**
@@ -159,7 +305,87 @@ export class ConversationController {
  * `flurble`" is the unfiltered list rather than a 400 that hides the inbox.
  */
 function conversationStatus(value: string | undefined): string | null {
-  return value === 'open' || value === 'snoozed' || value === 'resolved' ? value : null;
+  return value !== undefined && isConversationState(value) ? value : null;
+}
+
+/**
+ * The lifecycle command, parsed from the body.
+ *
+ * Each command validates exactly what it needs and nothing else: a resolve
+ * without a disposition is refused because §18.1 says "resolve with required
+ * disposition", and a resolution nobody wrote is a report nobody can read.
+ */
+function lifecycleCommand(body: unknown): LifecycleCommand {
+  const input = asObject(body);
+  const kind = input['command'];
+  if (kind === 'wait') {
+    return { kind: 'wait', reason: requireText(input['reason'], 'reason', 500) };
+  }
+  if (kind === 'snooze') {
+    return {
+      kind: 'snooze',
+      wakeAt: requireInstant(input['wakeAt']),
+      timezone: requireText(input['timezone'], 'timezone', 80),
+    };
+  }
+  if (kind === 'resolve') {
+    return { kind: 'resolve', resolution: requireText(input['resolution'], 'resolution', 120) };
+  }
+  if (kind === 'reopen' || kind === 'archive') {
+    return { kind };
+  }
+  throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', [
+    {
+      field: 'command',
+      code: 'unsupported',
+      message: 'Send one of wait, snooze, resolve, reopen or archive.',
+    },
+  ]);
+}
+
+function noteBody(body: unknown): string {
+  return requireText(asObject(body)['body'], 'body', 4000);
+}
+
+/**
+ * The point the caller has read up to.
+ *
+ * Absent means "now" — the common case is an agent opening a conversation and
+ * having seen all of it. An explicit instant exists for the case that is not
+ * true, and a caller cannot use it to claim to have read the future.
+ */
+function readThrough(body: unknown): Date {
+  const value = asObject(body)['readThrough'];
+  if (value === undefined || value === null) {
+    return new Date();
+  }
+  const at = requireInstant(value);
+  const now = new Date();
+  return at.getTime() > now.getTime() ? now : at;
+}
+
+function requireText(value: unknown, field: string, max: number): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (text === '' || text.length > max) {
+    throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', [
+      {
+        field,
+        code: 'invalid',
+        message: `Send between 1 and ${max} characters.`,
+      },
+    ]);
+  }
+  return text;
+}
+
+function requireInstant(value: unknown): Date {
+  const at = typeof value === 'string' ? new Date(value) : new Date(Number.NaN);
+  if (Number.isNaN(at.getTime())) {
+    throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', [
+      { field: 'wakeAt', code: 'invalid', message: 'Send an ISO 8601 timestamp.' },
+    ]);
+  }
+  return at;
 }
 
 /** The body as an object, so a non-object one reaches the parser as empty. */

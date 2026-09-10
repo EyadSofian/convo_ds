@@ -95,6 +95,71 @@ function timeline(): readonly Record<string, unknown>[] {
   }));
 }
 
+/**
+ * Two internal notes and one that was deleted.
+ *
+ * The deleted row is here on purpose: it is the state the panel has to render
+ * as *a note was removed* rather than as a gap, and a baseline that never saw
+ * one could not catch it disappearing.
+ */
+function notes(): readonly Record<string, unknown>[] {
+  return [
+    {
+      id: 'note-01',
+      conversationId: CONVERSATION,
+      authorMembershipId: MEMBERSHIP,
+      body: 'اتصلت بالعميلة أمس وأكدت الرقم. لا داعي لإعادة السؤال.',
+      createdAt: new Date(Date.UTC(2026, 8, 9, 9, 5)).toISOString(),
+      editedAt: null,
+      deletedAt: null,
+    },
+    {
+      id: 'note-02',
+      conversationId: CONVERSATION,
+      authorMembershipId: MEMBERSHIP,
+      body: 'الطلب 4817 مدفوع بالكامل — راجعت مع المحاسبة.',
+      createdAt: new Date(Date.UTC(2026, 8, 9, 9, 18)).toISOString(),
+      editedAt: new Date(Date.UTC(2026, 8, 9, 9, 20)).toISOString(),
+      deletedAt: null,
+    },
+    {
+      id: 'note-03',
+      conversationId: CONVERSATION,
+      authorMembershipId: MEMBERSHIP,
+      body: '[deleted]',
+      createdAt: new Date(Date.UTC(2026, 8, 9, 9, 22)).toISOString(),
+      editedAt: null,
+      deletedAt: new Date(Date.UTC(2026, 8, 9, 9, 25)).toISOString(),
+    },
+  ];
+}
+
+/** Two episodes: one closed with a disposition, one still being worked. */
+function episodes(): readonly Record<string, unknown>[] {
+  return [
+    {
+      id: 'ep-01',
+      seq: 1,
+      openedAt: new Date(Date.UTC(2026, 8, 8, 11, 0)).toISOString(),
+      openedBy: 'customer_inbound',
+      firstInboundAt: new Date(Date.UTC(2026, 8, 8, 11, 0)).toISOString(),
+      firstResponseAt: new Date(Date.UTC(2026, 8, 8, 11, 4)).toISOString(),
+      closedAt: new Date(Date.UTC(2026, 8, 8, 11, 40)).toISOString(),
+      resolution: 'أُرسل التأكيد',
+    },
+    {
+      id: 'ep-02',
+      seq: 2,
+      openedAt: new Date(Date.UTC(2026, 8, 9, 8, 30)).toISOString(),
+      openedBy: 'customer_inbound',
+      firstInboundAt: new Date(Date.UTC(2026, 8, 9, 8, 30)).toISOString(),
+      firstResponseAt: null,
+      closedAt: null,
+      resolution: null,
+    },
+  ];
+}
+
 function contacts(): readonly Record<string, unknown>[] {
   return NAMES.slice(0, 6).map((name, index) => ({
     id: index === 0 ? CONTACT : `ct-${String(index).padStart(2, '0')}`,
@@ -181,6 +246,18 @@ export async function installApi(page: Page): Promise<void> {
     }
     if (path.endsWith('/messages')) {
       return json(route, paged(timeline()));
+    }
+    if (path.endsWith('/notes')) {
+      return json(route, paged(notes()));
+    }
+    if (path.endsWith('/episodes')) {
+      return json(route, paged(episodes()));
+    }
+    if (path.endsWith('/read')) {
+      return json(route, { data: { readThrough: new Date(Date.UTC(2026, 8, 9, 9, 30)).toISOString() } });
+    }
+    if (path.endsWith('/transitions')) {
+      return json(route, { data: { ...mine()[0], status: 'pending', version: 5 } });
     }
     if (path.endsWith('/realtime/stream')) {
       // Left hanging on purpose. A fulfilled response *ends* the stream, which

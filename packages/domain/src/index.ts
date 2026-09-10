@@ -178,3 +178,24 @@ export { canonicalAuthority } from './realtime/authority.js';
 
 export { checkCursor, decodeCursor, encodeCursor } from './realtime/cursor.js';
 export type { Cursor, CursorCheck, CursorRejection } from './realtime/cursor.js';
+
+/* --------------------------------------------------------- conversations -- */
+
+export {
+  applyTrigger,
+  checkSnooze,
+  CONVERSATION_STATES,
+  isConversationState,
+  LIFECYCLE_EFFECTS,
+  LIFECYCLE_TRIGGERS,
+  occupiesIdentity,
+} from './conversations/lifecycle.js';
+export type {
+  ConversationState,
+  LifecycleEffect,
+  LifecycleOutcome,
+  LifecycleRefusal,
+  LifecycleTrigger,
+  SnoozeRefusal,
+  SnoozeRequest,
+} from './conversations/lifecycle.js';

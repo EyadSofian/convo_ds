@@ -13,6 +13,7 @@ import {
   maskDisplayLabel,
   minutesSince,
   minutesUntil,
+  futureTime,
   relativeTime,
 } from './format';
 
@@ -61,6 +62,38 @@ describe('relativeTime', () => {
     expect(relativeTime('2026-09-08T09:00:00.000Z', NOW, 'en')).toBe('3h');
     expect(relativeTime('2026-09-07T09:00:00.000Z', NOW, 'en')).toBe('yesterday');
     expect(relativeTime('2026-09-01T09:00:00.000Z', NOW, 'en')).toMatch(/Sep/);
+  });
+});
+
+describe('futureTime', () => {
+  it('covers every bucket in Arabic', () => {
+    expect(futureTime('2026-09-08T12:00:30.000Z', NOW, 'ar')).toBe('خلال دقيقة');
+    expect(futureTime('2026-09-08T12:03:00.000Z', NOW, 'ar')).toBe('خلال 3 د');
+    expect(futureTime('2026-09-08T15:00:00.000Z', NOW, 'ar')).toBe('خلال 3 س');
+    expect(futureTime('2026-09-11T09:00:00.000Z', NOW, 'ar')).toContain('11');
+  });
+
+  it('covers every bucket in English', () => {
+    expect(futureTime('2026-09-08T12:00:30.000Z', NOW, 'en')).toBe('in under a minute');
+    expect(futureTime('2026-09-08T12:03:00.000Z', NOW, 'en')).toBe('in 3m');
+    expect(futureTime('2026-09-08T15:00:00.000Z', NOW, 'en')).toBe('in 3h');
+    expect(futureTime('2026-09-11T09:00:00.000Z', NOW, 'en')).toMatch(/Sep/);
+  });
+
+  it('says a wake time has arrived rather than counting up past it', () => {
+    // A wake that has not fired is a fact about the worker, not about the
+    // clock; "-3m" would dress a stuck job as a countdown.
+    expect(futureTime('2026-09-08T12:00:00.000Z', NOW, 'ar')).toBe('حان الوقت');
+    expect(futureTime('2026-09-08T09:00:00.000Z', NOW, 'en')).toBe('due');
+  });
+
+  it('is not relativeTime with the sign flipped', () => {
+    // The defect this exists to prevent: `relativeTime` is past-only, so a
+    // future instant falls into its first branch and reads as *now* — which for
+    // a snooze is the one answer that is certainly wrong.
+    const ahead = '2026-09-08T15:00:00.000Z';
+    expect(relativeTime(ahead, NOW, 'en')).toBe('now');
+    expect(futureTime(ahead, NOW, 'en')).toBe('in 3h');
   });
 });
 

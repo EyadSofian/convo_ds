@@ -1,3 +1,4 @@
+import type { TransitionCommand } from '../api/conversations.js';
 import type { ScopeRef } from '../api/people.js';
 import type { LiveContext } from './actions.js';
 import {
@@ -13,6 +14,13 @@ import {
   openConversation,
   sendReply,
 } from './inbox-actions.js';
+import {
+  addNote,
+  deleteNote,
+  editNote,
+  loadNotes,
+  transitionConversation,
+} from './lifecycle-actions.js';
 import { rowsOf } from './store.js';
 import {
   addTeamMember,
@@ -139,6 +147,83 @@ export function splitArg(arg: string): { readonly id: string; readonly value: st
     : { id: arg.slice(0, separator), value: arg.slice(separator + 1) };
 }
 
+/** The fields the transition forms own, cleared whenever one opens or closes. */
+const LIFECYCLE_FIELDS = ['lifecycleReason', 'lifecycleWakeAt', 'lifecycleResolution'] as const;
+
+const LIFECYCLE_COMMANDS: ReadonlySet<string> = new Set([
+  'wait',
+  'snooze',
+  'resolve',
+  'reopen',
+  'archive',
+]);
+
+/**
+ * Narrows a control's argument to a command the API accepts.
+ *
+ * A control rendered with something else is a bug in this repository, and the
+ * answer is to do nothing rather than to post an unknown command and read the
+ * server's 400 back as though the operator had made a mistake.
+ */
+function lifecycleCommand(value: string): TransitionCommand['command'] | null {
+  return LIFECYCLE_COMMANDS.has(value) ? (value as TransitionCommand['command']) : null;
+}
+
+/**
+ * Builds the transition body from what is in the form.
+ *
+ * Returns `null` when a required field is empty, and the button that would have
+ * sent it stays a no-op: a wait with no reason and a resolution with no text
+ * are the two records that make the whole lifecycle table useless to read
+ * later, and the server rejects both anyway.
+ *
+ * `preset` carries the minutes from a snooze shortcut. It is turned into an
+ * instant here rather than sent as a duration, because a duration would be
+ * resolved against the server's clock and the operator picked it against theirs.
+ */
+function transitionBody(
+  context: LiveContext,
+  command: TransitionCommand['command'],
+  preset: string,
+): TransitionCommand | null {
+  if (command === 'reopen' || command === 'archive') {
+    return { command };
+  }
+  if (command === 'wait') {
+    const reason = form(context, 'lifecycleReason');
+    return reason === '' ? null : { command, reason };
+  }
+  if (command === 'resolve') {
+    const resolution = form(context, 'lifecycleResolution');
+    return resolution === '' ? null : { command, resolution };
+  }
+  const wakeAt = snoozeInstant(context, preset);
+  return wakeAt === null
+    ? null
+    : { command, wakeAt, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+}
+
+/**
+ * The instant a snooze wakes at, from a preset or from the typed field.
+ *
+ * A `datetime-local` value has no zone in it — `2026-09-11T09:00` means nine in
+ * the morning *here*. `new Date` reads exactly that, in the browser's zone,
+ * which is the one the operator is sitting in. Appending a `Z` would silently
+ * shift every snooze by the offset.
+ */
+function snoozeInstant(context: LiveContext, preset: string): string | null {
+  const minutes = Number(preset);
+  if (preset !== '' && Number.isFinite(minutes) && minutes > 0) {
+    return new Date(context.now() + minutes * 60_000).toISOString();
+  }
+  const typed = form(context, 'lifecycleWakeAt');
+  if (typed === '') {
+    return null;
+  }
+  const at = new Date(typed);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
 function form(context: LiveContext, key: string): string {
   return (context.state.dialogForm[key] ?? '').trim();
 }
@@ -224,6 +309,106 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-inbox-older': async (context) => loadOlderMessages(context),
+
+  /* ------------------------------------------------------------- lifecycle -- */
+
+  /**
+   * Opens one of the transition forms.
+   *
+   * Opening clears the fields the last one left behind. A resolution typed,
+   * abandoned and still sitting there when the same operator later presses
+   * "Waiting on customer" is how the wrong sentence gets recorded against the
+   * wrong fact.
+   */
+  'live-lifecycle-open': (context, arg) => {
+    if (arg !== 'wait' && arg !== 'snooze' && arg !== 'resolve') {
+      // The other two transitions carry no input, so there is no form to open.
+      return Promise.resolve();
+    }
+    context.live.lifecyclePanel = arg;
+    clearForm(context, LIFECYCLE_FIELDS);
+    context.refresh();
+    return Promise.resolve();
+  },
+
+  'live-lifecycle-close': (context) => {
+    context.live.lifecyclePanel = null;
+    clearForm(context, LIFECYCLE_FIELDS);
+    context.refresh();
+    return Promise.resolve();
+  },
+
+  'live-lifecycle-do': async (context, arg) => {
+    const { id, value } = splitArg(arg);
+    const command = lifecycleCommand(id);
+    if (command === null) {
+      return false;
+    }
+    const body = transitionBody(context, command, value);
+    if (body === null) {
+      return false;
+    }
+    const moved = await transitionConversation(context, body);
+    if (moved) {
+      clearForm(context, LIFECYCLE_FIELDS);
+      context.refresh();
+    }
+    return moved;
+  },
+
+  /* ----------------------------------------------------------------- notes -- */
+
+  'live-notes-reload': async (context) => {
+    const id = context.live.openConversationId;
+    return id === null ? Promise.resolve() : loadNotes(context, id);
+  },
+
+  'live-note-add': async (context) => addNote(context),
+
+  'live-note-delete': async (context, arg) => deleteNote(context, arg),
+
+  /**
+   * Starts correcting a note, seeded with what it currently says.
+   *
+   * Seeded rather than blank: an edit is a correction to a sentence, and making
+   * somebody retype it to fix a word is how the correction ends up shorter than
+   * the original.
+   */
+  'live-note-edit': (context, arg) => {
+    const { live } = context;
+    const existing =
+      live.notes.status === 'ready' ? live.notes.value.find((note) => note.id === arg) : undefined;
+    live.editingNoteId = arg;
+    live.noteEdit = existing?.body ?? '';
+    context.refresh();
+    return Promise.resolve();
+  },
+
+  'live-note-edit-cancel': (context) => {
+    context.live.editingNoteId = null;
+    context.live.noteEdit = '';
+    context.refresh();
+    return Promise.resolve();
+  },
+
+  'live-note-edit-draft': (context, arg) => {
+    context.live.noteEdit = arg;
+    return Promise.resolve();
+  },
+
+  'live-note-edit-save': async (context, arg) => editNote(context, arg),
+
+  /**
+   * The note draft's text.
+   *
+   * Recorded without a re-render, exactly like the composer, and into its own
+   * field. Sharing one draft between a note and a reply is how an internal
+   * remark reaches a customer.
+   */
+  'live-note-draft': (context, arg) => {
+    context.live.noteDraft = arg;
+    return Promise.resolve();
+  },
 
   /* -------------------------------------------------------------- contacts -- */
 

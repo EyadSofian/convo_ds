@@ -110,6 +110,9 @@ importers:
 
   apps/web:
     devDependencies:
+      '@convo/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       vite:
         specifier: 6.1.0
         version: 6.1.0(@types/node@22.7.5)(tsx@4.19.1)

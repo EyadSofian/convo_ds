@@ -46,7 +46,7 @@ import { API_POOL } from '../tokens.js';
 
 export interface EmittedEvent {
   readonly type: RealtimeEventType;
-  readonly entityType: 'conversation' | 'message';
+  readonly entityType: 'conversation' | 'message' | 'note';
   readonly entityId: string;
   readonly entityVersion: number;
   readonly conversationId: string;
@@ -80,7 +80,7 @@ interface FeedRow {
   readonly seq: string;
   readonly schema_version: number;
   readonly type: RealtimeEventType;
-  readonly entity_type: 'conversation' | 'message';
+  readonly entity_type: 'conversation' | 'message' | 'note';
   readonly entity_id: string;
   readonly entity_version: number;
   readonly conversation_id: string;

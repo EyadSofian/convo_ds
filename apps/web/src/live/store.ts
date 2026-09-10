@@ -3,6 +3,8 @@ import type { ApiError, ApiResult } from '../api/client.js';
 import type {
   Conversation,
   ConversationsApi,
+  Episode,
+  Note,
   QueueCard,
   TimelineMessage,
 } from '../api/conversations.js';
@@ -103,6 +105,28 @@ export interface LiveState {
   timelineCursor: string | null;
   /** What the operator has typed but not sent. Never sent on their behalf. */
   composer: string;
+  /**
+   * The private notes on the open conversation, and what is being written.
+   *
+   * A separate draft from `composer` on purpose: a note and a reply go to
+   * different places, and one field for both is how an internal remark ends up
+   * sent to a customer.
+   */
+  notes: Resource<readonly Note[]>;
+  noteDraft: string;
+  /**
+   * The note being corrected, and the text of the correction.
+   *
+   * Separate from `noteDraft` so opening an edit does not consume what somebody
+   * had started writing as a new note, and so cancelling an edit gives that
+   * draft back untouched.
+   */
+  editingNoteId: string | null;
+  noteEdit: string;
+  /** The reporting episodes of the open conversation. */
+  episodes: Resource<readonly Episode[]>;
+  /** Which lifecycle control is expanded, if any. Never two at once. */
+  lifecyclePanel: 'wait' | 'snooze' | 'resolve' | null;
   realtime: RealtimeState;
   subscription: RealtimeSubscription | null;
   /** The contact behind the open conversation, for the customer panel. */
@@ -157,6 +181,12 @@ export function createLiveState(
     timeline: IDLE,
     timelineCursor: null,
     composer: '',
+    notes: IDLE,
+    noteDraft: '',
+    editingNoteId: null,
+    noteEdit: '',
+    episodes: IDLE,
+    lifecyclePanel: null,
     realtime: { status: 'idle' },
     subscription: null,
     openContact: IDLE,
@@ -175,6 +205,24 @@ export function createLiveState(
 /** The tenant the screens are working in, or `null` when not signed in. */
 export function currentTenantId(live: LiveState): string | null {
   return live.session.status === 'signed_in' ? live.session.tenantId : null;
+}
+
+/**
+ * Runs `work` for the company being viewed, or does nothing.
+ *
+ * One guard for every action in every module rather than one per module. Each
+ * of them needs a company and none of them can invent one; a session with no
+ * active membership renders screens with no controls, so this is the single
+ * place that says "there is nothing here to act on" — and the single place a
+ * test has to reach to prove it.
+ */
+export async function forTenant<T>(
+  context: { readonly live: LiveState },
+  fallback: T,
+  work: (tenantId: string) => Promise<T>,
+): Promise<T> {
+  const tenantId = currentTenantId(context.live);
+  return tenantId === null ? fallback : work(tenantId);
 }
 
 /**

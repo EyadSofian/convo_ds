@@ -230,6 +230,62 @@ realtime_events          (id, tenant_id, seq, schema_version, type, entity_type,
 -- a second place for a message to exist and drift out of step with the
 -- evidence it was derived from.
 
+-- Lifecycle, notes, episodes and read cursors (migration 0017) ---------------
+conversations.pending_reason / pending_since
+                          Why an agent said they were waiting, and since when. The status
+                          pill says a conversation is waiting; only the reason says what
+                          for, and the reason is the whole value of having pressed it.
+conversations.snoozed_until / snooze_timezone / wake_version
+                          The instant and the ZONE, because they answer different
+                          questions: the instant is when the job fires, the zone is what the
+                          operator meant. Keeping only the instant makes "tomorrow morning"
+                          unre-derivable after a DST change. `wake_version` is the fence —
+                          re-snoozing bumps it so the job already scheduled matches nothing.
+conversations.resolved_at / resolution / archived_at
+                          The disposition and when it was reached. Cleared on reopen: a
+                          reopened thread still carrying its old disposition would report as
+                          answered while somebody is still working on it.
+conversations_live_identity_uq
+                          UNIQUE (tenant_id, connection_id, peer_identity) WHERE status <>
+                          'archived'. The identity is held until ARCHIVAL, not until
+                          resolution — a resolved thread is the one a new inbound reopens,
+                          so a second row must not be created beside it. Making the index
+                          partial is what lets an archived thread keep its history while the
+                          customer's next message opens a thread of its own.
+conversation_wakes       (tenant_id, conversation_id PK, wake_at, wake_version)
+                          A durable job, not a timer in a process. The sweeper's UPDATE is
+                          guarded on `wake_version` AND `status = 'snoozed'`, so a job whose
+                          conversation was re-snoozed, resolved or already woken by a
+                          message is a no-op — and is deleted either way, or the sweeper
+                          revisits it forever.
+conversation_episodes    (id, tenant_id, conversation_id, seq, opened_at, opened_by,
+                          first_inbound_at, first_response_at, closed_at, resolution)
+                          One row per time the conversation was WORKED. A reopen closes the
+                          current episode and opens a new one; reusing the first would start
+                          the second issue's clock at the first issue's first message and
+                          make every resolution-time report a lie (CON-04). `first_response_at`
+                          is written with `coalesce` inside the same transaction as the reply
+                          command, so the first response is the first and a second reply
+                          cannot move the number a report is computed from.
+conversation_notes       (id, tenant_id, conversation_id, author_membership_id, body,
+                          created_at, edited_at, deleted_at)
+                          Internal. Never a message, never on a wire, and never a lifecycle
+                          trigger — `internal_activity` is an explicit no-op row in §18.1, so
+                          a note cannot reopen a resolved thread (CON-05). A deletion keeps
+                          the row and its attribution and drops only the text: a thread that
+                          silently lost an internal remark could not be reconstructed, and
+                          one that kept the text after a deletion would not honour it.
+                          Only the author may edit or delete, which is a 403 rather than a
+                          404 because the caller may read the note.
+conversation_reads       (tenant_id, conversation_id, membership_id) PK all three,
+                          read_through, updated_at
+                          Unread is DERIVED by comparing this person's cursor against
+                          `conversations.last_activity_at` — no per-message bookkeeping and
+                          no count for anybody to keep correct. One row per person, so two
+                          agents reading the same thread never see each other's state, and
+                          it is not a receipt: nothing here reaches the customer and nothing
+                          here moves the conversation (MSG-04, CON-07).
+
 -- Receipt watermark (migration 0015) -----------------------------------------
 outbound_messages.receipts_folded_through timestamptz
                           The highest `inbound_events.observed_at` already folded into this

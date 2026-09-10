@@ -60,12 +60,24 @@ export function labelFor(
   return entry === undefined ? key : t(state, entry.ar, entry.en);
 }
 
-/** The panel body for whatever the contact resource currently holds. */
-export function renderContactPanel(state: AppState, live: LiveState): HTMLElement {
+/**
+ * The panel beside the conversation.
+ *
+ * `extra` is what the inbox stacks under the customer — the internal notes and
+ * the reporting episodes. They are passed in rather than imported here because
+ * they are facts about the *conversation*, not about the person, and a customer
+ * panel that reached for the open conversation's notes would be a second place
+ * that decides which conversation is open.
+ */
+export function renderContactPanel(
+  state: AppState,
+  live: LiveState,
+  extra: readonly Child[] = [],
+): HTMLElement {
   return h(
     'aside',
     { class: 'zone zone--panel', 'aria-label': t(state, 'بيانات العميل', 'Customer details') },
-    [h('div', { class: 'zone__body' }, [panelBody(state, live.openContact, live)])],
+    [h('div', { class: 'zone__body' }, [panelBody(state, live.openContact, live), ...extra])],
   );
 }
 

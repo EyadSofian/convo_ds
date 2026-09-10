@@ -84,6 +84,21 @@ test.describe('inbox baselines', () => {
     await expect(page).toHaveScreenshot('inbox-mine.png');
   });
 
+  /**
+   * The structural half, for the screen the image half cannot cover.
+   *
+   * An element screenshot captures a bounding box, so anything below the fold
+   * of a scrolling zone — the internal notes and the reporting episodes, at the
+   * bottom of the customer panel — can be added, removed or broken without
+   * moving a single pixel of any baseline here. This snapshot is taken over the
+   * whole inbox, so every control in every zone is in it whether it is on
+   * screen or not.
+   */
+  test('inbox structure, including what scrolls out of view', async ({ page }) => {
+    await openInbox(page);
+    expect(await structureOf(page, '.inbox')).toMatchSnapshot('inbox-structure.txt');
+  });
+
   test('the customer panel, with a suppression over a consent', async ({ page }) => {
     await openInbox(page);
     // The rule this panel exists to make visible: an opt-out sits above the

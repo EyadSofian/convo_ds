@@ -277,6 +277,13 @@ company.
 | Inbox | `GET T/conversations` | `listConversations` | `conversation.read`, per row | P2 |
 | Inbox | `GET T/conversations/{id}/messages` | `listConversationMessages` | `conversation.read` for that conversation | P2 |
 | Inbox | `POST T/conversations/{id}/messages` | `replyToConversation` | `conversation.reply` + CSRF | P2 |
+| Lifecycle | `POST T/conversations/{id}/transitions` | `transitionConversation` | `conversation.close` (wait/snooze/resolve/reopen/archive) + CSRF + version | P2 |
+| Lifecycle | `GET T/conversations/{id}/episodes` | `listConversationEpisodes` | `conversation.read` for that conversation | P2 |
+| Notes | `GET T/conversations/{id}/notes` | `listConversationNotes` | `conversation.note` for that conversation | P2 |
+| Notes | `POST T/conversations/{id}/notes` | `createConversationNote` | `conversation.note` + CSRF | P2 |
+| Notes | `PATCH T/notes/{noteId}` | `updateNote` | `conversation.note` **and** authorship + CSRF | P2 |
+| Notes | `DELETE T/notes/{noteId}` | `deleteNote` | `conversation.note` **and** authorship + CSRF | P2 |
+| Reading | `POST T/conversations/{id}/read` | `markConversationRead` | `conversation.read` + CSRF | P2 |
 | Realtime | `GET T/realtime/events` | `catchUpRealtimeEvents` | session; each event authorized individually | P2 |
 | Realtime | `GET T/realtime/stream` | `streamRealtimeEvents` | session; each event authorized individually | P2 |
 
@@ -294,6 +301,34 @@ claiming at the same version produce exactly one winner; the loser is told
 `conversation_version_conflict` (IAM-13). It carries no `Idempotency-Key`
 because the version already makes a replay a no-op conflict rather than a second
 claim.
+
+**One transitions endpoint, not five verbs.** `transitionConversation` takes a
+`command` — `wait`, `snooze`, `resolve`, `reopen` or `archive` — because they are
+one decision fenced on one version, and five routes would be five places to get
+that fencing subtly different. Every one of them carries the `version` the agent
+saw; losing that race is a typed `conversation_version_conflict`, not an error
+the agent could have avoided. A command the lifecycle table refuses from the
+conversation's current state comes back as a **409 named after the refusal**
+(`already_open`, `not_resolved`, `not_waiting_on_a_customer`,
+`archived_conversation_is_immutable`), so the browser can say what actually
+happened rather than "something went wrong". A snooze whose wake time is in the
+past, more than a year out, or in a zone this server does not recognise is a
+**422** named the same way — checked at the door rather than in a worker at wake
+time, in front of the person who chose it.
+
+**A note is not a message, and the routes say so.** Notes live under the
+conversation for reading and writing, but a single note is addressed as
+`T/notes/{noteId}` because editing one is an act on the note, not on the
+conversation. Only the author may change or remove one: that is a **403
+`not_the_author`**, not a 404, because the caller may read it and pretending it
+does not exist would be a worse answer than the true one. A deletion keeps the
+row and its attribution and drops only the text.
+
+**`markConversationRead` is not a receipt.** It moves one person's cursor, never
+backwards, and refuses a read of the future. Nothing it does reaches the customer
+and nothing it does moves the conversation — reading a thread is bookkeeping for
+one person, and folding it into either of the other two would let one agent's
+reading change what a colleague or a customer sees.
 
 `listConversations` and `listUnassignedConversations` are the same distinction
 one level up: the first returns records the caller passed `conversation.read`

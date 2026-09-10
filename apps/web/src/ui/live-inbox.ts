@@ -9,6 +9,14 @@ import type { AppState } from '../state.js';
 import { LIST_WIDTH_MAX, LIST_WIDTH_MIN } from '../state.js';
 import type { IconName } from '../icons.js';
 import { renderContactPanel } from './contact-panel.js';
+import {
+  episodesSection,
+  lifecycleControls,
+  lifecycleForm,
+  lifecycleNotice,
+  notesSection,
+  statusPill,
+} from './lifecycle-panel.js';
 import { avatar, button, CHANNEL_ICON, isolated, pill, stateBox } from './parts.js';
 import type { Tone } from './parts.js';
 
@@ -98,7 +106,12 @@ export function renderInbox(state: AppState): HTMLElement {
       // The customer beside the conversation, once there is a conversation to
       // stand beside. It is a column rather than a drawer: at these widths the
       // timeline keeps its 640px either way.
-      state.live.openConversationId === null ? null : renderContactPanel(state, state.live),
+      state.live.openConversationId === null
+        ? null
+        : renderContactPanel(state, state.live, [
+            notesSection(state, state.live),
+            episodesSection(state, state.live),
+          ]),
     ],
   );
 }
@@ -371,11 +384,15 @@ function queueRow(state: AppState, card: QueueCard): HTMLElement {
 
 function conversationRow(state: AppState, live: LiveState, conversation: Conversation): HTMLElement {
   const open = live.openConversationId === conversation.id;
+  // `unread` is this caller's own bookkeeping and only the list carries it. A
+  // row with no answer is not marked: absent is not the same as read, and
+  // guessing would clear a marker nobody moved.
+  const unread = conversation.unread === true;
   return h(
     'button',
     {
       type: 'button',
-      class: 'convrow convrow--record',
+      class: unread ? 'convrow convrow--record convrow--unread' : 'convrow convrow--record',
       role: 'listitem',
       'data-act': 'live-inbox-open',
       'data-arg': conversation.id,
@@ -392,11 +409,16 @@ function conversationRow(state: AppState, live: LiveState, conversation: Convers
       h('div', { class: 'convrow__body' }, [
         h('div', { class: 'convrow__top' }, [
           h('span', { class: 'convrow__name' }, [isolated(conversation.peerIdentity)]),
+          unread
+            ? h('span', { class: 'convrow__dot' }, [
+                h('span', { class: 'visually-hidden' }, [t(state, 'غير مقروءة', 'Unread')]),
+              ])
+            : null,
         ]),
         h('div', { class: 'convrow__meta' }, [
           pill(labelled(state, CHANNEL_LABEL, conversation.channel)),
           pill(conversation.inboxLabel),
-          pill(conversation.status),
+          statusPill(state, conversation.status),
           // The same cue the queue card carries: an agent triaging their own
           // list needs it as much as one picking work up.
           pill(conversation.priority, PRIORITY_TONE[conversation.priority] ?? 'neutral'),
@@ -456,13 +478,21 @@ function renderThreadZone(state: AppState, live: LiveState): HTMLElement {
 
   const conversation = live.openConversation.value;
   return zone('thread', t(state, 'المحادثة', 'Conversation'), [
-    threadHeader(state, conversation),
+    threadHeader(state, live, conversation),
+    lifecycleForm(state, live, conversation),
+    lifecycleNotice(state, conversation),
     timelineView(state, live),
-    composer(state, live, conversation),
+    // An archived conversation is immutable, so it gets no composer. The notice
+    // above says why; a disabled box would say only that something is wrong.
+    conversation.status === 'archived' ? null : composer(state, live, conversation),
   ]);
 }
 
-function threadHeader(state: AppState, conversation: Conversation): HTMLElement {
+function threadHeader(
+  state: AppState,
+  live: LiveState,
+  conversation: Conversation,
+): HTMLElement {
   return h('header', { class: 'thread__header' }, [
     h('div', { class: 'thread__ident' }, [
       avatar({
@@ -478,8 +508,9 @@ function threadHeader(state: AppState, conversation: Conversation): HTMLElement 
     ]),
     h('span', { class: 'thread__toolspacer' }),
     h('div', { class: 'thread__toolbar' }, [
-      pill(conversation.status),
+      statusPill(state, conversation.status),
       pill(conversation.priority, PRIORITY_TONE[conversation.priority] ?? 'neutral'),
+      lifecycleControls(state, live, conversation),
     ]),
   ]);
 }

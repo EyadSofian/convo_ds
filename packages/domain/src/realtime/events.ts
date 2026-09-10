@@ -63,7 +63,18 @@ export interface RealtimeEnvelope {
   readonly id: string;
   readonly seq: number;
   readonly type: RealtimeEventType;
-  readonly entity: { readonly type: 'conversation' | 'message'; readonly id: string; readonly version: number };
+  /**
+   * What the event is about.
+   *
+   * `note` is separate from `message` on purpose: a subscriber authorized for
+   * receipts and not for notes is filtered by this column, before anything
+   * reads the payload.
+   */
+  readonly entity: {
+    readonly type: 'conversation' | 'message' | 'note';
+    readonly id: string;
+    readonly version: number;
+  };
   readonly scope: RealtimeScope;
   readonly occurredAt: string;
   readonly payload: Readonly<Record<string, unknown>>;

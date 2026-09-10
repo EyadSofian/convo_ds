@@ -1,7 +1,7 @@
 import type { Contact } from '../api/contacts.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { currentTenantId, fromResult, LOADING, ready } from './store.js';
+import { forTenant, fromResult, LOADING, ready } from './store.js';
 
 /**
  * Contacts, against the real API.
@@ -23,15 +23,6 @@ import { currentTenantId, fromResult, LOADING, ready } from './store.js';
 
 function t(context: LiveContext, ar: string, en: string): string {
   return context.state.lang === 'ar' ? ar : en;
-}
-
-async function forTenant<T>(
-  context: LiveContext,
-  fallback: T,
-  work: (tenantId: string) => Promise<T>,
-): Promise<T> {
-  const tenantId = currentTenantId(context.live);
-  return tenantId === null ? fallback : work(tenantId);
 }
 
 /* ------------------------------------------------------------------ panel -- */

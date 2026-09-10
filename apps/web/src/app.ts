@@ -405,10 +405,18 @@ export function mount(options: MountOptions): AppHandle {
   const conversations =
     client === null ? disconnectedConversationsApi() : new ConversationsApi(client);
   const contacts = client === null ? disconnectedContactsApi() : new ContactsApi(client);
-  const state = createState(
-    options.now ?? new Date(),
-    createLiveState(api, channels, conversations, contacts),
-  );
+  /**
+   * The clock the whole screen reads.
+   *
+   * When `now` is supplied it is the clock — frozen, and used for the relative
+   * times *and* for any instant an action computes. Without that, the option
+   * seeded `state.clock` and then the first render replaced it with the real
+   * time, so it made nothing deterministic and a snooze offset could not be
+   * asserted at all. In production nothing is supplied and this is `new Date()`,
+   * which is exactly what it was.
+   */
+  const clock = (): Date => options.now ?? new Date();
+  const state = createState(clock(), createLiveState(api, channels, conversations, contacts));
   const root = options.root;
   const host = options.host;
   let sessionRequested = false;
@@ -426,7 +434,7 @@ export function mount(options: MountOptions): AppHandle {
   const render = (): void => {
     // Relative times are a function of when the screen was drawn, so the clock
     // advances here rather than being read inside a view.
-    state.clock = new Date();
+    state.clock = clock();
     const snapshot = captureFocus(root);
     const document_ = root.ownerDocument;
     document_.documentElement.setAttribute('lang', state.lang);
@@ -476,7 +484,7 @@ export function mount(options: MountOptions): AppHandle {
     refresh: () => {
       render();
     },
-    now: () => Date.now(),
+    now: () => clock().getTime(),
     newKey: options.newKey ?? (() => `${String(Date.now())}-${String(Math.random()).slice(2, 10)}`),
   };
 

@@ -12,6 +12,7 @@
     "node": ">=22 <23"
   },
   "devDependencies": {
+    "@convo/domain": "workspace:*",
     "vite": "6.1.0"
   }
 }

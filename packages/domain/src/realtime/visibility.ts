@@ -53,6 +53,15 @@ export function visibilityOf(
     return 'full';
   }
 
+  // A private note has no projected form. A queue card cannot carry one — it is
+  // a closed list of fields and a note is not among them — but the *existence*
+  // of a note is itself internal: an agent who may only preview an unclaimed
+  // conversation has no business learning that colleagues are discussing it.
+  // Filtered by the event's own type, before any payload is read.
+  if (event.type === 'conversation.note') {
+    return 'hidden';
+  }
+
   // A preview is only ever a preview of something nobody has claimed. Once a
   // conversation has an assignee it is somebody's work, and an agent without
   // `conversation.read` for it has no business knowing it is there.

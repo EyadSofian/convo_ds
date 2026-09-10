@@ -87,6 +87,37 @@ export function relativeTime(iso: string, now: Date, lang: Lang): string {
   return dateFormat(lang, { day: 'numeric', month: 'short' }).format(new Date(iso));
 }
 
+/**
+ * "Time until" for an instant that has not happened yet.
+ *
+ * `relativeTime` cannot be reused with a negated argument: it is past-only, and
+ * a future instant falls into its first branch and reads as *now*. A snooze
+ * that says a conversation is returning now when it returns tomorrow is worse
+ * than no label — it is the one fact the operator pressed the button to set.
+ *
+ * Past the wake time it says so rather than counting up: a wake that has not
+ * fired is a fact about the worker, not about the clock, and dressing it as
+ * "-3m" would hide it.
+ */
+export function futureTime(iso: string, now: Date, lang: Lang): string {
+  const remaining = new Date(iso).getTime() - now.getTime();
+  const numbers = numberFormat(lang);
+  if (remaining <= 0) return lang === 'ar' ? 'حان الوقت' : 'due';
+  if (remaining < MINUTE) return lang === 'ar' ? 'خلال دقيقة' : 'in under a minute';
+  if (remaining < HOUR) {
+    const value = numbers.format(Math.floor(remaining / MINUTE));
+    return lang === 'ar' ? `خلال ${value} د` : `in ${value}m`;
+  }
+  if (remaining < DAY) {
+    const value = numbers.format(Math.floor(remaining / HOUR));
+    return lang === 'ar' ? `خلال ${value} س` : `in ${value}h`;
+  }
+  // Past a day, the duration stops being useful and the date starts being: an
+  // operator asking "when does this come back" wants a day, not "in 52h".
+  return dateFormat(lang, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    .format(new Date(iso));
+}
+
 /** Wall clock inside the timeline. */
 export function clockTime(iso: string, lang: Lang): string {
   return dateFormat(lang, { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));

@@ -51,6 +51,7 @@ describe('migrate', () => {
       '0014_realtime.sql',
       '0015_receipt_watermark.sql',
       '0016_contacts.sql',
+      '0017_conversation_lifecycle.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -77,7 +78,11 @@ describe('migrate', () => {
       'consents',
       'contact_identities',
       'contacts',
+      'conversation_episodes',
+      'conversation_notes',
       'conversation_participants',
+      'conversation_reads',
+      'conversation_wakes',
       'conversations',
       'idempotency_records',
       'inbound_events',
@@ -114,7 +119,7 @@ describe('migrate', () => {
     const recorded = await pool.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM schema_migrations',
     );
-    expect(recorded.rows[0]?.count).toBe('16');
+    expect(recorded.rows[0]?.count).toBe('17');
   });
 
   /**

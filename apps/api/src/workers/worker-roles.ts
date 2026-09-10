@@ -4,6 +4,7 @@ import { BrokerRelayService } from '../broker/relay.service.js';
 import type { ProcessRole } from '../config.js';
 import { ChannelDispatcherService } from '../channels/dispatcher.service.js';
 import { ChannelNormalizationService } from '../channels/normalization.service.js';
+import { LifecycleService } from '../conversations/lifecycle.service.js';
 import type { WorkerTick } from './worker-loop.js';
 
 /**
@@ -48,8 +49,13 @@ export function tickFor(role: WorkerRole, context: WorkerContext): () => Promise
 async function inboundTick(context: WorkerContext): Promise<WorkerTick> {
   const normalizer = context.app.get(ChannelNormalizationService);
   const dispatcher = context.app.get(ChannelDispatcherService);
+  const lifecycle = context.app.get(LifecycleService);
   const tenants = await normalizer.pendingTenants();
-  let handled = 0;
+  // A snooze that is due is work whether or not anything else arrived. Its
+  // company list comes from the wake queue rather than from this tick's
+  // tenants, for exactly the reason receipts are folded here: a company with a
+  // quiet inbox would otherwise never have its conversations woken.
+  let handled = await lifecycle.sweepDueWakes(new Date(), context.concurrency * 10);
   for (const tenantId of tenants) {
     const result = await normalizer.drain(tenantId, context.concurrency * 10);
     handled += result.claimed;

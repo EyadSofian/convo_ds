@@ -3,6 +3,7 @@ import type { CapabilityMatrix, ChannelKind, ResourceRef, SqlExecutor } from '@c
 import { capabilitiesFor, permitSend } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
+import { LifecycleService } from '../conversations/lifecycle.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
 import { parseSendMessage } from './outbound-request.js';
@@ -55,7 +56,10 @@ interface ConnectionRow {
 
 @Injectable()
 export class OutboundService {
-  constructor(@Inject(AuthorizationService) private readonly authorization: AuthorizationService) {}
+  constructor(
+    @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
+    @Inject(LifecycleService) private readonly lifecycle: LifecycleService,
+  ) {}
 
   /**
    * Queues one message, or refuses it now.
@@ -80,6 +84,17 @@ export class OutboundService {
     connectionId: string,
     body: unknown,
     resource: ResourceRef = {},
+    /**
+     * The conversation this reply answers, when there is one.
+     *
+     * Present for a reply through the inbox, absent for a send addressed
+     * straight at a connection. It is what lets the first-response clock start
+     * **inside the same transaction as the command**: a clock started after the
+     * commit would be a second write that can fail on its own, and a report
+     * whose numbers depend on whether a follow-up query succeeded is not a
+     * report.
+     */
+    conversationId: string | null = null,
   ): Promise<OutboundMessageSummary> {
     const parsed = parseSendMessage(body);
     if (!parsed.ok) {
@@ -152,6 +167,12 @@ export class OutboundService {
            VALUES ($1, $2, $3, $4, $5)`,
           [messageId, tenantId, connectionId, request.peerIdentity, request.trafficClass],
         );
+
+        if (conversationId !== null) {
+          // The first response is the first: `noteResponse` coalesces, so a
+          // second reply cannot move the number a report is computed from.
+          await this.lifecycle.noteResponse(sql, conversationId, new Date());
+        }
 
         return requireRow(await readMessages(sql, messageId), 'the message vanished');
       },

@@ -45,7 +45,58 @@ export interface Conversation {
   readonly participantMembershipIds: readonly string[];
   /** Resolved from the customer's first message; null until somebody writes. */
   readonly contactId: string | null;
+  /** Why an agent said they were waiting. Only while the status is `pending`. */
+  readonly pendingReason: string | null;
+  readonly snoozedUntil: string | null;
+  /** The zone the wake time was chosen in. The instant alone cannot say what was meant. */
+  readonly snoozeTimezone: string | null;
+  readonly resolution: string | null;
+  readonly resolvedAt: string | null;
+  readonly lastActivityAt: string;
+  /**
+   * Whether **this** caller has seen the newest activity.
+   *
+   * Only the list carries it. It is not a property of the conversation, and a
+   * screen that cached it from a single read would end up showing one agent
+   * another's unread state.
+   */
+  readonly unread?: boolean;
 }
+
+export interface Episode {
+  readonly id: string;
+  readonly seq: number;
+  readonly openedAt: string;
+  readonly openedBy: string;
+  readonly firstInboundAt: string | null;
+  readonly firstResponseAt: string | null;
+  readonly closedAt: string | null;
+  readonly resolution: string | null;
+}
+
+export interface Note {
+  readonly id: string;
+  readonly conversationId: string;
+  readonly authorMembershipId: string | null;
+  readonly body: string;
+  readonly createdAt: string;
+  readonly editedAt: string | null;
+  readonly deletedAt: string | null;
+}
+
+/**
+ * The five agent-driven rows of the lifecycle table.
+ *
+ * A union rather than five methods, because the server has one endpoint for the
+ * same reason: they are one decision, and five call sites would be five places
+ * to get the version fencing subtly different.
+ */
+export type TransitionCommand =
+  | { readonly command: 'wait'; readonly reason: string }
+  | { readonly command: 'snooze'; readonly wakeAt: string; readonly timezone: string }
+  | { readonly command: 'resolve'; readonly resolution: string }
+  | { readonly command: 'reopen' }
+  | { readonly command: 'archive' };
 
 export interface TimelineMessage {
   readonly id: string;
@@ -130,6 +181,68 @@ export class ConversationsApi {
     return this.client.post<Conversation>(
       `/tenants/${tenantId}/conversations/${conversationId}/claim`,
       { body: { version } },
+    );
+  }
+
+  /**
+   * Moves a conversation through its lifecycle, at the version the agent saw.
+   *
+   * The version is required for the same reason a claim's is: two agents acting
+   * on the same stale screen must not both succeed.
+   */
+  transition(
+    tenantId: string,
+    conversationId: string,
+    version: number,
+    command: TransitionCommand,
+  ): Promise<ApiResult<Conversation>> {
+    return this.client.post<Conversation>(
+      `/tenants/${tenantId}/conversations/${conversationId}/transitions`,
+      { body: { version, ...command } },
+    );
+  }
+
+  episodes(tenantId: string, conversationId: string): Promise<ApiResult<readonly Episode[]>> {
+    return this.client.get<readonly Episode[]>(
+      `/tenants/${tenantId}/conversations/${conversationId}/episodes`,
+    );
+  }
+
+  notes(tenantId: string, conversationId: string): Promise<ApiResult<readonly Note[]>> {
+    return this.client.get<readonly Note[]>(
+      `/tenants/${tenantId}/conversations/${conversationId}/notes`,
+    );
+  }
+
+  addNote(tenantId: string, conversationId: string, body: string): Promise<ApiResult<Note>> {
+    return this.client.post<Note>(
+      `/tenants/${tenantId}/conversations/${conversationId}/notes`,
+      { body: { body } },
+    );
+  }
+
+  editNote(tenantId: string, noteId: string, body: string): Promise<ApiResult<Note>> {
+    return this.client.patch<Note>(`/tenants/${tenantId}/notes/${noteId}`, { body: { body } });
+  }
+
+  deleteNote(tenantId: string, noteId: string): Promise<ApiResult<Note>> {
+    return this.client.delete<Note>(`/tenants/${tenantId}/notes/${noteId}`);
+  }
+
+  /**
+   * Moves this person's read cursor. Never a receipt.
+   *
+   * The body is empty because the common case is "I have seen all of it", and
+   * an endpoint that made the browser compute a timestamp would be a second
+   * place for the cursor to be wrong.
+   */
+  markRead(
+    tenantId: string,
+    conversationId: string,
+  ): Promise<ApiResult<{ readonly readThrough: string }>> {
+    return this.client.post<{ readonly readThrough: string }>(
+      `/tenants/${tenantId}/conversations/${conversationId}/read`,
+      { body: {} },
     );
   }
 
