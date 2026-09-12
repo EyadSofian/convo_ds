@@ -1,5 +1,6 @@
 import type { ApiResult } from '../api/client.js';
-import type { Campaign, CreateCampaignInput } from '../api/campaigns.js';
+import type { Campaign, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
+import type { ChannelTestRecipient } from '../api/channels.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { currentTenantId, failed, fromResult, LOADING } from './store.js';
@@ -13,6 +14,7 @@ export async function loadCampaignsScreen(context: LiveContext): Promise<void> {
   if (tenantId === null) return;
   context.live.campaigns = LOADING;
   context.live.connections = LOADING;
+  context.live.testRecipients = LOADING;
   context.refresh();
   const [campaigns, connections] = await Promise.all([
     context.live.campaignsApi.list(tenantId),
@@ -21,6 +23,16 @@ export async function loadCampaignsScreen(context: LiveContext): Promise<void> {
   const now = context.now();
   context.live.campaigns = fromResult(campaigns, now);
   context.live.connections = fromResult(connections, now);
+  if (!connections.ok) {
+    context.live.testRecipients = { status: 'error', error: connections.error };
+  } else {
+    const results = await Promise.all(connections.data.map((connection) => context.live.channels.testRecipients(tenantId, connection.id)));
+    const refusal = results.find((result) => !result.ok);
+    context.live.testRecipients = refusal !== undefined && !refusal.ok
+      ? { status: 'error', error: refusal.error }
+      : { status: 'ready', value: (results as readonly { readonly ok: true; readonly data: readonly ChannelTestRecipient[] }[])
+        .flatMap((result) => result.data), loadedAt: now };
+  }
   context.refresh();
 }
 
@@ -68,6 +80,33 @@ export function cloneCampaign(context: LiveContext, id: string, sourceName: stri
   return mutate(context, `campaign-clone:${id}`,
     (tenantId) => context.live.campaignsApi.clone(tenantId, id, name, context.newKey()),
     (campaign) => t(context, `أُنشئت مسودة «${campaign.name}»`, `Draft “${campaign.name}” created`));
+}
+
+export async function testSendCampaign(
+  context: LiveContext,
+  campaignId: string,
+  testRecipientId: string,
+  expectedVersion: number,
+): Promise<boolean> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return false;
+  context.live.busy = `campaign-test-send:${campaignId}`;
+  context.live.error = null;
+  context.refresh();
+  const result: ApiResult<CampaignTestSend> = await context.live.campaignsApi.testSend(
+    tenantId, campaignId, testRecipientId, expectedVersion, context.newKey(),
+  );
+  context.live.busy = null;
+  context.live.revision += 1;
+  if (!result.ok) {
+    context.live.error = result.error;
+    context.refresh();
+    return false;
+  }
+  pushToast(context.state, t(context, `أُضيف اختبار «${result.data.recipient_label}» إلى طابور الإرسال`,
+    `Test to “${result.data.recipient_label}” queued`));
+  context.refresh();
+  return true;
 }
 
 export async function loadCampaignRecipients(context: LiveContext, id: string): Promise<void> {

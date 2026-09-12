@@ -111,6 +111,38 @@ describe('renderDialog', () => {
     expect(text(renderDialog(ready.state) as HTMLElement)).toContain('no longer exists');
   });
 
+  it('offers only authorized recipients in the campaign test-send dialog', () => {
+    const ready = open('campaign-test-send', 'campaign-1', 'en');
+    ready.state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{
+      id: 'campaign-1', name: 'September', objective: null, connection_id: 'channel-1', state: 'draft', version: 1,
+      revision_id: 'revision-1', revision: 1, revision_hash: 'a'.repeat(64), content: { text: 'Welcome' },
+      variables: {}, audience_filter: {}, timezone: 'UTC', expires_at: null, budget_amount_minor: '0.000000',
+      budget_currency: 'USD', approved: false, audience: null, execution: null,
+      created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
+    }] };
+    ready.state.live.testRecipients = { status: 'ready', loadedAt: 1, value: [
+      { id: 'recipient-1', connection_id: 'channel-1', identity_id: 'identity-1', peer_identity: '201000000000', display_name: 'Owner', label: 'Owner phone', authorized_at: NOW.toISOString() },
+      { id: 'recipient-2', connection_id: 'channel-2', identity_id: 'identity-2', peer_identity: '201000000001', display_name: 'Other', label: 'Other line', authorized_at: NOW.toISOString() },
+    ] };
+    const dialog = renderDialog(ready.state) as HTMLElement;
+    expect((dialog.querySelector('[data-form="campaignTestRecipient"]') as HTMLSelectElement).options).toHaveLength(1);
+    expect(text(dialog)).toContain('same channel, window and adapter checks');
+    expect((dialog.querySelector('[data-act="live-campaign-test-send"]') as HTMLButtonElement).disabled).toBe(false);
+
+    ready.state.live.testRecipients = { status: 'ready', loadedAt: 2, value: [] };
+    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('Owner or Admin');
+    ready.state.live.testRecipients = { status: 'loading' };
+    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('Loading authorized');
+    ready.state.live.testRecipients = { status: 'error', error: { code: 'down', message: 'Recipients unavailable', requestId: null, status: 503, details: [] } };
+    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('Recipients unavailable');
+    ready.state.live.error = { code: 'refused', message: 'Test refused', requestId: 'request-42', status: 409, details: [] };
+    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('request-42');
+    ready.state.live.error = { code: 'refused', message: 'Test refused without id', requestId: null, status: 409, details: [] };
+    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('Test refused without id');
+    ready.state.live.campaigns = { status: 'ready', loadedAt: 2, value: [] };
+    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('no longer exists');
+  });
+
   it('survives a workspace with no inboxes', () => {
     const state = createState(NOW);
     state.dataset = { ...state.dataset, inboxes: [] };

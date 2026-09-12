@@ -66,6 +66,7 @@ interface ClaimRow {
   readonly connection_status: string;
   readonly disconnected_at: Date | null;
   readonly campaign_recipient_id: string | null;
+  readonly campaign_test_send_id: string | null;
 }
 
 /** How long a claim is held before another worker may take the row. */
@@ -249,7 +250,9 @@ export class ChannelDispatcherService {
             SET leased_by = $4,
                 lease_until = now() + make_interval(secs => $5),
                 attempts = o.attempts + 1
-           FROM taken, outbound_messages m LEFT JOIN campaign_recipients cr ON cr.command_id=m.id,
+           FROM taken, outbound_messages m
+             LEFT JOIN campaign_recipients cr ON cr.command_id=m.id
+             LEFT JOIN campaign_test_sends cts ON cts.message_id=m.id,
                 channel_connections c
           WHERE o.message_id = taken.message_id
             AND m.id = o.message_id
@@ -258,7 +261,7 @@ export class ChannelDispatcherService {
                     m.message_type, m.text_body, m.template_name, m.template_language,
                     m.dispatch_version, o.attempts,
                     c.kind, c.capabilities, c.status AS connection_status,c.disconnected_at,
-                    cr.id::text AS campaign_recipient_id`,
+                    cr.id::text AS campaign_recipient_id,cts.id::text AS campaign_test_send_id`,
         [tenantId, trafficClass, limit, workerId, LEASE_SECONDS],
       );
 
@@ -357,10 +360,12 @@ export class ChannelDispatcherService {
   ): Promise<{ reason: string; detail: string } | null> {
     const campaignRefusal = await campaignPermitNow(sql, claim);
     if (campaignRefusal !== null) return campaignRefusal;
+    const testRefusal = await campaignTestRefusal(sql, claim);
+    if (testRefusal !== null) return testRefusal;
     if (claim.disconnected_at !== null) {
       return { reason: 'channel_disconnected', detail: 'The channel was disconnected.' };
     }
-    if (claim.campaign_recipient_id !== null && claim.connection_status !== 'healthy') {
+    if ((claim.campaign_recipient_id !== null || claim.campaign_test_send_id !== null) && claim.connection_status !== 'healthy') {
       return { reason: 'channel_not_ready', detail: 'The campaign channel is not healthy.' };
     }
     const suppressed = await sql.query(
@@ -646,6 +651,36 @@ export class ChannelDispatcherService {
       return folded;
     });
   }
+}
+
+async function campaignTestRefusal(
+  sql: SqlExecutor,
+  claim: Pick<ClaimRow, 'campaign_test_send_id'>,
+): Promise<{ reason: string; detail: string } | null> {
+  if (claim.campaign_test_send_id === null) return null;
+  const row = await sql.query<{
+    revision_current: boolean;
+    revoked_at: Date | null;
+    identity_valid_to: Date | null;
+    contact_deleted_at: Date | null;
+  }>(
+    `SELECT c.current_revision_id=s.revision_id AS revision_current,tr.revoked_at,
+            i.valid_to AS identity_valid_to,contact.deleted_at AS contact_deleted_at
+       FROM campaign_test_sends s JOIN campaigns c ON c.id=s.campaign_id
+       JOIN channel_test_recipients tr ON tr.id=s.authorization_id
+       JOIN contact_identities i ON i.id=tr.identity_id
+       JOIN contacts contact ON contact.id=i.contact_id
+      WHERE s.id=$1`,
+    [claim.campaign_test_send_id],
+  );
+  const current = row.rows[0];
+  if (current === undefined || current.revoked_at !== null || current.identity_valid_to !== null || current.contact_deleted_at !== null) {
+    return { reason: 'test_recipient_authorization_revoked', detail: 'The authorized test recipient is no longer active.' };
+  }
+  if (!current.revision_current) {
+    return { reason: 'campaign_test_revision_stale', detail: 'The campaign changed before the test reached dispatch.' };
+  }
+  return null;
 }
 
 async function campaignPermitNow(

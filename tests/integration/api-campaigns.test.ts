@@ -17,6 +17,7 @@ import { clusterCredentials, createScratchDatabase, migrateScratch, scratchRunti
 const BOOTSTRAP_TOKEN = 'campaign-bootstrap-token-value-000001';
 const PASSWORD = 'campaign owner password';
 const providerOutcomes: SendOutcome[] = [];
+const providerRequests: unknown[] = [];
 
 interface Harness {
   readonly app: NestFastifyApplication;
@@ -53,10 +54,13 @@ async function setup(): Promise<Harness> {
       validateConnection: (_kind, _credential, assetIdentity) => Promise.resolve({
         ok: true, assetIdentity, code: null, message: null,
       }),
-      send: () => Promise.resolve(providerOutcomes.shift() ?? {
-        status: 'definitely_rejected', code: 'unexpected_test_send',
-        message: 'The campaign test did not arrange a provider outcome.', retryable: false,
-      }),
+      send: (kind, _credential, request) => {
+        providerRequests.push({ kind, request });
+        return Promise.resolve(providerOutcomes.shift() ?? {
+          status: 'definitely_rejected', code: 'unexpected_test_send',
+          message: 'The campaign test did not arrange a provider outcome.', retryable: false,
+        });
+      },
     },
   });
   const server = app.getHttpAdapter().getInstance() as unknown as FastifyInstance;
@@ -103,7 +107,7 @@ async function setup(): Promise<Harness> {
   return { app, pool, server, tenantId, cookie, csrf, ...seeded };
 }
 
-async function send(api: Harness, method: 'GET' | 'POST' | 'PATCH', path: string, payload?: Record<string, unknown>, key?: string): Promise<LightMyRequestResponse> {
+async function send(api: Harness, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, payload?: Record<string, unknown>, key?: string): Promise<LightMyRequestResponse> {
   return api.server.inject({ method, url: `/api/v1/tenants/${api.tenantId}${path}`,
     headers: { cookie: api.cookie, 'x-csrf-token': api.csrf, ...(key === undefined ? {} : { 'idempotency-key': key }) },
     ...(payload === undefined ? {} : { payload }),
@@ -576,6 +580,173 @@ describe('campaign API', () => {
       return rows.rows[0];
     });
     expect(acceptedLedger).toEqual({ recipients: '2', committed: '2', campaign: 'dispatch_completed' });
+  });
+
+  it('sends only to an explicitly authorized test recipient through the ordinary dispatcher', async () => {
+    const unknown = await send(api, 'POST', `/channels/${api.connectionId}/test-recipients`, {
+      peerIdentity: '201099999999', label: 'Unknown phone',
+    });
+    expect(unknown.statusCode).toBe(422);
+    expect(unknown.json()).toMatchObject({ error: { code: 'test_recipient_unknown' } });
+
+    const authorized = await send(api, 'POST', `/channels/${api.connectionId}/test-recipients`, {
+      peerIdentity: '201000000000', label: 'QA owner',
+    });
+    expect(authorized.statusCode, authorized.body).toBe(201);
+    const testRecipientId = (authorized.json() as { data: { id: string } }).data.id;
+    expect((await send(api, 'GET', `/channels/${api.connectionId}/test-recipients`)).json()).toMatchObject({
+      data: [{ id: testRecipientId, peer_identity: '201000000000', label: 'QA owner' }],
+    });
+    await expect(withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE channel_test_recipients SET label='rewritten' WHERE id=$1`, [testRecipientId],
+    ))).rejects.toThrow('test recipient authorization history is immutable');
+    await expect(withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `DELETE FROM channel_test_recipients WHERE id=$1`, [testRecipientId],
+    ))).rejects.toThrow('permission denied');
+    const duplicate = await send(api, 'POST', `/channels/${api.connectionId}/test-recipients`, {
+      peerIdentity: '201000000000', label: 'Again',
+    });
+    expect(duplicate.statusCode).toBe(409);
+
+    const created = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Authorized test send',
+      content: { template: { name: 'course_open', language: 'ar' } },
+    }), 'create-authorized-test-send');
+    const campaign = (created.json() as { data: { id: string; version: number; revision_id: string } }).data;
+    const staleVersion = await send(api, 'POST', `/campaigns/${campaign.id}/test-send`, {
+      testRecipientId, expectedVersion: campaign.version + 1,
+    }, 'stale-version-test-send');
+    expect(staleVersion.statusCode).toBe(409);
+    expect(staleVersion.json()).toMatchObject({ error: { code: 'version_conflict' } });
+    const refused = await send(api, 'POST', `/campaigns/${campaign.id}/test-send`, {
+      testRecipientId: randomUUID(), expectedVersion: campaign.version,
+    }, 'unauthorized-test-send');
+    expect(refused.statusCode).toBe(422);
+    expect(refused.json()).toMatchObject({ error: { code: 'test_recipient_not_authorized' } });
+
+    const queued = await send(api, 'POST', `/campaigns/${campaign.id}/test-send`, {
+      testRecipientId, expectedVersion: campaign.version,
+    }, 'authorized-test-send');
+    expect(queued.statusCode, queued.body).toBe(202);
+    const queuedData = (queued.json() as { data: { id: string; state: string; revision_id: string; peer_identity: string } }).data;
+    expect(queuedData).toMatchObject({ state: 'queued', revision_id: campaign.revision_id, peer_identity: '201000000000' });
+    const replay = await send(api, 'POST', `/campaigns/${campaign.id}/test-send`, {
+      testRecipientId, expectedVersion: campaign.version,
+    }, 'authorized-test-send');
+    expect(replay.statusCode).toBe(202);
+    expect((replay.json() as { data: unknown }).data).toEqual(queuedData);
+    const reusedKey = await send(api, 'POST', `/campaigns/${campaign.id}/test-send`, {
+      testRecipientId, expectedVersion: campaign.version + 1,
+    }, 'authorized-test-send');
+    expect(reusedKey.statusCode).toBe(409);
+    expect(reusedKey.json()).toMatchObject({ error: { code: 'idempotency_key_reused' } });
+
+    const evidence = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const rows = await sql.query<{ executions: string; snapshots: string; recipients: string; traffic_class: string }>(
+        `SELECT (SELECT count(*)::text FROM campaign_executions WHERE campaign_id=$1) AS executions,
+                (SELECT count(*)::text FROM audience_snapshots WHERE campaign_id=$1) AS snapshots,
+                (SELECT count(*)::text FROM campaign_recipients r JOIN campaign_executions e ON e.id=r.execution_id WHERE e.campaign_id=$1) AS recipients,
+                o.traffic_class
+           FROM campaign_test_sends s JOIN outbox o ON o.message_id=s.message_id WHERE s.id=$2`,
+        [campaign.id, queuedData.id],
+      );
+      return rows.rows[0];
+    });
+    expect(evidence).toEqual({ executions: '0', snapshots: '0', recipients: '0', traffic_class: 'interactive' });
+    await expect(withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE campaign_test_sends SET requested_at=now() WHERE id=$1`, [queuedData.id],
+    ))).rejects.toThrow('permission denied');
+    await expect(withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `DELETE FROM campaign_test_sends WHERE id=$1`, [queuedData.id],
+    ))).rejects.toThrow('permission denied');
+
+    providerOutcomes.push({ status: 'accepted', providerMessageId: 'wamid.campaign.test.1', raw: {} });
+    const sent = await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test-send', 'interactive');
+    expect(sent).toMatchObject({ claimed: 1, accepted: 1 });
+    expect(providerRequests.at(-1)).toMatchObject({
+      kind: 'whatsapp',
+      request: { peerIdentity: '201000000000', messageType: 'template', template: { name: 'course_open', language: 'ar' } },
+    });
+
+    const variableDraft = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Test render alias', content: { text: 'Hello {{first_name}}' },
+      variables: { first_name: 'display_name' },
+    }), 'create-test-render-alias');
+    const variableCampaign = (variableDraft.json() as { data: { id: string; version: number } }).data;
+    const variableSend = await send(api, 'POST', `/campaigns/${variableCampaign.id}/test-send`, {
+      testRecipientId, expectedVersion: variableCampaign.version,
+    }, 'test-render-alias');
+    expect(variableSend.statusCode, variableSend.body).toBe(202);
+    const variableMessageId = (variableSend.json() as { data: { message_id: string } }).data.message_id;
+    const renderedText = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const row = await sql.query<{ text_body: string }>(
+        `SELECT text_body FROM outbound_messages WHERE id=$1`, [variableMessageId],
+      );
+      await sql.query(`DELETE FROM outbox WHERE message_id=$1`, [variableMessageId]);
+      return row.rows[0]?.text_body;
+    });
+    expect(renderedText).toBe('Hello Student 1');
+
+    const invalidDraft = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Invalid test content', content: { unsupported: true },
+    }), 'create-invalid-test-content');
+    const invalidCampaign = (invalidDraft.json() as { data: { id: string; version: number } }).data;
+    const invalidSend = await send(api, 'POST', `/campaigns/${invalidCampaign.id}/test-send`, {
+      testRecipientId, expectedVersion: invalidCampaign.version,
+    }, 'invalid-content-test-send');
+    expect(invalidSend.statusCode).toBe(422);
+    expect(invalidSend.json()).toMatchObject({ error: { code: 'invalid_campaign_content' } });
+
+    const lockedDraft = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Locked test campaign', content: { template: { name: 'course_open', language: 'ar' } },
+    }), 'create-locked-test-campaign');
+    const lockedCampaign = (lockedDraft.json() as { data: { id: string; version: number } }).data;
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE campaigns SET control_state='scheduled' WHERE id=$1`, [lockedCampaign.id],
+    ));
+    const lockedSend = await send(api, 'POST', `/campaigns/${lockedCampaign.id}/test-send`, {
+      testRecipientId, expectedVersion: lockedCampaign.version,
+    }, 'locked-campaign-test-send');
+    expect(lockedSend.statusCode).toBe(409);
+    expect(lockedSend.json()).toMatchObject({ error: { code: 'campaign_test_send_locked' } });
+
+    expect((await send(api, 'DELETE', `/channels/${api.connectionId}/test-recipients/${testRecipientId}`)).statusCode).toBe(204);
+    expect((await send(api, 'DELETE', `/channels/${api.connectionId}/test-recipients/${testRecipientId}`)).statusCode).toBe(404);
+    expect((await send(api, 'GET', `/channels/${api.connectionId}/test-recipients`)).json()).toMatchObject({ data: [] });
+    const afterRevoke = await send(api, 'POST', `/campaigns/${campaign.id}/test-send`, {
+      testRecipientId, expectedVersion: campaign.version,
+    }, 'revoked-test-send');
+    expect(afterRevoke.statusCode).toBe(422);
+
+    const reauthorized = await send(api, 'POST', `/channels/${api.connectionId}/test-recipients`, {
+      peerIdentity: '201000000000', label: 'QA owner again',
+    });
+    const secondRecipientId = (reauthorized.json() as { data: { id: string } }).data.id;
+    expect((await send(api, 'POST', `/campaigns/${campaign.id}/test-send`, {
+      testRecipientId: secondRecipientId, expectedVersion: campaign.version,
+    }, 'revoke-before-dispatch')).statusCode).toBe(202);
+    expect((await send(api, 'DELETE', `/channels/${api.connectionId}/test-recipients/${secondRecipientId}`)).statusCode).toBe(204);
+    const callsBeforeRevokedDispatch = providerRequests.length;
+    expect(await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test-revoked', 'interactive'))
+      .toMatchObject({ claimed: 1, skipped: 1 });
+    expect(providerRequests).toHaveLength(callsBeforeRevokedDispatch);
+
+    const thirdAuthorization = await send(api, 'POST', `/channels/${api.connectionId}/test-recipients`, {
+      peerIdentity: '201000000000', label: 'Revision fence',
+    });
+    const thirdRecipientId = (thirdAuthorization.json() as { data: { id: string } }).data.id;
+    expect((await send(api, 'POST', `/campaigns/${campaign.id}/test-send`, {
+      testRecipientId: thirdRecipientId, expectedVersion: campaign.version,
+    }, 'stale-test-revision')).statusCode).toBe(202);
+    const revised = await send(api, 'PATCH', `/campaigns/${campaign.id}`, {
+      ...draft(api, { name: 'Authorized test send', content: { template: { name: 'course_changed', language: 'ar' } } }),
+      expectedVersion: campaign.version,
+    }, 'revise-after-test-send');
+    expect(revised.statusCode).toBe(200);
+    const callsBeforeStaleDispatch = providerRequests.length;
+    expect(await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test-stale', 'interactive'))
+      .toMatchObject({ claimed: 1, skipped: 1 });
+    expect(providerRequests).toHaveLength(callsBeforeStaleDispatch);
   });
 
   it('refuses a campaign if channel readiness changes after planning', async () => {

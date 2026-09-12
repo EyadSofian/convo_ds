@@ -16,13 +16,33 @@ div.workspace
     div.card__header
       h2.card__title
     div.card__body
-      div.statebox.statebox--denied
-        span.statebox__icon
-          svg
-            rect
-            path
-        p.statebox__title
-        p.statebox__body
+      div.tablewrap
+        table.table
+          thead
+            tr
+              th
+              th
+              th
+              th
+              th
+          tbody
+            tr
+              td
+                bdi.mono
+              td
+                select.select [live-role]
+                  option
+              td
+                select.select [live-status]
+                  option
+                  option
+                  option
+              td
+                span.pill.pill--warning
+              td
+                span.workspace__actions
+                  button.btn.btn--sm [live-scope-tenant]
+                  button.btn.btn--ghost.btn--sm [live-offer-ownership]
   section.card
     div.card__header
       h2.card__title
@@ -32,13 +52,16 @@ div.workspace
           input.input [form]
         select.select [form]
           option
+          option
         button.btn.btn--primary.btn--sm [live-invite]
           svg
             path
-      div.statebox.statebox--denied
+      div.statebox.statebox--empty
         span.statebox__icon
           svg
-            rect
+            circle
+            path
+            path
             path
         p.statebox__title
         p.statebox__body
@@ -52,6 +75,8 @@ div.workspace
           input.input [form]
         select.select [form]
           option
+          option
+          option
         select.select [form]
           option
           option
@@ -60,20 +85,19 @@ div.workspace
         button.btn.btn--primary.btn--sm [live-create-role]
           svg
             path
-      div.statebox.statebox--denied
-        span.statebox__icon
-          svg
-            rect
-            path
-        p.statebox__title
-        p.statebox__body
-      div.statebox.statebox--denied
-        span.statebox__icon
-          svg
-            rect
-            path
-        p.statebox__title
-        p.statebox__body
+      div.rolegrid
+        div.card
+          div.card__header
+            span.card__title
+            span.card__spacer
+            span.pill.pill--neutral
+              svg
+                path
+                path
+          div.rolegrid__key
+          div.labelset
+            span.pill.pill--neutral
+            span.pill.pill--neutral
   section.card
     div.card__header
       h2.card__title
@@ -84,22 +108,32 @@ div.workspace
         button.btn.btn--primary.btn--sm [live-create-team]
           svg
             path
-      div.statebox.statebox--denied
-        span.statebox__icon
-          svg
-            rect
-            path
-        p.statebox__title
-        p.statebox__body
+      div.grid2
+        div.card
+          div.card__header
+            span.card__title
+            span.card__spacer
+            span.pill.pill--neutral
+          ul.memberlist
+            li.memberlist__item
+              bdi.mono
+              button.btn.btn--ghost.btn--sm [live-remove-member]
+          div.filterbar
+            select.select [form]
+              option
+            button.btn.btn--sm [live-team-add]
+            button.btn.btn--ghost.btn--sm [live-archive-team]
   section.card
     div.card__header
       h2.card__title
     div.card__body
       p.field__hint
-      div.statebox.statebox--denied
+      div.statebox.statebox--empty
         span.statebox__icon
           svg
-            rect
+            circle
+            path
+            path
             path
         p.statebox__title
         p.statebox__body

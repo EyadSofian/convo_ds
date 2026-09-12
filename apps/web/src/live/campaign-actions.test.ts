@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Campaign, CampaignsApi, CreateCampaignInput } from '../api/campaigns.js';
-import type { ChannelsApi } from '../api/channels.js';
+import type { Campaign, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
+import type { ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
@@ -12,6 +12,7 @@ import {
   launchCampaign,
   loadCampaignRecipients,
   loadCampaignsScreen,
+  testSendCampaign,
   updateCampaign,
   validateCampaign,
 } from './campaign-actions.js';
@@ -32,6 +33,11 @@ const CAMPAIGN: Campaign = {
   created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
 };
 const ERROR: ApiError = { code: 'refused', message: 'Server refused', requestId: 'req-1', status: 409, details: [] };
+const TEST_SEND: CampaignTestSend = {
+  id: 'test-send-1', campaign_id: 'campaign-1', revision_id: 'revision-1', test_recipient_id: 'recipient-1',
+  recipient_label: 'Owner phone', peer_identity: '201000000000', message_id: 'message-1',
+  state: 'queued', state_reason: null, created_at: NOW.toISOString(),
+};
 const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 const fail = <T>(): ApiResult<T> => ({ ok: false, error: ERROR });
 
@@ -51,10 +57,12 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     launch: vi.fn().mockResolvedValue(mutation),
     control: vi.fn().mockResolvedValue(mutation),
     clone: vi.fn().mockResolvedValue(mutation),
+    testSend: vi.fn().mockResolvedValue(ok(TEST_SEND)),
     recipients: vi.fn().mockResolvedValue(ok([])),
   } as unknown as CampaignsApi;
   const channels = {
     connections: vi.fn().mockResolvedValue(ok([])),
+    testRecipients: vi.fn().mockResolvedValue(ok([])),
   } as unknown as ChannelsApi;
   Object.defineProperty(state.live, 'campaignsApi', { value: campaigns });
   Object.defineProperty(state.live, 'channels', { value: channels });
@@ -74,8 +82,22 @@ describe('campaign actions', () => {
     await loadCampaignsScreen(context);
     await loadCampaignRecipients(context, 'campaign-1');
     expect(await createCampaign(context, INPUT)).toBe(false);
+    expect(await testSendCampaign(context, 'campaign-1', 'recipient-1', 1)).toBe(false);
     expect(campaigns.list).not.toHaveBeenCalled();
     expect(campaigns.recipients).not.toHaveBeenCalled();
+  });
+
+  it('queues a test only after the server commits and keeps a refusal in the dialog', async () => {
+    const ready = setup();
+    expect(await testSendCampaign(ready.context, 'campaign-1', 'recipient-1', 1)).toBe(true);
+    expect(ready.campaigns.testSend).toHaveBeenCalledWith('tenant-1', 'campaign-1', 'recipient-1', 1, 'key-1');
+    expect(ready.state.toasts.at(-1)?.text).toContain('Owner phone');
+
+    vi.mocked(ready.campaigns.testSend).mockResolvedValueOnce(fail());
+    const toastCount = ready.state.toasts.length;
+    expect(await testSendCampaign(ready.context, 'campaign-1', 'recipient-1', 1)).toBe(false);
+    expect(ready.state.toasts).toHaveLength(toastCount);
+    expect(ready.state.live.error).toEqual(ERROR);
   });
 
   it('loads campaigns and channel choices together, including a refused read', async () => {
@@ -88,6 +110,26 @@ describe('campaign actions', () => {
     vi.mocked(refused.campaigns.list).mockResolvedValueOnce(fail());
     await loadCampaignsScreen(refused.context);
     expect(refused.state.live.campaigns).toEqual({ status: 'error', error: ERROR });
+
+    const connectionRefused = setup();
+    vi.mocked(connectionRefused.channels.connections).mockResolvedValueOnce(fail());
+    await loadCampaignsScreen(connectionRefused.context);
+    expect(connectionRefused.state.live.testRecipients).toEqual({ status: 'error', error: ERROR });
+
+    const recipientRefused = setup();
+    vi.mocked(recipientRefused.channels.connections).mockResolvedValueOnce(ok([{ id: 'channel-1' }] as ChannelConnection[]));
+    vi.mocked(recipientRefused.channels.testRecipients).mockResolvedValueOnce(fail());
+    await loadCampaignsScreen(recipientRefused.context);
+    expect(recipientRefused.state.live.testRecipients).toEqual({ status: 'error', error: ERROR });
+
+    const recipientReady = setup();
+    vi.mocked(recipientReady.channels.connections).mockResolvedValueOnce(ok([{ id: 'channel-1' }] as ChannelConnection[]));
+    vi.mocked(recipientReady.channels.testRecipients).mockResolvedValueOnce(ok([{
+      id: 'recipient-1', connection_id: 'channel-1', identity_id: 'identity-1', peer_identity: '201000000000',
+      display_name: 'Owner', label: 'Owner phone', authorized_at: NOW.toISOString(),
+    }]));
+    await loadCampaignsScreen(recipientReady.context);
+    expect(recipientReady.state.live.testRecipients).toMatchObject({ status: 'ready', value: [{ id: 'recipient-1' }] });
   });
 
   it('records success only after the mutation and then reloads server state', async () => {
@@ -160,6 +202,7 @@ describe('campaign actions', () => {
     expect(await LIVE_ACTIONS['live-campaign-control']?.(empty.context, 'campaign-1:wrong')).toBe(false);
     expect(await LIVE_ACTIONS['live-campaign-clone']?.(empty.context, ':')).toBe(false);
     expect(await LIVE_ACTIONS['live-campaign-update']?.(empty.context, 'missing')).toBe(false);
+    expect(await LIVE_ACTIONS['live-campaign-test-send']?.(empty.context, 'missing')).toBe(false);
 
     const readyCase = setup();
     readyCase.state.dialog = { kind: 'campaign', arg: '' };
@@ -168,6 +211,16 @@ describe('campaign actions', () => {
       campaignMessage: 'Welcome', campaignObjective: '', campaignSearch: 'Mona',
     };
     expect(await LIVE_ACTIONS['live-campaign-create']?.(readyCase.context, '')).toBe(true);
+    expect(readyCase.state.dialog).toBeNull();
+
+    readyCase.state.dialog = { kind: 'campaign-test-send', arg: 'campaign-1' };
+    expect(await LIVE_ACTIONS['live-campaign-test-send']?.(readyCase.context, 'campaign-1')).toBe(false);
+    readyCase.state.live.testRecipients = { status: 'ready', loadedAt: 1, value: [{
+      id: 'recipient-1', connection_id: 'channel-1', identity_id: 'identity-1', peer_identity: '201000000000',
+      display_name: 'Owner', label: 'Owner phone', authorized_at: NOW.toISOString(),
+    }] };
+    expect(await LIVE_ACTIONS['live-campaign-test-send']?.(readyCase.context, 'campaign-1')).toBe(true);
+    expect(readyCase.campaigns.testSend).toHaveBeenCalledWith('tenant-1', 'campaign-1', 'recipient-1', 1, 'key-1');
     expect(readyCase.state.dialog).toBeNull();
     expect(readyCase.state.dialogForm).toEqual({});
     expect(vi.mocked(readyCase.campaigns.create).mock.calls[0]?.[1]).toMatchObject({

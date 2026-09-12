@@ -39,12 +39,14 @@ import {
   launchCampaign,
   loadCampaignRecipients,
   loadCampaignsScreen,
+  testSendCampaign,
   updateCampaign,
   validateCampaign,
 } from './campaign-actions.js';
 import {
   addTeamMember,
   archiveTeam,
+  authorizeTestRecipient,
   changeRole,
   changeScopes,
   changeStatus,
@@ -62,6 +64,7 @@ import {
   renameRole,
   rotateChannelCredential,
   revokeInvitation,
+  revokeTestRecipient,
   settleOwnership,
   signIn,
   signOut,
@@ -280,6 +283,14 @@ export function channelTokenField(connectionId: string): string {
   return `channelToken_${connectionId}`;
 }
 
+export function channelTestIdentityField(connectionId: string): string {
+  return `channelTestIdentity_${connectionId}`;
+}
+
+export function channelTestLabelField(connectionId: string): string {
+  return `channelTestLabel_${connectionId}`;
+}
+
 export function metadataFieldValue(target: string, entityId: string, fieldId: string): string {
   return `metadata_${target}_${entityId}_${fieldId}`;
 }
@@ -302,6 +313,23 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-channels-reload': async (context) => {
     await loadSession(context);
     await loadChannelsScreen(context);
+  },
+
+  'live-authorize-test-recipient': async (context, arg) => {
+    const peerIdentity = form(context, channelTestIdentityField(arg));
+    const label = form(context, channelTestLabelField(arg));
+    if (peerIdentity === '' || label === '') return false;
+    const saved = await authorizeTestRecipient(context, arg, peerIdentity, label);
+    if (saved) {
+      clearForm(context, [channelTestIdentityField(arg), channelTestLabelField(arg)]);
+      context.refresh();
+    }
+    return saved;
+  },
+
+  'live-revoke-test-recipient': async (context, arg) => {
+    const { id: connectionId, value: authorizationId } = splitArg(arg);
+    return connectionId === '' || authorizationId === '' ? false : revokeTestRecipient(context, connectionId, authorizationId);
   },
 
   'live-campaigns-reload': async (context) => {
@@ -370,6 +398,19 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-campaign-clone': async (context, arg) => {
     const { id, value } = splitArg(arg);
     return id === '' || value === '' ? false : cloneCampaign(context, id, value);
+  },
+  'live-campaign-test-send': async (context, arg) => {
+    const campaign = rowsOf(context.live.campaigns).find((entry) => entry.id === arg);
+    const testRecipientId = form(context, 'campaignTestRecipient') ||
+      (campaign === undefined ? '' : rowsOf(context.live.testRecipients).find((entry) => entry.connection_id === campaign.connection_id)?.id ?? '');
+    if (campaign === undefined || testRecipientId === '') return false;
+    const queued = await testSendCampaign(context, campaign.id, testRecipientId, campaign.version);
+    if (queued) {
+      context.state.dialog = null;
+      clearForm(context, ['campaignTestRecipient']);
+      context.refresh();
+    }
+    return queued;
   },
   'live-campaign-ledger': async (context, arg) => loadCampaignRecipients(context, arg),
 

@@ -63,6 +63,15 @@ export async function openScreen(page: Page, screen: string, query = ''): Promis
   await installApi(page);
   await page.goto(`/#/${screen}${query}`);
   await expect(page.locator('.workspace, .inbox')).toBeVisible();
+  const readySelector: Readonly<Record<string, string>> = {
+    contacts: '.contactrow', channels: '[data-connection]', people: '[data-membership]', broadcasts: '.broadcast-grid',
+  };
+  const selector = readySelector[screen];
+  // Seeing the shell is not evidence that a server-backed card has arrived.
+  // Wait for a fixture row first, then make sure no sibling resource is still
+  // advertising a load before pixels or accessibility are measured.
+  if (selector !== undefined) await expect(page.locator(selector).first()).toBeVisible();
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
   await page.evaluate(() => document.fonts.ready);
 }
 

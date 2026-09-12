@@ -70,6 +70,16 @@ export interface ChannelCatalogueEntry {
   readonly capabilities: CapabilityMatrix;
 }
 
+export interface ChannelTestRecipient {
+  readonly id: string;
+  readonly connection_id: string;
+  readonly identity_id: string;
+  readonly peer_identity: string;
+  readonly display_name: string;
+  readonly label: string;
+  readonly authorized_at: string;
+}
+
 export interface ConnectChannelInput {
   readonly kind: ChannelKind;
   readonly externalAssetId: string;
@@ -127,5 +137,24 @@ export class ChannelsApi {
 
   disconnect(tenantId: string, connectionId: string): Promise<ApiResult<undefined>> {
     return this.client.delete<undefined>(`/tenants/${tenantId}/channels/${connectionId}`);
+  }
+
+  testRecipients(tenantId: string, connectionId: string): Promise<ApiResult<readonly ChannelTestRecipient[]>> {
+    return this.client.get(`/tenants/${tenantId}/channels/${connectionId}/test-recipients`);
+  }
+
+  authorizeTestRecipient(
+    tenantId: string,
+    connectionId: string,
+    peerIdentity: string,
+    label: string,
+  ): Promise<ApiResult<ChannelTestRecipient>> {
+    return this.client.post(`/tenants/${tenantId}/channels/${connectionId}/test-recipients`, {
+      body: { peerIdentity, label },
+    });
+  }
+
+  revokeTestRecipient(tenantId: string, connectionId: string, id: string): Promise<ApiResult<undefined>> {
+    return this.client.delete(`/tenants/${tenantId}/channels/${connectionId}/test-recipients/${id}`);
   }
 }

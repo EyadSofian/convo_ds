@@ -38,6 +38,19 @@ export interface CampaignRecipient {
   readonly currency: string | null;
 }
 
+export interface CampaignTestSend {
+  readonly id: string;
+  readonly campaign_id: string;
+  readonly revision_id: string;
+  readonly test_recipient_id: string;
+  readonly recipient_label: string;
+  readonly peer_identity: string;
+  readonly message_id: string;
+  readonly state: string;
+  readonly state_reason: string | null;
+  readonly created_at: string;
+}
+
 export interface CreateCampaignInput {
   readonly name: string;
   readonly objective: string | null;
@@ -78,6 +91,11 @@ export class CampaignsApi {
   }
   clone(tenantId: string, id: string, name: string, key: string): Promise<ApiResult<Campaign>> {
     return this.client.post(`/tenants/${tenantId}/campaigns/${id}/clone`, { body: { name }, idempotencyKey: key });
+  }
+  testSend(tenantId: string, id: string, testRecipientId: string, expectedVersion: number, key: string): Promise<ApiResult<CampaignTestSend>> {
+    return this.client.post(`/tenants/${tenantId}/campaigns/${id}/test-send`, {
+      body: { testRecipientId, expectedVersion }, idempotencyKey: key,
+    });
   }
   recipients(tenantId: string, id: string): Promise<ApiResult<readonly CampaignRecipient[]>> {
     return this.client.get(`/tenants/${tenantId}/campaigns/${id}/recipients`);

@@ -1,4 +1,4 @@
-import type { ChannelCatalogueEntry, ChannelConnection, ChannelsApi } from '../api/channels.js';
+import type { ChannelCatalogueEntry, ChannelConnection, ChannelTestRecipient, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type {
   Collaborator,
@@ -97,6 +97,7 @@ export interface LiveState {
   transfers: Resource<readonly OwnershipTransfer[]>;
   connections: Resource<readonly ChannelConnection[]>;
   catalogue: Resource<readonly ChannelCatalogueEntry[]>;
+  testRecipients: Resource<readonly ChannelTestRecipient[]>;
   /**
    * The Unassigned queue, as **cards**.
    *
@@ -220,6 +221,7 @@ export function createLiveState(
     transfers: IDLE,
     connections: IDLE,
     catalogue: IDLE,
+    testRecipients: IDLE,
     unassigned: IDLE,
     openConversationId: null,
     openConversation: IDLE,

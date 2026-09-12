@@ -193,6 +193,10 @@ describe('pinned OpenAPI contract', () => {
       "listCampaignRecipients",
       "cloneCampaign",
       "updateCampaign",
+      "listChannelTestRecipients",
+      "authorizeChannelTestRecipient",
+      "revokeChannelTestRecipient",
+      "testSendCampaign",
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);

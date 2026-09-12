@@ -236,12 +236,20 @@ Implemented in Milestone C, pinned in the spec, and covered in both directions b
 | Channels | `POST T/channels` | `connectChannel` | `channel.manage` + CSRF + `Idempotency-Key` | P2 |
 | Channels | `POST T/channels/{id}/test` | `testChannelConnection` | `channel.manage` + CSRF | P2 |
 | Channels | `POST T/channels/{id}/credential` | `rotateChannelCredential` | **`credential.rotate`** + CSRF | P2 |
+| Channels | `GET T/channels/{id}/test-recipients` | `listChannelTestRecipients` | `campaign.read` | P4 |
+| Channels | `POST T/channels/{id}/test-recipients` | `authorizeChannelTestRecipient` | `channel.manage` + CSRF | P4 |
+| Channels | `DELETE T/channels/{id}/test-recipients/{authorizationId}` | `revokeChannelTestRecipient` | `channel.manage` + CSRF | P4 |
 | Channels | `DELETE T/channels/{id}` | `disconnectChannel` | `channel.manage` + CSRF | P2 |
 
 Only `connectChannel` carries an `Idempotency-Key`: it is the one operation whose
 replay would duplicate an effect — a second connection racing the first for the
 same inbound messages. Test, rotate and disconnect converge on the same state, so
 requiring a key there would be ceremony without a reason.
+
+The test-recipient routes are an explicit allowlist. A manager can authorize only
+an active contact identity already seen on that exact connection. Campaign
+authors may read the resulting choices, but cannot put an arbitrary destination
+in a test-send request. Revocation is recorded rather than deleting its history.
 
 ### Outbound (P2)
 

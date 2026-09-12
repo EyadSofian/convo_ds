@@ -8,8 +8,8 @@ import type {
 import type { ApiError } from '../api/client.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
-import { channelTokenField } from '../live/dispatch.js';
-import { isDenial, isUnauthenticated, type LiveState, type Resource } from '../live/store.js';
+import { channelTestIdentityField, channelTestLabelField, channelTokenField } from '../live/dispatch.js';
+import { isDenial, isUnauthenticated, rowsOf, type LiveState, type Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { button, checkItem, isolated, pill, selectControl, stateBox } from './parts.js';
 import type { Tone } from './parts.js';
@@ -368,6 +368,11 @@ function connectionCard(state: AppState, live: LiveState, connection: ChannelCon
   const testing = live.busy === `test-channel:${connection.id}`;
   const tokenField = channelTokenField(connection.id);
   const token = state.dialogForm[tokenField] ?? '';
+  const testIdentityField = channelTestIdentityField(connection.id);
+  const testLabelField = channelTestLabelField(connection.id);
+  const testIdentity = state.dialogForm[testIdentityField] ?? '';
+  const testLabel = state.dialogForm[testLabelField] ?? '';
+  const testRecipients = rowsOf(live.testRecipients).filter((recipient) => recipient.connection_id === connection.id);
   return h('div', { class: 'card', 'data-connection': connection.id }, [
     h('div', { class: 'card__header' }, [
       h('span', { class: 'card__title' }, [connection.display_name]),
@@ -453,6 +458,37 @@ function connectionCard(state: AppState, live: LiveState, connection: ChannelCon
             disabled: live.busy === `disconnect-channel:${connection.id}`,
           }),
         ]),
+    gone ? null : h('div', { class: 'field' }, [
+      h('span', { class: 'field__label' }, [t(state, 'مستلمو الاختبار المصرح لهم', 'Authorized test recipients')]),
+      h('p', { class: 'field__hint' }, [t(state,
+        'اكتب هوية موجودة بالفعل على هذه القناة. هذا التصريح وحده يسمح لحملات الاختبار بالوصول إليها، ويمكن إلغاؤه فورًا.',
+        'Use an identity that already exists on this channel. This authorization alone permits campaign tests to reach it, and it can be revoked immediately.')]),
+      h('div', { class: 'filterbar' }, [
+        h('span', { class: 'searchbox', style: 'flex:1 1 11rem' }, [h('input', {
+          class: 'input', value: testIdentity, placeholder: t(state, 'رقم أو هوية المزوّد', 'Provider recipient identity'),
+          'aria-label': t(state, 'هوية مستلم الاختبار', 'Test recipient identity'),
+          'data-act': 'form-toggle', 'data-form': testIdentityField,
+        })]),
+        h('span', { class: 'searchbox', style: 'flex:1 1 9rem' }, [h('input', {
+          class: 'input', value: testLabel, placeholder: t(state, 'مثال: هاتف المدير', 'e.g. Owner phone'),
+          'aria-label': t(state, 'اسم مستلم الاختبار', 'Test recipient label'),
+          'data-act': 'form-toggle', 'data-form': testLabelField,
+        })]),
+        button({
+          label: t(state, 'تصريح', 'Authorize'), icon: 'check', act: 'live-authorize-test-recipient',
+          arg: connection.id, small: true, variant: 'primary',
+          disabled: live.busy === `authorize-test-recipient:${connection.id}` || testIdentity === '' || testLabel === '',
+        }),
+      ]),
+      testRecipients.length === 0
+        ? h('p', { class: 'field__hint' }, [t(state, 'لا يوجد مستلم اختبار مصرح حاليًا.', 'No test recipient is currently authorized.')])
+        : h('div', { class: 'labelset' }, testRecipients.map((recipient) => h('span', { class: 'pill' }, [
+            `${recipient.label} · `, isolated(recipient.peer_identity, true),
+            button({ label: t(state, 'إلغاء', 'Revoke'), act: 'live-revoke-test-recipient',
+              arg: `${connection.id}:${recipient.id}`, small: true, variant: 'danger',
+              disabled: live.busy === `revoke-test-recipient:${recipient.id}` }),
+          ]))),
+    ]),
   ]);
 }
 

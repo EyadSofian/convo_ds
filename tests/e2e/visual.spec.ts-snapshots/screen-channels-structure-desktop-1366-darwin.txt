@@ -38,22 +38,99 @@ div.workspace
     div.card__header
       h2.card__title
     div.card__body
-      div.statebox.statebox--denied
-        span.statebox__icon
-          svg
-            rect
-            path
-        p.statebox__title
-        p.statebox__body
+      div.grid2
+        div.card
+          div.card__header
+            span.card__title
+            span.card__spacer
+            span.pill.pill--success
+              svg
+                path
+                path
+          dl.attrgrid
+            dt
+            dd
+            dt
+            dd
+              bdi.mono
+            dt
+            dd
+              bdi.mono
+            dt
+            dd
+              bdi.mono
+            dt
+            dd
+          div.field
+            span.field__label
+            ul.checklist
+              li
+                span.checklist__mark.checklist__mark--yes
+                  svg
+                    path
+                span
+              li
+                span.checklist__mark.checklist__mark--yes
+                  svg
+                    path
+                span
+              li
+                span.checklist__mark.checklist__mark--yes
+                  svg
+                    path
+                span
+              li
+                span.checklist__mark.checklist__mark--yes
+                  svg
+                    path
+                span
+              li
+                span.checklist__mark.checklist__mark--yes
+                  svg
+                    path
+                span
+          div.filterbar
+            button.btn.btn--sm [live-test-channel]
+              svg
+                path
+                path
+                path
+            span.searchbox
+              input.input [form-toggle]
+            button.btn.btn--sm [live-rotate-channel]
+            button.btn.btn--danger.btn--sm [live-disconnect-channel]
+          div.field
+            span.field__label
+            p.field__hint
+            div.filterbar
+              span.searchbox
+                input.input [form-toggle]
+              span.searchbox
+                input.input [form-toggle]
+              button.btn.btn--primary.btn--sm [live-authorize-test-recipient]
+                svg
+                  path
+            div.labelset
+              span.pill
+                bdi.mono
+                button.btn.btn--danger.btn--sm [live-revoke-test-recipient]
   section.card
     div.card__header
       h2.card__title
     div.card__body
       p.field__hint
-      div.statebox.statebox--denied
-        span.statebox__icon
-          svg
-            rect
-            path
-        p.statebox__title
-        p.statebox__body
+      div.rolegrid
+        div.card
+          div.card__header
+            span.card__title
+            span.card__spacer
+            span.pill.pill--success
+              svg
+                path
+          div.rolegrid__key
+          div.labelset
+            span.pill.pill--neutral
+            span.pill.pill--neutral
+            span.pill.pill--accent
+            span.pill.pill--neutral
+            span.pill.pill--neutral

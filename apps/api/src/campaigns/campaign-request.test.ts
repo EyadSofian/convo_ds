@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../http-error.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignUpdate } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
 
 const CONNECTION = '11111111-1111-4111-8111-111111111111';
 
@@ -65,5 +65,18 @@ describe('campaign request parsing', () => {
     expect(parseCampaignUpdate(body)).toMatchObject({ name: 'Updated', expectedVersion: 2 });
     expect(() => parseCampaignUpdate({ ...body, expectedVersion: 0 })).toThrow(ApiHttpError);
     expect(() => parseCampaignUpdate({ ...body, expectedVersion: 1.5 })).toThrow(ApiHttpError);
+  });
+
+  it('parses test recipient authorization and test-send requests', () => {
+    expect(parseTestRecipient({ peerIdentity: ' 201000000001 ', label: 'Owner phone' })).toEqual({
+      peerIdentity: '201000000001', label: 'Owner phone',
+    });
+    expect(() => parseTestRecipient({ peerIdentity: 'bad identity', label: '' })).toThrow(ApiHttpError);
+    expect(parseCampaignTestSend({ testRecipientId: CONNECTION, expectedVersion: 2 })).toEqual({
+      testRecipientId: CONNECTION, expectedVersion: 2,
+    });
+    for (const body of [{}, { testRecipientId: 'bad', expectedVersion: 1 }, { testRecipientId: CONNECTION, expectedVersion: 0 }]) {
+      expect(() => parseCampaignTestSend(body)).toThrow(ApiHttpError);
+    }
   });
 });

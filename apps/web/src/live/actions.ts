@@ -150,6 +150,7 @@ export async function loadChannelsScreen(context: LiveContext): Promise<void> {
   }
   live.connections = LOADING;
   live.catalogue = LOADING;
+  live.testRecipients = LOADING;
   context.refresh();
 
   const [connections, catalogue] = await Promise.all([
@@ -159,6 +160,15 @@ export async function loadChannelsScreen(context: LiveContext): Promise<void> {
   const now = context.now();
   live.connections = fromResult(connections, now);
   live.catalogue = fromResult(catalogue, now);
+  if (!connections.ok) {
+    live.testRecipients = { status: 'error', error: connections.error };
+  } else {
+    const results = await Promise.all(connections.data.map((connection) => live.channels.testRecipients(tenantId, connection.id)));
+    const refusal = results.find((result) => !result.ok);
+    live.testRecipients = refusal !== undefined && !refusal.ok
+      ? { status: 'error', error: refusal.error }
+      : { status: 'ready', value: results.flatMap((result) => result.ok ? result.data : []), loadedAt: now };
+  }
   context.refresh();
 }
 
@@ -220,6 +230,29 @@ export function disconnectChannel(context: LiveContext, connectionId: string): P
     `disconnect-channel:${connectionId}`,
     (tenantId) => context.live.channels.disconnect(tenantId, connectionId),
     () => t(context.state, 'فُصلت القناة وأُلغيت اعتماداتها', 'Disconnected, and its credentials revoked'),
+  );
+}
+
+export function authorizeTestRecipient(
+  context: LiveContext,
+  connectionId: string,
+  peerIdentity: string,
+  label: string,
+): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `authorize-test-recipient:${connectionId}`,
+    (tenantId) => context.live.channels.authorizeTestRecipient(tenantId, connectionId, peerIdentity, label),
+    (recipient) => t(context.state, `اعتُمد ${recipient.label} كمستلم اختبار`, `${recipient.label} authorized for test sends`),
+  );
+}
+
+export function revokeTestRecipient(context: LiveContext, connectionId: string, id: string): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `revoke-test-recipient:${id}`,
+    (tenantId) => context.live.channels.revokeTestRecipient(tenantId, connectionId, id),
+    () => t(context.state, 'أُلغي تصريح مستلم الاختبار', 'Test recipient authorization revoked'),
   );
 }
 
@@ -510,4 +543,5 @@ function resetResources(live: LiveState): void {
   live.transfers = gone;
   live.connections = gone;
   live.catalogue = gone;
+  live.testRecipients = gone;
 }

@@ -18,6 +18,8 @@ export const TENANT = '11111111-1111-4111-8111-111111111111';
 export const MEMBERSHIP = '44444444-4444-4444-8444-444444444444';
 export const CONVERSATION = '55555555-5555-4555-8555-555555555555';
 export const CONTACT = '66666666-6666-4666-8666-666666666666';
+export const CONNECTION = '77777777-7777-4777-8777-777777777777';
+export const TEST_RECIPIENT = '88888888-8888-4888-8888-888888888888';
 
 const NAMES = [
   'سارة عبد الله',
@@ -89,7 +91,7 @@ const BODIES = [
 
 function campaigns(): readonly Record<string, unknown>[] {
   const common = {
-    connection_id: 'cn-1', version: 3, revision: 1,
+    connection_id: CONNECTION, version: 3, revision: 1,
     created_at: new Date(Date.UTC(2026, 8, 7, 9, 0)).toISOString(),
     updated_at: new Date(Date.UTC(2026, 8, 9, 9, 0)).toISOString(),
   };
@@ -114,6 +116,67 @@ function campaigns(): readonly Record<string, unknown>[] {
       audience: null, execution: null,
     },
   ];
+}
+
+function channelCapabilities(kind = 'whatsapp'): Record<string, unknown> {
+  return {
+    kind, version: 'v21.0', host: 'graph.facebook.com',
+    inboundEvents: ['message', 'delivery', 'read'], outboundTypes: ['text', 'template'],
+    attachmentTypes: ['image', 'document'], textLimit: { characters: 4096, bytes: 16384 },
+    windowHours: 24, businessInitiated: true, templates: true,
+    deliveryReceipts: true, readReceipts: true,
+  };
+}
+
+function channelConnections(): readonly Record<string, unknown>[] {
+  const observedAt = new Date(Date.UTC(2026, 8, 9, 8, 0)).toISOString();
+  return [{
+    id: CONNECTION, kind: 'whatsapp', provider: 'meta', display_name: 'Digital School Admissions',
+    external_asset_id: '109876543210', provider_app_id: '123456789012345', status: 'healthy',
+    capabilities: channelCapabilities(),
+    evidence: ['asset', 'credential', 'webhook', 'inbound', 'outbound'].map((kind) => ({
+      kind, satisfied: true, observed_at: observedAt,
+    })),
+    missing_evidence: [], last_error_code: null, last_error_at: null,
+    created_at: observedAt, disconnected_at: null, credential_held: true,
+    credential_fingerprint: 'a'.repeat(64),
+  }];
+}
+
+function channelCatalogue(): readonly Record<string, unknown>[] {
+  return [{ kind: 'whatsapp', provider: 'meta', implemented: true, capabilities: channelCapabilities() }];
+}
+
+function testRecipients(): readonly Record<string, unknown>[] {
+  return [{
+    id: TEST_RECIPIENT, connection_id: CONNECTION, identity_id: '99999999-9999-4999-8999-999999999999',
+    peer_identity: '201000000000', display_name: 'QA Owner', label: 'Owner phone',
+    authorized_at: new Date(Date.UTC(2026, 8, 9, 8, 15)).toISOString(),
+  }];
+}
+
+function people(): readonly Record<string, unknown>[] {
+  return [{
+    membership_id: MEMBERSHIP, email: 'hana@digital-school.example', status: 'active',
+    role: { id: 'agent-role', key: 'agent', name: 'Agent' }, scopes: [],
+  }];
+}
+
+function roles(): readonly Record<string, unknown>[] {
+  return [{
+    id: 'agent-role', key: 'agent', name: 'Agent', is_builtin: true,
+    grants: [
+      { permission_key: 'conversation.read', scope_level: 'own' },
+      { permission_key: 'conversation.reply', scope_level: 'own' },
+    ],
+  }];
+}
+
+function teams(): readonly Record<string, unknown>[] {
+  return [{
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Admissions', member_count: 1,
+    archived: false, members: [{ membership_id: MEMBERSHIP, email: 'hana@digital-school.example' }],
+  }];
 }
 
 function timeline(): readonly Record<string, unknown>[] {
@@ -268,6 +331,33 @@ export async function installApi(page: Page): Promise<void> {
           },
         ],
       });
+    }
+    if (path.endsWith('/channels/catalogue')) {
+      return json(route, paged(channelCatalogue()));
+    }
+    if (path.endsWith(`/channels/${CONNECTION}/test-recipients`)) {
+      return json(route, paged(testRecipients()));
+    }
+    if (path.endsWith('/channels')) {
+      return json(route, paged(channelConnections()));
+    }
+    if (path.endsWith('/people')) {
+      return json(route, paged(people()));
+    }
+    if (path.endsWith('/roles')) {
+      return json(route, paged(roles()));
+    }
+    if (path.endsWith('/teams')) {
+      return json(route, paged(teams()));
+    }
+    if (path.endsWith('/invitations') || path.endsWith('/ownership-transfers')) {
+      return json(route, paged([]));
+    }
+    if (path.endsWith('/permissions')) {
+      return json(route, paged([
+        { key: 'conversation.read', description: 'Read assigned conversations', delegable: true },
+        { key: 'conversation.reply', description: 'Reply to assigned conversations', delegable: true },
+      ]));
     }
     if (path.endsWith('/campaigns')) {
       return json(route, paged(campaigns()));

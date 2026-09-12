@@ -63,6 +63,7 @@ describe('migrate', () => {
       '0019_metadata_catalogue.sql',
       '0020_campaign_core.sql',
       '0021_campaign_dispatch_queue.sql',
+      '0022_campaign_test_send.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -87,6 +88,7 @@ describe('migrate', () => {
       'campaign_executions',
       'campaign_recipients',
       'campaign_revisions',
+      'campaign_test_sends',
       'campaign_work_queue',
       'campaigns',
       'channel_apps',
@@ -96,6 +98,7 @@ describe('migrate', () => {
       'channel_event_queue',
       'channel_events',
       'channel_suppressions',
+      'channel_test_recipients',
       'consents',
       'contact_custom_field_values',
       'contact_identities',

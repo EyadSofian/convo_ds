@@ -4,7 +4,60 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T14 (Milestone F: immutable campaign revision editing)
+## Last completed task — P1-T15 (Milestone F: safe campaign test-send)
+
+**Task / requirement IDs:** CMP-05 implemented; UX-09 advanced for Channels and Broadcasts.
+
+### Behavior delivered
+
+**A campaign test can reach only an explicitly authorized identity.** A manager authorizes a live contact identity on one exact channel connection and may revoke it without erasing history. The campaign request carries only that authorization ID and the version the operator reviewed; there is no arbitrary phone, username or provider ID field to edit into a different recipient.
+
+**A test uses the production send path without becoming a campaign execution.** The server renders the exact immutable revision, commits an ordinary interactive outbound command, outbox row and immutable test-send evidence together, then returns 202. It creates no audience snapshot, execution or campaign recipient and therefore cannot distort campaign totals.
+
+**The final permit is rechecked at dispatch.** A queued test is skipped before provider I/O if its authorization is revoked, its identity/contact is no longer live, the campaign revision changes, the channel loses readiness, the reply window closes, suppression appears or the credential is revoked. Custom variable aliases such as `{{first_name}} -> display_name` use the same rendering rule as a frozen campaign audience.
+
+**Channels and Broadcasts are wired to the server.** Channels lists, authorizes and revokes test recipients. Broadcasts offers Test Send only for an editable campaign and only shows authorizations for that campaign's connection. Loading and refusals remain distinct, and success is shown only after the 202 transaction commits.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0022_campaign_test_send.sql` | scoped authorization history, immutable send evidence, RLS and audit vocabulary |
+| `apps/api/src/campaigns/campaign.service.ts` | authorization management and transactional test-send command |
+| `apps/api/src/channels/dispatcher.service.ts` | dispatch-time authorization and revision fences |
+| `apps/web/src/ui/channels-screen.ts` | allowlist controls on each connection |
+| `apps/web/src/ui/dialogs.ts` | campaign Test Send recipient chooser |
+| `tests/integration/api-campaigns.test.ts` | rejection, idempotency, rendering and zero-provider-call fence evidence |
+| `docs/api/openapi.v1.json` | pinned 96-operation contract |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web 205.27 kB / 61.04 kB gzip |
+| `pnpm test:unit` | **0** | 76 files, **1450 tests** |
+| `pnpm test:integration` | **0** | 23 files, **505 tests** against PostgreSQL 17.4 |
+| `pnpm test:property` | **0** | 5 exhaustive/metamorphic properties |
+| `pnpm test:coverage` | **0** | 100 files, **1960 tests**, **100/100/100/100** |
+| `pnpm test:contracts` | **0** | OpenAPI drift clean; channel contracts pass |
+| `pnpm test:security` | **0** | **372 tests** including campaign security + production audit; no known vulnerabilities |
+| `pnpm test:e2e` | **0** | **150 tests** at 1440×900 and 1366×768 |
+| `pnpm test:a11y` | **0** | **25 tests**, no WCAG 2.1 AA axe violations |
+| `pnpm test:visual` | **0** | **20 tests**, with server-ready Channels, People and Broadcasts structures |
+
+### Honest remaining scope
+
+- Template catalogue/synchronization and failed-only campaign retry remain.
+- Campaign aggregation/export and the live Analytics screen remain.
+- Provider-live activation remains `blocked_no_asset`; CRM remains intentionally deferred by the owner.
+
+**Next execution slice:** campaign reporting and the live Analytics screen, followed by failed-only retry and production deployment checks.
+
+---
+
+## Previously completed — P1-T14 (Milestone F: immutable campaign revision editing)
 
 **Task / requirement IDs:** CMP-06 and CMP-09 completed with a production update path; UX-09 advanced for Broadcasts.
 

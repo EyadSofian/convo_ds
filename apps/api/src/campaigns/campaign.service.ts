@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { CampaignState, SqlExecutor } from '@convo/domain';
 import { applyCampaignTrigger, campaignEditTarget, normalizeSearchText } from '@convo/domain';
@@ -11,7 +11,8 @@ import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG } from '../tokens.js';
-import type { CampaignDraftInput, CampaignUpdateInput } from './campaign-request.js';
+import { campaignCommandContent } from './campaign-dispatch.js';
+import type { CampaignDraftInput, CampaignTestSendInput, CampaignUpdateInput, TestRecipientInput } from './campaign-request.js';
 
 export interface CampaignView {
   readonly id: string;
@@ -71,10 +72,35 @@ interface LockedCampaign {
   readonly revision: number;
   readonly version: number;
   readonly revision_hash: string;
+  readonly content: Readonly<Record<string, unknown>>;
+  readonly variables: Readonly<Record<string, unknown>>;
   readonly audience_filter: Readonly<Record<string, unknown>>;
   readonly expires_at: Date | null;
   readonly budget_amount_minor: string;
   readonly budget_currency: string;
+}
+
+export interface TestRecipientView {
+  readonly id: string;
+  readonly connection_id: string;
+  readonly identity_id: string;
+  readonly peer_identity: string;
+  readonly display_name: string;
+  readonly label: string;
+  readonly authorized_at: string;
+}
+
+export interface CampaignTestSendView {
+  readonly id: string;
+  readonly campaign_id: string;
+  readonly revision_id: string;
+  readonly test_recipient_id: string;
+  readonly recipient_label: string;
+  readonly peer_identity: string;
+  readonly message_id: string;
+  readonly state: string;
+  readonly state_reason: string | null;
+  readonly created_at: string;
 }
 
 interface CloneSource {
@@ -195,6 +221,141 @@ export class CampaignService {
     });
     if (outcome.status === 'conflict') throw idempotencyConflict();
     return outcome.response.body as CampaignView;
+  }
+
+  async listTestRecipients(
+    session: AuthenticatedSession,
+    tenantId: string,
+    connectionId: string,
+  ): Promise<readonly TestRecipientView[]> {
+    this.authorization.assertTenantId(connectionId);
+    return this.authorization.authorized(session, tenantId, 'campaign.read', async ({ sql }) => {
+      await requireConnection(sql, connectionId, false);
+      return readTestRecipients(sql, connectionId);
+    });
+  }
+
+  async authorizeTestRecipient(
+    session: AuthenticatedSession,
+    tenantId: string,
+    connectionId: string,
+    input: TestRecipientInput,
+  ): Promise<TestRecipientView> {
+    this.authorization.assertTenantId(connectionId);
+    return this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql, principal }) => {
+      await requireConnection(sql, connectionId, false);
+      const identity = await sql.query<{ id: string }>(
+        `SELECT i.id::text FROM contact_identities i JOIN contacts c ON c.id=i.contact_id
+          WHERE i.scope_id=$1 AND i.external_id=$2 AND i.valid_to IS NULL AND c.deleted_at IS NULL`,
+        [connectionId, input.peerIdentity],
+      );
+      const identityId = identity.rows[0]?.id;
+      if (identityId === undefined) {
+        throw new ApiHttpError(422, 'test_recipient_unknown', 'The test recipient must be a live contact identity on this channel.');
+      }
+      const inserted = await unlessConstraint(
+        'channel_test_recipients_live_uq',
+        conflict('test_recipient_already_authorized', 'That identity is already authorized for test sends.'),
+        () => sql.query<{ id: string }>(
+          `INSERT INTO channel_test_recipients
+             (tenant_id,connection_id,identity_id,label,authorized_by_membership_id)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id::text`,
+          [tenantId, connectionId, identityId, input.label, principal.membershipId],
+        ),
+      );
+      return requireRow(await readTestRecipients(sql, connectionId, requireRow(inserted.rows, 'test recipient insert returned no row').id), 'test recipient disappeared');
+    });
+  }
+
+  async revokeTestRecipient(
+    session: AuthenticatedSession,
+    tenantId: string,
+    connectionId: string,
+    authorizationId: string,
+  ): Promise<void> {
+    this.authorization.assertTenantId(connectionId);
+    this.authorization.assertTenantId(authorizationId);
+    await this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql, principal }) => {
+      const revoked = await sql.query(
+        `UPDATE channel_test_recipients
+            SET revoked_at=now(),revoked_by_membership_id=$3
+          WHERE id=$1 AND connection_id=$2 AND revoked_at IS NULL`,
+        [authorizationId, connectionId, principal.membershipId],
+      );
+      if (revoked.rowCount !== 1) throw notFound();
+    });
+  }
+
+  async testSend(
+    session: AuthenticatedSession,
+    tenantId: string,
+    campaignId: string,
+    input: CampaignTestSendInput,
+    rawBody: unknown,
+    idempotencyKey: string,
+  ): Promise<CampaignTestSendView> {
+    this.authorization.assertTenantId(campaignId);
+    const outcome = await this.idempotency.execute({
+      tenantContextId: tenantId, tenantId, principalId: session.userId,
+      operation: `campaign.test-send:${campaignId}`, key: idempotencyKey,
+      requestHash: requestHash(rawBody as JsonValue, this.config.secrets.idempotencyHash),
+    }, async (sql) => {
+      const principal = await this.authorization.requirePermission(sql, session, 'campaign.draft');
+      const campaign = await locked(sql, campaignId);
+      if (campaignEditTarget(campaign.control_state) === null) {
+        throw conflict('campaign_test_send_locked', 'Test the current definition before launch, or clone this campaign.');
+      }
+      if (campaign.version !== input.expectedVersion) {
+        throw conflict('version_conflict', 'The campaign changed after you opened it. Reload before sending a test.');
+      }
+      await requireConnection(sql, campaign.connection_id, true);
+      const recipient = await sql.query<{ authorization_id: string; external_id: string; display_name: string; label: string }>(
+        `SELECT tr.id::text AS authorization_id,i.external_id,c.display_name,tr.label
+           FROM channel_test_recipients tr
+           JOIN contact_identities i ON i.id=tr.identity_id AND i.scope_id=tr.connection_id
+           JOIN contacts c ON c.id=i.contact_id
+          WHERE tr.id=$1 AND tr.connection_id=$2 AND tr.revoked_at IS NULL
+            AND i.valid_to IS NULL AND c.deleted_at IS NULL`,
+        [input.testRecipientId, campaign.connection_id],
+      );
+      const target = recipient.rows[0];
+      if (target === undefined) {
+        throw new ApiHttpError(422, 'test_recipient_not_authorized', 'Choose an active test recipient authorized for this channel.');
+      }
+      const renderedVariables = Object.fromEntries(
+        Object.keys(campaign.variables).map((key) => [key, target.display_name]),
+      );
+      const rendered = campaignCommandContent(campaign.content, renderedVariables);
+      if (rendered === null) {
+        throw new ApiHttpError(422, 'invalid_campaign_content', 'The current campaign content cannot be sent through the adapter.');
+      }
+      const testSendId = randomUUID();
+      const messageId = randomUUID();
+      await sql.query(
+        `INSERT INTO outbound_messages
+           (id,tenant_id,connection_id,peer_identity,author_membership,message_type,text_body,
+            template_name,template_language,client_message_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [messageId, tenantId, campaign.connection_id, target.external_id, principal.membershipId,
+          rendered.type, rendered.text, rendered.templateName, rendered.templateLanguage, `campaign-test:${testSendId}`],
+      );
+      await sql.query(
+        `INSERT INTO campaign_test_sends
+           (id,tenant_id,campaign_id,revision_id,authorization_id,message_id,requested_by_membership_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [testSendId, tenantId, campaignId, campaign.current_revision_id, target.authorization_id, messageId, principal.membershipId],
+      );
+      await sql.query(
+        `INSERT INTO outbox (message_id,tenant_id,connection_id,peer_identity,traffic_class)
+         VALUES ($1,$2,$3,$4,'interactive')`,
+        [messageId, tenantId, campaign.connection_id, target.external_id],
+      );
+      await audit(sql, tenantId, campaignId, campaign.current_revision_id, principal.membershipId,
+        'test_sent', { test_send_id: testSendId, authorization_id: target.authorization_id });
+      return { statusCode: 202, body: requireRow(await readTestSends(sql, testSendId), 'test send disappeared') };
+    });
+    if (outcome.status === 'conflict') throw idempotencyConflict();
+    return outcome.response.body as CampaignTestSendView;
   }
 
   async validate(session: AuthenticatedSession, tenantId: string, campaignId: string): Promise<CampaignView> {
@@ -495,11 +656,46 @@ async function locked(sql: SqlExecutor, campaignId: string): Promise<LockedCampa
   );
   const row = campaign.rows[0];
   if (row === undefined) throw notFound();
-  const revision = await sql.query<Pick<LockedCampaign, 'revision' | 'revision_hash' | 'audience_filter' | 'expires_at' | 'budget_amount_minor' | 'budget_currency'>>(
-    `SELECT revision,revision_hash,audience_filter,expires_at,budget_amount_minor::text,budget_currency
+  const revision = await sql.query<Pick<LockedCampaign, 'revision' | 'revision_hash' | 'content' | 'variables' | 'audience_filter' | 'expires_at' | 'budget_amount_minor' | 'budget_currency'>>(
+    `SELECT revision,revision_hash,content,variables,audience_filter,expires_at,budget_amount_minor::text,budget_currency
        FROM campaign_revisions WHERE id=$1`, [row.current_revision_id],
   );
   return { ...row, ...requireRow(revision.rows, 'locked campaign revision disappeared') };
+}
+
+async function readTestRecipients(sql: SqlExecutor, connectionId: string, id: string | null = null): Promise<readonly TestRecipientView[]> {
+  const rows = await sql.query<{
+    id: string; connection_id: string; identity_id: string; peer_identity: string;
+    display_name: string; label: string; authorized_at: Date;
+  }>(
+    `SELECT tr.id::text,tr.connection_id::text,tr.identity_id::text,i.external_id AS peer_identity,
+            c.display_name,tr.label,tr.authorized_at
+       FROM channel_test_recipients tr JOIN contact_identities i ON i.id=tr.identity_id
+       JOIN contacts c ON c.id=i.contact_id
+      WHERE tr.connection_id=$1 AND tr.revoked_at IS NULL AND i.valid_to IS NULL
+        AND c.deleted_at IS NULL AND ($2::uuid IS NULL OR tr.id=$2)
+      ORDER BY tr.authorized_at,tr.id`,
+    [connectionId, id],
+  );
+  return rows.rows.map((row) => ({ ...row, authorized_at: row.authorized_at.toISOString() }));
+}
+
+async function readTestSends(sql: SqlExecutor, id: string): Promise<readonly CampaignTestSendView[]> {
+  const rows = await sql.query<{
+    id: string; campaign_id: string; revision_id: string; test_recipient_id: string;
+    recipient_label: string; peer_identity: string; message_id: string; state: string;
+    state_reason: string | null; created_at: Date;
+  }>(
+    `SELECT s.id::text,s.campaign_id::text,s.revision_id::text,
+            s.authorization_id::text AS test_recipient_id,tr.label AS recipient_label,
+            i.external_id AS peer_identity,s.message_id::text,m.command_state AS state,
+            m.state_reason,s.requested_at AS created_at
+       FROM campaign_test_sends s JOIN channel_test_recipients tr ON tr.id=s.authorization_id
+       JOIN contact_identities i ON i.id=tr.identity_id JOIN outbound_messages m ON m.id=s.message_id
+      WHERE s.id=$1`,
+    [id],
+  );
+  return rows.rows.map((row) => ({ ...row, created_at: row.created_at.toISOString() }));
 }
 
 function transition(state: CampaignState, trigger: Parameters<typeof applyCampaignTrigger>[1]) {

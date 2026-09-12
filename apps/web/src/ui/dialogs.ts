@@ -174,6 +174,47 @@ export function renderDialog(state: AppState): HTMLElement | null {
     );
   }
 
+  if (dialog.kind === 'campaign-test-send') {
+    const campaign = rowsOf(state.live.campaigns).find((entry) => entry.id === dialog.arg);
+    const recipients = campaign === undefined ? [] : rowsOf(state.live.testRecipients)
+      .filter((entry) => entry.connection_id === campaign.connection_id);
+    const selected = state.dialogForm.campaignTestRecipient ?? recipients[0]?.id ?? '';
+    const resourceNotice: Child = state.live.testRecipients.status === 'loading' || state.live.testRecipients.status === 'idle'
+      ? notice('plain', 'clock', t(state, 'جارٍ تحميل المستلمين المصرح لهم…', 'Loading authorized recipients…'))
+      : state.live.testRecipients.status === 'error'
+        ? notice('warning', 'alert', state.live.testRecipients.error.message)
+        : recipients.length === 0
+          ? notice('warning', 'shield', t(state,
+              'لا يوجد مستلم مصرح لهذه القناة. يضيف Owner أو Admin هوية اختبار من شاشة القنوات أولًا.',
+              'No recipient is authorized for this channel. An Owner or Admin must add one from Channels first.'))
+          : notice('plain', 'shield', t(state,
+              'سيُرسل الإصدار الظاهر إلى هذا المستلم فقط، عبر نفس فحص القناة والنافذة والمحوّل المستخدم في الإنتاج.',
+              'The rendered revision will go only to this recipient through the same channel, window and adapter checks used in production.'));
+    return dialogShell(
+      t(state, 'إرسال اختبار', 'Send a test'),
+      campaign === undefined
+        ? [notice('warning', 'alert', t(state, 'الحملة لم تعد موجودة. أعد تحميل القائمة.', 'The campaign no longer exists. Reload the list.'))]
+        : [
+            h('p', { style: 'margin:0' }, [campaign.name]),
+            resourceNotice,
+            ...(recipients.length === 0 ? [] : [field(
+              t(state, 'مستلم الاختبار', 'Test recipient'),
+              selectInput('campaignTestRecipient', selected, recipients.map((recipient) => ({
+                value: recipient.id, label: `${recipient.label} · ${recipient.peer_identity}`,
+              }))),
+            )]),
+            state.live.error === null ? null : notice('warning', 'alert', `${state.live.error.message}${state.live.error.requestId === null ? '' : ` · ${state.live.error.requestId}`}`),
+          ],
+      [
+        h('span', { class: 'dialog__footerspacer' }),
+        closeButton(state),
+        button({ label: t(state, 'إضافة إلى الطابور', 'Queue test'), act: 'live-campaign-test-send',
+          arg: campaign?.id ?? '', variant: 'primary',
+          disabled: campaign === undefined || recipients.length === 0 || selected === '' || state.live.busy !== null }),
+      ],
+    );
+  }
+
   if (dialog.kind === 'campaign' || dialog.kind === 'campaign-edit') {
     const campaign = dialog.kind === 'campaign-edit'
       ? rowsOf(state.live.campaigns).find((entry) => entry.id === dialog.arg)

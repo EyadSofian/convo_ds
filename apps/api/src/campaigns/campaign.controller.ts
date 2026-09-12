@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Headers, Inject, Param, Patch, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Inject, Param, Patch, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { pageEnvelope } from '../pagination.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignUpdate } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
 import { CampaignService } from './campaign.service.js';
 
 @Controller()
@@ -54,6 +54,50 @@ export class CampaignController {
     @Headers('x-csrf-token') csrf: string | string[] | undefined, @Req() request: FastifyRequest) {
     const session = await this.mutating(request, csrf);
     return { data: await this.campaigns.approve(session, tenantId, campaignId), request_id: request.id };
+  }
+
+  @Post('tenants/:tenantId/campaigns/:campaignId/test-send')
+  async testSend(
+    @Param('tenantId') tenantId: string, @Param('campaignId') campaignId: string, @Body() body: unknown,
+    @Headers('x-csrf-token') csrf: string | string[] | undefined,
+    @Headers('idempotency-key') key: string | string[] | undefined,
+    @Req() request: FastifyRequest, @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.mutating(request, csrf);
+    const value = await this.campaigns.testSend(session, tenantId, campaignId, parseCampaignTestSend(body), body, requireKey(key));
+    await reply.status(202).send({ data: value, request_id: request.id });
+  }
+
+  @Get('tenants/:tenantId/channels/:connectionId/test-recipients')
+  async testRecipients(
+    @Param('tenantId') tenantId: string, @Param('connectionId') connectionId: string,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return pageEnvelope(await this.campaigns.listTestRecipients(session, tenantId, connectionId), null, request.id);
+  }
+
+  @Post('tenants/:tenantId/channels/:connectionId/test-recipients')
+  async authorizeTestRecipient(
+    @Param('tenantId') tenantId: string, @Param('connectionId') connectionId: string, @Body() body: unknown,
+    @Headers('x-csrf-token') csrf: string | string[] | undefined,
+    @Req() request: FastifyRequest, @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.mutating(request, csrf);
+    const value = await this.campaigns.authorizeTestRecipient(session, tenantId, connectionId, parseTestRecipient(body));
+    await reply.status(201).send({ data: value, request_id: request.id });
+  }
+
+  @Delete('tenants/:tenantId/channels/:connectionId/test-recipients/:authorizationId')
+  async revokeTestRecipient(
+    @Param('tenantId') tenantId: string, @Param('connectionId') connectionId: string,
+    @Param('authorizationId') authorizationId: string,
+    @Headers('x-csrf-token') csrf: string | string[] | undefined,
+    @Req() request: FastifyRequest, @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.mutating(request, csrf);
+    await this.campaigns.revokeTestRecipient(session, tenantId, connectionId, authorizationId);
+    await reply.status(204).send();
   }
 
   @Post('tenants/:tenantId/campaigns/:campaignId/launch')

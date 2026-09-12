@@ -68,6 +68,8 @@ describe('broadcasts', () => {
     expect(element.querySelectorAll('[data-act="live-campaign-clone"]')).toHaveLength(2);
     expect(element.querySelectorAll('[data-arg="campaign-edit:campaign-1"]')).toHaveLength(1);
     expect(element.querySelector('[data-arg="campaign-edit:campaign-2"]')).toBeNull();
+    expect(element.querySelector('[data-arg="campaign-test-send:campaign-1"]')).not.toBeNull();
+    expect(element.querySelector('[data-arg="campaign-test-send:campaign-2"]')).toBeNull();
   });
 
   it('shows signed-out, loading, failure and empty states distinctly', () => {

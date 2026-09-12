@@ -19,6 +19,16 @@ export interface CampaignUpdateInput extends CampaignDraftInput {
   readonly expectedVersion: number;
 }
 
+export interface TestRecipientInput {
+  readonly peerIdentity: string;
+  readonly label: string;
+}
+
+export interface CampaignTestSendInput {
+  readonly testRecipientId: string;
+  readonly expectedVersion: number;
+}
+
 export function parseCampaignDraft(body: unknown): CampaignDraftInput {
   const value = record(body);
   const name = text(value['name'], 160);
@@ -50,6 +60,27 @@ export function parseCampaignUpdate(body: unknown): CampaignUpdateInput {
     throw invalid('expectedVersion must be a positive integer.');
   }
   return { ...parseCampaignDraft(body), expectedVersion };
+}
+
+export function parseTestRecipient(body: unknown): TestRecipientInput {
+  const value = record(body);
+  const peerIdentity = value['peerIdentity'];
+  const label = text(value['label'], 120);
+  if (typeof peerIdentity !== 'string' || !/^[A-Za-z0-9_.:+@-]{1,190}$/.test(peerIdentity.trim()) || label === null) {
+    throw invalid('Provide a live channel identity and a label for the authorized test recipient.');
+  }
+  return { peerIdentity: peerIdentity.trim(), label };
+}
+
+export function parseCampaignTestSend(body: unknown): CampaignTestSendInput {
+  const value = record(body);
+  const testRecipientId = value['testRecipientId'];
+  const expectedVersion = value['expectedVersion'];
+  if (typeof testRecipientId !== 'string' || !UUID.test(testRecipientId) ||
+      typeof expectedVersion !== 'number' || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+    throw invalid('Choose an authorized test recipient and provide the campaign version you reviewed.');
+  }
+  return { testRecipientId, expectedVersion };
 }
 
 function validVariables(variables: Readonly<Record<string, unknown>>): boolean {
