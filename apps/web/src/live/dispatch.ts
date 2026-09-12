@@ -36,10 +36,12 @@ import {
   cloneCampaign,
   controlCampaign,
   createCampaign,
+  createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
   loadCampaignReport,
   loadCampaignsScreen,
+  refreshCampaignReportExport,
   retryCampaignFailures,
   testSendCampaign,
   updateCampaign,
@@ -417,6 +419,8 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
   'live-campaign-ledger': async (context, arg) => loadCampaignRecipients(context, arg),
   'live-report-reload': async (context) => loadCampaignReport(context),
+  'live-report-export': async (context) => createCampaignReportExport(context),
+  'live-report-export-refresh': async (context) => refreshCampaignReportExport(context),
 
   /* ----------------------------------------------------------------- inbox -- */
 

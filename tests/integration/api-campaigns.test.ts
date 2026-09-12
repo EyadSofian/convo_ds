@@ -5,6 +5,7 @@ import type { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import { CampaignPlannerService } from '../../apps/api/src/campaigns/campaign-planner.service.js';
+import { CampaignReportExportService } from '../../apps/api/src/campaigns/report-export.service.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ChannelCredentialService } from '../../apps/api/src/channels/credential.service.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
@@ -12,7 +13,7 @@ import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig } from '../../packages/domain/src/index.js';
 import type { SendOutcome } from '../../packages/domain/src/index.js';
 import type { DatabaseNames } from '../../packages/database/src/types.js';
-import { clusterCredentials, createScratchDatabase, migrateScratch, scratchRuntimePool } from '../support/scratch.js';
+import { clusterCredentials, createScratchDatabase, migrateScratch, scratchMigrationPool, scratchRuntimePool } from '../support/scratch.js';
 
 const BOOTSTRAP_TOKEN = 'campaign-bootstrap-token-value-000001';
 const PASSWORD = 'campaign owner password';
@@ -28,6 +29,7 @@ interface Harness {
   readonly connectionId: string;
   readonly cookie: string;
   readonly csrf: string;
+  readonly names: DatabaseNames;
 }
 
 function envFor(names: DatabaseNames): Record<string, string> {
@@ -104,7 +106,7 @@ async function setup(): Promise<Harness> {
     }
     return { ownerMembershipId: owner.rows[0]!.id, connectionId: connection.rows[0]!.id };
   });
-  return { app, pool, server, tenantId, cookie, csrf, ...seeded };
+  return { app, pool, server, tenantId, cookie, csrf, names, ...seeded };
 }
 
 async function send(api: Harness, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, payload?: Record<string, unknown>, key?: string): Promise<LightMyRequestResponse> {
@@ -471,6 +473,51 @@ describe('campaign API', () => {
       estimated_amount_minor: expect.any(String), committed_amount_minor: expect.any(String), reconciled_amount_minor: expect.any(String),
     });
     expect((await send(api, 'GET', `/../${randomUUID()}/reports/campaigns`)).statusCode).toBe(404);
+
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(`UPDATE campaigns SET name='=Formula-safe' WHERE id=$1`, [id]));
+    const queued = await send(
+      api, 'POST', '/reports/campaigns/exports', { format: 'csv', campaignId: id }, 'campaign-report-export',
+    );
+    expect(queued.statusCode, queued.body).toBe(202);
+    const exportJob = (queued.json() as { data: { id: string; state: string; download_url: string | null } }).data;
+    expect(exportJob).toMatchObject({ state: 'queued', download_url: null });
+    expect((await send(api, 'POST', '/reports/campaigns/exports', { format: 'csv' })).statusCode).toBe(400);
+    expect((await send(api, 'POST', '/reports/campaigns/exports', { format: 'json' }, 'bad-export')).statusCode).toBe(400);
+    const replay = await send(
+      api, 'POST', '/reports/campaigns/exports', { format: 'csv', campaignId: id }, 'campaign-report-export',
+    );
+    expect((replay.json() as { data: { id: string } }).data.id).toBe(exportJob.id);
+    expect((await send(api, 'POST', '/reports/campaigns/exports', { format: 'csv' }, 'campaign-report-export')).statusCode).toBe(409);
+    expect((await send(api, 'GET', `/reports/campaigns/exports/${exportJob.id}/content`)).statusCode).toBe(409);
+
+    const exporter = api.app.get(CampaignReportExportService);
+    expect(await exporter.pendingTenants()).toContain(api.tenantId);
+    expect(await exporter.process(api.tenantId, 10, 'report-worker-test')).toBe(1);
+    expect(await exporter.process(api.tenantId, 10, 'report-worker-test')).toBe(0);
+
+    const complete = await send(api, 'GET', `/reports/campaigns/exports/${exportJob.id}`);
+    expect(complete.statusCode, complete.body).toBe(200);
+    const completed = (complete.json() as { data: { state: string; row_count: number; download_url: string } }).data;
+    expect(completed).toMatchObject({ state: 'completed', row_count: 1 });
+    expect(completed.download_url).toContain(exportJob.id);
+    const content = await send(api, 'GET', `/reports/campaigns/exports/${exportJob.id}/content`);
+    expect(content.statusCode, content.body).toBe(200);
+    expect(content.headers['content-type']).toContain('text/csv');
+    expect(content.headers['content-disposition']).toContain(exportJob.id);
+    expect(content.headers['x-content-sha256']).toMatch(/^[0-9a-f]{64}$/);
+    expect(content.body).toContain('campaign_id,campaign_name,campaign_state');
+    expect(content.body).toContain(id);
+    expect(content.body).toContain("'=Formula-safe");
+
+    expect((await send(api, 'POST', '/reports/campaigns/exports', { format: 'csv', campaignId: randomUUID() }, 'missing-campaign-export')).statusCode).toBe(404);
+    expect((await send(api, 'GET', `/reports/campaigns/exports/${randomUUID()}`)).statusCode).toBe(404);
+    expect((await send(api, 'GET', `/reports/campaigns/exports/${randomUUID()}/content`)).statusCode).toBe(404);
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE campaign_report_exports
+          SET completed_at=now()-interval '2 days',expires_at=now()-interval '1 day'
+        WHERE id=$1`, [exportJob.id],
+    ));
+    expect((await send(api, 'GET', `/reports/campaigns/exports/${exportJob.id}/content`)).statusCode).toBe(410);
   });
 
   it('holds queued work across pause, refreshes the fence on resume and removes it on cancel', async () => {
@@ -505,6 +552,40 @@ describe('campaign API', () => {
       return rows.rows[0];
     });
     expect(counts).toEqual({ outbox: '0', cancelled: '1', released: '1' });
+  });
+
+  it('records export generation failures and closes an exhausted stale lease', async () => {
+    const exporter = api.app.get(CampaignReportExportService);
+    const migrationPool = scratchMigrationPool(api.names);
+    try {
+      const failedResponse = await send(api, 'POST', '/reports/campaigns/exports', { format: 'csv' }, 'forced-export-failure');
+      const failedId = (failedResponse.json() as { data: { id: string } }).data.id;
+      await migrationPool.query(`CREATE FUNCTION fail_report_export_completion() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN IF NEW.state='completed' THEN RAISE EXCEPTION 'forced export completion failure'; END IF; RETURN NEW; END $$`);
+      await migrationPool.query(`CREATE TRIGGER fail_report_export_completion BEFORE UPDATE ON campaign_report_exports
+        FOR EACH ROW EXECUTE FUNCTION fail_report_export_completion()`);
+      expect(await exporter.process(api.tenantId, 1, 'failure-worker')).toBe(1);
+      const failed = await send(api, 'GET', `/reports/campaigns/exports/${failedId}`);
+      expect(failed.json()).toMatchObject({ data: { state: 'failed', error_code: 'export_generation_failed' } });
+      await migrationPool.query(`DROP TRIGGER fail_report_export_completion ON campaign_report_exports`);
+      await migrationPool.query(`DROP FUNCTION fail_report_export_completion()`);
+
+      const exhaustedResponse = await send(api, 'POST', '/reports/campaigns/exports', { format: 'csv' }, 'exhausted-export');
+      const exhaustedId = (exhaustedResponse.json() as { data: { id: string } }).data.id;
+      await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+        `UPDATE campaign_report_exports
+            SET state='running',attempt=3,lease_owner='dead-worker',
+                lease_expires_at=now()-interval '1 minute',started_at=now()-interval '10 minutes'
+          WHERE id=$1`, [exhaustedId],
+      ));
+      expect(await exporter.process(api.tenantId, 1, 'recovery-worker')).toBe(0);
+      const exhausted = await send(api, 'GET', `/reports/campaigns/exports/${exhaustedId}`);
+      expect(exhausted.json()).toMatchObject({ data: { state: 'failed', error_code: 'export_attempts_exhausted' } });
+    } finally {
+      await migrationPool.query(`DROP TRIGGER IF EXISTS fail_report_export_completion ON campaign_report_exports`);
+      await migrationPool.query(`DROP FUNCTION IF EXISTS fail_report_export_completion()`);
+      await migrationPool.end();
+    }
   });
 
   it('starts a due scheduled execution and rejects content that cannot form a command', async () => {

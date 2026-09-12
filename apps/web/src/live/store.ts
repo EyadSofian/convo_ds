@@ -13,7 +13,7 @@ import type {
 } from '../api/conversations.js';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
-import type { Campaign, CampaignRecipient, CampaignReport, CampaignsApi } from '../api/campaigns.js';
+import type { Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi } from '../api/campaigns.js';
 import { disconnectedCampaignsApi } from '../api/campaigns.js';
 import { disconnectedMetadataApi } from '../api/people.js';
 import type { RealtimeSubscription } from './realtime.js';
@@ -178,6 +178,7 @@ export interface LiveState {
   campaigns: Resource<readonly Campaign[]>;
   campaignRecipients: Resource<readonly CampaignRecipient[]>;
   campaignReport: Resource<CampaignReport>;
+  campaignReportExport: Resource<CampaignReportExport>;
   selectedCampaignId: string | null;
   inboxFilters: { unread: string; priority: string; channel: string; labelId: string };
   contactFilters: { labelId: string; fieldId: string; fieldValue: string };
@@ -254,6 +255,7 @@ export function createLiveState(
     campaigns: IDLE,
     campaignRecipients: IDLE,
     campaignReport: IDLE,
+    campaignReportExport: IDLE,
     selectedCampaignId: null,
     inboxFilters: { unread: '', priority: '', channel: '', labelId: '' },
     contactFilters: { labelId: '', fieldId: '', fieldValue: '' },

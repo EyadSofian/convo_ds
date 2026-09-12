@@ -5,6 +5,7 @@ import { createApiApplication, requiresBroker, startApi } from '../../apps/api/s
 import type { BrokerPort } from '../../apps/api/src/broker/broker.port.js';
 import { BrokerRelayService } from '../../apps/api/src/broker/relay.service.js';
 import { CampaignPlannerService } from '../../apps/api/src/campaigns/campaign-planner.service.js';
+import { CampaignReportExportService } from '../../apps/api/src/campaigns/report-export.service.js';
 import { PROCESS_ROLES, parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
@@ -108,6 +109,7 @@ describe('the worker roles', () => {
     'worker-interactive',
     'worker-campaign',
     'worker-integration',
+    'worker-report',
   ])('runs a tick for %s against a real database', async (role) => {
     const tick = tickFor(role, { app: api.app, concurrency: 2 });
     // An idle tick is the normal case for a freshly started worker, and it must
@@ -122,7 +124,7 @@ describe('the worker roles', () => {
       relay.enqueue(asExecutor(client), api.tenantId, 'inbound.event', { eventId: 'w1' }),
     );
 
-    for (const role of ['worker-inbound', 'worker-interactive', 'worker-campaign'] as const) {
+    for (const role of ['worker-inbound', 'worker-interactive', 'worker-campaign', 'worker-report'] as const) {
       expect((await tickFor(role, { app: api.app, concurrency: 2 })()).handled).toBe(0);
     }
     const integration = await tickFor('worker-integration', { app: api.app, concurrency: 2 })();
@@ -159,6 +161,18 @@ describe('the fair scheduler, in the worker that runs it', () => {
     expect(planned).toHaveBeenCalledWith(api.tenantId, 8);
     pending.mockRestore();
     planned.mockRestore();
+  });
+
+  it('lets the report role drain only report export jobs', async () => {
+    const exports = api.app.get(CampaignReportExportService);
+    const pending = vi.spyOn(exports, 'pendingTenants').mockResolvedValueOnce([api.tenantId]);
+    const processed = vi.spyOn(exports, 'process').mockResolvedValueOnce(2);
+    const result = await tickFor('worker-report', { app: api.app, concurrency: 2 })();
+    expect(result).toEqual({ handled: 2 });
+    expect(pending).toHaveBeenCalledOnce();
+    expect(processed).toHaveBeenCalledWith(api.tenantId, 2);
+    pending.mockRestore();
+    processed.mockRestore();
   });
 });
 

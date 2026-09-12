@@ -29,6 +29,11 @@ export interface CampaignTestSendInput {
   readonly expectedVersion: number;
 }
 
+export interface CampaignExportInput {
+  readonly format: 'csv';
+  readonly campaignId: string | null;
+}
+
 export function parseCampaignDraft(body: unknown): CampaignDraftInput {
   const value = record(body);
   const name = text(value['name'], 160);
@@ -118,6 +123,20 @@ export function parseCampaignRetry(body: unknown): Readonly<Record<string, never
     throw invalid('The failed-only retry request must be an empty object.');
   }
   return {};
+}
+
+export function parseCampaignExport(body: unknown): CampaignExportInput {
+  const value = recordOrNull(body);
+  if (value === null || value['format'] !== 'csv' ||
+      Object.keys(value).some((key) => key !== 'format' && key !== 'campaignId')) {
+    throw invalid('Choose the csv export format and an optional campaignId.');
+  }
+  const campaignId = value['campaignId'] === undefined || value['campaignId'] === null
+    ? null : value['campaignId'];
+  if (campaignId !== null && (typeof campaignId !== 'string' || !UUID.test(campaignId))) {
+    throw invalid('campaignId must identify a campaign in this company.');
+  }
+  return { format: 'csv', campaignId };
 }
 
 function record(value: unknown): Record<string, unknown> {

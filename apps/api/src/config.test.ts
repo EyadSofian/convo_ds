@@ -50,10 +50,10 @@ describe('parseApiConfig', () => {
     expect(Object.isFrozen(config.database)).toBe(true);
   });
 
-  it.each(['ingress', 'realtime', 'worker-inbound', 'worker-campaign'])(
+  it.each(['ingress', 'realtime', 'worker-inbound', 'worker-campaign', 'worker-report'])(
     'accepts %s as a process role',
     (role) => {
-      // One artifact, seven jobs (DEP-01). A role the build does not know is
+      // One artifact, eight jobs (DEP-01). A role the build does not know is
       // still refused, which is the next case.
       expect(parseApiConfig({ ...validEnv(), CONVO_PROCESS_ROLE: role }).processRole).toBe(role);
     },

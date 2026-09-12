@@ -43,6 +43,8 @@ describe('CampaignsApi', () => {
     await api.testSend('tenant-1', 'campaign-1', 'recipient-1', 3, 'test-key');
     await api.recipients('tenant-1', 'campaign-1');
     await api.report('tenant-1');
+    await api.createReportExport('tenant-1', null, 'export-key');
+    await api.reportExport('tenant-1', 'export-1');
 
     expect(calls.map(({ path, init }) => [init.method, path])).toEqual([
       ['GET', '/api/v1/tenants/tenant-1/campaigns'],
@@ -57,6 +59,8 @@ describe('CampaignsApi', () => {
       ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/test-send'],
       ['GET', '/api/v1/tenants/tenant-1/campaigns/campaign-1/recipients'],
       ['GET', '/api/v1/tenants/tenant-1/reports/campaigns'],
+      ['POST', '/api/v1/tenants/tenant-1/reports/campaigns/exports'],
+      ['GET', '/api/v1/tenants/tenant-1/reports/campaigns/exports/export-1'],
     ]);
     expect(calls[1]?.init.headers).toMatchObject({ 'idempotency-key': 'create-key' });
     expect(calls[2]?.init.headers).toMatchObject({ 'idempotency-key': 'update-key' });
@@ -67,6 +71,8 @@ describe('CampaignsApi', () => {
     expect(calls[8]?.init.headers).toMatchObject({ 'idempotency-key': 'clone-key' });
     expect(calls[9]?.init.headers).toMatchObject({ 'idempotency-key': 'test-key' });
     expect(JSON.parse(String(calls[9]?.init.body))).toEqual({ testRecipientId: 'recipient-1', expectedVersion: 3 });
+    expect(calls[12]?.init.headers).toMatchObject({ 'idempotency-key': 'export-key' });
+    expect(JSON.parse(String(calls[12]?.init.body))).toEqual({ format: 'csv', campaignId: null });
   });
 
   it('has an honest disconnected default', async () => {
@@ -84,5 +90,7 @@ describe('CampaignsApi', () => {
     });
     expect((await api.launch('tenant-1', 'campaign-1', 'key')).ok).toBe(false);
     expect((await api.retryFailures('tenant-1', 'campaign-1', 'key')).ok).toBe(false);
+    expect((await api.createReportExport('tenant-1', null, 'key')).ok).toBe(false);
+    expect((await api.reportExport('tenant-1', 'export-1')).ok).toBe(false);
   });
 });

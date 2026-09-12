@@ -46,6 +46,36 @@ export async function loadCampaignReport(context: LiveContext): Promise<void> {
   context.refresh();
 }
 
+export async function createCampaignReportExport(context: LiveContext): Promise<boolean> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return false;
+  context.live.busy = 'campaign-report-export';
+  context.live.error = null;
+  context.refresh();
+  const result = await context.live.campaignsApi.createReportExport(tenantId, null, context.newKey());
+  context.live.busy = null;
+  context.live.revision += 1;
+  if (!result.ok) {
+    context.live.error = result.error;
+    context.live.campaignReportExport = failed(result.error);
+    context.refresh();
+    return false;
+  }
+  context.live.campaignReportExport = { status: 'ready', value: result.data, loadedAt: context.now() };
+  pushToast(context.state, t(context, 'بدأ تجهيز ملف CSV', 'CSV export queued'));
+  context.refresh();
+  return true;
+}
+
+export async function refreshCampaignReportExport(context: LiveContext): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  const current = context.live.campaignReportExport;
+  if (tenantId === null || current.status !== 'ready') return;
+  const result = await context.live.campaignsApi.reportExport(tenantId, current.value.id);
+  context.live.campaignReportExport = fromResult(result, context.now());
+  context.refresh();
+}
+
 export function createCampaign(context: LiveContext, input: CreateCampaignInput): Promise<boolean> {
   return mutate(context, 'campaign-create',
     (tenantId) => context.live.campaignsApi.create(tenantId, input, context.newKey()),

@@ -201,6 +201,7 @@ export function renderAnalytics(state: AppState): HTMLElement {
       ),
       [
         button({ label: t(state, 'تحديث', 'Reload'), icon: 'refresh', act: 'live-report-reload' }),
+        button({ label: t(state, 'تصدير CSV', 'Export CSV'), icon: 'download', act: 'live-report-export', disabled: state.live.busy !== null }),
       ],
     ),
     notice(
@@ -279,6 +280,30 @@ export function renderAnalytics(state: AppState): HTMLElement {
       report.errors.length === 0 ? notice('plain', 'check', t(state, 'لا توجد أخطاء مسجلة.', 'No errors recorded.')) :
         h('div', { class: 'bars' }, report.errors.map((error) => barRow(error.code, error.count / Math.max(report.current.denominator, 1), formatNumber(error.count, state.lang), true))),
     ]),
+    exportStatus(state),
+  ]);
+}
+
+function exportStatus(state: AppState): HTMLElement | null {
+  const resource = state.live.campaignReportExport;
+  if (resource.status === 'idle') return null;
+  if (resource.status === 'loading') return notice('plain', 'clock', t(state, 'جارٍ قراءة حالة التصدير…', 'Reading export status…'));
+  if (resource.status === 'error') return notice('warning', 'alert', resource.error.message);
+  const job = resource.value;
+  if (job.state === 'completed' && job.download_url !== null) {
+    return h('section', { class: 'card', 'data-export-ready': 'true' }, [
+      h('div', { class: 'card__header' }, [
+        h('h2', { class: 'card__title' }, [t(state, 'ملف التقرير جاهز', 'Report file is ready')]),
+        pill(`${formatNumber(job.row_count ?? 0, state.lang)} ${t(state, 'صف', 'rows')}`, 'success', 'check'),
+      ]),
+      h('a', { class: 'btn btn--primary', href: job.download_url, download: '' }, [t(state, 'تنزيل CSV', 'Download CSV')]),
+      h('p', { class: 'muted' }, [t(state, 'ينتهي رابط التنزيل خلال 24 ساعة.', 'The download expires after 24 hours.')]),
+    ]);
+  }
+  if (job.state === 'failed') return notice('warning', 'alert', t(state, 'فشل تجهيز الملف. أنشئ تصديرًا جديدًا.', 'The export failed. Create a new export.'));
+  return h('section', { class: 'card', 'aria-live': 'polite' }, [
+    h('div', { class: 'card__header' }, [h('h2', { class: 'card__title' }, [t(state, 'التصدير قيد التجهيز', 'Export is being prepared')]), pill(job.state, 'neutral', 'clock')]),
+    button({ label: t(state, 'تحديث الحالة', 'Refresh status'), icon: 'refresh', act: 'live-report-export-refresh', small: true }),
   ]);
 }
 

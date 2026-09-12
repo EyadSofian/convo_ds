@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Campaign, CampaignReport, CampaignRetry, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
+import type { Campaign, CampaignReport, CampaignReportExport, CampaignRetry, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
 import type { ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import { createState } from '../state.js';
@@ -9,10 +9,12 @@ import {
   cloneCampaign,
   controlCampaign,
   createCampaign,
+  createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
   loadCampaignReport,
   loadCampaignsScreen,
+  refreshCampaignReportExport,
   retryCampaignFailures,
   testSendCampaign,
   updateCampaign,
@@ -45,6 +47,11 @@ const RETRY: CampaignRetry = {
   id: 'retry-1', campaign_id: 'campaign-1', execution_id: 'execution-1', recipient_count: 2,
   state: 'running', requested_at: NOW.toISOString(),
 };
+const EXPORT: CampaignReportExport = {
+  id: 'export-1', campaign_id: null, format: 'csv', state: 'queued', row_count: null,
+  error_code: null, requested_at: NOW.toISOString(), completed_at: null, expires_at: null,
+  download_url: null,
+};
 const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 const fail = <T>(): ApiResult<T> => ({ ok: false, error: ERROR });
 
@@ -68,6 +75,8 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     testSend: vi.fn().mockResolvedValue(ok(TEST_SEND)),
     recipients: vi.fn().mockResolvedValue(ok([])),
     report: vi.fn().mockResolvedValue(ok(REPORT)),
+    createReportExport: vi.fn().mockResolvedValue(ok(EXPORT)),
+    reportExport: vi.fn().mockResolvedValue(ok({ ...EXPORT, state: 'completed' })),
   } as unknown as CampaignsApi;
   const channels = {
     connections: vi.fn().mockResolvedValue(ok([])),
@@ -94,9 +103,30 @@ describe('campaign actions', () => {
     expect(await createCampaign(context, INPUT)).toBe(false);
     expect(await testSendCampaign(context, 'campaign-1', 'recipient-1', 1)).toBe(false);
     expect(await retryCampaignFailures(context, 'campaign-1')).toBe(false);
+    expect(await createCampaignReportExport(context)).toBe(false);
+    await refreshCampaignReportExport(context);
     expect(campaigns.list).not.toHaveBeenCalled();
     expect(campaigns.recipients).not.toHaveBeenCalled();
     expect(campaigns.report).not.toHaveBeenCalled();
+  });
+
+  it('shows export progress only after the server commits and refreshes the same owned job', async () => {
+    const ready = setup();
+    expect(await createCampaignReportExport(ready.context)).toBe(true);
+    expect(ready.campaigns.createReportExport).toHaveBeenCalledWith('tenant-1', null, 'key-1');
+    expect(ready.state.live.campaignReportExport).toMatchObject({ status: 'ready', value: { id: 'export-1', state: 'queued' } });
+    expect(ready.state.toasts.at(-1)?.text).toContain('CSV export queued');
+    await LIVE_ACTIONS['live-report-export-refresh']?.(ready.context, '');
+    expect(ready.campaigns.reportExport).toHaveBeenCalledWith('tenant-1', 'export-1');
+    expect(ready.state.live.campaignReportExport).toMatchObject({ status: 'ready', value: { state: 'completed' } });
+
+    const refused = setup();
+    vi.mocked(refused.campaigns.createReportExport).mockResolvedValueOnce(fail());
+    expect(await LIVE_ACTIONS['live-report-export']?.(refused.context, '')).toBe(false);
+    expect(refused.state.live.campaignReportExport).toEqual({ status: 'error', error: ERROR });
+    refused.state.live.campaignReportExport = { status: 'loading' };
+    await refreshCampaignReportExport(refused.context);
+    expect(refused.campaigns.reportExport).not.toHaveBeenCalled();
   });
 
   it('loads the campaign report and preserves a server refusal', async () => {

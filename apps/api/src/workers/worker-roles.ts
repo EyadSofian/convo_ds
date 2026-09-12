@@ -7,6 +7,7 @@ import { ChannelNormalizationService } from '../channels/normalization.service.j
 import { LifecycleService } from '../conversations/lifecycle.service.js';
 import { RoutingService } from '../conversations/routing.service.js';
 import { CampaignPlannerService } from '../campaigns/campaign-planner.service.js';
+import { CampaignReportExportService } from '../campaigns/report-export.service.js';
 import type { WorkerTick } from './worker-loop.js';
 
 /**
@@ -40,7 +41,19 @@ export function tickFor(role: WorkerRole, context: WorkerContext): () => Promise
   if (role === 'worker-campaign') {
     return () => outboundTick(context, 'bulk');
   }
+  if (role === 'worker-report') {
+    return () => reportTick(context);
+  }
   return () => integrationTick(context);
+}
+
+async function reportTick(context: WorkerContext): Promise<WorkerTick> {
+  const exports = context.app.get(CampaignReportExportService);
+  let handled = 0;
+  for (const tenantId of await exports.pendingTenants()) {
+    handled += await exports.process(tenantId, context.concurrency);
+  }
+  return { handled };
 }
 
 /**

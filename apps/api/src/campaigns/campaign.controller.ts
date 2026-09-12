@@ -3,7 +3,8 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { pageEnvelope } from '../pagination.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignExport, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
+import { CampaignReportExportService } from './report-export.service.js';
 import { CampaignService } from './campaign.service.js';
 import { CampaignReportingService } from './reporting.service.js';
 
@@ -13,6 +14,7 @@ export class CampaignController {
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(CampaignService) private readonly campaigns: CampaignService,
     @Inject(CampaignReportingService) private readonly reporting: CampaignReportingService,
+    @Inject(CampaignReportExportService) private readonly exports: CampaignReportExportService,
   ) {}
 
   @Get('tenants/:tenantId/campaigns')
@@ -25,6 +27,38 @@ export class CampaignController {
   async report(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
     const session = await this.auth.authenticate(request.headers.cookie);
     return { data: await this.reporting.report(session, tenantId), request_id: request.id };
+  }
+
+  @Post('tenants/:tenantId/reports/campaigns/exports')
+  async createExport(
+    @Param('tenantId') tenantId: string, @Body() body: unknown,
+    @Headers('x-csrf-token') csrf: string | string[] | undefined,
+    @Headers('idempotency-key') key: string | string[] | undefined,
+    @Req() request: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const session = await this.mutating(request, csrf);
+    if (typeof key !== 'string' || key.trim() === '') throw new ApiHttpError(400, 'idempotency_key_required', 'Provide an Idempotency-Key header.');
+    reply.code(202);
+    return { data: await this.exports.create(session, tenantId, parseCampaignExport(body), body, key), request_id: request.id };
+  }
+
+  @Get('tenants/:tenantId/reports/campaigns/exports/:exportId')
+  async exportStatus(@Param('tenantId') tenantId: string, @Param('exportId') exportId: string, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return { data: await this.exports.status(session, tenantId, exportId), request_id: request.id };
+  }
+
+  @Get('tenants/:tenantId/reports/campaigns/exports/:exportId/content')
+  async exportContent(
+    @Param('tenantId') tenantId: string, @Param('exportId') exportId: string,
+    @Req() request: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const file = await this.exports.content(session, tenantId, exportId);
+    reply.header('content-type', 'text/csv; charset=utf-8');
+    reply.header('content-disposition', `attachment; filename="${file.filename}"`);
+    reply.header('x-content-sha256', file.sha256);
+    return file.content;
   }
 
   @Post('tenants/:tenantId/campaigns')

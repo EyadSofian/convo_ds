@@ -9,7 +9,7 @@ import {
 /**
  * The process roles one artifact can start as (DEP-01).
  *
- * One build, seven jobs. They are separate roles rather than flags on a single
+ * One build, eight jobs. They are separate roles rather than flags on a single
  * process because they have genuinely different failure modes and concurrency
  * needs: an ingress that must answer in 200 ms should not share a pool with a
  * campaign worker draining a million recipients (ADR-0005, ADR-0007).
@@ -22,6 +22,7 @@ export const PROCESS_ROLES = [
   'worker-interactive',
   'worker-campaign',
   'worker-integration',
+  'worker-report',
 ] as const;
 
 export type ProcessRole = (typeof PROCESS_ROLES)[number];

@@ -215,6 +215,31 @@ describe('analytics', () => {
     expect(text(renderAnalytics(reportState('en')))).toContain('Not available');
   });
 
+  it('renders queued, completed, failed and request-failure export states', () => {
+    const state = reportState('en');
+    state.live.campaignReportExport = { status: 'loading' };
+    expect(text(renderAnalytics(state))).toContain('Reading export status');
+    state.live.campaignReportExport = { status: 'error', error: { code: 'down', message: 'Export unavailable', requestId: null, status: 503, details: [] } };
+    expect(text(renderAnalytics(state))).toContain('Export unavailable');
+    state.live.campaignReportExport = { status: 'ready', loadedAt: 1, value: {
+      id: 'export-1', campaign_id: null, format: 'csv', state: 'queued', row_count: null,
+      error_code: null, requested_at: NOW.toISOString(), completed_at: null, expires_at: null, download_url: null,
+    } };
+    expect(renderAnalytics(state).querySelector('[data-act="live-report-export-refresh"]')).not.toBeNull();
+    state.live.campaignReportExport = { status: 'ready', loadedAt: 2, value: {
+      ...state.live.campaignReportExport.value, state: 'failed', error_code: 'export_generation_failed',
+    } };
+    expect(text(renderAnalytics(state))).toContain('The export failed');
+    state.live.campaignReportExport = { status: 'ready', loadedAt: 3, value: {
+      ...state.live.campaignReportExport.value, state: 'completed', row_count: null,
+      error_code: null, completed_at: NOW.toISOString(), expires_at: NOW.toISOString(), download_url: '/api/v1/export.csv',
+    } };
+    const complete = renderAnalytics(state);
+    expect(complete.querySelector('[data-export-ready="true"]')).not.toBeNull();
+    expect((complete.querySelector('a[download]') as HTMLAnchorElement).getAttribute('href')).toBe('/api/v1/export.csv');
+    expect(text(complete)).toContain('0 rows');
+  });
+
   it('distinguishes loading, signed-out, no-membership, failure and empty evidence', () => {
     const loading = stateAs('supervisor');
     expect(renderAnalytics(loading).querySelector('[aria-busy="true"]')).not.toBeNull();

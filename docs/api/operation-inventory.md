@@ -167,6 +167,9 @@ Every operation below needs: one `operationId`, request/response/error schemas, 
 | Campaigns | `POST T/campaigns/{id}/clone` | `cloneCampaign` | `campaign.draft`; new ID, no execution state | P4 |
 | Campaigns | `GET T/campaigns/{id}/recipients` | `listCampaignRecipients` | `campaign.read` scope | P4 |
 | Reports | `GET T/reports/campaigns` | `getCampaignReport` | `report.read` scope | P4/P6 |
+| Reports | `POST T/reports/campaigns/exports` | `createCampaignReportExport` | `report.read`; requester-owned async job | P4/P6 |
+| Reports | `GET T/reports/campaigns/exports/{id}` | `getCampaignReportExport` | `report.read`; requesting membership only | P4/P6 |
+| Reports | `GET T/reports/campaigns/exports/{id}/content` | `downloadCampaignReportExport` | completed + unexpired + requesting membership only | P4/P6 |
 | Integrations | `GET T/integrations` | `listIntegrations` | `integration.manage` | P5 |
 | Integrations | `POST T/integrations` | `createIntegration` | `integration.manage` + ceiling | P5 |
 | Integrations | `GET T/integrations/{id}` | `getIntegration` | `integration.manage` | P5 |

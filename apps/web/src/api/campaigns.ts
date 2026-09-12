@@ -78,6 +78,19 @@ export interface CampaignReport {
   readonly campaigns: readonly { readonly id: string; readonly name: string; readonly state: string; readonly denominator: number; readonly accepted: number; readonly delivered: number; readonly read: number; readonly failed: number; readonly outcome_unknown: number; readonly fresh_through: string }[];
 }
 
+export interface CampaignReportExport {
+  readonly id: string;
+  readonly campaign_id: string | null;
+  readonly format: 'csv';
+  readonly state: 'queued' | 'running' | 'completed' | 'failed';
+  readonly row_count: number | null;
+  readonly error_code: string | null;
+  readonly requested_at: string;
+  readonly completed_at: string | null;
+  readonly expires_at: string | null;
+  readonly download_url: string | null;
+}
+
 export interface CreateCampaignInput {
   readonly name: string;
   readonly objective: string | null;
@@ -132,6 +145,14 @@ export class CampaignsApi {
   }
   report(tenantId: string): Promise<ApiResult<CampaignReport>> {
     return this.client.get(`/tenants/${tenantId}/reports/campaigns`);
+  }
+  createReportExport(tenantId: string, campaignId: string | null, key: string): Promise<ApiResult<CampaignReportExport>> {
+    return this.client.post(`/tenants/${tenantId}/reports/campaigns/exports`, {
+      body: { format: 'csv', campaignId }, idempotencyKey: key,
+    });
+  }
+  reportExport(tenantId: string, exportId: string): Promise<ApiResult<CampaignReportExport>> {
+    return this.client.get(`/tenants/${tenantId}/reports/campaigns/exports/${exportId}`);
   }
 }
 

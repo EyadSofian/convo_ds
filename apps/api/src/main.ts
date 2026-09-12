@@ -8,7 +8,7 @@ import { tickFor } from './workers/worker-roles.js';
 import { realSleep, runWorkerLoop } from './workers/worker-loop.js';
 
 /**
- * The one process entry point, for all seven roles.
+ * The one process entry point, for all eight roles.
  *
  * A role that serves HTTP listens and stays up. A worker role starts the same
  * application context — same configuration, same pool, same services — and runs

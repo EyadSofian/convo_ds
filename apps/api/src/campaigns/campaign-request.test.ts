@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../http-error.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignExport, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
 
 const CONNECTION = '11111111-1111-4111-8111-111111111111';
 
@@ -64,6 +64,16 @@ describe('campaign request parsing', () => {
     expect(parseCampaignRetry({})).toEqual({});
     expect(() => parseCampaignRetry(null)).toThrow(ApiHttpError);
     expect(() => parseCampaignRetry({ all: true })).toThrow(ApiHttpError);
+  });
+
+  it('accepts only a CSV report export with an optional campaign scope', () => {
+    expect(parseCampaignExport({ format: 'csv' })).toEqual({ format: 'csv', campaignId: null });
+    expect(parseCampaignExport({ format: 'csv', campaignId: CONNECTION })).toEqual({
+      format: 'csv', campaignId: CONNECTION,
+    });
+    for (const body of [null, {}, { format: 'json' }, { format: 'csv', campaignId: 'bad' }, { format: 'csv', extra: true }]) {
+      expect(() => parseCampaignExport(body)).toThrow(ApiHttpError);
+    }
   });
 
   it('requires a positive concurrency version for campaign updates', () => {

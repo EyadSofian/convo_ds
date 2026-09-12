@@ -74,7 +74,7 @@ export async function createApiApplication(
 /**
  * Starts this process in whichever role it was configured for.
  *
- * One artifact, seven roles. The HTTP roles listen; the four worker roles run a
+ * One artifact, eight roles. The HTTP roles listen; the five worker roles run a
  * loop and never bind a port. Which one this is comes from configuration alone,
  * so a deployment scales a role by starting more copies of the same image with a
  * different `CONVO_PROCESS_ROLE` (DEP-01).

@@ -58,6 +58,7 @@ import { CampaignController } from './campaigns/campaign.controller.js';
 import { CampaignService } from './campaigns/campaign.service.js';
 import { CampaignPlannerService } from './campaigns/campaign-planner.service.js';
 import { CampaignReportingService } from './campaigns/reporting.service.js';
+import { CampaignReportExportService } from './campaigns/report-export.service.js';
 import {
   API_CONFIG,
   API_POOL,
@@ -167,6 +168,7 @@ export class ApiModule {
         CampaignService,
         CampaignPlannerService,
         CampaignReportingService,
+        CampaignReportExportService,
         ConversationService,
         LifecycleService,
         RoutingService,

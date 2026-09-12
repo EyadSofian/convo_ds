@@ -4,6 +4,49 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
+## Last completed task — P1-T18 (asynchronous campaign report export)
+
+**Task / requirement IDs:** CMP-23 implemented; CT-10 and REP-01 advanced; UX-09 advanced.
+
+### Behavior delivered
+
+**The request no longer generates a file.** `POST T/reports/campaigns/exports` authorizes `report.read`, binds the job to the requesting membership and returns 202 after the export row and its contentless queue row commit together. `worker-report` is an eighth process role with its own bounded concurrency; it discovers only a tenant and export id, then enters that tenant's RLS transaction before reading report data.
+
+**The file is stable evidence.** The worker reads the narrow `campaign_report_rows` projection, optionally scopes it to one campaign, emits CRLF CSV with formula-leading cells neutralized, stores the row count and SHA-256 digest, and exposes a membership-owned download for 24 hours. Queued/running/failed/completed are different states in the API and Analytics UI.
+
+**A dead worker cannot own the job forever.** Claims are five-minute leases. An abandoned lease can be recovered up to three attempts; the next sweep closes it as `export_attempts_exhausted`. A generation failure records `export_generation_failed` and removes the queue row. Tests force both failures against PostgreSQL rather than asserting a mock.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0025_campaign_report_exports.sql` | FORCE-RLS export record, contentless queue, leases and expiry |
+| `apps/api/src/campaigns/report-export.service.ts` | idempotent creation, ownership, CSV generation, recovery and download |
+| `apps/api/src/workers/worker-roles.ts` | separately scalable `worker-report` role |
+| `apps/web/src/ui/workspace.ts` | real export action, progress state and expiring download |
+| `tests/integration/api-campaigns.test.ts` | completion, digest, formula safety, expiry and forced failure evidence |
+| `docs/api/openapi.v1.json` | pinned 101-operation contract |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm typecheck` | **0** | clean |
+| `pnpm test:unit` | **0** | **1460 tests** |
+| `pnpm test:integration` | **0** | **509 tests** against PostgreSQL 17.4 |
+| `pnpm test:coverage` | **0** | 101 files, **1974 tests**, **100/100/100/100** |
+| `pnpm test:contracts` | **0** | 101-operation OpenAPI drift clean |
+
+### Honest remaining production scope
+
+- The checked Railway project currently runs only the static web service; the API, PostgreSQL and workers still need production services and secrets.
+- Provider-live activation remains `blocked_no_asset`; the UI accepts the future Meta identifiers, but live Graph transport cannot be asserted without the owner's app assets.
+- CRM remains intentionally deferred by the owner. Contact import/export and template catalogue/synchronization are separate later scope.
+
+**Next execution slice:** package the shared production artifact, proxy `/api` from the public web service, provision Railway PostgreSQL/API/workers, migrate, bootstrap and smoke-test the public path.
+
+---
+
 ## Last completed task — P1-T17 (failed-only campaign retry)
 
 **Task / requirement IDs:** CMP-24 implemented; UX-09 advanced.
@@ -636,7 +679,7 @@ The pinned OpenAPI carries **53 operations**; the bidirectional drift test passe
 
 ### Behavior delivered
 
-**One artifact, seven roles.** `CONVO_PROCESS_ROLE` alone decides what a process is. An HTTP role listens; the four worker roles run a loop and **bind no port** — asserted by starting one and reading `null` from the server's address. The pool size follows the role rather than one global number. `worker-integration` **fails closed** when no durable broker is reachable: a process whose only job is publishing has nothing to do without one, and falling back to an in-memory queue would leave something that looks healthy, reports throughput, and loses everything it holds on restart.
+**One artifact, eight roles.** `CONVO_PROCESS_ROLE` alone decides what a process is. An HTTP role listens; the five worker roles run a loop and **bind no port** — asserted by starting one and reading `null` from the server's address. The pool size follows the role rather than one global number. `worker-integration` **fails closed** when no durable broker is reachable: a process whose only job is publishing has nothing to do without one, and falling back to an in-memory queue would leave something that looks healthy, reports throughput, and loses everything it holds on restart.
 
 **The broker is a transport; the outbox is the truth.** An envelope commits with the effect that caused it and is published afterwards, with `published_at` set only on a confirmation. The cost of that ordering is that a publish can happen twice, which is accepted rather than hidden: `broker_deliveries` makes consumers idempotent, so a duplicate is absorbed and a lost event would not be. Bounded retries end in `broker_dead_letters` with a reason; a replay creates a new envelope and records who did it.
 
@@ -842,7 +885,7 @@ The pinned OpenAPI carries **40 operations**; the bidirectional route/spec drift
 
 - **No outbound path at all.** No outbox, no delivery state machine, no `outcome_unknown` handling in a real send, no per-conversation ordering. `permitSend` exists and is tested but is not wired to a send, so CH-WA-05's "draft preserved" is untested.
 - **One adapter.** Messenger, Instagram, Website Chat and Custom Channel have matrices and policy but no adapter; connecting one is refused with a typed `not_supported`.
-- **One process.** The seven roles are configurable and the inbound worker is a service with a durable lease, but they are not separate processes with their own queues.
+- **One process.** The eight roles are configurable and the inbound worker is a service with a durable lease, but they are not separate deployed processes with their own queues.
 - **No realtime**, no inbox, no contacts, no broadcasts, no CRM integration, no deployment configuration.
 - **Every provider-live check is `blocked_no_asset`.** The signature scheme is genuinely verified against the documented algorithm; whether Meta's live deliveries match it needs an authorized app.
 

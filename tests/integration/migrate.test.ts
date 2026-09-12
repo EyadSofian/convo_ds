@@ -66,6 +66,7 @@ describe('migrate', () => {
       '0022_campaign_test_send.sql',
       '0023_campaign_reporting.sql',
       '0024_campaign_failed_retry.sql',
+      '0025_campaign_report_exports.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -89,6 +90,8 @@ describe('migrate', () => {
       'campaign_audit',
       'campaign_executions',
       'campaign_recipients',
+      'campaign_report_export_queue',
+      'campaign_report_exports',
       'campaign_report_rows',
       'campaign_retry_recipients',
       'campaign_retry_runs',
