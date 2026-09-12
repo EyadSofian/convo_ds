@@ -76,6 +76,8 @@ pnpm start:api
 - `GET /api/v1/me/memberships` و`GET /api/v1/tenants/{tenantId}/permissions` يطبقان العضوية النشطة وفحص `role.manage` داخل RLS.
 - العقد المنفّذ موجود في [`docs/api/openapi.v1.json`](docs/api/openapi.v1.json).
 
+نشر Railway الفعلي، وتوزيع خدمة الويب والـAPI والعمّال وقاعدة البيانات، موثّق في [`docs/runbooks/railway-production.md`](docs/runbooks/railway-production.md).
+
 ### الواجهة
 
 ```bash
@@ -102,7 +104,7 @@ pnpm test:a11y
 pnpm test:visual
 ```
 
-اختبارات integration وcoverage تشغّل PostgreSQL 17.4 مؤقتًا داخل العملية ولا تحتاج Docker. آخر نتيجة مسجلة: `test:coverage` 82 ملفًا و**1483 اختبارًا** بتغطية 100% للسطور والعبارات والدوال والفروع؛ `test:e2e` 146؛ `test:a11y` 25 بلا أي مخالفة WCAG 2.1 AA؛ `test:visual` 19. عتبات التغطية عند 100 في `vitest.config.ts` ولا يجوز خفضها لتمرير تشغيلة.
+اختبارات integration وcoverage تشغّل PostgreSQL 17.4 مؤقتًا داخل العملية ولا تحتاج Docker. آخر نتيجة مسجلة: `test:coverage` 101 ملفًا و**1974 اختبارًا** بتغطية 100% للسطور والعبارات والدوال والفروع؛ `test:e2e` 150؛ `test:a11y` 25 بلا أي مخالفة WCAG 2.1 AA؛ `test:visual` 20. عتبات التغطية عند 100 في `vitest.config.ts` ولا يجوز خفضها لتمرير تشغيلة.
 
 `test:security` يشغّل مجموعات العزل والتفويض والتحقق من التوقيع، ثم `pnpm audit --audit-level high --prod` — وهو نظيف حاليًا بلا ثغرات معروفة. `test:contracts` يشغّل عقود المحوّلات ومطابقة OpenAPI في الاتجاهين. `test:mutation` و`test:load:target` و`test:recovery` ما زالت ترجع 1 معلنةً `not_run` أو `blocked_env` بصراحة.
 

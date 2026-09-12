@@ -4,6 +4,14 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
+## Production deployment — Railway
+
+The production deployment now has a persistent PostgreSQL service, a private API, four independently running durable-queue workers (inbound, interactive, campaign and report), and one public web service. The public web service owns the only public domain and streams same-origin `/api` traffic, including SSE and cookies, to the API over Railway private networking.
+
+The cluster bootstrap completed once and all 25 migrations applied. The installation is bootstrapped in SaaS mode with the first tenant `Digital School`. Live verification through the public origin proved the installation descriptor, owner login, hardened cookies, current session, memberships, channels, campaigns, campaign report, people and inbox endpoints. Every long-running service reported `SUCCESS`; the database bootstrap service exited successfully as designed.
+
+Provider-live delivery remains intentionally blocked until the customer supplies authorized Meta application credentials and channel asset IDs. CRM work remains deferred by scope. The exact production topology and runbook are in `docs/runbooks/railway-production.md`.
+
 ## Last completed task — P1-T18 (asynchronous campaign report export)
 
 **Task / requirement IDs:** CMP-23 implemented; CT-10 and REP-01 advanced; UX-09 advanced.
@@ -36,14 +44,18 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 | `pnpm test:integration` | **0** | **509 tests** against PostgreSQL 17.4 |
 | `pnpm test:coverage` | **0** | 101 files, **1974 tests**, **100/100/100/100** |
 | `pnpm test:contracts` | **0** | 101-operation OpenAPI drift clean |
+| `pnpm test:security` | **0** | 374 security tests + clean production audit |
+| `pnpm test:e2e` | **0** | **150 tests** at 1440×900 and 1366×768 |
+| `pnpm test:a11y` | **0** | **25 tests**, zero WCAG 2.1 AA violations |
+| `pnpm test:visual` | **0** | **20 tests**; Analytics baseline includes CSV export |
 
 ### Honest remaining production scope
 
-- The checked Railway project currently runs only the static web service; the API, PostgreSQL and workers still need production services and secrets.
 - Provider-live activation remains `blocked_no_asset`; the UI accepts the future Meta identifiers, but live Graph transport cannot be asserted without the owner's app assets.
+- The broker-backed integration relay is not deployed because there is no broker. PostgreSQL-backed inbound, interactive, campaign and report workers are deployed and healthy.
 - CRM remains intentionally deferred by the owner. Contact import/export and template catalogue/synchronization are separate later scope.
 
-**Next execution slice:** package the shared production artifact, proxy `/api` from the public web service, provision Railway PostgreSQL/API/workers, migrate, bootstrap and smoke-test the public path.
+**Next execution slice:** add the customer's authorized Meta App and asset credentials, then run provider-live webhook, connection and send checks before enabling those channels.
 
 ---
 

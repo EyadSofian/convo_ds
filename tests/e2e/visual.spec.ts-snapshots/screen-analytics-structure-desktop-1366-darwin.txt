@@ -9,6 +9,11 @@ div.workspace.workspace--analytics
           path
           path
           path
+      button.btn [live-report-export]
+        svg
+          path
+          path
+          path
   div.notice.notice--info
     span.notice__icon
       svg
