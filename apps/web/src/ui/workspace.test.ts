@@ -130,6 +130,7 @@ describe('broadcasts', () => {
     expect(text(element)).toContain('بلا هدف مكتوب');
     expect(text(element)).toContain('لم يُثبّت');
     expect(element.querySelector('.pill--danger')).not.toBeNull();
+    expect(element.querySelector('[data-act="live-campaign-retry"][data-arg="failed"]')).not.toBeNull();
     expect(Array.from(element.querySelectorAll('button')).some((button) => button.disabled)).toBe(true);
   });
 

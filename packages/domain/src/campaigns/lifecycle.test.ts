@@ -61,6 +61,15 @@ describe('campaign lifecycle', () => {
     }
   });
 
+  it('reopens only a terminal execution for an explicit failed-only retry', () => {
+    expect(applyCampaignTrigger('dispatch_completed', 'retry_failed')).toEqual({
+      from: 'dispatch_completed', to: 'running', changed: true,
+      effects: ['retry_failed_recipients'], refusal: null,
+    });
+    expect(applyCampaignTrigger('failed', 'retry_failed')).toMatchObject({ to: 'running', refusal: null });
+    expect(applyCampaignTrigger('running', 'retry_failed').refusal).toBe('invalid_campaign_transition');
+  });
+
   it('recognises only campaign states and limits definition edits', () => {
     expect(isCampaignState('running')).toBe(true);
     expect(isCampaignState('unknown')).toBe(false);

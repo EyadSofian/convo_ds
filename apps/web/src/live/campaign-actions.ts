@@ -85,6 +85,27 @@ export function controlCampaign(context: LiveContext, id: string, action: 'pause
         : t(context, 'أُلغيت الأعمال التي لم تُرسل', 'Undispatched work cancelled'));
 }
 
+export async function retryCampaignFailures(context: LiveContext, id: string): Promise<boolean> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return false;
+  context.live.busy = `campaign-retry:${id}`;
+  context.live.error = null;
+  context.refresh();
+  const result = await context.live.campaignsApi.retryFailures(tenantId, id, context.newKey());
+  context.live.busy = null;
+  context.live.revision += 1;
+  if (!result.ok) {
+    context.live.error = result.error;
+    context.refresh();
+    return false;
+  }
+  pushToast(context.state, t(context,
+    `أُعيدت جدولة ${String(result.data.recipient_count)} رسالة فاشلة فقط`,
+    `${String(result.data.recipient_count)} failed message(s) queued for retry`));
+  await loadCampaignsScreen(context);
+  return true;
+}
+
 export function cloneCampaign(context: LiveContext, id: string, sourceName: string): Promise<boolean> {
   const name = t(context, `نسخة من ${sourceName}`, `${sourceName} — copy`).slice(0, 160).trim();
   return mutate(context, `campaign-clone:${id}`,

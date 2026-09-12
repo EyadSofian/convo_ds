@@ -40,6 +40,7 @@ import {
   loadCampaignRecipients,
   loadCampaignReport,
   loadCampaignsScreen,
+  retryCampaignFailures,
   testSendCampaign,
   updateCampaign,
   validateCampaign,
@@ -391,6 +392,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-campaign-validate': async (context, arg) => validateCampaign(context, arg),
   'live-campaign-approve': async (context, arg) => approveCampaign(context, arg),
   'live-campaign-launch': async (context, arg) => launchCampaign(context, arg),
+  'live-campaign-retry': async (context, arg) => retryCampaignFailures(context, arg),
   'live-campaign-control': async (context, arg) => {
     const { id, value } = splitArg(arg);
     if (value !== 'pause' && value !== 'resume' && value !== 'cancel') return false;

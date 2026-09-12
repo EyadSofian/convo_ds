@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Campaign, CampaignReport, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
+import type { Campaign, CampaignReport, CampaignRetry, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
 import type { ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import { createState } from '../state.js';
@@ -13,6 +13,7 @@ import {
   loadCampaignRecipients,
   loadCampaignReport,
   loadCampaignsScreen,
+  retryCampaignFailures,
   testSendCampaign,
   updateCampaign,
   validateCampaign,
@@ -40,6 +41,10 @@ const TEST_SEND: CampaignTestSend = {
   state: 'queued', state_reason: null, created_at: NOW.toISOString(),
 };
 const REPORT = { generated_at: NOW.toISOString(), fresh_through: NOW.toISOString() } as CampaignReport;
+const RETRY: CampaignRetry = {
+  id: 'retry-1', campaign_id: 'campaign-1', execution_id: 'execution-1', recipient_count: 2,
+  state: 'running', requested_at: NOW.toISOString(),
+};
 const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 const fail = <T>(): ApiResult<T> => ({ ok: false, error: ERROR });
 
@@ -58,6 +63,7 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     approve: vi.fn().mockResolvedValue(mutation),
     launch: vi.fn().mockResolvedValue(mutation),
     control: vi.fn().mockResolvedValue(mutation),
+    retryFailures: vi.fn().mockResolvedValue(ok(RETRY)),
     clone: vi.fn().mockResolvedValue(mutation),
     testSend: vi.fn().mockResolvedValue(ok(TEST_SEND)),
     recipients: vi.fn().mockResolvedValue(ok([])),
@@ -87,6 +93,7 @@ describe('campaign actions', () => {
     await loadCampaignReport(context);
     expect(await createCampaign(context, INPUT)).toBe(false);
     expect(await testSendCampaign(context, 'campaign-1', 'recipient-1', 1)).toBe(false);
+    expect(await retryCampaignFailures(context, 'campaign-1')).toBe(false);
     expect(campaigns.list).not.toHaveBeenCalled();
     expect(campaigns.recipients).not.toHaveBeenCalled();
     expect(campaigns.report).not.toHaveBeenCalled();
@@ -113,6 +120,19 @@ describe('campaign actions', () => {
     const toastCount = ready.state.toasts.length;
     expect(await testSendCampaign(ready.context, 'campaign-1', 'recipient-1', 1)).toBe(false);
     expect(ready.state.toasts).toHaveLength(toastCount);
+    expect(ready.state.live.error).toEqual(ERROR);
+  });
+
+  it('reports the exact failed-only retry count after the server commits', async () => {
+    const ready = setup();
+    expect(await retryCampaignFailures(ready.context, 'campaign-1')).toBe(true);
+    expect(ready.campaigns.retryFailures).toHaveBeenCalledWith('tenant-1', 'campaign-1', 'key-1');
+    expect(ready.state.toasts.at(-1)?.text).toContain('2 failed');
+
+    vi.mocked(ready.campaigns.retryFailures).mockResolvedValueOnce(fail());
+    const count = ready.state.toasts.length;
+    expect(await LIVE_ACTIONS['live-campaign-retry']?.(ready.context, 'campaign-1')).toBe(false);
+    expect(ready.state.toasts).toHaveLength(count);
     expect(ready.state.live.error).toEqual(ERROR);
   });
 
@@ -266,12 +286,14 @@ describe('campaign actions', () => {
     await LIVE_ACTIONS['live-campaign-approve']?.(readyCase.context, 'campaign-1');
     await LIVE_ACTIONS['live-campaign-launch']?.(readyCase.context, 'campaign-1');
     await LIVE_ACTIONS['live-campaign-control']?.(readyCase.context, 'campaign-1:pause');
+    await LIVE_ACTIONS['live-campaign-retry']?.(readyCase.context, 'campaign-1');
     await LIVE_ACTIONS['live-campaign-clone']?.(readyCase.context, 'campaign-1:September intake');
     await LIVE_ACTIONS['live-campaign-ledger']?.(readyCase.context, 'campaign-1');
     expect(readyCase.campaigns.validate).toHaveBeenCalled();
     expect(readyCase.campaigns.approve).toHaveBeenCalled();
     expect(readyCase.campaigns.launch).toHaveBeenCalled();
     expect(readyCase.campaigns.control).toHaveBeenCalledWith('tenant-1', 'campaign-1', 'pause');
+    expect(readyCase.campaigns.retryFailures).toHaveBeenCalledWith('tenant-1', 'campaign-1', 'key-1');
     expect(readyCase.campaigns.clone).toHaveBeenCalled();
     expect(readyCase.campaigns.recipients).toHaveBeenCalled();
   });

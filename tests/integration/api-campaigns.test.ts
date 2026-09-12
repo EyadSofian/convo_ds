@@ -179,6 +179,10 @@ describe('campaign API', () => {
     const noCsrf = await api.server.inject({ method: 'POST', url: `/api/v1/tenants/${api.tenantId}/campaigns`,
       headers: { cookie: api.cookie, 'idempotency-key': 'no-csrf' }, payload: {} });
     expect(noCsrf.statusCode).toBe(403);
+    const malformedRetry = await send(api, 'POST', `/campaigns/${randomUUID()}/retry`, { all: true }, 'bad-retry');
+    expect(malformedRetry.statusCode).toBe(400);
+    const retryWithoutKey = await send(api, 'POST', `/campaigns/${randomUUID()}/retry`, {});
+    expect(retryWithoutKey.statusCode).toBe(400);
   });
 
   it('rejects stale workflow operations with typed conflicts', async () => {
@@ -190,6 +194,9 @@ describe('campaign API', () => {
     expect(approvalTooSoon.json()).toMatchObject({ error: { code: 'campaign_not_ready' } });
 
     expect((await send(api, 'POST', `/campaigns/${id}/validate`)).statusCode).toBe(201);
+    const retryBeforeLaunch = await send(api, 'POST', `/campaigns/${id}/retry`, {}, 'retry-before-launch');
+    expect(retryBeforeLaunch.statusCode).toBe(409);
+    expect(retryBeforeLaunch.json()).toMatchObject({ error: { code: 'campaign_retry_not_launched' } });
     const revalidate = await send(api, 'POST', `/campaigns/${id}/validate`);
     expect(revalidate.statusCode).toBe(409);
     expect(revalidate.json()).toMatchObject({ error: { code: 'invalid_campaign_transition' } });
@@ -603,6 +610,143 @@ describe('campaign API', () => {
       return rows.rows[0];
     });
     expect(acceptedLedger).toEqual({ recipients: '2', committed: '2', campaign: 'dispatch_completed' });
+  });
+
+  it('retries failed recipients only on the same execution and preserves both commands', async () => {
+    await withTenant(api.pool, api.tenantId, async (sql) => {
+      for (const suffix of ['a', 'b', 'c']) {
+        const contact = await sql.query<{ id: string }>(
+          `INSERT INTO contacts (tenant_id,display_name,search_name)
+           VALUES ($1,$2,$3) RETURNING id::text`,
+          [api.tenantId, `Retry Cohort ${suffix.toUpperCase()}`, `retry cohort ${suffix}`],
+        );
+        await sql.query(
+          `INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id)
+           VALUES ($1,$2,'whatsapp',$3,$4)`,
+          [api.tenantId, contact.rows[0]!.id, api.connectionId, `20109990000${suffix.charCodeAt(0)}`],
+        );
+        await sql.query(
+          `INSERT INTO consents (tenant_id,contact_id,channel,purpose,state,source)
+           VALUES ($1,$2,'whatsapp','marketing','granted','web_form')`,
+          [api.tenantId, contact.rows[0]!.id],
+        );
+      }
+    });
+    const created = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Failed-only retry', audienceFilter: { search: 'retry cohort' },
+      content: { template: { name: 'course_open', language: 'ar' } },
+    }), 'create-failed-only-retry');
+    const id = dataOf(created).id;
+    await send(api, 'POST', `/campaigns/${id}/validate`);
+    await send(api, 'POST', `/campaigns/${id}/approve`);
+    await send(api, 'POST', `/campaigns/${id}/launch`, { mode: 'now' }, 'launch-failed-only-retry');
+    expect(await api.app.get(CampaignPlannerService).plan(api.tenantId, 10)).toBe(3);
+
+    const providerCallsBefore = providerRequests.length;
+    providerOutcomes.push(
+      { status: 'accepted', providerMessageId: 'wamid.retry.accepted.original', raw: {} },
+      { status: 'definitely_rejected', code: 'provider_refused', message: 'refused', retryable: false },
+      { status: 'outcome_unknown', code: 'ETIMEDOUT', message: 'answer lost' },
+    );
+    expect(await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test', 'bulk'))
+      .toMatchObject({ claimed: 3, accepted: 1, rejected: 1, unknown: 1 });
+    expect(providerRequests).toHaveLength(providerCallsBefore + 3);
+
+    const retry = await send(api, 'POST', `/campaigns/${id}/retry`, {}, 'retry-failed-only');
+    expect(retry.statusCode, retry.body).toBe(202);
+    expect(retry.json()).toMatchObject({ data: { campaign_id: id, recipient_count: 1, state: 'running' } });
+    const replay = await send(api, 'POST', `/campaigns/${id}/retry`, {}, 'retry-failed-only');
+    expect(replay.statusCode).toBe(202);
+    expect((replay.json() as { data: unknown }).data).toEqual((retry.json() as { data: unknown }).data);
+    expect(providerRequests).toHaveLength(providerCallsBefore + 3);
+
+    const queued = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const result = await sql.query<{
+        accepted: string; unknown: string; queued: string; retries: string; outbox: string;
+        old_state: string; replacement_state: string; budget_state: string;
+      }>(
+        `SELECT
+           count(*) FILTER (WHERE cr.state='accepted')::text AS accepted,
+           count(*) FILTER (WHERE cr.state='outcome_unknown')::text AS unknown,
+           count(*) FILTER (WHERE cr.state='queued')::text AS queued,
+           (SELECT count(*)::text FROM campaign_retry_recipients rr
+             JOIN campaign_retry_runs run ON run.id=rr.retry_run_id WHERE run.campaign_id=$1) AS retries,
+           (SELECT count(*)::text FROM outbox o JOIN campaign_retry_recipients rr
+             ON rr.replacement_command_id=o.message_id JOIN campaign_retry_runs run ON run.id=rr.retry_run_id
+             WHERE run.campaign_id=$1) AS outbox,
+           min(old.command_state) FILTER (WHERE rr.id IS NOT NULL) AS old_state,
+           min(replacement.command_state) FILTER (WHERE rr.id IS NOT NULL) AS replacement_state,
+           min(b.state) FILTER (WHERE rr.id IS NOT NULL) AS budget_state
+         FROM campaign_recipients cr
+         JOIN campaign_executions e ON e.id=cr.execution_id
+         LEFT JOIN campaign_retry_recipients rr ON rr.recipient_id=cr.id
+         LEFT JOIN outbound_messages old ON old.id=rr.previous_command_id
+         LEFT JOIN outbound_messages replacement ON replacement.id=rr.replacement_command_id
+         LEFT JOIN budget_reservations b ON b.recipient_id=cr.id
+         WHERE e.campaign_id=$1`, [id],
+      );
+      return result.rows[0];
+    });
+    expect(queued).toEqual({
+      accepted: '1', unknown: '1', queued: '1', retries: '1', outbox: '1',
+      old_state: 'rejected', replacement_state: 'queued', budget_state: 'reserved',
+    });
+
+    const whileRunning = await send(api, 'POST', `/campaigns/${id}/retry`, {}, 'retry-while-running');
+    expect(whileRunning.statusCode).toBe(409);
+    expect(whileRunning.json()).toMatchObject({ error: { code: 'campaign_retry_not_terminal' } });
+
+    providerOutcomes.push({ status: 'accepted', providerMessageId: 'wamid.retry.accepted.replacement', raw: {} });
+    expect(await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test', 'bulk'))
+      .toMatchObject({ claimed: 1, accepted: 1 });
+    expect(providerRequests).toHaveLength(providerCallsBefore + 4);
+    const final = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const result = await sql.query<{ accepted: string; unknown: string; campaign: string; budget: string }>(
+        `SELECT count(*) FILTER (WHERE cr.state='accepted')::text AS accepted,
+                count(*) FILTER (WHERE cr.state='outcome_unknown')::text AS unknown,
+                min(c.control_state) AS campaign,
+                min(b.state) FILTER (WHERE rr.id IS NOT NULL) AS budget
+           FROM campaigns c JOIN campaign_executions e ON e.campaign_id=c.id
+           JOIN campaign_recipients cr ON cr.execution_id=e.id
+           LEFT JOIN campaign_retry_recipients rr ON rr.recipient_id=cr.id
+           LEFT JOIN budget_reservations b ON b.recipient_id=cr.id
+          WHERE c.id=$1`, [id],
+      );
+      return result.rows[0];
+    });
+    expect(final).toEqual({ accepted: '2', unknown: '1', campaign: 'dispatch_completed', budget: 'committed' });
+    const noFailures = await send(api, 'POST', `/campaigns/${id}/retry`, {}, 'retry-no-failures');
+    expect(noFailures.statusCode).toBe(409);
+    expect(noFailures.json()).toMatchObject({ error: { code: 'no_failed_recipients' } });
+
+    const drifted = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Retry budget drift', audienceFilter: { search: 'student 1' },
+      content: { template: { name: 'course_open', language: 'ar' } },
+    }), 'create-retry-budget-drift');
+    const driftedId = dataOf(drifted).id;
+    await send(api, 'POST', `/campaigns/${driftedId}/validate`);
+    await send(api, 'POST', `/campaigns/${driftedId}/approve`);
+    await send(api, 'POST', `/campaigns/${driftedId}/launch`, { mode: 'now' }, 'launch-retry-budget-drift');
+    expect(await api.app.get(CampaignPlannerService).plan(api.tenantId, 10)).toBe(1);
+    providerOutcomes.push({ status: 'definitely_rejected', code: 'provider_refused', message: 'refused', retryable: false });
+    expect(await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test', 'bulk'))
+      .toMatchObject({ claimed: 1, rejected: 1 });
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE budget_reservations SET state='held_unknown'
+        WHERE execution_id=(SELECT id FROM campaign_executions WHERE campaign_id=$1)`, [driftedId],
+    ));
+    const unsafeBudget = await send(api, 'POST', `/campaigns/${driftedId}/retry`, {}, 'retry-unsafe-budget');
+    expect(unsafeBudget.statusCode).toBe(409);
+    expect(unsafeBudget.json()).toMatchObject({ error: { code: 'campaign_retry_budget_unavailable' } });
+    const rolledBack = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const result = await sql.query<{ state: string; retry_count: string }>(
+        `SELECT c.control_state AS state,
+                (SELECT count(*)::text FROM campaign_retry_runs run WHERE run.campaign_id=c.id) AS retry_count
+           FROM campaigns c WHERE c.id=$1`, [driftedId],
+      );
+      return result.rows[0];
+    });
+    expect(rolledBack).toEqual({ state: 'dispatch_completed', retry_count: '0' });
   });
 
   it('sends only to an explicitly authorized test recipient through the ordinary dispatcher', async () => {

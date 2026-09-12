@@ -533,6 +533,12 @@ campaign_recipients      (id, tenant_id, execution_id, contact_id, identity_id,
                           UNIQUE (tenant_id, execution_id, identity_id)
 campaign_work_queue      (execution_id, tenant_id, available_at, stop_version, created_at)
                           PK (execution_id) -- contentless global due-work discovery
+campaign_retry_runs      (id, tenant_id, campaign_id, execution_id,
+                          requested_by_membership_id, recipient_count, requested_at)
+campaign_retry_recipients(id, tenant_id, retry_run_id, recipient_id,
+                          previous_command_id, replacement_command_id, previous_error, created_at)
+                          UNIQUE (tenant_id, retry_run_id, recipient_id)
+                          UNIQUE (tenant_id, replacement_command_id)
 budget_reservations      (id, tenant_id, execution_id, recipient_id,
                           estimated_amount_minor numeric(20,6), reserved_amount_minor numeric(20,6),
                           committed_amount_minor numeric(20,6), reconciled_amount_minor numeric(20,6),
@@ -547,6 +553,8 @@ price_cards              (id, provider, category, market, currency, amount_minor
 `campaign_executions` has `UNIQUE (tenant_id, campaign_id)` — this single constraint is what makes CMP-08 true under concurrent launches.
 
 Each planned outbound message carries `campaign_stop_version`. A bulk claim joins it back to the recipient execution and succeeds only while recipient=`queued`, execution=`running`, and both stop versions match. The queue has no RLS because it contains no customer content and is the worker's tenant-discovery seam; every data-bearing read happens only after entering `withTenant`.
+
+A manual retry never creates a second execution and never rewrites its evidence. The recipient's current `command_id` advances to a new fenced command while `campaign_retry_recipients` retains both command IDs and the prior error. Only `failed` recipients enter a run; accepted, delivered, read, skipped, cancelled and `outcome_unknown` rows remain untouched. A retry can re-reserve only a reservation currently marked `released`, so a ledger mismatch aborts the whole transaction before any replacement reaches the outbox.
 
 ## 8. Integrations, automation, SLA, audit, AI
 

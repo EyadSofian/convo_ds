@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { pageEnvelope } from '../pagination.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
 import { CampaignService } from './campaign.service.js';
 import { CampaignReportingService } from './reporting.service.js';
 
@@ -126,6 +126,19 @@ export class CampaignController {
     @Headers('x-csrf-token') csrf: string | string[] | undefined, @Req() request: FastifyRequest) {
     const session = await this.mutating(request, csrf);
     return { data: await this.campaigns.control(session, tenantId, campaignId, parseCampaignControl(body)), request_id: request.id };
+  }
+
+  @Post('tenants/:tenantId/campaigns/:campaignId/retry')
+  async retryFailures(
+    @Param('tenantId') tenantId: string, @Param('campaignId') campaignId: string, @Body() body: unknown,
+    @Headers('x-csrf-token') csrf: string | string[] | undefined,
+    @Headers('idempotency-key') key: string | string[] | undefined,
+    @Req() request: FastifyRequest, @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.mutating(request, csrf);
+    const retry = parseCampaignRetry(body);
+    const value = await this.campaigns.retryFailures(session, tenantId, campaignId, retry, requireKey(key));
+    await reply.status(202).send({ data: value, request_id: request.id });
   }
 
   @Post('tenants/:tenantId/campaigns/:campaignId/clone')

@@ -198,6 +198,7 @@ describe('pinned OpenAPI contract', () => {
       "revokeChannelTestRecipient",
       "testSendCampaign",
       "getCampaignReport",
+      "retryCampaignFailures",
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);
@@ -213,6 +214,7 @@ describe('pinned OpenAPI contract', () => {
     expect(SPEC.components.schemas['TeamListResponse']?.additionalProperties).toBe(false);
     expect(SPEC.components.schemas['CampaignReport']?.additionalProperties).toBe(false);
     expect(SPEC.components.schemas['CampaignReportResponse']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['CampaignRetryResponse']?.additionalProperties).toBe(false);
     expect(SPEC.components.schemas['QueueCardListResponse']?.additionalProperties).toBe(false);
     // The queue card is a closed shape with exactly the eight permitted fields.
     // An open one would let a future payload field become a disclosure.

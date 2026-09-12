@@ -7,7 +7,7 @@ import { AuthorizationService } from '../authorization/authorization.service.js'
 import type { ApiConfig } from '../config.js';
 import { ApiHttpError } from '../http-error.js';
 import { requestHash, type JsonValue } from '../idempotency/canonical-json.js';
-import { IdempotencyService } from '../idempotency/idempotency.service.js';
+import { IdempotencyService, type IdempotencyResult } from '../idempotency/idempotency.service.js';
 import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG } from '../tokens.js';
@@ -103,6 +103,27 @@ export interface CampaignTestSendView {
   readonly created_at: string;
 }
 
+export interface CampaignRetryView {
+  readonly id: string;
+  readonly campaign_id: string;
+  readonly execution_id: string;
+  readonly recipient_count: number;
+  readonly state: 'running';
+  readonly requested_at: string;
+}
+
+interface FailedRecipientRow {
+  readonly id: string;
+  readonly command_id: string;
+  readonly last_error: Readonly<Record<string, unknown>> | null;
+  readonly connection_id: string;
+  readonly peer_identity: string;
+  readonly message_type: string;
+  readonly text_body: string | null;
+  readonly template_name: string | null;
+  readonly template_language: string | null;
+}
+
 interface CloneSource {
   readonly objective: string | null;
   readonly connection_id: string;
@@ -168,8 +189,7 @@ export class CampaignService {
       await audit(sql, tenantId, campaignId, revisionId, principal.membershipId, 'created', { revision: 1 });
       return { statusCode: 201, body: viewOf(requireRow(await readCampaigns(sql, campaignId), 'campaign disappeared')) };
     });
-    if (outcome.status === 'conflict') throw idempotencyConflict();
-    return outcome.response.body as CampaignView;
+    return idempotentBody(outcome) as CampaignView;
   }
 
   async update(
@@ -219,8 +239,7 @@ export class CampaignService {
       }
       return { statusCode: 200, body: viewOf(requireRow(await readCampaigns(sql, campaignId), 'campaign update disappeared')) };
     });
-    if (outcome.status === 'conflict') throw idempotencyConflict();
-    return outcome.response.body as CampaignView;
+    return idempotentBody(outcome) as CampaignView;
   }
 
   async listTestRecipients(
@@ -354,8 +373,7 @@ export class CampaignService {
         'test_sent', { test_send_id: testSendId, authorization_id: target.authorization_id });
       return { statusCode: 202, body: requireRow(await readTestSends(sql, testSendId), 'test send disappeared') };
     });
-    if (outcome.status === 'conflict') throw idempotencyConflict();
-    return outcome.response.body as CampaignTestSendView;
+    return idempotentBody(outcome) as CampaignTestSendView;
   }
 
   async validate(session: AuthenticatedSession, tenantId: string, campaignId: string): Promise<CampaignView> {
@@ -459,8 +477,7 @@ export class CampaignService {
       await audit(sql, tenantId, campaignId, campaign.current_revision_id, principal.membershipId, 'launched', { execution_id: executionId, scheduled_for: scheduledFor });
       return { statusCode: 202, body: viewOf(requireRow(await readCampaigns(sql, campaignId), 'campaign disappeared')) };
     });
-    if (outcome.status === 'conflict') throw idempotencyConflict();
-    return outcome.response.body as CampaignView;
+    return idempotentBody(outcome) as CampaignView;
   }
 
   async clone(
@@ -507,8 +524,120 @@ export class CampaignService {
       await audit(sql, tenantId, campaignId, revisionId, principal.membershipId, 'cloned', { source_campaign_id: sourceCampaignId });
       return { statusCode: 201, body: viewOf(requireRow(await readCampaigns(sql, campaignId), 'campaign clone disappeared')) };
     });
-    if (outcome.status === 'conflict') throw idempotencyConflict();
-    return outcome.response.body as CampaignView;
+    return idempotentBody(outcome) as CampaignView;
+  }
+
+  async retryFailures(
+    session: AuthenticatedSession,
+    tenantId: string,
+    campaignId: string,
+    rawBody: unknown,
+    idempotencyKey: string,
+  ): Promise<CampaignRetryView> {
+    this.authorization.assertTenantId(campaignId);
+    const outcome = await this.idempotency.execute({
+      tenantContextId: tenantId, tenantId, principalId: session.userId,
+      operation: `campaign.retry-failures:${campaignId}`, key: idempotencyKey,
+      requestHash: requestHash(rawBody as JsonValue, this.config.secrets.idempotencyHash),
+    }, async (sql) => {
+      const principal = await this.authorization.requirePermission(sql, session, 'campaign.control');
+      const campaign = await locked(sql, campaignId);
+      const executionResult = await sql.query<{ id: string; state: string; stop_version: string }>(
+        `SELECT id::text,state,stop_version::text FROM campaign_executions
+          WHERE campaign_id=$1 FOR UPDATE`, [campaignId],
+      );
+      const execution = executionResult.rows[0];
+      if (execution === undefined) {
+        throw conflict('campaign_retry_not_launched', 'Launch this campaign before retrying failed recipients.');
+      }
+      const campaignRetryState = failedRetryTarget(campaign.control_state);
+      const executionRetryState = failedRetryTarget(execution.state as CampaignState);
+      const failed = await sql.query<FailedRecipientRow>(
+        `SELECT cr.id::text,cr.command_id::text,cr.last_error,
+                m.connection_id::text,m.peer_identity,m.message_type,m.text_body,
+                m.template_name,m.template_language
+           FROM campaign_recipients cr
+           JOIN outbound_messages m ON m.id=cr.command_id
+          WHERE cr.execution_id=$1 AND cr.state='failed'
+          ORDER BY cr.id FOR UPDATE OF cr`, [execution.id],
+      );
+      if (failed.rows.length === 0) {
+        throw conflict('no_failed_recipients', 'This campaign has no failed recipients to retry.');
+      }
+
+      const retryId = randomUUID();
+      const retry = await sql.query<{ requested_at: Date }>(
+        `INSERT INTO campaign_retry_runs
+           (id,tenant_id,campaign_id,execution_id,requested_by_membership_id,recipient_count)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING requested_at`,
+        [retryId, tenantId, campaignId, execution.id, principal.membershipId, failed.rows.length],
+      );
+      const resumed = await sql.query<{ stop_version: string }>(
+        `UPDATE campaign_executions
+            SET state=$2,completed_at=NULL,stop_version=stop_version+1
+          WHERE id=$1 RETURNING stop_version::text`, [execution.id, executionRetryState],
+      );
+      const stopVersion = requireRow(resumed.rows, 'campaign retry did not resume execution').stop_version;
+
+      for (const recipient of failed.rows) {
+        const messageId = randomUUID();
+        await sql.query(
+          `INSERT INTO outbound_messages
+             (id,tenant_id,connection_id,peer_identity,message_type,text_body,template_name,
+              template_language,client_message_id,campaign_stop_version)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [messageId, tenantId, recipient.connection_id, recipient.peer_identity, recipient.message_type,
+            recipient.text_body, recipient.template_name, recipient.template_language,
+            `campaign-retry:${retryId}:${recipient.id}`, stopVersion],
+        );
+        await sql.query(
+          `INSERT INTO campaign_retry_recipients
+             (tenant_id,retry_run_id,recipient_id,previous_command_id,replacement_command_id,previous_error)
+           VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+          [tenantId, retryId, recipient.id, recipient.command_id, messageId,
+            JSON.stringify(recipient.last_error ?? {})],
+        );
+        const reserved = await sql.query(
+          `UPDATE budget_reservations
+              SET state='reserved',reserved_amount_minor=estimated_amount_minor,
+                  committed_amount_minor=NULL,reconciled_amount_minor=NULL,reconciled_at=NULL
+            WHERE execution_id=$1 AND recipient_id=$2 AND state='released'`,
+          [execution.id, recipient.id],
+        );
+        if (reserved.rowCount !== 1) {
+          throw conflict('campaign_retry_budget_unavailable', 'The failed recipient no longer has a released budget reservation.');
+        }
+        await sql.query(
+          `UPDATE campaign_recipients
+              SET command_id=$2,state='queued',dispatch_eligibility=NULL,last_error=NULL,updated_at=now()
+            WHERE id=$1`, [recipient.id, messageId],
+        );
+        await sql.query(
+          `INSERT INTO outbox (message_id,tenant_id,connection_id,peer_identity,traffic_class)
+           VALUES ($1,$2,$3,$4,'bulk')`,
+          [messageId, tenantId, recipient.connection_id, recipient.peer_identity],
+        );
+      }
+
+      await sql.query(
+        `UPDATE campaigns SET control_state=$2,version=version+1,updated_at=now() WHERE id=$1`,
+        [campaignId, campaignRetryState],
+      );
+      await audit(sql, tenantId, campaignId, campaign.current_revision_id, principal.membershipId,
+        'retried', { retry_id: retryId, recipient_count: failed.rows.length });
+      return {
+        statusCode: 202,
+        body: {
+          id: retryId,
+          campaign_id: campaignId,
+          execution_id: execution.id,
+          recipient_count: failed.rows.length,
+          state: 'running',
+          requested_at: requireRow(retry.rows, 'campaign retry run disappeared').requested_at.toISOString(),
+        },
+      };
+    });
+    return idempotentBody(outcome) as CampaignRetryView;
   }
 
   async control(session: AuthenticatedSession, tenantId: string, campaignId: string, action: 'pause' | 'resume' | 'cancel'): Promise<CampaignView> {
@@ -704,6 +833,14 @@ function transition(state: CampaignState, trigger: Parameters<typeof applyCampai
   return result;
 }
 
+function failedRetryTarget(state: CampaignState): CampaignState {
+  const result = applyCampaignTrigger(state, 'retry_failed');
+  if (result.refusal !== null) {
+    throw conflict('campaign_retry_not_terminal', 'Only a completed campaign can retry failed recipients.');
+  }
+  return result.to;
+}
+
 async function readCampaigns(sql: SqlExecutor, id: string | null): Promise<readonly CampaignRow[]> {
   const result = await sql.query<CampaignRow>(
     `SELECT c.id::text,c.name,c.objective,c.connection_id::text,c.control_state,c.version,
@@ -751,3 +888,7 @@ async function audit(sql: SqlExecutor, tenantId: string, campaignId: string, rev
 function notFound(): ApiHttpError { return new ApiHttpError(404, 'resource_not_found', 'The requested campaign does not exist.'); }
 function conflict(code: string, message: string): ApiHttpError { return new ApiHttpError(409, code, message); }
 function idempotencyConflict(): ApiHttpError { return conflict('idempotency_key_reused', 'This Idempotency-Key was already used with a different request.'); }
+function idempotentBody(outcome: IdempotencyResult): unknown {
+  if (outcome.status === 'conflict') throw idempotencyConflict();
+  return outcome.response.body;
+}

@@ -29,6 +29,7 @@ export const CAMPAIGN_TRIGGERS = [
   'cancel',
   'cancel_settled',
   'orchestration_failed',
+  'retry_failed',
 ] as const;
 
 export type CampaignTrigger = (typeof CAMPAIGN_TRIGGERS)[number];
@@ -44,6 +45,7 @@ export const CAMPAIGN_EFFECTS = [
   'resume_dispatches',
   'finish_execution',
   'record_failure',
+  'retry_failed_recipients',
 ] as const;
 
 export type CampaignEffect = (typeof CAMPAIGN_EFFECTS)[number];
@@ -112,6 +114,10 @@ const TABLE: Readonly<Record<CampaignTrigger, TransitionTable>> = {
     pausing: { to: 'failed', effects: ['stop_new_dispatches', 'record_failure'] },
     paused: { to: 'failed', effects: ['stop_new_dispatches', 'record_failure'] },
     cancelling: { to: 'failed', effects: ['stop_new_dispatches', 'record_failure'] },
+  },
+  retry_failed: {
+    dispatch_completed: { to: 'running', effects: ['retry_failed_recipients'] },
+    failed: { to: 'running', effects: ['retry_failed_recipients'] },
   },
 };
 

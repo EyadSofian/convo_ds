@@ -44,6 +44,7 @@ export function renderBroadcasts(state: AppState): HTMLElement {
   const actor = currentActor(state);
   const mayDraft = can(actor, 'campaign.draft');
   const mayApprove = can(actor, 'campaign.approve');
+  const mayControl = can(actor, 'campaign.control');
   const campaigns = live.campaigns.status === 'ready' ? live.campaigns.value : [];
   const totals = campaigns.reduce((sum, campaign) => ({
     total: sum.total + (campaign.audience?.total ?? 0),
@@ -72,7 +73,7 @@ export function renderBroadcasts(state: AppState): HTMLElement {
     body.push(stateBox({ kind: 'empty', iconName: 'broadcasts', title: t(state, 'لا توجد حملات بعد', 'No campaigns yet'),
       body: t(state, 'أنشئ مسودة، ثبّت جمهورها، اعتمد النسخة، ثم أطلقها.', 'Create a draft, freeze its audience, approve the revision, then launch it.') }));
   } else {
-    body.push(h('div', { class: 'broadcast-grid' }, campaigns.map((campaign) => campaignCard(state, campaign, mayDraft, mayApprove))));
+    body.push(h('div', { class: 'broadcast-grid' }, campaigns.map((campaign) => campaignCard(state, campaign, mayDraft, mayApprove, mayControl))));
   }
 
   return h('div', { class: 'workspace workspace--broadcasts', tabindex: '0', 'data-scroll': 'screen' }, [
@@ -104,7 +105,7 @@ const CAMPAIGN_LABELS: Readonly<Record<CampaignState, { ar: string; en: string }
   failed: { ar: 'فشلت', en: 'Failed' },
 };
 
-function campaignCard(state: AppState, campaign: Campaign, mayDraft: boolean, mayApprove: boolean): HTMLElement {
+function campaignCard(state: AppState, campaign: Campaign, mayDraft: boolean, mayApprove: boolean, mayControl: boolean): HTMLElement {
   const actions: HTMLElement[] = [];
   if (mayDraft) actions.push(button({ label: t(state, 'إنشاء نسخة', 'Clone'), act: 'live-campaign-clone', arg: `${campaign.id}:${campaign.name}`, small: true, disabled: state.live.busy !== null }));
   if (mayDraft && (campaign.state === 'draft' || campaign.state === 'ready')) actions.push(button({ label: t(state, 'تعديل', 'Edit'), act: 'dialog', arg: `campaign-edit:${campaign.id}`, small: true, disabled: state.live.busy !== null }));
@@ -114,6 +115,7 @@ function campaignCard(state: AppState, campaign: Campaign, mayDraft: boolean, ma
   if (campaign.state === 'ready' && campaign.approved && mayDraft) actions.push(button({ label: t(state, 'إطلاق الآن', 'Launch now'), act: 'live-campaign-launch', arg: campaign.id, small: true, variant: 'primary', disabled: state.live.busy !== null }));
   if (campaign.state === 'running') actions.push(button({ label: t(state, 'إيقاف مؤقت', 'Pause'), act: 'live-campaign-control', arg: `${campaign.id}:pause`, small: true, disabled: state.live.busy !== null }));
   if (campaign.state === 'paused') actions.push(button({ label: t(state, 'استئناف', 'Resume'), act: 'live-campaign-control', arg: `${campaign.id}:resume`, small: true, variant: 'primary', disabled: state.live.busy !== null }));
+  if (mayControl && (campaign.state === 'dispatch_completed' || campaign.state === 'failed')) actions.push(button({ label: t(state, 'إعادة الفاشل فقط', 'Retry failed only'), act: 'live-campaign-retry', arg: campaign.id, small: true, disabled: state.live.busy !== null }));
   if (['scheduled','running','paused'].includes(campaign.state)) actions.push(button({ label: t(state, 'إلغاء الباقي', 'Cancel remaining'), act: 'live-campaign-control', arg: `${campaign.id}:cancel`, small: true, disabled: state.live.busy !== null }));
   if (campaign.execution !== null) actions.push(button({ label: t(state, 'سجل المستلمين', 'Recipient ledger'), act: 'live-campaign-ledger', arg: campaign.id, small: true, disabled: state.live.busy !== null }));
   const audience = campaign.audience;

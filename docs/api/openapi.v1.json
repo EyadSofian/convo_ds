@@ -6063,6 +6063,82 @@
           }
         }
       }
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}/retry": {
+      "post": {
+        "operationId": "retryCampaignFailures",
+        "summary": "Retry only terminal failed recipients on the same execution",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Failed recipients were committed to the same execution retry ledger",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignRetryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -11260,6 +11336,60 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/CampaignReport"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CampaignRetry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "campaign_id",
+          "execution_id",
+          "recipient_count",
+          "state",
+          "requested_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "execution_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recipient_count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "state": {
+            "type": "string",
+            "const": "running"
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CampaignRetryResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CampaignRetry"
           },
           "request_id": {
             "type": "string"

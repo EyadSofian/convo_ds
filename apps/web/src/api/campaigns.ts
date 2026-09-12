@@ -51,6 +51,15 @@ export interface CampaignTestSend {
   readonly created_at: string;
 }
 
+export interface CampaignRetry {
+  readonly id: string;
+  readonly campaign_id: string;
+  readonly execution_id: string;
+  readonly recipient_count: number;
+  readonly state: 'running';
+  readonly requested_at: string;
+}
+
 export interface CampaignReport {
   readonly generated_at: string;
   readonly fresh_through: string;
@@ -106,6 +115,9 @@ export class CampaignsApi {
   }
   control(tenantId: string, id: string, action: 'pause' | 'resume' | 'cancel'): Promise<ApiResult<Campaign>> {
     return this.client.post(`/tenants/${tenantId}/campaigns/${id}/control`, { body: { action } });
+  }
+  retryFailures(tenantId: string, id: string, key: string): Promise<ApiResult<CampaignRetry>> {
+    return this.client.post(`/tenants/${tenantId}/campaigns/${id}/retry`, { body: {}, idempotencyKey: key });
   }
   clone(tenantId: string, id: string, name: string, key: string): Promise<ApiResult<Campaign>> {
     return this.client.post(`/tenants/${tenantId}/campaigns/${id}/clone`, { body: { name }, idempotencyKey: key });

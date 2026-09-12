@@ -4,7 +4,57 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T16 (campaign reporting + live Analytics)
+## Last completed task — P1-T17 (failed-only campaign retry)
+
+**Task / requirement IDs:** CMP-24 implemented; UX-09 advanced.
+
+### Behavior delivered
+
+**Retry means failed only.** `POST T/campaigns/{id}/retry` requires `campaign.control`, CSRF and an idempotency key. The campaign lifecycle table accepts it only from `dispatch_completed` or `failed`; it reopens the original execution and advances the existing stop fence. It creates no second execution and never includes accepted, delivered, read, skipped, cancelled or `outcome_unknown` recipients.
+
+**Both commands remain evidence.** Each failed recipient receives a new exact copy of its previous immutable outbound command. `campaign_retry_runs` records the operator and count, while `campaign_retry_recipients` links the recipient, previous command, replacement command and previous typed error. The current recipient pointer advances without deleting the old provider attempt.
+
+**Budget drift fails closed.** A retry can reserve only the original estimate of a reservation currently in `released`. If even one failed recipient has a different budget state, the retry run, replacement commands, state changes and outbox writes all roll back in one transaction.
+
+**Broadcasts exposes the committed command.** Terminal campaign cards show “Retry failed only” only to a role holding `campaign.control`. The success message uses the server's committed recipient count; a refusal produces no success toast.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0024_campaign_failed_retry.sql` | immutable retry-run and old/new command evidence |
+| `packages/domain/src/campaigns/lifecycle.ts` | closed terminal-to-running retry transition |
+| `apps/api/src/campaigns/campaign.service.ts` | failed-only selection, fencing, budget reservation and atomic queueing |
+| `apps/web/src/ui/workspace.ts` | role- and state-gated Broadcasts action |
+| `tests/integration/api-campaigns.test.ts` | accepted/failed/unknown isolation, idempotency and rollback evidence |
+| `docs/api/openapi.v1.json` | pinned 98-operation contract |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web 208.96 kB / 61.97 kB gzip |
+| `pnpm test:unit` | **0** | 77 files, **1456 tests** |
+| `pnpm test:integration` | **0** | 23 files, **506 tests** against PostgreSQL 17.4 |
+| `pnpm test:property` | **0** | 5 exhaustive/metamorphic properties |
+| `pnpm test:coverage` | **0** | 101 files, **1967 tests**, **100/100/100/100** |
+| `pnpm test:contracts` | **0** | 98-operation OpenAPI drift clean; channel contracts pass |
+| `pnpm test:security` | **0** | **373 tests** including failed-only retry + production audit; no known vulnerabilities |
+| `pnpm test:e2e` | **0** | **150 tests** at 1440×900 and 1366×768 |
+
+### Honest remaining scope
+
+- CMP-23 still needs a scoped asynchronous export job.
+- Template catalogue/synchronization remains before provider activation.
+- Provider-live activation remains `blocked_no_asset`; CRM remains intentionally deferred by the owner.
+
+**Next execution slice:** scoped asynchronous report export, then production deployment checks and Railway release.
+
+---
+
+## Previously completed — P1-T16 (campaign reporting + live Analytics)
 
 **Task / requirement IDs:** CMP-22 implemented; CMP-23 partial; REP-01..03 partial; REP-04 and REP-05 implemented; UX-09 advanced.
 

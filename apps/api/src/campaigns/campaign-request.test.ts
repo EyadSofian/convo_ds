@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../http-error.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
 
 const CONNECTION = '11111111-1111-4111-8111-111111111111';
 
@@ -58,6 +58,12 @@ describe('campaign request parsing', () => {
   it('requires and trims a clone name', () => {
     expect(parseCampaignClone({ name: '  September copy  ' })).toEqual({ name: 'September copy' });
     expect(() => parseCampaignClone({})).toThrow(ApiHttpError);
+  });
+
+  it('accepts only an explicit empty failed-only retry request', () => {
+    expect(parseCampaignRetry({})).toEqual({});
+    expect(() => parseCampaignRetry(null)).toThrow(ApiHttpError);
+    expect(() => parseCampaignRetry({ all: true })).toThrow(ApiHttpError);
   });
 
   it('requires a positive concurrency version for campaign updates', () => {

@@ -112,6 +112,14 @@ export function parseCampaignClone(body: unknown): { readonly name: string } {
   return { name };
 }
 
+export function parseCampaignRetry(body: unknown): Readonly<Record<string, never>> {
+  const value = recordOrNull(body);
+  if (value === null || Object.keys(value).length !== 0) {
+    throw invalid('The failed-only retry request must be an empty object.');
+  }
+  return {};
+}
+
 function record(value: unknown): Record<string, unknown> {
   return recordOrNull(value) ?? {};
 }
