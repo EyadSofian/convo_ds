@@ -62,6 +62,19 @@ interface LockedCampaign {
   readonly budget_currency: string;
 }
 
+interface CloneSource {
+  readonly objective: string | null;
+  readonly connection_id: string;
+  readonly variables: Readonly<Record<string, unknown>>;
+  readonly audience_filter: Readonly<Record<string, unknown>>;
+  readonly content: Readonly<Record<string, unknown>>;
+  readonly timezone: string;
+  readonly expires_at: Date | null;
+  readonly budget_amount_minor: string;
+  readonly budget_currency: string;
+  readonly revision_hash: string;
+}
+
 @Injectable()
 export class CampaignService {
   constructor(
@@ -218,6 +231,54 @@ export class CampaignService {
       await sql.query(`UPDATE campaigns SET control_state=$2,version=version+1,updated_at=now() WHERE id=$1`, [campaignId, next.to]);
       await audit(sql, tenantId, campaignId, campaign.current_revision_id, principal.membershipId, 'launched', { execution_id: executionId, scheduled_for: scheduledFor });
       return { statusCode: 202, body: viewOf(requireRow(await readCampaigns(sql, campaignId), 'campaign disappeared')) };
+    });
+    if (outcome.status === 'conflict') throw idempotencyConflict();
+    return outcome.response.body as CampaignView;
+  }
+
+  async clone(
+    session: AuthenticatedSession,
+    tenantId: string,
+    sourceCampaignId: string,
+    name: string,
+    rawBody: unknown,
+    idempotencyKey: string,
+  ): Promise<CampaignView> {
+    this.authorization.assertTenantId(sourceCampaignId);
+    const outcome = await this.idempotency.execute({
+      tenantContextId: tenantId, tenantId, principalId: session.userId,
+      operation: `campaign.clone:${sourceCampaignId}`, key: idempotencyKey,
+      requestHash: requestHash(rawBody as JsonValue, this.config.secrets.idempotencyHash),
+    }, async (sql) => {
+      const principal = await this.authorization.requirePermission(sql, session, 'campaign.draft');
+      const sourceResult = await sql.query<CloneSource>(
+        `SELECT c.objective,c.connection_id::text,r.variables,r.audience_filter,r.content,r.timezone,
+                r.expires_at,r.budget_amount_minor::text,r.budget_currency,r.revision_hash
+           FROM campaigns c JOIN campaign_revisions r ON r.id=c.current_revision_id
+          WHERE c.id=$1`, [sourceCampaignId],
+      );
+      const source = sourceResult.rows[0];
+      if (source === undefined) throw notFound();
+      await requireConnection(sql, source.connection_id, false);
+      const campaign = await sql.query<{ id: string }>(
+        `INSERT INTO campaigns (tenant_id,name,objective,connection_id,created_by_membership_id)
+         VALUES ($1,$2,$3,$4,$5) RETURNING id::text`,
+        [tenantId, name, source.objective, source.connection_id, principal.membershipId],
+      );
+      const campaignId = requireRow(campaign.rows, 'campaign clone insert returned no row').id;
+      const revision = await sql.query<{ id: string }>(
+        `INSERT INTO campaign_revisions
+           (tenant_id,campaign_id,revision,variables,audience_filter,content,timezone,expires_at,
+            budget_amount_minor,budget_currency,revision_hash,created_by_membership_id)
+         VALUES ($1,$2,1,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7,$8,$9,$10,$11) RETURNING id::text`,
+        [tenantId, campaignId, JSON.stringify(source.variables), JSON.stringify(source.audience_filter),
+          JSON.stringify(source.content), source.timezone, source.expires_at,
+          source.budget_amount_minor, source.budget_currency, source.revision_hash, principal.membershipId],
+      );
+      const revisionId = requireRow(revision.rows, 'campaign clone revision insert returned no row').id;
+      await sql.query(`UPDATE campaigns SET current_revision_id=$1 WHERE id=$2`, [revisionId, campaignId]);
+      await audit(sql, tenantId, campaignId, revisionId, principal.membershipId, 'cloned', { source_campaign_id: sourceCampaignId });
+      return { statusCode: 201, body: viewOf(requireRow(await readCampaigns(sql, campaignId), 'campaign clone disappeared')) };
     });
     if (outcome.status === 'conflict') throw idempotencyConflict();
     return outcome.response.body as CampaignView;

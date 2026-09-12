@@ -281,6 +281,40 @@ describe('campaign API', () => {
     expect(missingMutation.statusCode).toBe(404);
   });
 
+  it('clones definition only into a new draft and protects the clone command with idempotency', async () => {
+    const source = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Clone source', audienceFilter: { search: 'student 1' },
+    }), 'create-clone-source');
+    const sourceId = dataOf(source).id;
+    await send(api, 'POST', `/campaigns/${sourceId}/validate`);
+    await send(api, 'POST', `/campaigns/${sourceId}/approve`);
+    const clone = await send(api, 'POST', `/campaigns/${sourceId}/clone`, { name: 'Clone target' }, 'clone-source-once');
+    expect(clone.statusCode, clone.body).toBe(201);
+    const cloned = clone.json() as { data: { id: string; name: string; state: string; approved: boolean; audience: unknown; execution: unknown; revision_hash: string } };
+    expect(cloned.data).toMatchObject({ name: 'Clone target', state: 'draft', approved: false, audience: null, execution: null });
+    expect(cloned.data.id).not.toBe(sourceId);
+    expect(cloned.data.revision_hash).toBe((source.json() as { data: { revision_hash: string } }).data.revision_hash);
+
+    const replay = await send(api, 'POST', `/campaigns/${sourceId}/clone`, { name: 'Clone target' }, 'clone-source-once');
+    expect(replay.statusCode).toBe(201);
+    expect((replay.json() as { data: { id: string } }).data.id).toBe(cloned.data.id);
+    const reused = await send(api, 'POST', `/campaigns/${sourceId}/clone`, { name: 'Different target' }, 'clone-source-once');
+    expect(reused.statusCode).toBe(409);
+    expect(reused.json()).toMatchObject({ error: { code: 'idempotency_key_reused' } });
+    expect((await send(api, 'POST', `/campaigns/${randomUUID()}/clone`, { name: 'Missing' }, 'clone-missing')).statusCode).toBe(404);
+
+    const evidence = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const rows = await sql.query<{ approvals: string; executions: string; snapshots: string }>(
+        `SELECT (SELECT count(*)::text FROM campaign_approvals WHERE campaign_id=$1) AS approvals,
+                (SELECT count(*)::text FROM campaign_executions WHERE campaign_id=$1) AS executions,
+                (SELECT count(*)::text FROM audience_snapshots WHERE campaign_id=$1) AS snapshots`,
+        [cloned.data.id],
+      );
+      return rows.rows[0];
+    });
+    expect(evidence).toEqual({ approvals: '0', executions: '0', snapshots: '0' });
+  });
+
   it('plans frozen recipients as fenced bulk commands and rechecks consent at dispatch', async () => {
     const created = await send(api, 'POST', '/campaigns', draft(api, { name: 'Dispatch consent fence' }), 'create-dispatch-fence');
     const id = dataOf(created).id;

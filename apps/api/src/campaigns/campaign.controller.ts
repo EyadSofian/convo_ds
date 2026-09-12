@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { pageEnvelope } from '../pagination.js';
-import { parseCampaignControl, parseCampaignDraft, parseCampaignLaunch } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch } from './campaign-request.js';
 import { CampaignService } from './campaign.service.js';
 
 @Controller()
@@ -63,6 +63,18 @@ export class CampaignController {
     @Headers('x-csrf-token') csrf: string | string[] | undefined, @Req() request: FastifyRequest) {
     const session = await this.mutating(request, csrf);
     return { data: await this.campaigns.control(session, tenantId, campaignId, parseCampaignControl(body)), request_id: request.id };
+  }
+
+  @Post('tenants/:tenantId/campaigns/:campaignId/clone')
+  async clone(
+    @Param('tenantId') tenantId: string, @Param('campaignId') campaignId: string, @Body() body: unknown,
+    @Headers('x-csrf-token') csrf: string | string[] | undefined,
+    @Headers('idempotency-key') key: string | string[] | undefined,
+    @Req() request: FastifyRequest, @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.mutating(request, csrf);
+    const value = await this.campaigns.clone(session, tenantId, campaignId, parseCampaignClone(body).name, body, requireKey(key));
+    await reply.status(201).send({ data: value, request_id: request.id });
   }
 
   @Get('tenants/:tenantId/campaigns/:campaignId/recipients')

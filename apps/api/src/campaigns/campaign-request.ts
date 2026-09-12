@@ -62,6 +62,12 @@ export function parseCampaignControl(body: unknown): 'pause' | 'resume' | 'cance
   return action;
 }
 
+export function parseCampaignClone(body: unknown): { readonly name: string } {
+  const name = text(record(body)['name'], 160);
+  if (name === null) throw invalid('Choose a name for the cloned campaign.');
+  return { name };
+}
+
 function record(value: unknown): Record<string, unknown> {
   return recordOrNull(value) ?? {};
 }

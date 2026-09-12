@@ -63,6 +63,9 @@ export class CampaignsApi {
   control(tenantId: string, id: string, action: 'pause' | 'resume' | 'cancel'): Promise<ApiResult<Campaign>> {
     return this.client.post(`/tenants/${tenantId}/campaigns/${id}/control`, { body: { action } });
   }
+  clone(tenantId: string, id: string, name: string, key: string): Promise<ApiResult<Campaign>> {
+    return this.client.post(`/tenants/${tenantId}/campaigns/${id}/clone`, { body: { name }, idempotencyKey: key });
+  }
   recipients(tenantId: string, id: string): Promise<ApiResult<readonly CampaignRecipient[]>> {
     return this.client.get(`/tenants/${tenantId}/campaigns/${id}/recipients`);
   }

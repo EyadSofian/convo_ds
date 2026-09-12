@@ -37,6 +37,7 @@ describe('CampaignsApi', () => {
     await api.approve('tenant-1', 'campaign-1');
     await api.launch('tenant-1', 'campaign-1', 'launch-key');
     await api.control('tenant-1', 'campaign-1', 'pause');
+    await api.clone('tenant-1', 'campaign-1', 'Copy', 'clone-key');
     await api.recipients('tenant-1', 'campaign-1');
 
     expect(calls.map(({ path, init }) => [init.method, path])).toEqual([
@@ -46,11 +47,13 @@ describe('CampaignsApi', () => {
       ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/approve'],
       ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/launch'],
       ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/control'],
+      ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/clone'],
       ['GET', '/api/v1/tenants/tenant-1/campaigns/campaign-1/recipients'],
     ]);
     expect(calls[1]?.init.headers).toMatchObject({ 'idempotency-key': 'create-key' });
     expect(calls[4]?.init.headers).toMatchObject({ 'idempotency-key': 'launch-key' });
     expect(JSON.parse(String(calls[5]?.init.body))).toEqual({ action: 'pause' });
+    expect(calls[6]?.init.headers).toMatchObject({ 'idempotency-key': 'clone-key' });
   });
 
   it('has an honest disconnected default', async () => {

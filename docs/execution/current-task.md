@@ -4,7 +4,58 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T12 (Milestone F: durable campaign planning and dispatch)
+## Last completed task — P1-T13 (Milestone F: safe campaign cloning)
+
+**Task / requirement IDs:** CMP-10 implemented.
+
+### Behavior delivered
+
+**Every campaign can now be cloned from Broadcasts into a distinct draft.** The browser derives a bounded Arabic or English copy name, marks the action busy, waits for the committed response and then reloads the server list. Refusals stay beside the screen and never produce a success toast.
+
+**The server copies the definition and nothing operational.** The new campaign receives a new ID and revision 1 with the source objective, connection, variables, audience filter, content, timezone, expiry and budget. Its immutable revision hash remains the same because the delivery definition is the same. Audience snapshots, approvals, executions, recipients and their provider evidence are not copied. The referenced connection must still exist.
+
+**Clone is replay-safe.** `POST T/campaigns/{id}/clone` requires CSRF and an idempotency key. Replaying the same body returns the original clone; changing the body behind the same key returns `idempotency_key_reused`. Unknown sources return 404 without creating a partial campaign.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `apps/api/src/campaigns/campaign.service.ts` | definition-only transactional clone and audit evidence |
+| `apps/api/src/campaigns/campaign.controller.ts` | authenticated clone endpoint |
+| `apps/web/src/live/campaign-actions.ts` | committed UI mutation and bounded localized name |
+| `apps/web/src/ui/workspace.ts` | Clone control on live Broadcasts cards |
+| `tests/integration/api-campaigns.test.ts` | new-ID, no-operational-state and idempotency evidence |
+| `docs/api/openapi.v1.json` | pinned 91-operation contract |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web 196.79 kB / 58.90 kB gzip |
+| `pnpm test:unit` | **0** | 74 files, **1440 tests** |
+| `pnpm test:integration` | **0** | 23 files, **502 tests** against PostgreSQL 17.4 |
+| `pnpm test:property` | **0** | 5 exhaustive/metamorphic properties |
+| `pnpm test:coverage` | **0** | 98 files, **1947 tests**, **100/100/100/100** |
+| `pnpm test:contracts` | **0** | OpenAPI drift clean; channel contracts pass |
+| `pnpm test:security` | **0** | 354 tests + production audit; no known vulnerabilities |
+| `pnpm test:e2e` | **0** | **150 tests** at 1440×900 and 1366×768 |
+| `pnpm test:a11y` | **0** | **25 tests**, no WCAG 2.1 AA axe violations |
+| `pnpm test:visual` | **0** | **20 tests**, including the updated Broadcasts structure |
+
+### Honest remaining scope
+
+- Clone deliberately does not mutate its source or bypass the approval lifecycle. Editing a clone into a new immutable revision is still to be built.
+- Template catalogue/synchronization, explicit test-send and failed-only retry remain.
+- Campaign aggregation/export and the live Analytics screen remain.
+- Provider-live activation remains `blocked_no_asset`; CRM remains intentionally deferred by the owner.
+
+**Next execution slice:** edit-as-new-revision and explicit safe test-send, then campaign reporting and the live Analytics screen.
+
+---
+
+## Previously completed — P1-T12 (Milestone F: durable campaign planning and dispatch)
 
 **Task / requirement IDs:** CMP-03, CMP-14, CMP-20 and CMP-21 implemented; CMP-11, CMP-13, CMP-17 and CMP-18 partial with their remaining measured/operational work named below.
 

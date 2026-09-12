@@ -6,6 +6,7 @@ import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
 import {
   approveCampaign,
+  cloneCampaign,
   controlCampaign,
   createCampaign,
   launchCampaign,
@@ -45,6 +46,7 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     approve: vi.fn().mockResolvedValue(mutation),
     launch: vi.fn().mockResolvedValue(mutation),
     control: vi.fn().mockResolvedValue(mutation),
+    clone: vi.fn().mockResolvedValue(mutation),
     recipients: vi.fn().mockResolvedValue(ok([])),
   } as unknown as CampaignsApi;
   const channels = {
@@ -120,6 +122,16 @@ describe('campaign actions', () => {
     const arabic = setup({ lang: 'ar', mutation: ok({ ...CAMPAIGN, audience: { total: 2, eligible: 1, excluded: 1 } }) });
     await validateCampaign(arabic.context, 'campaign-1');
     expect(arabic.state.toasts.at(-1)?.text).toContain('1');
+
+    await cloneCampaign(english.context, 'campaign-1', 'September intake');
+    expect(english.campaigns.clone).toHaveBeenCalledWith(
+      'tenant-1', 'campaign-1', 'September intake — copy', 'key-1',
+    );
+
+    await cloneCampaign(arabic.context, 'campaign-1', 'ح'.repeat(160));
+    expect(arabic.campaigns.clone).toHaveBeenLastCalledWith(
+      'tenant-1', 'campaign-1', `نسخة من ${'ح'.repeat(152)}`, 'key-1',
+    );
   });
 
   it('loads the selected campaign ledger and preserves a read failure', async () => {
@@ -138,6 +150,7 @@ describe('campaign actions', () => {
     const empty = setup();
     expect(await LIVE_ACTIONS['live-campaign-create']?.(empty.context, '')).toBe(false);
     expect(await LIVE_ACTIONS['live-campaign-control']?.(empty.context, 'campaign-1:wrong')).toBe(false);
+    expect(await LIVE_ACTIONS['live-campaign-clone']?.(empty.context, ':')).toBe(false);
 
     const readyCase = setup();
     readyCase.state.dialog = { kind: 'campaign', arg: '' };
@@ -156,11 +169,13 @@ describe('campaign actions', () => {
     await LIVE_ACTIONS['live-campaign-approve']?.(readyCase.context, 'campaign-1');
     await LIVE_ACTIONS['live-campaign-launch']?.(readyCase.context, 'campaign-1');
     await LIVE_ACTIONS['live-campaign-control']?.(readyCase.context, 'campaign-1:pause');
+    await LIVE_ACTIONS['live-campaign-clone']?.(readyCase.context, 'campaign-1:September intake');
     await LIVE_ACTIONS['live-campaign-ledger']?.(readyCase.context, 'campaign-1');
     expect(readyCase.campaigns.validate).toHaveBeenCalled();
     expect(readyCase.campaigns.approve).toHaveBeenCalled();
     expect(readyCase.campaigns.launch).toHaveBeenCalled();
     expect(readyCase.campaigns.control).toHaveBeenCalledWith('tenant-1', 'campaign-1', 'pause');
+    expect(readyCase.campaigns.clone).toHaveBeenCalled();
     expect(readyCase.campaigns.recipients).toHaveBeenCalled();
   });
 

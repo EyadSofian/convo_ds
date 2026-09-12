@@ -57,6 +57,13 @@ export function controlCampaign(context: LiveContext, id: string, action: 'pause
         : t(context, 'أُلغيت الأعمال التي لم تُرسل', 'Undispatched work cancelled'));
 }
 
+export function cloneCampaign(context: LiveContext, id: string, sourceName: string): Promise<boolean> {
+  const name = t(context, `نسخة من ${sourceName}`, `${sourceName} — copy`).slice(0, 160).trim();
+  return mutate(context, `campaign-clone:${id}`,
+    (tenantId) => context.live.campaignsApi.clone(tenantId, id, name, context.newKey()),
+    (campaign) => t(context, `أُنشئت مسودة «${campaign.name}»`, `Draft “${campaign.name}” created`));
+}
+
 export async function loadCampaignRecipients(context: LiveContext, id: string): Promise<void> {
   const tenantId = currentTenantId(context.live);
   if (tenantId === null) return;

@@ -33,6 +33,7 @@ import { createField, createLabel, setEntityLabel, setFieldValue } from './metad
 import { rowsOf } from './store.js';
 import {
   approveCampaign,
+  cloneCampaign,
   controlCampaign,
   createCampaign,
   launchCampaign,
@@ -338,6 +339,10 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     const { id, value } = splitArg(arg);
     if (value !== 'pause' && value !== 'resume' && value !== 'cancel') return false;
     return controlCampaign(context, id, value);
+  },
+  'live-campaign-clone': async (context, arg) => {
+    const { id, value } = splitArg(arg);
+    return id === '' || value === '' ? false : cloneCampaign(context, id, value);
   },
   'live-campaign-ledger': async (context, arg) => loadCampaignRecipients(context, arg),
 
