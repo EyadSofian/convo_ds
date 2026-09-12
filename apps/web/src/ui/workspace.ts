@@ -107,6 +107,7 @@ const CAMPAIGN_LABELS: Readonly<Record<CampaignState, { ar: string; en: string }
 function campaignCard(state: AppState, campaign: Campaign, mayDraft: boolean, mayApprove: boolean): HTMLElement {
   const actions: HTMLElement[] = [];
   if (mayDraft) actions.push(button({ label: t(state, 'إنشاء نسخة', 'Clone'), act: 'live-campaign-clone', arg: `${campaign.id}:${campaign.name}`, small: true, disabled: state.live.busy !== null }));
+  if (mayDraft && (campaign.state === 'draft' || campaign.state === 'ready')) actions.push(button({ label: t(state, 'تعديل', 'Edit'), act: 'dialog', arg: `campaign-edit:${campaign.id}`, small: true, disabled: state.live.busy !== null }));
   if (campaign.state === 'draft' && mayDraft) actions.push(button({ label: t(state, 'تثبيت الجمهور', 'Freeze audience'), act: 'live-campaign-validate', arg: campaign.id, small: true, variant: 'primary', disabled: state.live.busy !== null }));
   if (campaign.state === 'ready' && !campaign.approved && mayApprove) actions.push(button({ label: t(state, 'اعتماد النسخة', 'Approve revision'), act: 'live-campaign-approve', arg: campaign.id, small: true, variant: 'primary', disabled: state.live.busy !== null }));
   if (campaign.state === 'ready' && campaign.approved && mayDraft) actions.push(button({ label: t(state, 'إطلاق الآن', 'Launch now'), act: 'live-campaign-launch', arg: campaign.id, small: true, variant: 'primary', disabled: state.live.busy !== null }));

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { CampaignState, SqlExecutor } from '@convo/domain';
-import { applyCampaignTrigger, normalizeSearchText } from '@convo/domain';
+import { applyCampaignTrigger, campaignEditTarget, normalizeSearchText } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import type { ApiConfig } from '../config.js';
@@ -11,7 +11,7 @@ import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG } from '../tokens.js';
-import type { CampaignDraftInput } from './campaign-request.js';
+import type { CampaignDraftInput, CampaignUpdateInput } from './campaign-request.js';
 
 export interface CampaignView {
   readonly id: string;
@@ -23,6 +23,13 @@ export interface CampaignView {
   readonly revision_id: string;
   readonly revision: number;
   readonly revision_hash: string;
+  readonly content: Readonly<Record<string, unknown>>;
+  readonly variables: Readonly<Record<string, unknown>>;
+  readonly audience_filter: Readonly<Record<string, unknown>>;
+  readonly timezone: string;
+  readonly expires_at: string | null;
+  readonly budget_amount_minor: string;
+  readonly budget_currency: string;
   readonly approved: boolean;
   readonly audience: { readonly total: number; readonly eligible: number; readonly excluded: number } | null;
   readonly execution: { readonly id: string; readonly state: string; readonly scheduled_for: string | null } | null;
@@ -40,6 +47,13 @@ interface CampaignRow {
   readonly revision_id: string;
   readonly revision: number;
   readonly revision_hash: string;
+  readonly content: Readonly<Record<string, unknown>>;
+  readonly variables: Readonly<Record<string, unknown>>;
+  readonly audience_filter: Readonly<Record<string, unknown>>;
+  readonly timezone: string;
+  readonly expires_at: Date | null;
+  readonly budget_amount_minor: string;
+  readonly budget_currency: string;
   readonly approved: boolean;
   readonly counts: { total: number; eligible: number; excluded: number } | null;
   readonly execution_id: string | null;
@@ -54,6 +68,7 @@ interface LockedCampaign {
   readonly connection_id: string;
   readonly control_state: CampaignState;
   readonly current_revision_id: string;
+  readonly revision: number;
   readonly version: number;
   readonly revision_hash: string;
   readonly audience_filter: Readonly<Record<string, unknown>>;
@@ -126,6 +141,57 @@ export class CampaignService {
       await sql.query(`UPDATE campaigns SET current_revision_id=$1 WHERE id=$2`, [revisionId, campaignId]);
       await audit(sql, tenantId, campaignId, revisionId, principal.membershipId, 'created', { revision: 1 });
       return { statusCode: 201, body: viewOf(requireRow(await readCampaigns(sql, campaignId), 'campaign disappeared')) };
+    });
+    if (outcome.status === 'conflict') throw idempotencyConflict();
+    return outcome.response.body as CampaignView;
+  }
+
+  async update(
+    session: AuthenticatedSession,
+    tenantId: string,
+    campaignId: string,
+    input: CampaignUpdateInput,
+    rawBody: unknown,
+    idempotencyKey: string,
+  ): Promise<CampaignView> {
+    this.authorization.assertTenantId(campaignId);
+    const outcome = await this.idempotency.execute({
+      tenantContextId: tenantId, tenantId, principalId: session.userId,
+      operation: `campaign.update:${campaignId}`, key: idempotencyKey,
+      requestHash: requestHash(rawBody as JsonValue, this.config.secrets.idempotencyHash),
+    }, async (sql) => {
+      const principal = await this.authorization.requirePermission(sql, session, 'campaign.draft');
+      const campaign = await locked(sql, campaignId);
+      const target = campaignEditTarget(campaign.control_state);
+      if (target === null) throw conflict('campaign_edit_locked', 'A launched campaign cannot be edited. Clone it into a new draft.');
+      if (campaign.version !== input.expectedVersion) throw conflict('version_conflict', 'The campaign changed after you opened it. Reload before saving.');
+      await requireConnection(sql, input.connectionId, false);
+      const hash = revisionHash(input);
+      if (hash === campaign.revision_hash) {
+        await sql.query(
+          `UPDATE campaigns SET name=$2,objective=$3,version=version+1,updated_at=now() WHERE id=$1`,
+          [campaignId, input.name, input.objective],
+        );
+        await audit(sql, tenantId, campaignId, campaign.current_revision_id, principal.membershipId, 'revised', { revision: campaign.revision, definition_changed: false });
+      } else {
+        const revision = await sql.query<{ id: string }>(
+          `INSERT INTO campaign_revisions
+             (tenant_id,campaign_id,revision,variables,audience_filter,content,timezone,expires_at,
+              budget_amount_minor,budget_currency,revision_hash,created_by_membership_id)
+           VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,$12) RETURNING id::text`,
+          [tenantId, campaignId, campaign.revision + 1, JSON.stringify(input.variables), JSON.stringify(input.audienceFilter),
+            JSON.stringify(input.content), input.timezone, input.expiresAt, input.budgetAmountMinor,
+            input.budgetCurrency, hash, principal.membershipId],
+        );
+        const revisionId = requireRow(revision.rows, 'campaign update revision insert returned no row').id;
+        await sql.query(
+          `UPDATE campaigns SET name=$2,objective=$3,connection_id=$4,current_revision_id=$5,
+                  control_state=$6,version=version+1,updated_at=now() WHERE id=$1`,
+          [campaignId, input.name, input.objective, input.connectionId, revisionId, target],
+        );
+        await audit(sql, tenantId, campaignId, revisionId, principal.membershipId, 'revised', { from_revision: campaign.revision, to_revision: campaign.revision + 1, definition_changed: true });
+      }
+      return { statusCode: 200, body: viewOf(requireRow(await readCampaigns(sql, campaignId), 'campaign update disappeared')) };
     });
     if (outcome.status === 'conflict') throw idempotencyConflict();
     return outcome.response.body as CampaignView;
@@ -423,14 +489,17 @@ async function requireConnection(sql: SqlExecutor, connectionId: string, require
 }
 
 async function locked(sql: SqlExecutor, campaignId: string): Promise<LockedCampaign> {
-  const result = await sql.query<LockedCampaign>(
-    `SELECT c.id::text,c.connection_id::text,c.control_state,c.current_revision_id::text,c.version,
-            r.revision_hash,r.audience_filter,r.expires_at,r.budget_amount_minor::text,r.budget_currency
-       FROM campaigns c JOIN campaign_revisions r ON r.id=c.current_revision_id
-      WHERE c.id=$1 FOR UPDATE OF c`, [campaignId],
+  const campaign = await sql.query<Pick<LockedCampaign, 'id' | 'connection_id' | 'control_state' | 'current_revision_id' | 'version'>>(
+    `SELECT id::text,connection_id::text,control_state,current_revision_id::text,version
+       FROM campaigns WHERE id=$1 FOR UPDATE`, [campaignId],
   );
-  if (result.rows[0] === undefined) throw notFound();
-  return result.rows[0];
+  const row = campaign.rows[0];
+  if (row === undefined) throw notFound();
+  const revision = await sql.query<Pick<LockedCampaign, 'revision' | 'revision_hash' | 'audience_filter' | 'expires_at' | 'budget_amount_minor' | 'budget_currency'>>(
+    `SELECT revision,revision_hash,audience_filter,expires_at,budget_amount_minor::text,budget_currency
+       FROM campaign_revisions WHERE id=$1`, [row.current_revision_id],
+  );
+  return { ...row, ...requireRow(revision.rows, 'locked campaign revision disappeared') };
 }
 
 function transition(state: CampaignState, trigger: Parameters<typeof applyCampaignTrigger>[1]) {
@@ -442,7 +511,8 @@ function transition(state: CampaignState, trigger: Parameters<typeof applyCampai
 async function readCampaigns(sql: SqlExecutor, id: string | null): Promise<readonly CampaignRow[]> {
   const result = await sql.query<CampaignRow>(
     `SELECT c.id::text,c.name,c.objective,c.connection_id::text,c.control_state,c.version,
-            r.id::text AS revision_id,r.revision,r.revision_hash,
+            r.id::text AS revision_id,r.revision,r.revision_hash,r.content,r.variables,r.audience_filter,
+            r.timezone,r.expires_at,r.budget_amount_minor::text,r.budget_currency,
             EXISTS(SELECT 1 FROM campaign_approvals a WHERE a.revision_id=r.id AND a.revision_hash=r.revision_hash AND a.revoked_at IS NULL) AS approved,
             s.counts,e.id::text AS execution_id,e.state AS execution_state,e.scheduled_for,c.created_at,c.updated_at
        FROM campaigns c JOIN campaign_revisions r ON r.id=c.current_revision_id
@@ -459,6 +529,9 @@ function viewOf(row: CampaignRow): CampaignView {
     id: row.id, name: row.name, objective: row.objective, connection_id: row.connection_id,
     state: row.control_state, version: row.version, revision_id: row.revision_id,
     revision: row.revision, revision_hash: row.revision_hash, approved: row.approved,
+    content: row.content, variables: row.variables, audience_filter: row.audience_filter,
+    timezone: row.timezone, expires_at: row.expires_at?.toISOString() ?? null,
+    budget_amount_minor: row.budget_amount_minor, budget_currency: row.budget_currency,
     audience: counts === null ? null : { total: counts.total, eligible: counts.eligible, excluded: counts.excluded },
     execution: row.execution_id === null ? null : { id: row.execution_id, state: row.execution_state as string,
       scheduled_for: row.scheduled_for?.toISOString() ?? null },

@@ -33,6 +33,8 @@ describe('broadcasts', () => {
         id: 'campaign-1', name: 'September intake', objective: 'Enrolment', connection_id: 'channel-1',
         state: 'ready', version: 3, revision_id: 'revision-1', revision: 1,
         revision_hash: 'a'.repeat(64), approved: true,
+        content: { text: 'Welcome' }, variables: {}, audience_filter: {}, timezone: 'UTC',
+        expires_at: null, budget_amount_minor: '0.000000', budget_currency: 'USD',
         audience: { total: 12, eligible: 10, excluded: 2 }, execution: null,
         created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
       },
@@ -40,6 +42,8 @@ describe('broadcasts', () => {
         id: 'campaign-2', name: 'Started campaign', objective: null, connection_id: 'channel-1',
         state: 'running', version: 4, revision_id: 'revision-2', revision: 1,
         revision_hash: 'b'.repeat(64), approved: true,
+        content: { text: 'Reminder' }, variables: {}, audience_filter: {}, timezone: 'UTC',
+        expires_at: null, budget_amount_minor: '0.000000', budget_currency: 'USD',
         audience: { total: 4, eligible: 4, excluded: 0 },
         execution: { id: 'execution-2', state: 'running', scheduled_for: null },
         created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
@@ -61,6 +65,9 @@ describe('broadcasts', () => {
     expect(element.querySelector('[data-act="live-campaign-launch"]')).not.toBeNull();
     expect(element.querySelector('[data-act="live-campaign-control"][data-arg$=":pause"]')).not.toBeNull();
     expect(element.querySelector('[data-act="live-campaign-ledger"]')).not.toBeNull();
+    expect(element.querySelectorAll('[data-act="live-campaign-clone"]')).toHaveLength(2);
+    expect(element.querySelectorAll('[data-arg="campaign-edit:campaign-1"]')).toHaveLength(1);
+    expect(element.querySelector('[data-arg="campaign-edit:campaign-2"]')).toBeNull();
   });
 
   it('shows signed-out, loading, failure and empty states distinctly', () => {

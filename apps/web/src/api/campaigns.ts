@@ -13,6 +13,13 @@ export interface Campaign {
   readonly revision_id: string;
   readonly revision: number;
   readonly revision_hash: string;
+  readonly content: Readonly<Record<string, unknown>>;
+  readonly variables: Readonly<Record<string, unknown>>;
+  readonly audience_filter: Readonly<Record<string, unknown>>;
+  readonly timezone: string;
+  readonly expires_at: string | null;
+  readonly budget_amount_minor: string;
+  readonly budget_currency: string;
   readonly approved: boolean;
   readonly audience: { readonly total: number; readonly eligible: number; readonly excluded: number } | null;
   readonly execution: { readonly id: string; readonly state: string; readonly scheduled_for: string | null } | null;
@@ -39,6 +46,7 @@ export interface CreateCampaignInput {
   readonly variables: Readonly<Record<string, unknown>>;
   readonly audienceFilter: Readonly<Record<string, unknown>>;
   readonly timezone: string;
+  readonly expiresAt?: string | null;
   readonly budgetAmountMinor: number;
   readonly budgetCurrency: string;
 }
@@ -50,6 +58,11 @@ export class CampaignsApi {
   }
   create(tenantId: string, input: CreateCampaignInput, key: string): Promise<ApiResult<Campaign>> {
     return this.client.post(`/tenants/${tenantId}/campaigns`, { body: input, idempotencyKey: key });
+  }
+  update(tenantId: string, id: string, input: CreateCampaignInput, expectedVersion: number, key: string): Promise<ApiResult<Campaign>> {
+    return this.client.patch(`/tenants/${tenantId}/campaigns/${id}`, {
+      body: { ...input, expectedVersion }, idempotencyKey: key,
+    });
   }
   validate(tenantId: string, id: string): Promise<ApiResult<Campaign>> {
     return this.client.post(`/tenants/${tenantId}/campaigns/${id}/validate`);

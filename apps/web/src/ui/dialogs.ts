@@ -174,15 +174,28 @@ export function renderDialog(state: AppState): HTMLElement | null {
     );
   }
 
-  if (dialog.kind === 'campaign') {
-    const connections = rowsOf(state.live.connections).filter((connection) => connection.status === 'healthy');
+  if (dialog.kind === 'campaign' || dialog.kind === 'campaign-edit') {
+    const campaign = dialog.kind === 'campaign-edit'
+      ? rowsOf(state.live.campaigns).find((entry) => entry.id === dialog.arg)
+      : undefined;
+    const connections = rowsOf(state.live.connections).filter((connection) =>
+      connection.status === 'healthy' || connection.id === campaign?.connection_id);
+    const initialMessage = typeof campaign?.content['text'] === 'string' ? campaign.content['text'] : '';
+    const initialSearch = typeof campaign?.audience_filter['search'] === 'string' ? campaign.audience_filter['search'] : '';
+    if (dialog.kind === 'campaign-edit' && campaign === undefined) {
+      return dialogShell(
+        t(state, 'تعديل الحملة', 'Edit campaign'),
+        [notice('warning', 'alert', t(state, 'الحملة لم تعد موجودة. أعد تحميل القائمة.', 'The campaign no longer exists. Reload the list.'))],
+        [h('span', { class: 'dialog__footerspacer' }), closeButton(state)],
+      );
+    }
     return dialogShell(
-      t(state, 'حملة جديدة', 'New campaign'),
+      campaign === undefined ? t(state, 'حملة جديدة', 'New campaign') : t(state, 'تعديل الحملة', 'Edit campaign'),
       [
-        field(t(state, 'اسم الحملة', 'Campaign name'), textInput('campaignName', state.dialogForm.campaignName ?? '', t(state, 'مثال: تذكير المحاضرة المباشرة', 'e.g. Live session reminder'))),
+        field(t(state, 'اسم الحملة', 'Campaign name'), textInput('campaignName', state.dialogForm.campaignName ?? campaign?.name ?? '', t(state, 'مثال: تذكير المحاضرة المباشرة', 'e.g. Live session reminder'))),
         field(
           t(state, 'القناة', 'Channel'),
-          selectInput('campaignConnection', state.dialogForm.campaignConnection ?? (connections[0]?.id ?? ''),
+          selectInput('campaignConnection', state.dialogForm.campaignConnection ?? campaign?.connection_id ?? (connections[0]?.id ?? ''),
             connections.map((connection) => ({ value: connection.id, label: connection.display_name }))),
           t(
             state,
@@ -190,19 +203,19 @@ export function renderDialog(state: AppState): HTMLElement | null {
             'A WhatsApp template is not a Messenger template — nothing is copied across channels.',
           ),
         ),
-        field(t(state, 'الهدف', 'Objective'), textInput('campaignObjective', state.dialogForm.campaignObjective ?? '', t(state, 'مثال: تسجيل الدورة', 'e.g. Course enrolment'))),
+        field(t(state, 'الهدف', 'Objective'), textInput('campaignObjective', state.dialogForm.campaignObjective ?? campaign?.objective ?? '', t(state, 'مثال: تسجيل الدورة', 'e.g. Course enrolment'))),
         field(t(state, 'نص الرسالة', 'Message'), h('textarea', {
           class: 'field__input', rows: '4', 'data-act': 'form', 'data-form': 'campaignMessage',
           placeholder: t(state, 'اكتب الرسالة التي سيستلمها الطالب', 'Write the message the learner will receive'),
-        }, [state.dialogForm.campaignMessage ?? ''])),
-        field(t(state, 'بحث الجمهور', 'Audience search'), textInput('campaignSearch', state.dialogForm.campaignSearch ?? '', t(state, 'اتركه فارغًا لكل جهات الاتصال', 'Leave blank for all contacts'))),
+        }, [state.dialogForm.campaignMessage ?? initialMessage])),
+        field(t(state, 'بحث الجمهور', 'Audience search'), textInput('campaignSearch', state.dialogForm.campaignSearch ?? initialSearch, t(state, 'اتركه فارغًا لكل جهات الاتصال', 'Leave blank for all contacts'))),
         notice(
           'warning',
           'alert',
           t(
             state,
-            connections.length === 0 ? 'اربط قناة سليمة أولًا، ثم أنشئ المسودة وثبّت الجمهور واعتمد النسخة قبل الإطلاق.' : 'بعد إنشاء المسودة: ثبّت الجمهور، اعتمد النسخة، ثم أطلقها.',
-            connections.length === 0 ? 'Connect a healthy channel first, then create, freeze, approve and launch.' : 'After creating the draft: freeze the audience, approve the revision, then launch.',
+            connections.length === 0 ? 'اربط قناة سليمة أولًا، ثم أنشئ المسودة وثبّت الجمهور واعتمد النسخة قبل الإطلاق.' : campaign === undefined ? 'بعد إنشاء المسودة: ثبّت الجمهور، اعتمد النسخة، ثم أطلقها.' : 'أي تغيير في الرسالة أو الجمهور ينشئ مراجعة جديدة ويلزم تثبيت الجمهور واعتمادها من جديد.',
+            connections.length === 0 ? 'Connect a healthy channel first, then create, freeze, approve and launch.' : campaign === undefined ? 'After creating the draft: freeze the audience, approve the revision, then launch.' : 'A message or audience change creates a new revision that must be frozen and approved again.',
           ),
         ),
       ],
@@ -210,8 +223,9 @@ export function renderDialog(state: AppState): HTMLElement | null {
         h('span', { class: 'dialog__footerspacer' }),
         closeButton(state),
         button({
-          label: t(state, 'إنشاء المسودة', 'Create draft'),
-          act: 'live-campaign-create',
+          label: campaign === undefined ? t(state, 'إنشاء المسودة', 'Create draft') : t(state, 'حفظ المراجعة', 'Save revision'),
+          act: campaign === undefined ? 'live-campaign-create' : 'live-campaign-update',
+          ...(campaign === undefined ? {} : { arg: campaign.id }),
           variant: 'primary',
           disabled: connections.length === 0 || state.live.busy !== null,
         }),

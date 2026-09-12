@@ -63,6 +63,7 @@ div.workspace.workspace--broadcasts
             dd
         div.workspace__actions.broadcast-card__actions
           button.btn.btn--sm [live-campaign-clone]
+          button.btn.btn--sm [dialog]
           button.btn.btn--primary.btn--sm [live-campaign-launch]
     section.card.broadcast-card
       div.card__header
@@ -115,4 +116,5 @@ div.workspace.workspace--broadcasts
             dd
         div.workspace__actions.broadcast-card__actions
           button.btn.btn--sm [live-campaign-clone]
+          button.btn.btn--sm [dialog]
           button.btn.btn--primary.btn--sm [live-campaign-validate]

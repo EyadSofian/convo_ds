@@ -30,6 +30,12 @@ export function createCampaign(context: LiveContext, input: CreateCampaignInput)
     (campaign) => t(context, `أُنشئت مسودة «${campaign.name}»`, `Draft “${campaign.name}” created`));
 }
 
+export function updateCampaign(context: LiveContext, id: string, input: CreateCampaignInput, expectedVersion: number): Promise<boolean> {
+  return mutate(context, `campaign-update:${id}`,
+    (tenantId) => context.live.campaignsApi.update(tenantId, id, input, expectedVersion, context.newKey()),
+    (campaign) => t(context, `حُفظت المراجعة ${String(campaign.revision)}`, `Revision ${String(campaign.revision)} saved`));
+}
+
 export function validateCampaign(context: LiveContext, id: string): Promise<boolean> {
   return mutate(context, `campaign-validate:${id}`,
     (tenantId) => context.live.campaignsApi.validate(tenantId, id),

@@ -103,7 +103,7 @@ async function setup(): Promise<Harness> {
   return { app, pool, server, tenantId, cookie, csrf, ...seeded };
 }
 
-async function send(api: Harness, method: 'GET' | 'POST', path: string, payload?: Record<string, unknown>, key?: string): Promise<LightMyRequestResponse> {
+async function send(api: Harness, method: 'GET' | 'POST' | 'PATCH', path: string, payload?: Record<string, unknown>, key?: string): Promise<LightMyRequestResponse> {
   return api.server.inject({ method, url: `/api/v1/tenants/${api.tenantId}${path}`,
     headers: { cookie: api.cookie, 'x-csrf-token': api.csrf, ...(key === undefined ? {} : { 'idempotency-key': key }) },
     ...(payload === undefined ? {} : { payload }),
@@ -313,6 +313,74 @@ describe('campaign API', () => {
       return rows.rows[0];
     });
     expect(evidence).toEqual({ approvals: '0', executions: '0', snapshots: '0' });
+  });
+
+  it('creates a new immutable revision for meaningful edits and rejects stale or launched edits', async () => {
+    const original = draft(api, { name: 'Editable campaign', audienceFilter: { search: 'student' } });
+    const created = await send(api, 'POST', '/campaigns', original, 'create-editable');
+    const first = created.json() as { data: { id: string; version: number; revision: number; revision_hash: string } };
+
+    const renamed = { ...original, name: 'Renamed campaign', objective: 'Updated internal objective', expectedVersion: first.data.version };
+    const metadataOnly = await send(api, 'PATCH', `/campaigns/${first.data.id}`, renamed, 'rename-editable');
+    expect(metadataOnly.statusCode, metadataOnly.body).toBe(200);
+    expect((metadataOnly.json() as { data: { name: string; revision: number; revision_hash: string; version: number } }).data)
+      .toMatchObject({ name: 'Renamed campaign', revision: 1, revision_hash: first.data.revision_hash, version: 2 });
+
+    const validated = await send(api, 'POST', `/campaigns/${first.data.id}/validate`);
+    expect((validated.json() as { data: { state: string; version: number } }).data).toMatchObject({ state: 'ready', version: 4 });
+    expect((await send(api, 'POST', `/campaigns/${first.data.id}/approve`)).statusCode).toBe(201);
+
+    const revisedBody = { ...renamed, content: { text: 'A meaningfully different message' }, expectedVersion: 4 };
+    const revised = await send(api, 'PATCH', `/campaigns/${first.data.id}`, revisedBody, 'revise-editable');
+    expect(revised.statusCode, revised.body).toBe(200);
+    const revision = revised.json() as { data: { state: string; version: number; revision: number; revision_id: string; revision_hash: string; approved: boolean; audience: unknown; content: unknown } };
+    expect(revision.data).toMatchObject({ state: 'draft', version: 5, revision: 2, approved: false, audience: null, content: revisedBody.content });
+    expect(revision.data.revision_hash).not.toBe(first.data.revision_hash);
+
+    const replay = await send(api, 'PATCH', `/campaigns/${first.data.id}`, revisedBody, 'revise-editable');
+    expect(replay.statusCode).toBe(200);
+    expect((replay.json() as { data: { revision_id: string } }).data.revision_id).toBe(revision.data.revision_id);
+    const changedReplay = await send(api, 'PATCH', `/campaigns/${first.data.id}`, { ...revisedBody, name: 'Changed replay' }, 'revise-editable');
+    expect(changedReplay.statusCode).toBe(409);
+    expect(changedReplay.json()).toMatchObject({ error: { code: 'idempotency_key_reused' } });
+    const stale = await send(api, 'PATCH', `/campaigns/${first.data.id}`, { ...revisedBody, expectedVersion: 4 }, 'stale-editable');
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ error: { code: 'version_conflict' } });
+
+    const evidence = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const rows = await sql.query<{ revisions: string; old_approvals: string; old_snapshots: string; current_approvals: string; current_snapshots: string }>(
+        `SELECT (SELECT count(*)::text FROM campaign_revisions WHERE campaign_id=$1) AS revisions,
+                (SELECT count(*)::text FROM campaign_approvals WHERE campaign_id=$1 AND revision_id<>$2) AS old_approvals,
+                (SELECT count(*)::text FROM audience_snapshots WHERE campaign_id=$1 AND revision_id<>$2) AS old_snapshots,
+                (SELECT count(*)::text FROM campaign_approvals WHERE revision_id=$2) AS current_approvals,
+                (SELECT count(*)::text FROM audience_snapshots WHERE revision_id=$2) AS current_snapshots`,
+        [first.data.id, revision.data.revision_id],
+      );
+      return rows.rows[0];
+    });
+    expect(evidence).toEqual({ revisions: '2', old_approvals: '1', old_snapshots: '1', current_approvals: '0', current_snapshots: '0' });
+
+    expect((await send(api, 'POST', `/campaigns/${first.data.id}/validate`)).statusCode).toBe(201);
+    expect((await send(api, 'POST', `/campaigns/${first.data.id}/approve`)).statusCode).toBe(201);
+    expect((await send(api, 'POST', `/campaigns/${first.data.id}/launch`, { mode: 'now' }, 'launch-edited')).statusCode).toBe(202);
+    const lockedEdit = await send(api, 'PATCH', `/campaigns/${first.data.id}`, { ...revisedBody, expectedVersion: 8 }, 'edit-launched');
+    expect(lockedEdit.statusCode).toBe(409);
+    expect(lockedEdit.json()).toMatchObject({ error: { code: 'campaign_edit_locked' } });
+    expect((await send(api, 'POST', `/campaigns/${first.data.id}/control`, { action: 'cancel' })).statusCode).toBe(201);
+    expect((await send(api, 'PATCH', `/campaigns/${randomUUID()}`, revisedBody, 'edit-missing')).statusCode).toBe(404);
+  });
+
+  it('serializes concurrent edits against the version seen by the operator', async () => {
+    const body = draft(api, { name: 'Concurrent editing' });
+    const created = await send(api, 'POST', '/campaigns', body, 'create-concurrent-edit');
+    const campaign = created.json() as { data: { id: string; version: number } };
+    const [first, second] = await Promise.all([
+      send(api, 'PATCH', `/campaigns/${campaign.data.id}`, { ...body, content: { text: 'First edit' }, expectedVersion: campaign.data.version }, 'concurrent-edit-1'),
+      send(api, 'PATCH', `/campaigns/${campaign.data.id}`, { ...body, content: { text: 'Second edit' }, expectedVersion: campaign.data.version }, 'concurrent-edit-2'),
+    ]);
+    expect([first.statusCode, second.statusCode].sort()).toEqual([200, 409]);
+    const refusal = first.statusCode === 409 ? first : second;
+    expect(refusal.json()).toMatchObject({ error: { code: 'version_conflict' } });
   });
 
   it('plans frozen recipients as fenced bulk commands and rechecks consent at dispatch', async () => {

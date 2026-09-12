@@ -12,6 +12,7 @@ import {
   launchCampaign,
   loadCampaignRecipients,
   loadCampaignsScreen,
+  updateCampaign,
   validateCampaign,
 } from './campaign-actions.js';
 import { LIVE_ACTIONS } from './dispatch.js';
@@ -26,6 +27,8 @@ const CAMPAIGN: Campaign = {
   id: 'campaign-1', name: INPUT.name, objective: null, connection_id: INPUT.connectionId,
   state: 'draft', version: 1, revision_id: 'revision-1', revision: 1,
   revision_hash: 'a'.repeat(64), approved: false, audience: null, execution: null,
+  content: INPUT.content, variables: INPUT.variables, audience_filter: INPUT.audienceFilter,
+  timezone: INPUT.timezone, expires_at: null, budget_amount_minor: '0.000000', budget_currency: 'USD',
   created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
 };
 const ERROR: ApiError = { code: 'refused', message: 'Server refused', requestId: 'req-1', status: 409, details: [] };
@@ -42,6 +45,7 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
   const campaigns = {
     list: vi.fn().mockResolvedValue(ok([CAMPAIGN])),
     create: vi.fn().mockResolvedValue(mutation),
+    update: vi.fn().mockResolvedValue(mutation),
     validate: vi.fn().mockResolvedValue(mutation),
     approve: vi.fn().mockResolvedValue(mutation),
     launch: vi.fn().mockResolvedValue(mutation),
@@ -94,6 +98,10 @@ describe('campaign actions', () => {
     expect(state.live.busy).toBeNull();
     expect(state.live.revision).toBe(1);
     expect(campaigns.list).toHaveBeenCalledOnce();
+
+    expect(await updateCampaign(context, 'campaign-1', INPUT, 1)).toBe(true);
+    expect(campaigns.update).toHaveBeenCalledWith('tenant-1', 'campaign-1', INPUT, 1, 'key-1');
+    expect(state.toasts.at(-1)?.text).toBe('Revision 1 saved');
   });
 
   it('keeps a refusal beside the campaign form and produces no success toast', async () => {
@@ -151,6 +159,7 @@ describe('campaign actions', () => {
     expect(await LIVE_ACTIONS['live-campaign-create']?.(empty.context, '')).toBe(false);
     expect(await LIVE_ACTIONS['live-campaign-control']?.(empty.context, 'campaign-1:wrong')).toBe(false);
     expect(await LIVE_ACTIONS['live-campaign-clone']?.(empty.context, ':')).toBe(false);
+    expect(await LIVE_ACTIONS['live-campaign-update']?.(empty.context, 'missing')).toBe(false);
 
     const readyCase = setup();
     readyCase.state.dialog = { kind: 'campaign', arg: '' };
@@ -164,6 +173,25 @@ describe('campaign actions', () => {
     expect(vi.mocked(readyCase.campaigns.create).mock.calls[0]?.[1]).toMatchObject({
       name: 'Autumn intake', objective: null, audienceFilter: { search: 'Mona' },
     });
+
+    readyCase.state.dialog = { kind: 'campaign-edit', arg: 'campaign-1' };
+    readyCase.state.dialogForm = {
+      campaignName: 'Edited intake', campaignConnection: 'channel-1', campaignMessage: 'Edited welcome',
+      campaignObjective: 'Retention', campaignSearch: 'Student',
+    };
+    expect(await LIVE_ACTIONS['live-campaign-update']?.(readyCase.context, 'campaign-1')).toBe(true);
+    expect(readyCase.campaigns.update).toHaveBeenCalledWith('tenant-1', 'campaign-1', expect.objectContaining({
+      name: 'Edited intake', content: { text: 'Edited welcome' }, audienceFilter: { search: 'Student' },
+    }), 1, 'key-1');
+    expect(readyCase.state.dialog).toBeNull();
+
+    readyCase.state.dialog = { kind: 'campaign-edit', arg: 'campaign-1' };
+    readyCase.state.dialogForm = {
+      campaignName: 'No objective', campaignConnection: 'channel-1', campaignMessage: 'Welcome',
+      campaignObjective: '', campaignSearch: '',
+    };
+    expect(await LIVE_ACTIONS['live-campaign-update']?.(readyCase.context, 'campaign-1')).toBe(true);
+    expect(vi.mocked(readyCase.campaigns.update).mock.calls.at(-1)?.[2]).toMatchObject({ objective: null });
 
     await LIVE_ACTIONS['live-campaign-validate']?.(readyCase.context, 'campaign-1');
     await LIVE_ACTIONS['live-campaign-approve']?.(readyCase.context, 'campaign-1');

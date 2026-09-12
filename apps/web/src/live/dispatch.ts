@@ -39,6 +39,7 @@ import {
   launchCampaign,
   loadCampaignRecipients,
   loadCampaignsScreen,
+  updateCampaign,
   validateCampaign,
 } from './campaign-actions.js';
 import {
@@ -330,6 +331,32 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       context.refresh();
     }
     return created;
+  },
+
+  'live-campaign-update': async (context, arg) => {
+    const campaign = rowsOf(context.live.campaigns).find((entry) => entry.id === arg);
+    const name = form(context, 'campaignName');
+    const connectionId = form(context, 'campaignConnection');
+    const message = form(context, 'campaignMessage');
+    if (campaign === undefined || name === '' || connectionId === '' || message === '') return false;
+    const updated = await updateCampaign(context, arg, {
+      name,
+      objective: form(context, 'campaignObjective') || null,
+      connectionId,
+      content: { ...campaign.content, text: message },
+      variables: campaign.variables,
+      audienceFilter: { ...campaign.audience_filter, search: form(context, 'campaignSearch') },
+      timezone: campaign.timezone,
+      expiresAt: campaign.expires_at,
+      budgetAmountMinor: Number(campaign.budget_amount_minor),
+      budgetCurrency: campaign.budget_currency,
+    }, campaign.version);
+    if (updated) {
+      context.state.dialog = null;
+      clearForm(context, ['campaignName','campaignConnection','campaignMessage','campaignObjective','campaignSearch']);
+      context.refresh();
+    }
+    return updated;
   },
 
   'live-campaign-validate': async (context, arg) => validateCampaign(context, arg),

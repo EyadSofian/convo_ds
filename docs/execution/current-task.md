@@ -4,7 +4,58 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T13 (Milestone F: safe campaign cloning)
+## Last completed task — P1-T14 (Milestone F: immutable campaign revision editing)
+
+**Task / requirement IDs:** CMP-06 and CMP-09 completed with a production update path; UX-09 advanced for Broadcasts.
+
+### Behavior delivered
+
+**Broadcasts now edits real campaigns.** Draft and ready cards expose Edit; the dialog is populated from the server revision and preserves its channel, variables, expiry, budget and any filter/content fields outside the visible form. A committed save closes the dialog and reloads server state. A refusal stays visible without an optimistic success.
+
+**Delivery changes create immutable history.** `PATCH T/campaigns/{id}` compares the submitted delivery hash with the current revision under a row lock. Name/objective-only changes keep the same revision, frozen audience and approval. A change to channel, content, variables, audience, timezone, expiry or budget inserts the next revision, moves the campaign to Draft and leaves the new revision with no snapshot or approval. Earlier revisions, snapshots and approvals remain immutable audit evidence.
+
+**Lost updates and unsafe retries are closed.** The browser sends the version it rendered. The server compares it after taking the campaign lock; two concurrent edits from one version yield exactly one 200 and one typed `version_conflict`. The mutation also requires an idempotency key, so an identical retry returns the committed revision while a changed retry is rejected. Scheduled, running and terminal campaigns return `campaign_edit_locked` and direct the operator to Clone.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `apps/api/src/campaigns/campaign.service.ts` | locked revision comparison, immutable insert and replay-safe update |
+| `apps/api/src/campaigns/campaign.controller.ts` | authenticated `PATCH` boundary |
+| `apps/web/src/ui/dialogs.ts` | server-populated campaign editor |
+| `apps/web/src/live/dispatch.ts` | versioned committed save |
+| `tests/integration/api-campaigns.test.ts` | metadata-only, meaningful, stale, concurrent, replay and post-launch evidence |
+| `docs/api/openapi.v1.json` | pinned 92-operation contract and full editable campaign representation |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web 198.95 kB / 59.44 kB gzip |
+| `pnpm test:unit` | **0** | 74 files, **1442 tests** |
+| `pnpm test:integration` | **0** | 23 files, **504 tests** against PostgreSQL 17.4 |
+| `pnpm test:property` | **0** | 5 exhaustive/metamorphic properties |
+| `pnpm test:coverage` | **0** | 98 files, **1951 tests**, **100/100/100/100** |
+| `pnpm test:contracts` | **0** | OpenAPI drift clean; channel contracts pass |
+| `pnpm test:security` | **0** | 354 tests + production audit; no known vulnerabilities |
+| `pnpm test:e2e` | **0** | **150 tests** at 1440×900 and 1366×768 |
+| `pnpm test:a11y` | **0** | **25 tests**, no WCAG 2.1 AA axe violations |
+| `pnpm test:visual` | **0** | **20 tests**, including the revised Broadcasts structure |
+
+### Honest remaining scope
+
+- Explicit authorized test-send and template catalogue/synchronization remain.
+- Failed-only retry, provider price reconciliation and staging load/recovery measurements remain.
+- Campaign aggregation/export and the live Analytics screen remain.
+- Provider-live activation remains `blocked_no_asset`; CRM remains intentionally deferred by the owner.
+
+**Next execution slice:** explicit safe campaign test-send, then campaign reporting and the live Analytics screen.
+
+---
+
+## Previously completed — P1-T13 (Milestone F: safe campaign cloning)
 
 **Task / requirement IDs:** CMP-10 implemented.
 

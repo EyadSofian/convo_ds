@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../http-error.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignUpdate } from './campaign-request.js';
 
 const CONNECTION = '11111111-1111-4111-8111-111111111111';
 
@@ -58,5 +58,12 @@ describe('campaign request parsing', () => {
   it('requires and trims a clone name', () => {
     expect(parseCampaignClone({ name: '  September copy  ' })).toEqual({ name: 'September copy' });
     expect(() => parseCampaignClone({})).toThrow(ApiHttpError);
+  });
+
+  it('requires a positive concurrency version for campaign updates', () => {
+    const body = { name: 'Updated', connectionId: CONNECTION, content: { text: 'Hello' }, expectedVersion: 2 };
+    expect(parseCampaignUpdate(body)).toMatchObject({ name: 'Updated', expectedVersion: 2 });
+    expect(() => parseCampaignUpdate({ ...body, expectedVersion: 0 })).toThrow(ApiHttpError);
+    expect(() => parseCampaignUpdate({ ...body, expectedVersion: 1.5 })).toThrow(ApiHttpError);
   });
 });

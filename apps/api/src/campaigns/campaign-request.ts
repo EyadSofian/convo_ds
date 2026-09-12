@@ -15,6 +15,10 @@ export interface CampaignDraftInput {
   readonly budgetCurrency: string;
 }
 
+export interface CampaignUpdateInput extends CampaignDraftInput {
+  readonly expectedVersion: number;
+}
+
 export function parseCampaignDraft(body: unknown): CampaignDraftInput {
   const value = record(body);
   const name = text(value['name'], 160);
@@ -37,6 +41,15 @@ export function parseCampaignDraft(body: unknown): CampaignDraftInput {
   }
   return { name, objective, connectionId, content, variables, audienceFilter, timezone,
     expiresAt, budgetAmountMinor: amount, budgetCurrency: currency };
+}
+
+export function parseCampaignUpdate(body: unknown): CampaignUpdateInput {
+  const value = record(body);
+  const expectedVersion = value['expectedVersion'];
+  if (typeof expectedVersion !== 'number' || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+    throw invalid('expectedVersion must be a positive integer.');
+  }
+  return { ...parseCampaignDraft(body), expectedVersion };
 }
 
 function validVariables(variables: Readonly<Record<string, unknown>>): boolean {

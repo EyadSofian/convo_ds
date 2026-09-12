@@ -33,6 +33,7 @@ describe('CampaignsApi', () => {
 
     await api.list('tenant-1');
     await api.create('tenant-1', INPUT, 'create-key');
+    await api.update('tenant-1', 'campaign-1', INPUT, 3, 'update-key');
     await api.validate('tenant-1', 'campaign-1');
     await api.approve('tenant-1', 'campaign-1');
     await api.launch('tenant-1', 'campaign-1', 'launch-key');
@@ -43,6 +44,7 @@ describe('CampaignsApi', () => {
     expect(calls.map(({ path, init }) => [init.method, path])).toEqual([
       ['GET', '/api/v1/tenants/tenant-1/campaigns'],
       ['POST', '/api/v1/tenants/tenant-1/campaigns'],
+      ['PATCH', '/api/v1/tenants/tenant-1/campaigns/campaign-1'],
       ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/validate'],
       ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/approve'],
       ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/launch'],
@@ -51,9 +53,11 @@ describe('CampaignsApi', () => {
       ['GET', '/api/v1/tenants/tenant-1/campaigns/campaign-1/recipients'],
     ]);
     expect(calls[1]?.init.headers).toMatchObject({ 'idempotency-key': 'create-key' });
-    expect(calls[4]?.init.headers).toMatchObject({ 'idempotency-key': 'launch-key' });
-    expect(JSON.parse(String(calls[5]?.init.body))).toEqual({ action: 'pause' });
-    expect(calls[6]?.init.headers).toMatchObject({ 'idempotency-key': 'clone-key' });
+    expect(calls[2]?.init.headers).toMatchObject({ 'idempotency-key': 'update-key' });
+    expect(JSON.parse(String(calls[2]?.init.body))).toMatchObject({ expectedVersion: 3, name: 'September intake' });
+    expect(calls[5]?.init.headers).toMatchObject({ 'idempotency-key': 'launch-key' });
+    expect(JSON.parse(String(calls[6]?.init.body))).toEqual({ action: 'pause' });
+    expect(calls[7]?.init.headers).toMatchObject({ 'idempotency-key': 'clone-key' });
   });
 
   it('has an honest disconnected default', async () => {

@@ -97,17 +97,20 @@ function campaigns(): readonly Record<string, unknown>[] {
     {
       ...common, id: 'campaign-intake', name: 'دفعة الخريف', objective: 'تأكيد التسجيل قبل بداية الدراسة',
       state: 'ready', revision_id: 'revision-intake', revision_hash: 'a'.repeat(64), approved: true,
+      content: { text: 'Welcome' }, variables: {}, audience_filter: {}, timezone: 'UTC', expires_at: null, budget_amount_minor: '0.000000', budget_currency: 'USD',
       audience: { total: 1280, eligible: 1146, excluded: 134 }, execution: null,
     },
     {
       ...common, id: 'campaign-reminder', name: 'تذكير المحاضرة المباشرة', objective: 'رفع نسبة الحضور',
       state: 'running', revision_id: 'revision-reminder', revision_hash: 'b'.repeat(64), approved: true,
+      content: { text: 'Reminder' }, variables: {}, audience_filter: {}, timezone: 'UTC', expires_at: null, budget_amount_minor: '0.000000', budget_currency: 'USD',
       audience: { total: 640, eligible: 618, excluded: 22 },
       execution: { id: 'execution-reminder', state: 'running', scheduled_for: null },
     },
     {
       ...common, id: 'campaign-followup', name: 'متابعة المهتمين', objective: null,
       state: 'draft', revision_id: 'revision-followup', revision_hash: 'c'.repeat(64), approved: false,
+      content: { text: 'Follow up' }, variables: {}, audience_filter: {}, timezone: 'UTC', expires_at: null, budget_amount_minor: '0.000000', budget_currency: 'USD',
       audience: null, execution: null,
     },
   ];

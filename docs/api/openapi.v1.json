@@ -5667,6 +5667,80 @@
           }
         }
       }
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}": {
+      "patch": {
+        "operationId": "updateCampaign",
+        "summary": "Update an unlaunched campaign using a new immutable revision when delivery meaning changes",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCampaignRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -9961,6 +10035,13 @@
           "revision_id",
           "revision",
           "revision_hash",
+          "content",
+          "variables",
+          "audience_filter",
+          "timezone",
+          "expires_at",
+          "budget_amount_minor",
+          "budget_currency",
           "approved",
           "audience",
           "execution",
@@ -10045,6 +10126,32 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "content": {
+            "type": "object"
+          },
+          "variables": {
+            "type": "object"
+          },
+          "audience_filter": {
+            "type": "object"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "budget_amount_minor": {
+            "type": "string"
+          },
+          "budget_currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
           }
         }
       },
@@ -10244,6 +10351,65 @@
               "resume",
               "cancel"
             ]
+          }
+        }
+      },
+      "UpdateCampaignRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "connectionId",
+          "content",
+          "expectedVersion"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "objective": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "content": {
+            "type": "object"
+          },
+          "variables": {
+            "type": "object"
+          },
+          "audienceFilter": {
+            "type": "object"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "budgetAmountMinor": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "budgetCurrency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       }

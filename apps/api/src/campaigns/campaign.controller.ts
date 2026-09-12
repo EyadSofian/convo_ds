@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Headers, Inject, Param, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Inject, Param, Patch, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { pageEnvelope } from '../pagination.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignUpdate } from './campaign-request.js';
 import { CampaignService } from './campaign.service.js';
 
 @Controller()
@@ -36,6 +36,17 @@ export class CampaignController {
     @Headers('x-csrf-token') csrf: string | string[] | undefined, @Req() request: FastifyRequest) {
     const session = await this.mutating(request, csrf);
     return { data: await this.campaigns.validate(session, tenantId, campaignId), request_id: request.id };
+  }
+
+  @Patch('tenants/:tenantId/campaigns/:campaignId')
+  async update(
+    @Param('tenantId') tenantId: string, @Param('campaignId') campaignId: string, @Body() body: unknown,
+    @Headers('x-csrf-token') csrf: string | string[] | undefined,
+    @Headers('idempotency-key') key: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.mutating(request, csrf);
+    return { data: await this.campaigns.update(session, tenantId, campaignId, parseCampaignUpdate(body), body, requireKey(key)), request_id: request.id };
   }
 
   @Post('tenants/:tenantId/campaigns/:campaignId/approve')
