@@ -6,6 +6,7 @@ import { ChannelDispatcherService } from '../channels/dispatcher.service.js';
 import { ChannelNormalizationService } from '../channels/normalization.service.js';
 import { LifecycleService } from '../conversations/lifecycle.service.js';
 import { RoutingService } from '../conversations/routing.service.js';
+import { CampaignPlannerService } from '../campaigns/campaign-planner.service.js';
 import type { WorkerTick } from './worker-loop.js';
 
 /**
@@ -97,6 +98,13 @@ async function outboundTick(
   trafficClass: 'interactive' | 'bulk',
 ): Promise<WorkerTick> {
   const dispatcher = context.app.get(ChannelDispatcherService);
+  let planned = 0;
+  if (trafficClass === 'bulk') {
+    const planner = context.app.get(CampaignPlannerService);
+    for (const tenantId of await planner.pendingTenants()) {
+      planned += await planner.plan(tenantId, context.concurrency * ROUND_MULTIPLIER);
+    }
+  }
   const offers = await dispatcher.offers(trafficClass);
   const plan = planRound(offers, {
     // The whole round, not per company: capacity is what this process can
@@ -105,7 +113,7 @@ async function outboundTick(
     interactiveReservation: DEFAULT_INTERACTIVE_RESERVATION,
   });
 
-  let handled = 0;
+  let handled = planned;
   for (const grant of plan.grants) {
     await dispatcher.recoverOrphanedAttempts(grant.tenantId);
     const result = await dispatcher.dispatch(

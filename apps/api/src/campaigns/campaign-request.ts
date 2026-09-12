@@ -30,13 +30,18 @@ export function parseCampaignDraft(body: unknown): CampaignDraftInput {
   const currency = value['budgetCurrency'] === undefined ? 'USD' : value['budgetCurrency'];
   if (name === null || objective === null && value['objective'] !== undefined && value['objective'] !== null ||
       typeof connectionId !== 'string' || !UUID.test(connectionId) || content === null || Object.keys(content).length === 0 ||
-      variables === null || audienceFilter === null || timezone === null || expiresAt === undefined ||
+      variables === null || !validVariables(variables) || audienceFilter === null || timezone === null || expiresAt === undefined ||
       typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0 ||
       typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
     throw invalid('The campaign draft is not valid.');
   }
   return { name, objective, connectionId, content, variables, audienceFilter, timezone,
     expiresAt, budgetAmountMinor: amount, budgetCurrency: currency };
+}
+
+function validVariables(variables: Readonly<Record<string, unknown>>): boolean {
+  return Object.entries(variables).every(([key, source]) =>
+    /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) && source === 'display_name');
 }
 
 export function parseCampaignLaunch(body: unknown): { readonly scheduledFor: string | null } {

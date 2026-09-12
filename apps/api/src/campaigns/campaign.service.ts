@@ -194,6 +194,11 @@ export class CampaignService {
         ));
       const executionId = requireRow(execution.rows, 'campaign execution insert returned no row').id;
       await sql.query(
+        `INSERT INTO campaign_work_queue (execution_id,tenant_id,available_at,stop_version)
+         VALUES ($1,$2,coalesce($3::timestamptz,now()),0)`,
+        [executionId, tenantId, scheduledFor],
+      );
+      await sql.query(
         `INSERT INTO campaign_recipients
            (tenant_id,execution_id,contact_id,identity_id,rendered_variables,snapshot_eligibility,state)
          SELECT tenant_id,$2,contact_id,identity_id,rendered_variables,
@@ -226,11 +231,51 @@ export class CampaignService {
       let state = first.to;
       if (action === 'pause') state = transition(state, 'pause_settled').to;
       if (action === 'cancel') {
-        await sql.query(`UPDATE campaign_recipients SET state='cancelled',updated_at=now() WHERE execution_id=(SELECT id FROM campaign_executions WHERE campaign_id=$1) AND state IN ('planned','queued')`, [campaignId]);
         state = transition(state, 'cancel_settled').to;
       }
       await sql.query(`UPDATE campaigns SET control_state=$2,version=version+1,updated_at=now() WHERE id=$1`, [campaignId, state]);
-      await sql.query(`UPDATE campaign_executions SET state=$2,stop_version=stop_version+1,completed_at=CASE WHEN $2='cancelled' THEN now() END WHERE campaign_id=$1`, [campaignId, state]);
+      const execution = await sql.query<{ id: string; stop_version: string }>(
+        `UPDATE campaign_executions SET state=$2,stop_version=stop_version+1,
+                completed_at=CASE WHEN $2='cancelled' THEN now() END
+          WHERE campaign_id=$1 RETURNING id::text,stop_version::text`, [campaignId, state],
+      );
+      const executionRow = execution.rows[0];
+      if (executionRow !== undefined && action === 'resume') {
+        await sql.query(
+          `INSERT INTO campaign_work_queue (execution_id,tenant_id,available_at,stop_version)
+           VALUES ($1,$2,now(),$3)
+           ON CONFLICT (execution_id) DO UPDATE SET available_at=now(),stop_version=excluded.stop_version`,
+          [executionRow.id, tenantId, executionRow.stop_version],
+        );
+        await sql.query(
+          `UPDATE outbound_messages m SET campaign_stop_version=$2
+            FROM campaign_recipients r WHERE r.execution_id=$1 AND r.command_id=m.id
+              AND r.state='queued' AND m.command_state IN ('queued','retry_scheduled')`,
+          [executionRow.id, executionRow.stop_version],
+        );
+      } else if (executionRow !== undefined) {
+        await sql.query(`DELETE FROM campaign_work_queue WHERE execution_id=$1`, [executionRow.id]);
+      }
+      if (executionRow !== undefined && action === 'cancel') {
+        const cancelled = await sql.query<{ command_id: string | null }>(
+          `UPDATE campaign_recipients SET state='cancelled',updated_at=now()
+            WHERE execution_id=$1 AND state IN ('planned','queued')
+            RETURNING command_id::text`, [executionRow.id],
+        );
+        const commandIds = cancelled.rows.map((row) => row.command_id).filter((id) => id !== null);
+        if (commandIds.length > 0) {
+          await sql.query(`DELETE FROM outbox WHERE message_id=ANY($1::uuid[])`, [commandIds]);
+          await sql.query(
+            `UPDATE outbound_messages SET command_state='cancelled',state_reason='campaign_cancelled',settled_at=now(),dispatch_version=dispatch_version+1
+              WHERE id=ANY($1::uuid[]) AND command_state IN ('queued','retry_scheduled')`, [commandIds],
+          );
+        }
+        await sql.query(
+          `UPDATE budget_reservations SET state='released',released_at=now(),reserved_amount_minor=0
+            WHERE execution_id=$1 AND state='reserved' AND recipient_id IN
+              (SELECT id FROM campaign_recipients WHERE execution_id=$1 AND state='cancelled')`, [executionRow.id],
+        );
+      }
       await audit(sql, tenantId, campaignId, campaign.current_revision_id, principal.membershipId, 'state_changed', { from: campaign.control_state, to: state });
       return viewOf(requireRow(await readCampaigns(sql, campaignId), 'campaign disappeared'));
     });
@@ -276,7 +321,9 @@ async function freezeAudience(
             WHEN consent.state IS DISTINCT FROM 'granted' THEN 'no_consent'
             ELSE 'eligible' END AS eligibility,
        jsonb_build_object('consent',coalesce(consent.state,'missing'),'suppressed',s.id IS NOT NULL) AS reason,
-       jsonb_build_object('display_name',c.display_name) AS rendered_variables
+       (SELECT coalesce(jsonb_object_agg(variable.key,to_jsonb(c.display_name)),'{}'::jsonb)
+          FROM jsonb_each_text((SELECT variables FROM campaign_revisions WHERE id=$5)) variable
+         WHERE variable.value='display_name') AS rendered_variables
      FROM contacts c JOIN contact_identities i ON i.contact_id=c.id AND i.scope_id=$3
      LEFT JOIN channel_suppressions s ON s.kind=i.kind AND s.peer_identity=i.external_id
      LEFT JOIN LATERAL (

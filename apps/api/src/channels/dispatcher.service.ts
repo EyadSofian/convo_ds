@@ -4,6 +4,11 @@ import type { DeliveryFold, Offer, SendOutcome, SqlExecutor } from '@convo/domai
 import { foldDelivery, permitSend } from '@convo/domain';
 import type { Pool } from 'pg';
 import { API_POOL, CHANNEL_TRANSPORT } from '../tokens.js';
+import {
+  campaignDispatchRefusal,
+  campaignOutcomeProjection,
+  type CampaignPermitState,
+} from '../campaigns/campaign-dispatch.js';
 import { ConversationService } from '../conversations/conversation.service.js';
 import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
@@ -58,7 +63,9 @@ interface ClaimRow {
   readonly attempts: number;
   readonly kind: string;
   readonly capabilities: unknown;
+  readonly connection_status: string;
   readonly disconnected_at: Date | null;
+  readonly campaign_recipient_id: string | null;
 }
 
 /** How long a claim is held before another worker may take the row. */
@@ -130,10 +137,11 @@ export class ChannelDispatcherService {
   async recoverOrphanedAttempts(tenantId: string, olderThanSeconds = 300): Promise<number> {
     return withTenant(this.pool, tenantId, async (client) => {
       const sql = asExecutor(client);
-      const orphans = await sql.query<{ id: string; message_id: string }>(
-        `SELECT id::text, message_id::text FROM outbound_attempts
-          WHERE outcome IS NULL AND started_at < now() - make_interval(secs => $1)
-            FOR UPDATE SKIP LOCKED`,
+      const orphans = await sql.query<{ id: string; message_id: string; campaign_recipient_id: string | null }>(
+        `SELECT a.id::text,a.message_id::text,cr.id::text AS campaign_recipient_id
+           FROM outbound_attempts a LEFT JOIN campaign_recipients cr ON cr.command_id=a.message_id
+          WHERE a.outcome IS NULL AND a.started_at < now() - make_interval(secs => $1)
+            FOR UPDATE OF a SKIP LOCKED`,
         [olderThanSeconds],
       );
       for (const orphan of orphans.rows) {
@@ -146,6 +154,7 @@ export class ChannelDispatcherService {
           [orphan.id],
         );
         await settle(sql, orphan.message_id, 'outcome_unknown', 'attempt_never_completed', null);
+        await projectCampaignOutcome(sql, orphan.campaign_recipient_id, 'outcome_unknown');
         // Out of the outbox: an unknown outcome is never automatically retried.
         await sql.query('DELETE FROM outbox WHERE message_id = $1', [orphan.message_id]);
       }
@@ -210,11 +219,17 @@ export class ChannelDispatcherService {
       const leased = await sql.query<ClaimRow>(
         `WITH candidate AS (
            SELECT DISTINCT ON (o.connection_id, o.peer_identity) o.message_id
-             FROM outbox o
+             FROM outbox o JOIN outbound_messages candidate_message ON candidate_message.id=o.message_id
+             LEFT JOIN campaign_recipients candidate_recipient ON candidate_recipient.command_id=candidate_message.id
+             LEFT JOIN campaign_executions candidate_execution ON candidate_execution.id=candidate_recipient.execution_id
             WHERE o.tenant_id = $1
               AND o.traffic_class = $2
               AND o.available_at <= now()
               AND (o.lease_until IS NULL OR o.lease_until < now())
+              AND (candidate_recipient.id IS NULL OR (
+                candidate_recipient.state='queued' AND candidate_execution.state='running'
+                AND candidate_message.campaign_stop_version=candidate_execution.stop_version
+              ))
               AND NOT EXISTS (
                 SELECT 1 FROM outbox held
                  WHERE held.tenant_id = o.tenant_id
@@ -234,14 +249,16 @@ export class ChannelDispatcherService {
             SET leased_by = $4,
                 lease_until = now() + make_interval(secs => $5),
                 attempts = o.attempts + 1
-           FROM taken, outbound_messages m, channel_connections c
+           FROM taken, outbound_messages m LEFT JOIN campaign_recipients cr ON cr.command_id=m.id,
+                channel_connections c
           WHERE o.message_id = taken.message_id
             AND m.id = o.message_id
             AND c.id = m.connection_id
           RETURNING o.message_id::text, o.connection_id::text, o.peer_identity,
                     m.message_type, m.text_body, m.template_name, m.template_language,
                     m.dispatch_version, o.attempts,
-                    c.kind, c.capabilities, c.disconnected_at`,
+                    c.kind, c.capabilities, c.status AS connection_status,c.disconnected_at,
+                    cr.id::text AS campaign_recipient_id`,
         [tenantId, trafficClass, limit, workerId, LEASE_SECONDS],
       );
 
@@ -252,6 +269,9 @@ export class ChannelDispatcherService {
             WHERE id = $1`,
           [row.message_id],
         );
+        if (row.campaign_recipient_id !== null) {
+          await sql.query(`UPDATE campaign_recipients SET state='in_flight',updated_at=now() WHERE id=$1 AND state='queued'`, [row.campaign_recipient_id]);
+        }
       }
       // The version each row carries is the one *before* that increment, so the
       // version this worker owns — and must present when it writes a result —
@@ -270,9 +290,11 @@ export class ChannelDispatcherService {
       const refusal = await this.permitNow(sql, claim);
       if (refusal !== null) {
         await settle(sql, claim.message_id, 'skipped', refusal.reason, refusal.detail);
+        await settleCampaignRecipient(sql, claim.campaign_recipient_id, 'skipped', refusal.reason);
         await sql.query('DELETE FROM outbox WHERE message_id = $1', [claim.message_id]);
         return null;
       }
+      await recordCampaignPermit(sql, claim.campaign_recipient_id);
       const attempt = await sql.query<{ id: string; attempt_no: number }>(
         `INSERT INTO outbound_attempts (tenant_id, message_id, attempt_no, permit)
          VALUES ($1, $2,
@@ -302,7 +324,7 @@ export class ChannelDispatcherService {
 
     if (prepared.token === null) {
       // No usable credential. Nothing was sent, and we know it.
-      return this.record(tenantId, claim, prepared.attemptId, {
+      return this.recordAndProject(tenantId, claim, prepared.attemptId, {
         status: 'definitely_rejected',
         code: 'credential_missing',
         message: 'This channel holds no active credential.',
@@ -325,7 +347,7 @@ export class ChannelDispatcherService {
       idempotencyKey: prepared.attemptId,
     });
 
-    return this.record(tenantId, claim, prepared.attemptId, outcome);
+    return this.recordAndProject(tenantId, claim, prepared.attemptId, outcome);
   }
 
   /** The permit, re-evaluated at the moment of dispatch. */
@@ -333,8 +355,13 @@ export class ChannelDispatcherService {
     sql: SqlExecutor,
     claim: ClaimRow,
   ): Promise<{ reason: string; detail: string } | null> {
+    const campaignRefusal = await campaignPermitNow(sql, claim);
+    if (campaignRefusal !== null) return campaignRefusal;
     if (claim.disconnected_at !== null) {
       return { reason: 'channel_disconnected', detail: 'The channel was disconnected.' };
+    }
+    if (claim.campaign_recipient_id !== null && claim.connection_status !== 'healthy') {
+      return { reason: 'channel_not_ready', detail: 'The campaign channel is not healthy.' };
     }
     const suppressed = await sql.query(
       'SELECT 1 FROM channel_suppressions WHERE kind = $1 AND peer_identity = $2',
@@ -360,6 +387,21 @@ export class ChannelDispatcherService {
       consentWithdrawn: suppressed.rows.length > 0,
     });
     return permit.allowed ? null : { reason: permit.reason, detail: permit.detail };
+  }
+
+  private async recordAndProject(
+    tenantId: string,
+    claim: ClaimRow,
+    attemptId: string,
+    outcome: SendOutcome,
+  ): Promise<'accepted' | 'rejected' | 'outcome_unknown' | 'retry' | 'stale'> {
+    const result = await this.record(tenantId, claim, attemptId, outcome);
+    if (result !== 'stale') {
+      await withTenant(this.pool, tenantId, async (client) => {
+        await projectCampaignOutcome(asExecutor(client), claim.campaign_recipient_id, result);
+      });
+    }
+    return result;
   }
 
   /**
@@ -569,6 +611,11 @@ export class ChannelDispatcherService {
             WHERE id = $1`,
           [receipt.message_id, next.state, next.at, next.anomaly],
         );
+        await sql.query(
+          `UPDATE campaign_recipients SET state=$2,updated_at=now()
+            WHERE command_id=$1 AND state IN ('accepted','delivered')`,
+          [receipt.message_id, next.state],
+        );
         // The screen showing this conversation learns the tick moved, in the
         // same transaction that moved it.
         const conversation = await this.conversations.ensure(
@@ -599,6 +646,102 @@ export class ChannelDispatcherService {
       return folded;
     });
   }
+}
+
+async function campaignPermitNow(
+  sql: SqlExecutor,
+  claim: ClaimRow,
+): Promise<{ reason: string; detail: string } | null> {
+  if (claim.campaign_recipient_id === null) return null;
+  const result = await sql.query<CampaignPermitState>(
+    `SELECT cr.state AS recipient_state,e.state AS execution_state,e.stop_version::text AS execution_stop_version,
+            m.campaign_stop_version::text,c.control_state AS campaign_state,r.expires_at,
+            EXISTS(SELECT 1 FROM campaign_approvals a WHERE a.revision_id=e.revision_id
+              AND a.revision_hash=r.revision_hash AND a.revoked_at IS NULL) AS approved,
+            (SELECT x.state FROM consents x WHERE x.contact_id=cr.contact_id
+              AND x.channel=$2 AND x.purpose='marketing'
+              ORDER BY x.recorded_at DESC,x.id DESC LIMIT 1) AS consent_state
+       FROM campaign_recipients cr JOIN campaign_executions e ON e.id=cr.execution_id
+       JOIN campaigns c ON c.id=e.campaign_id JOIN campaign_revisions r ON r.id=e.revision_id
+       JOIN outbound_messages m ON m.id=cr.command_id WHERE cr.id=$1`,
+    [claim.campaign_recipient_id, claim.kind],
+  );
+  return campaignDispatchRefusal(result.rows[0], Date.now());
+}
+
+async function recordCampaignPermit(sql: SqlExecutor, recipientId: string | null): Promise<void> {
+  if (recipientId === null) return;
+  await sql.query(
+    `UPDATE campaign_recipients SET dispatch_eligibility=$2::jsonb,updated_at=now() WHERE id=$1`,
+    [recipientId, JSON.stringify({ allowed: true, checked_at: new Date().toISOString() })],
+  );
+}
+
+async function settleCampaignRecipient(
+  sql: SqlExecutor,
+  recipientId: string | null,
+  state: 'skipped',
+  reason: string,
+): Promise<void> {
+  if (recipientId === null) return;
+  await sql.query(
+    `UPDATE campaign_recipients SET state=$2,dispatch_eligibility=$3::jsonb,last_error=$4::jsonb,updated_at=now() WHERE id=$1`,
+    [recipientId, state, JSON.stringify({ allowed: false, reason, checked_at: new Date().toISOString() }), JSON.stringify({ code: reason })],
+  );
+  await sql.query(
+    `UPDATE budget_reservations SET state='released',reserved_amount_minor=0,released_at=now()
+      WHERE recipient_id=$1 AND state='reserved'`,
+    [recipientId],
+  );
+  await finishCampaignIfDrained(sql, recipientId);
+}
+
+async function projectCampaignOutcome(
+  sql: SqlExecutor,
+  recipientId: string | null,
+  outcome: 'accepted' | 'rejected' | 'outcome_unknown' | 'retry',
+): Promise<void> {
+  if (recipientId === null) return;
+  const projection = campaignOutcomeProjection(outcome);
+  await sql.query(`UPDATE campaign_recipients SET state=$2,updated_at=now() WHERE id=$1`, [recipientId, projection.recipientState]);
+  if (projection.budgetState === 'committed') {
+    await sql.query(
+      `UPDATE budget_reservations SET state='committed',committed_amount_minor=reserved_amount_minor
+        WHERE recipient_id=$1 AND state='reserved'`, [recipientId],
+    );
+  } else if (projection.budgetState === 'released') {
+    await sql.query(
+      `UPDATE budget_reservations SET state='released',reserved_amount_minor=0,released_at=now()
+        WHERE recipient_id=$1 AND state='reserved'`, [recipientId],
+    );
+  } else if (projection.budgetState === 'held_unknown') {
+    await sql.query(
+      `UPDATE budget_reservations SET state='held_unknown' WHERE recipient_id=$1 AND state='reserved'`,
+      [recipientId],
+    );
+  }
+  if (projection.finishesAttempt) await finishCampaignIfDrained(sql, recipientId);
+}
+
+async function finishCampaignIfDrained(sql: SqlExecutor, recipientId: string): Promise<void> {
+  const execution = await sql.query<{ execution_id: string }>(
+    `SELECT execution_id::text FROM campaign_recipients WHERE id=$1`, [recipientId],
+  );
+  const executionId = execution.rows[0]!.execution_id;
+  const open = await sql.query(
+    `SELECT 1 FROM campaign_recipients WHERE execution_id=$1 AND state IN ('planned','queued','in_flight') LIMIT 1`,
+    [executionId],
+  );
+  if (open.rowCount !== 0) return;
+  await sql.query(
+    `UPDATE campaign_executions SET state='dispatch_completed',completed_at=now()
+      WHERE id=$1 AND state='running'`, [executionId],
+  );
+  await sql.query(
+    `UPDATE campaigns SET control_state='dispatch_completed',version=version+1,updated_at=now()
+      WHERE id=(SELECT campaign_id FROM campaign_executions WHERE id=$1) AND control_state='running'`,
+    [executionId],
+  );
 }
 
 /**

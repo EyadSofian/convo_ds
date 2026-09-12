@@ -24,6 +24,8 @@ describe('campaign request parsing', () => {
     { name: 'A', connectionId: CONNECTION, content: {} },
     { name: 'A', connectionId: CONNECTION, content: [] },
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, variables: [] },
+    { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, variables: { 'bad-key': 'display_name' } },
+    { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, variables: { first_name: 'email' } },
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, audienceFilter: [] },
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, objective: '' },
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, timezone: '' },

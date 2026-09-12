@@ -62,6 +62,7 @@ describe('migrate', () => {
       '0018_work_routing.sql',
       '0019_metadata_catalogue.sql',
       '0020_campaign_core.sql',
+      '0021_campaign_dispatch_queue.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -86,6 +87,7 @@ describe('migrate', () => {
       'campaign_executions',
       'campaign_recipients',
       'campaign_revisions',
+      'campaign_work_queue',
       'campaigns',
       'channel_apps',
       'channel_asset_registry',

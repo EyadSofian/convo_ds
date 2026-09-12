@@ -4,14 +4,19 @@ import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import type { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
+import { CampaignPlannerService } from '../../apps/api/src/campaigns/campaign-planner.service.js';
+import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
+import { ChannelCredentialService } from '../../apps/api/src/channels/credential.service.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig } from '../../packages/domain/src/index.js';
+import type { SendOutcome } from '../../packages/domain/src/index.js';
 import type { DatabaseNames } from '../../packages/database/src/types.js';
 import { clusterCredentials, createScratchDatabase, migrateScratch, scratchRuntimePool } from '../support/scratch.js';
 
 const BOOTSTRAP_TOKEN = 'campaign-bootstrap-token-value-000001';
 const PASSWORD = 'campaign owner password';
+const providerOutcomes: SendOutcome[] = [];
 
 interface Harness {
   readonly app: NestFastifyApplication;
@@ -42,7 +47,18 @@ async function setup(): Promise<Harness> {
   await migrateScratch(names);
   const pool = scratchRuntimePool(names, 6);
   await applyInstallationConfig(asExecutor(pool), 'saas');
-  const app = await createApiApplication(parseApiConfig(envFor(names)), pool);
+  const app = await createApiApplication(parseApiConfig(envFor(names)), pool, {
+    channelTransport: {
+      name: 'campaign-test-stub',
+      validateConnection: (_kind, _credential, assetIdentity) => Promise.resolve({
+        ok: true, assetIdentity, code: null, message: null,
+      }),
+      send: () => Promise.resolve(providerOutcomes.shift() ?? {
+        status: 'definitely_rejected', code: 'unexpected_test_send',
+        message: 'The campaign test did not arrange a provider outcome.', retryable: false,
+      }),
+    },
+  });
   const server = app.getHttpAdapter().getInstance() as unknown as FastifyInstance;
   const boot = await server.inject({
     method: 'POST', url: '/api/v1/instance/bootstrap',
@@ -263,5 +279,279 @@ describe('campaign API', () => {
     expect((await send(api, 'GET', `/campaigns/${randomUUID()}/recipients`)).statusCode).toBe(404);
     const missingMutation = await send(api, 'POST', `/campaigns/${randomUUID()}/validate`);
     expect(missingMutation.statusCode).toBe(404);
+  });
+
+  it('plans frozen recipients as fenced bulk commands and rechecks consent at dispatch', async () => {
+    const created = await send(api, 'POST', '/campaigns', draft(api, { name: 'Dispatch consent fence' }), 'create-dispatch-fence');
+    const id = dataOf(created).id;
+    await send(api, 'POST', `/campaigns/${id}/validate`);
+    await send(api, 'POST', `/campaigns/${id}/approve`);
+    await send(api, 'POST', `/campaigns/${id}/launch`, { mode: 'now' }, 'launch-dispatch-fence');
+
+    const planner = api.app.get(CampaignPlannerService);
+    expect(await planner.pendingTenants()).toContain(api.tenantId);
+    expect(await planner.plan(api.tenantId, 10)).toBe(1);
+    const planned = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const row = await sql.query<{ recipient_id: string; command_id: string; state: string; traffic_class: string; campaign_stop_version: string; text_body: string }>(
+        `SELECT r.id::text AS recipient_id,r.command_id::text,r.state,o.traffic_class,m.campaign_stop_version::text,m.text_body
+           FROM campaign_recipients r JOIN outbound_messages m ON m.id=r.command_id JOIN outbox o ON o.message_id=m.id
+           JOIN campaign_executions e ON e.id=r.execution_id WHERE e.campaign_id=$1`, [id],
+      );
+      await sql.query(
+        `INSERT INTO consents (tenant_id,contact_id,channel,purpose,state,source)
+         SELECT $1,contact_id,'whatsapp','marketing','withdrawn','customer_message'
+           FROM campaign_recipients WHERE id=$2`, [api.tenantId, row.rows[0]!.recipient_id],
+      );
+      return row.rows[0]!;
+    });
+    expect(planned).toMatchObject({
+      state: 'queued', traffic_class: 'bulk', campaign_stop_version: '0',
+      text_body: 'Your course starts soon, Student 1',
+    });
+
+    const dispatched = await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test', 'bulk');
+    expect(dispatched).toMatchObject({ claimed: 1, skipped: 1, accepted: 0 });
+    const after = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const recipient = await sql.query<{ state: string; reason: string }>(
+        `SELECT state,dispatch_eligibility->>'reason' AS reason FROM campaign_recipients WHERE id=$1`, [planned.recipient_id],
+      );
+      const budget = await sql.query<{ state: string; reserved: string }>(
+        `SELECT state,reserved_amount_minor::text AS reserved FROM budget_reservations WHERE recipient_id=$1`, [planned.recipient_id],
+      );
+      return { recipient: recipient.rows[0], budget: budget.rows[0] };
+    });
+    expect(after).toEqual({
+      recipient: { state: 'skipped', reason: 'marketing_consent_missing' },
+      budget: { state: 'released', reserved: '0.000000' },
+    });
+    // Keep the shared harness eligible for the independent scheduling cases
+    // below. The withdrawal itself remains in the ledger; a newer grant is
+    // how production restores consent as well.
+    await withTenant(api.pool, api.tenantId, async (sql) => {
+      await sql.query(
+        `INSERT INTO consents (tenant_id,contact_id,channel,purpose,state,source)
+         SELECT $1,contact_id,'whatsapp','marketing','granted','web_form'
+           FROM campaign_recipients WHERE id=$2`,
+        [api.tenantId, planned.recipient_id],
+      );
+    });
+  });
+
+  it('holds queued work across pause, refreshes the fence on resume and removes it on cancel', async () => {
+    const created = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Pause fence',
+      content: { template: { name: 'course_reminder', language: 'ar' } },
+    }), 'create-pause-fence');
+    const id = dataOf(created).id;
+    await send(api, 'POST', `/campaigns/${id}/validate`);
+    await send(api, 'POST', `/campaigns/${id}/approve`);
+    await send(api, 'POST', `/campaigns/${id}/launch`, { mode: 'now' }, 'launch-pause-fence');
+    const planner = api.app.get(CampaignPlannerService);
+    await planner.plan(api.tenantId, 10);
+    const dispatcher = api.app.get(ChannelDispatcherService);
+
+    expect((await send(api, 'POST', `/campaigns/${id}/control`, { action: 'pause' })).statusCode).toBe(201);
+    expect((await dispatcher.dispatch(api.tenantId, 10, 'campaign-test', 'bulk')).claimed).toBe(0);
+    expect((await send(api, 'POST', `/campaigns/${id}/control`, { action: 'resume' })).statusCode).toBe(201);
+    const retried = await dispatcher.dispatch(api.tenantId, 10, 'campaign-test', 'bulk');
+    expect(retried).toMatchObject({ claimed: 1, retried: 1 });
+
+    expect((await send(api, 'POST', `/campaigns/${id}/control`, { action: 'cancel' })).statusCode).toBe(201);
+    const counts = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const rows = await sql.query<{ outbox: string; cancelled: string; released: string }>(
+        `SELECT (SELECT count(*)::text FROM outbox o JOIN campaign_recipients r ON r.command_id=o.message_id
+                  JOIN campaign_executions e ON e.id=r.execution_id WHERE e.campaign_id=$1) AS outbox,
+                (SELECT count(*)::text FROM campaign_recipients r JOIN campaign_executions e ON e.id=r.execution_id
+                  WHERE e.campaign_id=$1 AND r.state='cancelled') AS cancelled,
+                (SELECT count(*)::text FROM budget_reservations b JOIN campaign_executions e ON e.id=b.execution_id
+                  WHERE e.campaign_id=$1 AND b.state='released') AS released`, [id],
+      );
+      return rows.rows[0];
+    });
+    expect(counts).toEqual({ outbox: '0', cancelled: '1', released: '1' });
+  });
+
+  it('starts a due scheduled execution and rejects content that cannot form a command', async () => {
+    const created = await send(api, 'POST', '/campaigns', draft(api, { name: 'Scheduled invalid', content: { unsupported: true } }), 'create-scheduled-invalid');
+    const id = dataOf(created).id;
+    await send(api, 'POST', `/campaigns/${id}/validate`);
+    await send(api, 'POST', `/campaigns/${id}/approve`);
+    await send(api, 'POST', `/campaigns/${id}/launch`, { mode: 'scheduled', scheduledFor: '2099-01-01T00:00:00.000Z' }, 'launch-scheduled-invalid');
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(`UPDATE campaign_work_queue SET available_at=now() WHERE execution_id=(SELECT id FROM campaign_executions WHERE campaign_id=$1)`, [id]));
+    expect(await api.app.get(CampaignPlannerService).plan(api.tenantId, 10)).toBe(1);
+    const state = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const rows = await sql.query<{ campaign: string; execution: string; recipient: string; budget: string }>(
+        `SELECT c.control_state AS campaign,e.state AS execution,r.state AS recipient,b.state AS budget
+           FROM campaigns c JOIN campaign_executions e ON e.campaign_id=c.id
+           JOIN campaign_recipients r ON r.execution_id=e.id JOIN budget_reservations b ON b.recipient_id=r.id
+          WHERE c.id=$1`, [id],
+      );
+      return rows.rows[0];
+    });
+    expect(state).toEqual({ campaign: 'running', execution: 'running', recipient: 'skipped', budget: 'released' });
+  });
+
+  it('projects accepted, rejected and unknown provider outcomes into recipient and budget ledgers', async () => {
+    await withTenant(api.pool, api.tenantId, async (sql) => {
+      await api.app.get(ChannelCredentialService).store(
+        sql,
+        { tenantId: api.tenantId, connectionId: api.connectionId, purpose: 'access_token' },
+        'campaign-provider-token',
+        null,
+      );
+      await sql.query(
+        `INSERT INTO consents (tenant_id,contact_id,channel,purpose,state,source)
+         SELECT $1,id,'whatsapp','marketing','granted','web_form'
+           FROM contacts WHERE display_name='Student 2'`,
+        [api.tenantId],
+      );
+    });
+
+    const accepted = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Accepted projection', audienceFilter: { search: 'student' },
+      content: { template: { name: 'course_open', language: 'ar' } },
+    }), 'create-accepted-projection');
+    const acceptedId = dataOf(accepted).id;
+    await send(api, 'POST', `/campaigns/${acceptedId}/validate`);
+    await send(api, 'POST', `/campaigns/${acceptedId}/approve`);
+    await send(api, 'POST', `/campaigns/${acceptedId}/launch`, { mode: 'now' }, 'launch-accepted-projection');
+    expect(await api.app.get(CampaignPlannerService).plan(api.tenantId, 10)).toBe(2);
+    providerOutcomes.push(
+      { status: 'accepted', providerMessageId: 'wamid.campaign.accepted.1', raw: {} },
+      { status: 'accepted', providerMessageId: 'wamid.campaign.accepted.2', raw: {} },
+    );
+    expect(await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 1, 'campaign-test', 'bulk'))
+      .toMatchObject({ claimed: 1, accepted: 1 });
+    expect(await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test', 'bulk'))
+      .toMatchObject({ claimed: 1, accepted: 1 });
+
+    const terminalCases = [
+      {
+        label: 'Rejected', key: 'rejected',
+        outcome: { status: 'definitely_rejected', code: 'provider_refused', message: 'refused', retryable: false } as const,
+        recipient: 'failed', budget: 'released', result: 'rejected',
+      },
+      {
+        label: 'Unknown', key: 'unknown',
+        outcome: { status: 'outcome_unknown', code: 'ETIMEDOUT', message: 'answer lost' } as const,
+        recipient: 'outcome_unknown', budget: 'held_unknown', result: 'unknown',
+      },
+    ];
+    for (const item of terminalCases) {
+      const created = await send(api, 'POST', '/campaigns', draft(api, {
+        name: `${item.label} projection`, audienceFilter: { search: 'student 1' },
+        content: { template: { name: 'course_open', language: 'ar' } },
+      }), `create-${item.key}-projection`);
+      const id = dataOf(created).id;
+      await send(api, 'POST', `/campaigns/${id}/validate`);
+      await send(api, 'POST', `/campaigns/${id}/approve`);
+      await send(api, 'POST', `/campaigns/${id}/launch`, { mode: 'now' }, `launch-${item.key}-projection`);
+      expect(await api.app.get(CampaignPlannerService).plan(api.tenantId, 10)).toBe(1);
+      providerOutcomes.push(item.outcome);
+      const dispatched = await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test', 'bulk');
+      expect(dispatched).toMatchObject({ claimed: 1, [item.result]: 1 });
+      const ledger = await withTenant(api.pool, api.tenantId, async (sql) => {
+        const rows = await sql.query<{ recipient: string; budget: string; campaign: string; outbox: string }>(
+          `SELECT r.state AS recipient,b.state AS budget,c.control_state AS campaign,
+                  (SELECT count(*)::text FROM outbox o WHERE o.message_id=r.command_id) AS outbox
+             FROM campaigns c JOIN campaign_executions e ON e.campaign_id=c.id
+             JOIN campaign_recipients r ON r.execution_id=e.id
+             JOIN budget_reservations b ON b.recipient_id=r.id WHERE c.id=$1`, [id],
+        );
+        return rows.rows[0];
+      });
+      expect(ledger).toEqual({ recipient: item.recipient, budget: item.budget, campaign: 'dispatch_completed', outbox: '0' });
+    }
+
+    const acceptedLedger = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const rows = await sql.query<{ recipients: string; committed: string; campaign: string }>(
+        `SELECT count(*)::text AS recipients,count(*) FILTER (WHERE b.state='committed')::text AS committed,
+                min(c.control_state) AS campaign
+           FROM campaigns c JOIN campaign_executions e ON e.campaign_id=c.id
+           JOIN campaign_recipients r ON r.execution_id=e.id JOIN budget_reservations b ON b.recipient_id=r.id
+          WHERE c.id=$1`, [acceptedId],
+      );
+      return rows.rows[0];
+    });
+    expect(acceptedLedger).toEqual({ recipients: '2', committed: '2', campaign: 'dispatch_completed' });
+  });
+
+  it('refuses a campaign if channel readiness changes after planning', async () => {
+    const created = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Readiness fence', audienceFilter: { search: 'student 1' },
+      content: { template: { name: 'course_open', language: 'ar' } },
+    }), 'create-readiness-fence');
+    const id = dataOf(created).id;
+    await send(api, 'POST', `/campaigns/${id}/validate`);
+    await send(api, 'POST', `/campaigns/${id}/approve`);
+    await send(api, 'POST', `/campaigns/${id}/launch`, { mode: 'now' }, 'launch-readiness-fence');
+    expect(await api.app.get(CampaignPlannerService).plan(api.tenantId, 10)).toBe(1);
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE channel_connections SET status='degraded' WHERE id=$1`, [api.connectionId],
+    ));
+    const dispatched = await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test', 'bulk');
+    expect(dispatched).toMatchObject({ claimed: 1, skipped: 1 });
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE channel_connections SET status='healthy' WHERE id=$1`, [api.connectionId],
+    ));
+  });
+
+  it('serializes a planner racing pause without deadlock or post-pause dispatch', async () => {
+    const created = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Planner pause race', audienceFilter: { search: 'student 1' },
+      content: { template: { name: 'course_open', language: 'ar' } },
+    }), 'create-planner-pause-race');
+    const id = dataOf(created).id;
+    await send(api, 'POST', `/campaigns/${id}/validate`);
+    await send(api, 'POST', `/campaigns/${id}/approve`);
+    await send(api, 'POST', `/campaigns/${id}/launch`, { mode: 'now' }, 'launch-planner-pause-race');
+
+    const [planned, paused] = await Promise.all([
+      api.app.get(CampaignPlannerService).plan(api.tenantId, 10),
+      send(api, 'POST', `/campaigns/${id}/control`, { action: 'pause' }),
+    ]);
+    expect([0, 1]).toContain(planned);
+    expect(paused.statusCode, paused.body).toBe(201);
+    expect(dataOf(paused).state).toBe('paused');
+    expect((await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test', 'bulk')).claimed).toBe(0);
+    expect((await send(api, 'POST', `/campaigns/${id}/control`, { action: 'cancel' })).statusCode).toBe(201);
+  });
+
+  it('drops stale and terminal planner entries and reports an empty due queue', async () => {
+    const planner = api.app.get(CampaignPlannerService);
+    const executionId = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const row = await sql.query<{ execution_id: string }>(
+        `UPDATE campaign_work_queue SET available_at=now()
+          WHERE execution_id=(SELECT id FROM campaign_executions WHERE state='scheduled' LIMIT 1)
+          RETURNING execution_id::text`,
+      );
+      return row.rows[0]!.execution_id;
+    });
+
+    const blocker = await api.pool.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query(`SELECT set_config('convo.tenant_id',$1,true)`, [api.tenantId]);
+      await blocker.query(`SELECT 1 FROM campaign_work_queue WHERE execution_id=$1 FOR UPDATE`, [executionId]);
+      expect(await planner.plan(api.tenantId, 10)).toBe(0);
+    } finally {
+      await blocker.query('ROLLBACK');
+      blocker.release();
+    }
+
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE campaign_work_queue SET stop_version=stop_version+1 WHERE execution_id=$1`, [executionId],
+    ));
+    expect(await planner.plan(api.tenantId, 10)).toBe(1);
+
+    await withTenant(api.pool, api.tenantId, async (sql) => {
+      await sql.query(
+        `INSERT INTO campaign_work_queue (execution_id,tenant_id,available_at,stop_version)
+         SELECT id,tenant_id,now(),stop_version FROM campaign_executions WHERE state='cancelled' LIMIT 1`,
+      );
+    });
+    expect(await planner.plan(api.tenantId, 10)).toBe(1);
+    expect(await planner.pendingTenants()).toEqual([]);
+    expect(await planner.plan(api.tenantId, 10)).toBe(0);
   });
 });

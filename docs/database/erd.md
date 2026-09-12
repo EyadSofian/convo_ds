@@ -531,6 +531,8 @@ campaign_recipients      (id, tenant_id, execution_id, contact_id, identity_id,
                           state ∈ planned|queued|in_flight|accepted|delivered|read
                                  |failed|skipped|cancelled|outcome_unknown
                           UNIQUE (tenant_id, execution_id, identity_id)
+campaign_work_queue      (execution_id, tenant_id, available_at, stop_version, created_at)
+                          PK (execution_id) -- contentless global due-work discovery
 budget_reservations      (id, tenant_id, execution_id, recipient_id,
                           estimated_amount_minor numeric(20,6), reserved_amount_minor numeric(20,6),
                           committed_amount_minor numeric(20,6), reconciled_amount_minor numeric(20,6),
@@ -543,6 +545,8 @@ price_cards              (id, provider, category, market, currency, amount_minor
 ```
 
 `campaign_executions` has `UNIQUE (tenant_id, campaign_id)` — this single constraint is what makes CMP-08 true under concurrent launches.
+
+Each planned outbound message carries `campaign_stop_version`. A bulk claim joins it back to the recipient execution and succeeds only while recipient=`queued`, execution=`running`, and both stop versions match. The queue has no RLS because it contains no customer content and is the worker's tenant-discovery seam; every data-bearing read happens only after entering `withTenant`.
 
 ## 8. Integrations, automation, SLA, audit, AI
 

@@ -1,9 +1,10 @@
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApiApplication, requiresBroker, startApi } from '../../apps/api/src/app.js';
 import type { BrokerPort } from '../../apps/api/src/broker/broker.port.js';
 import { BrokerRelayService } from '../../apps/api/src/broker/relay.service.js';
+import { CampaignPlannerService } from '../../apps/api/src/campaigns/campaign-planner.service.js';
 import { PROCESS_ROLES, parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
@@ -146,6 +147,18 @@ describe('the fair scheduler, in the worker that runs it', () => {
     const dispatcher = api.app.get(ChannelDispatcherService);
     expect(await dispatcher.offers('interactive')).toEqual([]);
     expect(await dispatcher.offers('bulk')).toEqual([]);
+  });
+
+  it('lets the campaign role turn due campaign work into the same bulk queue', async () => {
+    const planner = api.app.get(CampaignPlannerService);
+    const pending = vi.spyOn(planner, 'pendingTenants').mockResolvedValueOnce([api.tenantId]);
+    const planned = vi.spyOn(planner, 'plan').mockResolvedValueOnce(3);
+    const result = await tickFor('worker-campaign', { app: api.app, concurrency: 2 })();
+    expect(result).toMatchObject({ handled: 3, fairness: { offered: 0, achieved: 0 } });
+    expect(pending).toHaveBeenCalledOnce();
+    expect(planned).toHaveBeenCalledWith(api.tenantId, 8);
+    pending.mockRestore();
+    planned.mockRestore();
   });
 });
 

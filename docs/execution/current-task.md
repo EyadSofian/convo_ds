@@ -4,7 +4,62 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T11 (Milestone F: campaign core and live Broadcasts UI)
+## Last completed task — P1-T12 (Milestone F: durable campaign planning and dispatch)
+
+**Task / requirement IDs:** CMP-03, CMP-14, CMP-20 and CMP-21 implemented; CMP-11, CMP-13, CMP-17 and CMP-18 partial with their remaining measured/operational work named below.
+
+### Behavior delivered
+
+**A scheduled campaign now becomes real outbound work.** Launch commits a contentless due-time queue row beside the execution. `worker-campaign` discovers the company from that queue, enters tenant RLS, locks campaign → execution → queue in the same order as pause/cancel, and turns frozen recipients into the ordinary outbound commands the existing fair bulk dispatcher already understands. Personalization is rendered only from values frozen in the approved audience snapshot; an integration assertion reads the final command and proves `{{display_name}}` became the frozen name rather than live data or a literal placeholder. A tested planner/pause race completes without deadlock and never dispatches after pause.
+
+**Every command carries the campaign stop fence.** Pause removes due work and blocks already-queued commands. Resume increments the execution version, refreshes only safe queued/retry commands and re-adds durable planner work. Cancel removes unsent outbox rows, marks only planned/queued recipients cancelled and releases their reservations; it does not claim to recall anything already in flight.
+
+**Eligibility is checked twice and kept twice.** Snapshot evidence stays immutable. Immediately before provider I/O, dispatch independently verifies the execution and campaign are running, the recipient is in flight, the stop version still matches, the exact revision approval is live, expiry has not passed, current marketing consent is granted and the channel is healthy. A refusal writes typed dispatch evidence, skips without a provider call and releases the reservation.
+
+**Provider outcomes update the campaign ledger without conflating meanings.** Accepted commits the reservation; a definite permanent rejection releases it; a retry-safe rejection returns the recipient to `queued`; `outcome_unknown` is terminal for automatic dispatch and holds the reservation for reconciliation. `dispatch_completed` means no recipient remains planned/queued/in flight and remains separate from provider delivery. Tests exercise all four projections and prove an accepted campaign completes while its recipients are not falsely labelled delivered.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0021_campaign_dispatch_queue.sql` | durable due queue, command linkage uniqueness and stop fence |
+| `apps/api/src/campaigns/campaign-planner.service.ts` | due execution start and bounded recipient planning |
+| `apps/api/src/campaigns/campaign-dispatch.ts` | pure dispatch-time campaign policy and outcome projection |
+| `apps/api/src/channels/dispatcher.service.ts` | final eligibility recheck, fenced sending and ledger/budget projection |
+| `apps/api/src/workers/worker-roles.ts` | campaign planning before the fair bulk dispatch round |
+| `tests/integration/api-campaigns.test.ts` | consent/readiness/pause/cancel/race/outcome evidence on PostgreSQL |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web 196.22 kB / 58.77 kB gzip |
+| `pnpm test:unit` | **0** | 74 files, **1439 tests** |
+| `pnpm test:integration` | **0** | 23 files, **501 tests** against PostgreSQL 17.4 |
+| `pnpm test:property` | **0** | 5 exhaustive/metamorphic properties |
+| `pnpm test:coverage` | **0** | 98 files, **1945 tests**, **100/100/100/100** |
+| `pnpm test:contracts` | **0** | OpenAPI drift clean; channel contracts pass |
+| `pnpm test:security` | **0** | 354 tests + production audit; no known vulnerabilities |
+| `pnpm test:e2e` | **0** | **150 tests** at 1440×900 and 1366×768 |
+| `pnpm test:a11y` | **0** | **25 tests**, no WCAG 2.1 AA axe violations |
+| `pnpm test:visual` | **0** | **20 tests** |
+
+### Honest remaining scope
+
+- Template catalogue/synchronization, explicit test-send, edit-as-new-revision, clone and failed-only retry are not built.
+- Campaign delivery aggregation/export and the broader Analytics/SLA/business-hours read models remain; Analytics and Settings are still demo-backed.
+- The planner and dispatcher are bounded, durable and restart-safe by construction, but the one-million-recipient target, interactive p95 under bulk load and restore drill still require a staging target.
+- Exact budget reserve/commit/release/unknown handling is wired. Provider price reconciliation remains blocked until a real provider account supplies billable evidence and current price-card sources.
+- **No live provider HTTP client yet.** Activation remains `blocked_no_asset` until the owner supplies Meta App credentials and Phone/Page/Instagram asset IDs.
+- **CRM remains intentionally deferred by the owner** and is outside the MVP release critical path.
+
+**Next execution slice:** template management and safe campaign test-send/revision/clone paths, followed by campaign reporting and the live Analytics screen.
+
+---
+
+## Previously completed — P1-T11 (Milestone F: campaign core and live Broadcasts UI)
 
 **Task / requirement IDs:** CMP-01, CMP-02, CMP-04, CMP-06, CMP-08 and CMP-09 implemented; CMP-03, CMP-14, CMP-17 and CMP-20 partial. UX-09 remains `partial` because Analytics and Settings are still demo-backed and campaign dispatch workers are the next slice.
 
