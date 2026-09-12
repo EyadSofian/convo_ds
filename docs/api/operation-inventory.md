@@ -295,6 +295,16 @@ company.
 | Routing | `DELETE T/conversations/{id}/collaborators/{membershipId}` | `removeConversationCollaborator` | `conversation.assign` + CSRF + version | P2 |
 | Realtime | `GET T/realtime/events` | `catchUpRealtimeEvents` | session; each event authorized individually | P2 |
 | Realtime | `GET T/realtime/stream` | `streamRealtimeEvents` | session; each event authorized individually | P2 |
+| Metadata | `GET T/labels` | `listLabels` | `catalog.read` | P2 |
+| Metadata | `POST T/labels` | `createLabel` | `catalog.manage` + CSRF | P2 |
+| Metadata | `PATCH T/labels/{labelId}` | `updateLabel` | `catalog.manage` + CSRF + version | P2 |
+| Metadata | `DELETE T/labels/{labelId}` | `retireLabel` | `catalog.manage` + CSRF + version | P2 |
+| Metadata | `GET T/custom-fields` | `listCustomFields` | `catalog.read`; optional target | P2 |
+| Metadata | `POST T/custom-fields` | `createCustomField` | `catalog.manage` + CSRF | P2 |
+| Metadata | `PATCH T/custom-fields/{fieldId}` | `updateCustomField` | `catalog.manage` + CSRF + version | P2 |
+| Metadata | `DELETE T/custom-fields/{fieldId}` | `retireCustomField` | `catalog.manage` + CSRF + version | P2 |
+| Metadata | `PATCH T/conversations/{id}/metadata` | `mutateConversationMetadata` | record reach + CSRF + version | P2 |
+| Metadata | `PATCH T/contacts/{id}/metadata` | `mutateContactMetadata` | `contact.edit` + CSRF + version | P2 |
 
 The queue and the conversation are **two endpoints, not one with a flag**. A
 queue card and a conversation are different things with different permissions,
@@ -318,6 +328,14 @@ the conversation version the operator saw. The assignee directory returns only a
 membership id, display label and current-assignee flag, and the write re-derives
 the target's eligibility inside its transaction. Handoff expiry is a durable queue
 consumed by `worker-inbound`, not a browser timer.
+
+Labels and custom fields are catalogued separately from the entities that use
+them. Retiring a definition prevents new assignments without deleting history.
+An entity metadata mutation is one version-fenced command containing label adds,
+label removals and typed field changes, so a partially applied form cannot leave
+the visible record between two operator intents. Contact and conversation lists
+accept repeatable label ids and typed field filters; the server performs the
+filtering under tenant RLS.
 
 **One transitions endpoint, not five verbs.** `transitionConversation` takes a
 `command` — `wait`, `snooze`, `resolve`, `reopen` or `archive` — because they are

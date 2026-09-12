@@ -4,11 +4,13 @@ import { ApiClient, API_BASE_URL, csrfFromCookie, type FetchLike } from './api/c
 import { ChannelsApi } from './api/channels';
 import { ContactsApi } from './api/contacts';
 import { ConversationsApi } from './api/conversations';
+import { MetadataApi } from './api/metadata';
 import {
   disconnectedApi,
   disconnectedChannelsApi,
   disconnectedContactsApi,
   disconnectedConversationsApi,
+  disconnectedMetadataApi,
   PeopleApi,
 } from './api/people';
 import type { LiveContext } from './live/actions';
@@ -405,6 +407,7 @@ export function mount(options: MountOptions): AppHandle {
   const conversations =
     client === null ? disconnectedConversationsApi() : new ConversationsApi(client);
   const contacts = client === null ? disconnectedContactsApi() : new ContactsApi(client);
+  const metadata = client === null ? disconnectedMetadataApi() : new MetadataApi(client);
   /**
    * The clock the whole screen reads.
    *
@@ -416,7 +419,7 @@ export function mount(options: MountOptions): AppHandle {
    * which is exactly what it was.
    */
   const clock = (): Date => options.now ?? new Date();
-  const state = createState(clock(), createLiveState(api, channels, conversations, contacts));
+  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata));
   const root = options.root;
   const host = options.host;
   let sessionRequested = false;

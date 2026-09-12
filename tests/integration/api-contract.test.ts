@@ -174,6 +174,16 @@ describe('pinned OpenAPI contract', () => {
       "listConversationCollaborators",
       "addConversationCollaborator",
       "removeConversationCollaborator",
+      "listLabels",
+      "createLabel",
+      "updateLabel",
+      "retireLabel",
+      "listCustomFields",
+      "createCustomField",
+      "updateCustomField",
+      "retireCustomField",
+      "updateConversationMetadata",
+      "updateContactMetadata",
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);
@@ -205,6 +215,9 @@ describe('pinned OpenAPI contract', () => {
     expect(SPEC.components.schemas['RealtimeEvent']?.required).toContain('schemaVersion');
     expect(SPEC.components.schemas['ContactListResponse']?.additionalProperties).toBe(false);
     expect(SPEC.components.schemas['Contact']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['Label']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['CustomField']?.additionalProperties).toBe(false);
+    expect(SPEC.components.schemas['MetadataMutationResponse']?.additionalProperties).toBe(false);
     // An identity carries the scope it is meaningful in. Without `scopeId` a
     // page-scoped id would read as a global one, which is the mistake the whole
     // contact model exists to avoid.

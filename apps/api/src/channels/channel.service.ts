@@ -43,6 +43,7 @@ export interface ChannelConnectionSummary {
   readonly provider: string;
   readonly display_name: string;
   readonly external_asset_id: string;
+  readonly provider_app_id: string | null;
   readonly status: Readiness;
   readonly capabilities: CapabilityMatrix;
   readonly evidence: readonly ChannelEvidenceView[];
@@ -68,6 +69,7 @@ interface ConnectionRow {
   readonly kind: ChannelKind;
   readonly display_name: string;
   readonly external_asset_id: string;
+  readonly provider_app_id: string | null;
   readonly capabilities: unknown;
   readonly asset_verified_at: Date | null;
   readonly credential_verified_at: Date | null;
@@ -209,6 +211,7 @@ export class ChannelService {
   ): Promise<ChannelConnectionSummary> {
     const provider = PROVIDER_OF[request.kind];
     const capabilities = capabilitiesFor(request.kind);
+    const appId = await resolveChannelApp(sql, provider, request);
 
     const inserted = await unlessConstraint(LIVE_ASSET_INDEX, assetTaken(), () =>
       sql.query<{ id: string }>(
@@ -219,7 +222,7 @@ export class ChannelService {
          RETURNING id::text`,
         [
           tenantId,
-          request.appId,
+          appId,
           request.kind,
           request.externalAssetId,
           request.displayName,
@@ -376,11 +379,13 @@ export class ChannelService {
 
 async function requireConnection(sql: SqlExecutor, connectionId: string): Promise<ConnectionRow> {
   const rows = await sql.query<ConnectionRow>(
-    `SELECT c.id::text, c.kind, c.display_name, c.external_asset_id, c.capabilities,
+    `SELECT c.id::text, c.kind, c.display_name, c.external_asset_id,
+            app.external_app_id AS provider_app_id, c.capabilities,
             c.asset_verified_at, c.credential_verified_at, c.webhook_subscribed_at,
             c.first_inbound_at, c.first_outbound_at, c.last_error_code, c.last_error_at,
             c.created_at, c.disconnected_at, NULL::text AS credential_fingerprint
        FROM channel_connections c
+       LEFT JOIN channel_apps app ON app.id = c.app_id
       WHERE c.id = $1`,
     [connectionId],
   );
@@ -407,7 +412,7 @@ async function recordError(sql: SqlExecutor, connectionId: string, code: string)
  */
 async function refreshStatus(sql: SqlExecutor, connectionId: string): Promise<void> {
   const rows = await sql.query<ConnectionRow>(
-    `SELECT id::text, kind, display_name, external_asset_id, capabilities,
+    `SELECT id::text, kind, display_name, external_asset_id, NULL::text AS provider_app_id, capabilities,
             asset_verified_at, credential_verified_at, webhook_subscribed_at,
             first_inbound_at, first_outbound_at, last_error_code, last_error_at,
             created_at, disconnected_at, NULL::text AS credential_fingerprint
@@ -444,14 +449,15 @@ async function readConnections(
   connectionId: string | null,
 ): Promise<readonly ChannelConnectionSummary[]> {
   const rows = await sql.query<ConnectionRow>(
-    `SELECT c.id::text, c.kind, c.display_name, c.external_asset_id, c.capabilities,
+    `SELECT c.id::text, c.kind, c.display_name, c.external_asset_id,
+            app.external_app_id AS provider_app_id, c.capabilities,
             c.asset_verified_at, c.credential_verified_at, c.webhook_subscribed_at,
             c.first_inbound_at, c.first_outbound_at, c.last_error_code, c.last_error_at,
             c.created_at, c.disconnected_at,
             (SELECT cr.fingerprint FROM channel_credentials cr
-              WHERE cr.connection_id = c.id AND cr.purpose = 'access_token'
-                AND cr.status = 'active') AS credential_fingerprint
+              WHERE cr.connection_id = c.id AND cr.status = 'active') AS credential_fingerprint
        FROM channel_connections c
+       LEFT JOIN channel_apps app ON app.id = c.app_id
       WHERE ($1::uuid IS NULL OR c.id = $1)
       ORDER BY c.created_at`,
     [connectionId],
@@ -464,6 +470,7 @@ async function readConnections(
       provider: PROVIDER_OF[row.kind],
       display_name: row.display_name,
       external_asset_id: row.external_asset_id,
+      provider_app_id: row.provider_app_id,
       status: statusOf(row),
       capabilities: capabilitiesFor(row.kind),
       evidence: [
@@ -482,6 +489,30 @@ async function readConnections(
       credential_fingerprint: row.credential_fingerprint,
     };
   });
+}
+
+async function resolveChannelApp(
+  sql: SqlExecutor,
+  provider: string,
+  request: ConnectChannelRequest,
+): Promise<string | null> {
+  if (provider !== 'meta') return null;
+  const byExternal = request.providerAppId !== null;
+  const reference = request.providerAppId ?? request.appId;
+  if (reference === null) {
+    throw new ApiHttpError(422, 'channel_app_required', 'Choose the Meta App ID configured on this server.');
+  }
+  const rows = await sql.query<{ id: string }>(
+    `SELECT id::text FROM channel_apps
+      WHERE provider = $1 AND status = 'active'
+        AND (CASE WHEN $2::boolean THEN external_app_id = $3 ELSE id = $3::uuid END)`,
+    [provider, byExternal, reference],
+  );
+  const app = rows.rows[0];
+  if (app === undefined) {
+    throw new ApiHttpError(422, 'channel_app_not_configured', 'That Meta App ID is not configured on this server yet.');
+  }
+  return app.id;
 }
 
 function view(kind: string, at: Date | null): ChannelEvidenceView {

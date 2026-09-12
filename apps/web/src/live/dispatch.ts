@@ -29,6 +29,7 @@ import {
   setPriority,
   settleHandoff,
 } from './routing-actions.js';
+import { createField, createLabel, setEntityLabel, setFieldValue } from './metadata-actions.js';
 import { rowsOf } from './store.js';
 import {
   addTeamMember,
@@ -268,6 +269,10 @@ export function channelTokenField(connectionId: string): string {
   return `channelToken_${connectionId}`;
 }
 
+export function metadataFieldValue(target: string, entityId: string, fieldId: string): string {
+  return `metadata_${target}_${entityId}_${fieldId}`;
+}
+
 export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-signin': async (context) => {
     await signIn(context, form(context, 'signinEmail'), form(context, 'signinPassword'));
@@ -504,6 +509,91 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return loadContactsScreen(context);
   },
 
+  'live-inbox-filter': async (context, arg) => {
+    const { id, value } = splitArg(arg);
+    if (!['unread', 'priority', 'channel', 'labelId'].includes(id)) return false;
+    context.live.inboxFilters = { ...context.live.inboxFilters, [id]: value };
+    return loadInboxScreen(context);
+  },
+
+  'live-contact-filter': async (context, arg) => {
+    const { id, value } = splitArg(arg);
+    if (!['labelId', 'fieldId'].includes(id)) return false;
+    context.live.contactFilters = {
+      ...context.live.contactFilters,
+      [id]: value,
+      ...(id === 'fieldId' ? { fieldValue: '' } : {}),
+    };
+    context.refresh();
+    return value === '' || id === 'labelId' ? loadContactsScreen(context) : true;
+  },
+
+  'live-contact-field-filter': async (context) => {
+    context.live.contactFilters = {
+      ...context.live.contactFilters,
+      fieldValue: form(context, 'contactFieldFilter'),
+    };
+    return loadContactsScreen(context);
+  },
+
+  'live-label-create': async (context) => {
+    const ok = await createLabel(
+      context,
+      form(context, 'labelName'),
+      form(context, 'labelColor') || '#3B82F6',
+    );
+    if (ok) clearForm(context, ['labelName', 'labelColor']);
+    return ok;
+  },
+
+  'live-field-create': async (context) => {
+    const target = form(context, 'fieldTarget') || 'contact';
+    const type = form(context, 'fieldType') || 'text';
+    if (
+      (target !== 'contact' && target !== 'conversation') ||
+      !['text', 'number', 'boolean', 'date', 'single_select', 'multi_select'].includes(type)
+    ) return false;
+    const ok = await createField(context, {
+      target,
+      key: form(context, 'fieldKey'),
+      name: form(context, 'fieldName'),
+      type: type as 'text' | 'number' | 'boolean' | 'date' | 'single_select' | 'multi_select',
+      options: ['single_select', 'multi_select'].includes(type)
+        ? form(context, 'fieldOptions').split(',').map((value) => value.trim()).filter(Boolean)
+        : [],
+    });
+    if (ok) clearForm(context, ['fieldTarget', 'fieldType', 'fieldKey', 'fieldName', 'fieldOptions']);
+    return ok;
+  },
+
+  'live-metadata-label': async (context, arg) => {
+    const separator = arg.indexOf(':');
+    const direct = separator === -1 ? arg : `${arg.slice(0, separator)}|${arg.slice(separator + 1)}`;
+    const [target, entityId, labelId, act] = direct.split('|');
+    if (
+      (target !== 'contact' && target !== 'conversation') ||
+      entityId === undefined ||
+      labelId === undefined
+    ) return false;
+    return setEntityLabel(context, target, entityId, labelId, act !== 'remove');
+  },
+
+  'live-metadata-field': async (context, arg) => {
+    const [target, entityId, fieldId] = arg.split('|');
+    if (
+      (target !== 'contact' && target !== 'conversation') ||
+      entityId === undefined ||
+      fieldId === undefined
+    ) return false;
+    return setFieldValue(
+      context,
+      target,
+      entityId,
+      fieldId,
+      form(context, metadataFieldValue(target, entityId, fieldId)),
+    );
+  },
+
   'live-contact-open': async (context, arg) => openContact(context, arg),
 
   'live-contact-save-panel': async (context, arg) => saveContactName(context, arg),
@@ -526,16 +616,23 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-inbox-send': async (context) => sendReply(context),
 
   'live-connect-channel': async (context) => {
+    const selectedKind = form(context, 'channelKind') || 'whatsapp';
+    if (!['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom'].includes(selectedKind)) return false;
     const connected = await connectChannel(context, {
-      kind: 'whatsapp',
+      kind: selectedKind as 'whatsapp' | 'messenger' | 'instagram' | 'web_chat' | 'custom',
       externalAssetId: form(context, 'channelAsset'),
       displayName: form(context, 'channelName'),
       accessToken: form(context, 'channelToken'),
+      providerAppId: ['whatsapp', 'messenger', 'instagram'].includes(selectedKind)
+        ? form(context, 'channelProviderApp')
+        : null,
     });
     // The token is dropped from state whatever the answer was — a credential
     // left in a form field is a credential in a screenshot. The other two are
     // kept on a refusal, so the attempt can be corrected rather than retyped.
-    clearForm(context, connected ? ['channelAsset', 'channelName', 'channelToken'] : ['channelToken']);
+    clearForm(context, connected
+      ? ['channelKind', 'channelProviderApp', 'channelAsset', 'channelName', 'channelToken']
+      : ['channelToken']);
     context.refresh();
   },
 

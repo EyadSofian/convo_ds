@@ -52,6 +52,8 @@ import { InvitationService } from './people/invitation.service.js';
 import { PeopleController } from './people/people.controller.js';
 import { PeopleService } from './people/people.service.js';
 import { MembershipService } from './memberships/membership.service.js';
+import { MetadataController } from './metadata/metadata.controller.js';
+import { MetadataService } from './metadata/metadata.service.js';
 import {
   API_CONFIG,
   API_POOL,
@@ -112,6 +114,7 @@ export class ApiModule {
         OutboundController,
         ConversationController,
         ContactController,
+        MetadataController,
         RealtimeController,
       ],
       providers: [
@@ -155,6 +158,7 @@ export class ApiModule {
         BrokerRelayService,
         RealtimeService,
         ContactService,
+        MetadataService,
         ConversationService,
         LifecycleService,
         RoutingService,

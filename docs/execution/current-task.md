@@ -4,39 +4,34 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T9 first slice (Milestone E: assignment and person-to-person handoff)
+## Last completed task — P1-T10 (Milestone E: labels, typed custom fields and deployment-ready channel slots)
 
-**Task / requirement IDs:** IAM-13 and CON-07 closed. CON-08 advanced to `partial` with labels and custom fields named as the remaining half. AI-01 advanced to `partial`. UX-09 remains `partial` because Broadcasts, Analytics and Settings are still demo-backed.
+**Task / requirement IDs:** CON-08 and CT-05 closed. UX-09 remains `partial` only because Broadcasts, Analytics and Settings are still demo-backed.
 
 ### Behavior delivered
 
-**Claim, assignment and handoff are three different acts.** Claim takes work nobody holds and stays under `conversation.claim`. Direct assignment moves work immediately and requires `conversation.assign`. Handoff uses the new `conversation.handoff.request` key and creates an offer the named colleague may accept or decline; while it is pending the current assignee remains responsible. ADR-0017 records that split so a future caller cannot quietly use the stronger assignment permission to implement a request.
+**Labels and business fields are server-owned data.** Labels can be created, edited and retired. Contact and conversation assignments are intervals with the assigning/removing actor, so removal never erases who applied a label earlier. Custom fields target either a contact or a conversation and carry a real type: text, number, boolean, date, single select or multi select. Target, key and type are immutable after creation because changing any of them would reinterpret history.
 
-**Every contested routing act carries the version the operator saw.** Claim, assignment, priority, collaborator changes and handoff creation reject a stale screen with `conversation_version_conflict`. Acceptance also verifies that the conversation is still held by the assignee the request was based on. Target membership, status, scopes and ability to reply are re-derived inside the write transaction; the directory is an allowlisted suggestion, never authorization.
+**One form change is one versioned command.** Label additions/removals and field sets/clears commit together against the entity version the operator saw. A stale drawer receives a typed version conflict rather than overwriting somebody else's work. The runtime role can append metadata audit evidence but cannot rewrite or delete it; PostgreSQL repeats the API's target/state/type/option checks.
 
-**Expiry is durable work.** The offer and its note stay behind tenant RLS. A separate ids-and-times queue lets `worker-inbound` discover due offers before it knows a tenant, then enter that tenant and settle the offer as `expired`. Nobody is fabricated as the actor. The queue has a composite tenant foreign key to the offer, and reassignment makes an old offer unusable.
+**Search does not damage Arabic source data.** Contact names and JSON field values remain exactly as entered. Separate bounded search columns hold normalized representations, and the integration suite retrieves Arabic data through normalization then asserts the original is unchanged. Contact and Inbox filters are evaluated in SQL under tenant RLS, including label and typed-field equality filters.
 
-**Participation and collaboration answer different questions.** Participation records that somebody acted and can never be deleted. A collaborator is an invitation interval that may end; ending it removes future collaborator reach but never erases authorship. Both direct assignment and accepted handoff record the new assignee as a participant.
+**The live UI uses the catalogue.** Contacts and Inbox load labels/fields from the API, distinguish loading/empty/refused states, render values by type and wait for the committed response before success. Retired definitions stay readable on existing records but cannot receive new assignments.
 
-**Ownership is a separate fence.** `owner_state` and `owner_version` are independent of lifecycle, unread and delivery state. Claim, direct assignment and accepted handoff set `human_active`, increment the owner fence and append the transition evidence. Outbound commands store the owner version their permit was issued under, and dispatch rejects a stale one before network I/O.
-
-**The Inbox routing panel is live.** It loads eligible colleagues, offers direct assignment, priority, handoff and collaborators according to the current membership's actual permission keys, and waits for a committed server response before success. This supports custom roles without role-name authorization. Two realtime types — `conversation.handoff` and `conversation.routing` — are accepted by the browser and cause authoritative re-reads instead of being silently dropped.
+**The channel form now accepts the values the owner will provide later.** Meta connections take a configured Meta App ID plus the channel asset (Phone Number ID, Page ID or Instagram Account ID). Website Chat and Custom Channel intentionally omit the Meta field. The API resolves the public App ID to an active server configuration and refuses missing or unknown apps; secrets remain server-side and are never returned.
 
 ### Main files
 
 | Path | Purpose |
 |---|---|
-| `docs/adr/0017-person-to-person-handoff.md` | the permission and ownership clarification |
-| `packages/database/migrations/0018_work_routing.sql` | names, ownership fence, audit, handoffs, expiry queue and collaborators |
-| `packages/domain/src/conversations/routing.ts` | handoff state and expiry decisions |
-| `apps/api/src/conversations/routing.service.ts` | assignment, directory, handoff, priority, collaborators and audit |
-| `apps/api/src/conversations/conversation.service.ts` | claim ownership transition and audit |
-| `apps/api/src/workers/worker-roles.ts` | durable handoff expiry on the inbound worker |
-| `apps/web/src/live/ability.ts` | controls from permission keys, with safe rolling-deploy fallback |
-| `apps/web/src/ui/routing-panel.ts` | the Inbox routing interface |
-| `apps/web/src/live/routing-actions.ts` | versioned routing mutations and committed-success handling |
-| `tests/integration/api-realtime.test.ts` | assignment/handoff races, authorization, audit, rollback, expiry and ownership |
-| `apps/web/src/live/routing.test.ts` | routing UI and custom-role behavior through the real client/actions/renderer |
+| `packages/database/migrations/0019_metadata_catalogue.sql` | tenant-scoped catalogue, assignment intervals, typed values, audit and search columns |
+| `packages/domain/src/metadata/custom-fields.ts` | Unicode search normalization and typed-value validation |
+| `apps/api/src/metadata/` | ten catalogue/entity metadata operations |
+| `apps/web/src/ui/metadata-section.ts` | shared Contact/Conversation metadata editor |
+| `apps/web/src/live/metadata-actions.ts` | committed mutations and catalogue loading |
+| `apps/api/src/channels/channel.service.ts` | Meta App ID resolution and first-party channel handling |
+| `apps/web/src/ui/channels-screen.ts` | kind-specific connection fields and readiness evidence |
+| `docs/api/openapi.v1.json` | pinned 83-operation contract |
 
 ### Evidence and checks
 
@@ -44,33 +39,29 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 |---|---:|---|
 | `pnpm lint` | **0** | clean |
 | `pnpm typecheck` | **0** | clean |
-| `pnpm build` | **0** | web bundle 177.29 kB / 53.70 kB gzip |
-| `pnpm test:unit` | **0** | 66 files, **1286 tests** |
-| `pnpm test:integration` | **0** | 21 files, **471 tests** against real PostgreSQL 17.4 |
-| `pnpm test:property` | **0** | 1 file, **5 exhaustive/metamorphic properties** |
-| `pnpm test:coverage` | **0** | 88 files, **1762 tests**, 100% lines / statements / functions / branches |
-| `pnpm test:contracts` | **0** | 166 unit + 119 integration |
-| `pnpm test:security` | **0** | 345 tests + production audit, **no known vulnerabilities** |
+| `pnpm build` | **0** | web 191.29 kB / 57.74 kB gzip |
+| `pnpm test:unit` | **0** | 69 files, **1379 tests** |
+| `pnpm test:integration` | **0** | 21 files, **480 tests** against PostgreSQL 17.4 |
+| `pnpm test:property` | **0** | 5 exhaustive/metamorphic properties |
+| `pnpm test:coverage` | **0** | 91 files, **1864 tests**, **100/100/100/100** |
+| `pnpm test:contracts` | **0** | 170 unit + 121 integration; OpenAPI drift clean |
+| `pnpm test:security` | **0** | 354 tests + production audit; no known vulnerabilities |
 | `pnpm test:e2e` | **0** | **150 tests** at 1440×900 and 1366×768 |
-| `pnpm test:a11y` | **0** | 25 tests, no WCAG 2.1 AA violations |
-| `pnpm test:visual` | **0** | 20 tests, images plus structural snapshots |
-| `pnpm test:mutation` | **1** | `not_run` — wired in P4 |
-| `pnpm test:load:target` | **1** | `blocked_env` — k6 not installed, no staging target |
-| `pnpm test:recovery` | **1** | `blocked_env` — no restore target |
+| `pnpm test:a11y` | **0** | **25 tests**, no WCAG 2.1 AA axe violations |
+| `pnpm test:visual` | **0** | **20 tests**, reviewed images plus structural snapshots |
 
-No coverage threshold was lowered and no exclusion was added. The pinned OpenAPI carries **73 operations** and the bidirectional drift test passes.
-
-The task required property evidence, but its `test:property` script still named a Vitest project that did not exist and exited 1 with no files. The project now exists and exercises the complete finite handoff state/action/actor space plus time-translation and ownership-table invariants; the standalone property gate and the aggregate coverage gate both execute it.
-
-The browser gate caught a contract error in its own scripted API: the new handoff and collaborator collection requests fell through to the generic conversation-detail fixture and returned an object where the client contract requires an array. The next redraw threw, which made unrelated drawer, resize, theme and queue controls appear broken. The fixture now names both collection routes explicitly, supplies the full conversation shape, and a browser test fails on any uncaught page error while the inbox loads and redraws.
+The coverage run exposed a calendar-dependent test fixture: a hard-coded inbound timestamp had crossed the real 24-hour WhatsApp reply window, so valid text replies became `template_required`. The fixture now uses the current provider timestamp only where it is meant to open a window; the normalization assertion still passes an explicit historical time. The complete channel integration file passes again.
 
 ### Honest remaining scope
 
-- **Labels and the custom-field catalogue are not built**, so CON-08 remains `partial`.
-- **Automated bot ownership transitions are not built.** The ownership states, monotonic fence, audit evidence and outbound re-check are present as P2 hooks; AI-01 remains `partial` until P7.
-- **No capacity-based router, SLA clocks or business-hours engine.** Those are the next Milestone E slices under SLA-01…SLA-08.
-- **No provider HTTP client and no configured broker product.** Provider-live checks remain `blocked_no_asset`; broker/load/recovery environment checks remain explicitly blocked.
-- **Broadcasts, Analytics and Settings remain demo-backed.** UX-09 remains `partial`.
+- **Broadcasts/Campaigns are the largest product gap.** The screen is still demo data and the campaign state machine, audience snapshot, approval, scheduling, recipient ledger and operational controls are not built.
+- **Analytics and Settings are still demo-backed.** SLA/business-hours/report read models are unbuilt.
+- **No live provider HTTP client yet.** The form and server configuration seam are ready for the owner's Meta App ID, Phone/Page/Instagram IDs and access tokens; provider-live evidence remains `blocked_no_asset` until those assets are supplied.
+- **CRM is intentionally deferred by the owner.** It is not a release prerequisite for this MVP.
+- Merge/import/export/segments, MFA/SSO and advanced media remain later scope.
+- Mutation, target-load and recovery drills still need their P4/staging environments.
+
+**Next execution slice:** replace the Broadcasts demo with the real Milestone F campaign core and UI. That is the shortest path to the client-visible MVP the owner described; CRM and provider activation stay outside the critical path.
 
 ---
 

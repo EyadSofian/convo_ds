@@ -159,6 +159,7 @@ function channelDelivery(overrides: Record<string, unknown> = {}): Record<string
     provider: 'meta',
     display_name: 'Enrollment line',
     external_asset_id: 'phone-1',
+    provider_app_id: '100000000000001',
     status: 'authorization_needed',
     capabilities: WHATSAPP_MATRIX,
     evidence: [
@@ -1092,13 +1093,15 @@ describe('the transport the browser actually gets', () => {
       openEventSource: () => ({ addEventListener: () => undefined, close: () => undefined }),
     });
     await settle();
-    // The two the inbox needs, and no People or Channels lists: opening one
-    // server-backed screen must not fetch another's.
+    // The two inbox lists plus the shared metadata catalogue, and no People or
+    // Channels lists: opening one server-backed screen must not fetch another's.
     expect(api.calls.map((call) => call.path)).toEqual([
       '/auth/session',
       '/me/memberships',
       `/tenants/${TENANT}/conversations/unassigned`,
       `/tenants/${TENANT}/conversations?queue=mine`,
+      `/tenants/${TENANT}/labels`,
+      `/tenants/${TENANT}/custom-fields`,
     ]);
   });
 
@@ -1191,10 +1194,34 @@ describe('the Channels screen', () => {
     await settle();
 
     expect(text(root)).toContain('Enrollment line');
+    expect(text(root)).toContain('100000000000001');
     // Opening Channels does not fetch the People lists: each screen loads what
     // it shows.
     expect(api.calls.some((call) => call.path.endsWith('/people'))).toBe(false);
     expect(api.calls.filter((call) => call.path.endsWith('/channels'))).toHaveLength(1);
+  });
+
+  it('renders a first-party connection without inventing a Meta app', async () => {
+    const api = channelApi().on(`GET /tenants/${TENANT}/channels`, {
+      status: 200,
+      body: {
+        data: [
+          channelDelivery({
+            kind: 'web_chat',
+            provider: 'web_chat',
+            provider_app_id: null,
+            external_asset_id: 'website-1',
+          }),
+        ],
+      },
+    });
+    const { root } = startChannels(api);
+    await settle();
+
+    const card = find(root, '[data-connection="cn-1"]');
+    expect(card.textContent).toContain('Website chat');
+    expect(card.textContent).toContain('website-1');
+    expect(card.textContent).not.toContain('Meta app');
   });
 
   it('shows the separate evidence behind a state, not just the state', async () => {
@@ -1301,6 +1328,7 @@ describe('the Channels screen', () => {
     await settle();
 
     expect(isDisabled(root, '[data-act="live-connect-channel"]')).toBe(true);
+    type(root, '[data-form="channelProviderApp"]', '100000000000001');
     type(root, '[data-form="channelAsset"]', 'phone-2');
     type(root, '[data-form="channelName"]', 'Support line');
     type(root, '[data-form="channelToken"]', 'EAAGtoken0001');
@@ -1315,6 +1343,7 @@ describe('the Channels screen', () => {
       externalAssetId: 'phone-2',
       displayName: 'Support line',
       accessToken: 'EAAGtoken0001',
+      providerAppId: '100000000000001',
     });
     expect(post?.headers['idempotency-key']).toBe('key-1');
     expect(post?.headers['x-csrf-token']).toBe('csrf-token');
@@ -1335,6 +1364,7 @@ describe('the Channels screen', () => {
     const { app, root } = startChannels(api);
     await settle();
 
+    type(root, '[data-form="channelProviderApp"]', '100000000000001');
     type(root, '[data-form="channelAsset"]', 'phone-taken');
     type(root, '[data-form="channelName"]', 'Taken');
     type(root, '[data-form="channelToken"]', 'EAAGtoken0002');
@@ -1347,6 +1377,38 @@ describe('the Channels screen', () => {
     expect(app.state.dialogForm['channelToken']).toBeUndefined();
     // The other two survive, so the attempt can be corrected.
     expect(app.state.dialogForm['channelAsset']).toBe('phone-taken');
+  });
+
+  it('connects website chat without asking for a Meta app', async () => {
+    const api = channelApi().on(`POST /tenants/${TENANT}/channels`, {
+      status: 201,
+      body: { data: channelDelivery({ kind: 'web_chat', provider: 'web_chat', provider_app_id: null }) },
+    });
+    const { app, root } = startChannels(api);
+    await settle();
+    choose(root, '[data-form="channelKind"]', 'web_chat');
+    expect(root.querySelector('[data-form="channelProviderApp"]')).toBeNull();
+    expect((find(root, '[data-form="channelAsset"]') as HTMLInputElement).placeholder).toBe('Website widget ID');
+    type(root, '[data-form="channelAsset"]', 'website-1');
+    type(root, '[data-form="channelName"]', 'Website');
+    type(root, '[data-form="channelToken"]', 'signing-key-0001');
+    click(root, '[data-act="live-connect-channel"]');
+    await settle();
+    expect(api.calls.find((call) => call.method === 'POST' && call.path.endsWith('/channels'))?.body).toEqual({
+      kind: 'web_chat',
+      externalAssetId: 'website-1',
+      displayName: 'Website',
+      accessToken: 'signing-key-0001',
+      providerAppId: null,
+    });
+
+    const before = api.calls.length;
+    app.state.dialogForm = { channelKind: 'telegram' };
+    app.render();
+    expect((find(root, '[data-form="channelAsset"]') as HTMLInputElement).placeholder).toBe('Phone Number ID');
+    app.dispatch('live-connect-channel');
+    await settle();
+    expect(api.calls.length).toBe(before);
   });
 
   it('rotates a credential and clears its field', async () => {
@@ -1526,6 +1588,7 @@ describe('the Channels screen', () => {
     });
     const { root } = startChannels(api);
     await settle();
+    type(root, '[data-form="channelProviderApp"]', '100000000000001');
     type(root, '[data-form="channelAsset"]', 'nope');
     type(root, '[data-form="channelName"]', 'Bad');
     type(root, '[data-form="channelToken"]', 'EAAGtoken0003');

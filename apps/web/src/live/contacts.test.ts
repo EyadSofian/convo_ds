@@ -23,6 +23,8 @@ const NOW = new Date('2026-09-10T09:30:00.000Z');
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const CONTACT = '66666666-6666-4666-8666-666666666666';
 const MEMBERSHIP = '44444444-4444-4444-8444-444444444444';
+const LABEL = '77777777-7777-4777-8777-777777777777';
+const FIELD = '88888888-8888-4888-8888-888888888888';
 
 interface Reply {
   readonly status: number;
@@ -94,6 +96,9 @@ function contact(overrides: Record<string, unknown> = {}): Record<string, unknow
     id: CONTACT,
     displayName: 'سارة عبد الله',
     attributes: { grade: 'الصف السادس' },
+    version: 1,
+    labels: [],
+    customFields: [],
     createdAt: NOW.toISOString(),
     identities: [
       {
@@ -130,7 +135,9 @@ function contactsApi(): FakeApi {
       },
     })
     .on(`GET /tenants/${TENANT}/contacts`, { status: 200, body: { data: [contact()] } })
-    .on(`GET /tenants/${TENANT}/contacts/${CONTACT}`, { status: 200, body: { data: contact() } });
+    .on(`GET /tenants/${TENANT}/contacts/${CONTACT}`, { status: 200, body: { data: contact() } })
+    .on(`GET /tenants/${TENANT}/labels`, { status: 200, body: { data: [] } })
+    .on(`GET /tenants/${TENANT}/custom-fields`, { status: 200, body: { data: [] } });
 }
 
 let handle: AppHandle | null = null;
@@ -175,6 +182,12 @@ function type(root: ParentNode, selector: string, value: string): void {
   const field = root.querySelector(selector) as HTMLInputElement;
   field.value = value;
   field.dispatchEvent(new window.Event('input', { bubbles: true }));
+}
+
+function choose(root: ParentNode, selector: string, value: string): void {
+  const field = root.querySelector(selector) as HTMLSelectElement;
+  field.value = value;
+  field.dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
 afterEach(() => {
@@ -503,6 +516,90 @@ describe('the customer panel beside a conversation', () => {
     await settle();
     expect(app.state.toasts.at(-1)?.text).toContain('سُجّلت الموافقة');
   });
+
+  it('updates contact metadata from the side panel and keeps a refusal visible', async () => {
+    const field = { id: FIELD, target: 'contact', key: 'course', name: 'الدورة', type: 'text', options: [], state: 'active', version: 1 };
+    const api = inboxApi()
+      .on(`GET /tenants/${TENANT}/custom-fields`, { status: 200, body: { data: [field] } })
+      .on(`PATCH /tenants/${TENANT}/contacts/${CONTACT}/metadata`, {
+        status: 409,
+        body: { error: { code: 'entity_version_conflict', message: 'Reload the customer.' } },
+      });
+    const { root, app } = await open(api, `#/inbox/${CONVERSATION}`);
+    const selector = `[data-form="metadata_contact_${CONTACT}_${FIELD}"]`;
+    type(root, selector, 'Data Analysis');
+    click(root, `[data-act="live-metadata-field"][data-arg="contact|${CONTACT}|${FIELD}"]`);
+    await settle();
+    expect(app.state.toasts.at(-1)?.tone).toBe('danger');
+    expect(app.state.toasts.at(-1)?.text).toBe('Reload the customer.');
+  });
+
+  it('refreshes successful contact metadata inside the side panel', async () => {
+    const field = { id: FIELD, target: 'contact', key: 'course', name: 'الدورة', type: 'text', options: [], state: 'active', version: 1 };
+    let saved = contact({ version: 1, customFields: [] });
+    const api = inboxApi()
+      .on(`GET /tenants/${TENANT}/custom-fields`, { status: 200, body: { data: [field] } })
+      .on(`GET /tenants/${TENANT}/contacts/${CONTACT}`, () => ({ status: 200, body: { data: saved } }))
+      .on(`PATCH /tenants/${TENANT}/contacts/${CONTACT}/metadata`, () => {
+        saved = contact({ version: 2, customFields: [{ fieldId: FIELD, value: 'Data' }] });
+        return {
+          status: 200,
+          body: {
+            data: {
+              version: 2,
+              metadata: { labels: [], customFields: [{ fieldId: FIELD, value: 'Data' }] },
+            },
+          },
+        };
+      });
+    const { root, app } = await open(api, `#/inbox/${CONVERSATION}`);
+    type(root, `[data-form="metadata_contact_${CONTACT}_${FIELD}"]`, 'Data');
+    click(root, `[data-act="live-metadata-field"][data-arg="contact|${CONTACT}|${FIELD}"]`);
+    await settle();
+    expect(app.state.live.openContact).toMatchObject({ status: 'ready', value: { version: 2 } });
+  });
+
+  it('updates conversation metadata in place without consuming the reply draft', async () => {
+    const fieldId = '88888888-8888-4888-8888-888888888886';
+    const field = { id: fieldId, target: 'conversation', key: 'lead', name: 'Lead', type: 'text', options: [], state: 'active', version: 1 };
+    let version = 4;
+    const api = inboxApi()
+      .on(`GET /tenants/${TENANT}/custom-fields`, { status: 200, body: { data: [field] } })
+      .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}`, () => ({
+        status: 200,
+        body: { data: conversation({ version, labels: [], customFields: [] }) },
+      }))
+      .on(`PATCH /tenants/${TENANT}/conversations/${CONVERSATION}/metadata`, () => {
+        version += 1;
+        return { status: 200, body: { data: { version, metadata: { labels: [], customFields: [{ fieldId, value: 'Hot' }] } } } };
+      });
+    const { root, app } = await open(api, `#/inbox/${CONVERSATION}`);
+    app.dispatch('live-composer', 'draft that must stay');
+    type(root, `[data-form="metadata_conversation_${CONVERSATION}_${fieldId}"]`, 'Hot');
+    click(root, `[data-act="live-metadata-field"][data-arg="conversation|${CONVERSATION}|${fieldId}"]`);
+    await settle();
+    expect(api.calls.find((call) => call.method === 'PATCH' && call.path.endsWith('/metadata'))?.body).toMatchObject({
+      version: 4,
+      fields: [{ fieldId, value: 'Hot' }],
+    });
+    expect(app.state.live.composer).toBe('draft that must stay');
+    expect(app.state.toasts.at(-1)?.text).toContain('حُفظ الحقل');
+  });
+
+  it('keeps a refused conversation label change visible', async () => {
+    const label = { id: LABEL, name: 'مهتم', color: '#5865F2', state: 'active', version: 1 };
+    const api = inboxApi()
+      .on(`GET /tenants/${TENANT}/labels`, { status: 200, body: { data: [label] } })
+      .on(`PATCH /tenants/${TENANT}/conversations/${CONVERSATION}/metadata`, {
+        status: 409,
+        body: { error: { code: 'entity_version_conflict', message: 'Reload the thread.' } },
+      });
+    const { app } = await open(api, `#/inbox/${CONVERSATION}`);
+    app.dispatch('live-metadata-label', `conversation|${CONVERSATION}|${LABEL}|add`);
+    await settle();
+    expect(app.state.toasts.at(-1)?.tone).toBe('danger');
+    expect(app.state.toasts.at(-1)?.text).toBe('Reload the thread.');
+  });
 });
 
 describe('when there is no company to act on', () => {
@@ -701,5 +798,214 @@ describe('consent', () => {
     click(root, '[data-act="live-consent-screen"][data-arg$="granted"]');
     await settle();
     expect(api.calls.length).toBe(before);
+  });
+});
+
+describe('labels and typed business fields', () => {
+  const definitions = [
+    { id: FIELD, target: 'contact', key: 'course', name: 'الدورة', type: 'text', options: [], state: 'active', version: 1 },
+    { id: '88888888-8888-4888-8888-888888888881', target: 'contact', key: 'seats', name: 'المقاعد', type: 'number', options: [], state: 'active', version: 1 },
+    { id: '88888888-8888-4888-8888-888888888882', target: 'contact', key: 'paid', name: 'تم الدفع', type: 'boolean', options: [], state: 'active', version: 1 },
+    { id: '88888888-8888-4888-8888-888888888883', target: 'contact', key: 'start_date', name: 'تاريخ البدء', type: 'date', options: [], state: 'active', version: 1 },
+    { id: '88888888-8888-4888-8888-888888888884', target: 'contact', key: 'level', name: 'المستوى', type: 'single_select', options: ['Beginner', 'Advanced'], state: 'active', version: 1 },
+    { id: '88888888-8888-4888-8888-888888888885', target: 'contact', key: 'topics', name: 'الموضوعات', type: 'multi_select', options: ['Data', 'Marketing'], state: 'active', version: 1 },
+    { id: '88888888-8888-4888-8888-888888888886', target: 'conversation', key: 'lead', name: 'Lead', type: 'text', options: [], state: 'active', version: 1 },
+    { id: '88888888-8888-4888-8888-888888888887', target: 'contact', key: 'retired', name: 'Retired', type: 'text', options: [], state: 'retired', version: 2 },
+  ];
+  const labels = [
+    { id: LABEL, name: 'مهتم', color: '#5865F2', state: 'active', version: 1 },
+    { id: '77777777-7777-4777-8777-777777777778', name: 'قديم', color: '#777777', state: 'retired', version: 2 },
+  ];
+
+  function metadataApi(record: Record<string, unknown> = contact()): FakeApi {
+    return contactsApi()
+      .on(`GET /tenants/${TENANT}/labels`, { status: 200, body: { data: labels } })
+      .on(`GET /tenants/${TENANT}/custom-fields`, { status: 200, body: { data: definitions } })
+      .on(`GET /tenants/${TENANT}/contacts/${CONTACT}`, { status: 200, body: { data: record } });
+  }
+
+  it('creates a shared label only after the server accepts it', async () => {
+    const api = metadataApi().on(`POST /tenants/${TENANT}/labels`, {
+      status: 201,
+      body: { data: labels[0] },
+    });
+    const { root } = await open(api);
+    type(root, '[data-form="labelName"]', 'مهتم');
+    const color = root.querySelector('[data-form="labelColor"]') as HTMLInputElement;
+    color.value = '#5865f2';
+    color.dispatchEvent(new window.Event('input', { bubbles: true }));
+    click(root, '[data-act="live-label-create"]');
+    await settle();
+    expect(api.calls.find((call) => call.method === 'POST' && call.path.endsWith('/labels'))?.body).toEqual({ name: 'مهتم', color: '#5865f2' });
+    expect(text(root)).toContain('أُنشئ التصنيف');
+  });
+
+  it('keeps a catalogue refusal visible', async () => {
+    const api = metadataApi().on(`POST /tenants/${TENANT}/labels`, {
+      status: 409,
+      body: { error: { code: 'label_exists', message: 'Label exists.' } },
+    });
+    const { root } = await open(api);
+    type(root, '[data-form="labelName"]', 'مهتم');
+    click(root, '[data-act="live-label-create"]');
+    await settle();
+    expect(text(root)).toContain('Label exists.');
+  });
+
+  it('keeps a custom-field catalogue refusal visible', async () => {
+    const api = metadataApi().on(`POST /tenants/${TENANT}/custom-fields`, {
+      status: 409,
+      body: { error: { code: 'custom_field_exists', message: 'Field key exists.' } },
+    });
+    const { root, app } = await open(api);
+    type(root, '[data-form="fieldName"]', 'الدورة');
+    type(root, '[data-form="fieldKey"]', 'course');
+    click(root, '[data-act="live-field-create"]');
+    await settle();
+    expect(app.state.toasts.at(-1)?.tone).toBe('danger');
+    expect(text(root)).toContain('Field key exists.');
+  });
+
+  it('creates text and select fields from the live catalogue form', async () => {
+    const api = metadataApi().on(`POST /tenants/${TENANT}/custom-fields`, {
+      status: 201,
+      body: { data: definitions[0] },
+    });
+    const { root, app } = await open(api);
+    app.dispatch('lang', 'en');
+    type(root, '[data-form="fieldName"]', 'الدورة');
+    type(root, '[data-form="fieldKey"]', 'course');
+    click(root, '[data-act="live-field-create"]');
+    await settle();
+    expect(api.calls.find((call) => call.method === 'POST' && call.path.endsWith('/custom-fields'))?.body).toMatchObject({ type: 'text', options: [] });
+
+    type(root, '[data-form="fieldName"]', 'المستوى');
+    type(root, '[data-form="fieldKey"]', 'level');
+    choose(root, '[data-form="fieldTarget"]', 'conversation');
+    choose(root, '[data-form="fieldType"]', 'multi_select');
+    type(root, '[data-form="fieldOptions"]', 'Beginner, Advanced');
+    click(root, '[data-act="live-field-create"]');
+    await settle();
+    const posts = api.calls.filter((call) => call.method === 'POST' && call.path.endsWith('/custom-fields'));
+    expect(posts[1]?.body).toMatchObject({ target: 'conversation', type: 'multi_select', options: ['Beginner', 'Advanced'] });
+    expect(app.state.toasts.at(-1)?.text).toBe('Field created.');
+  });
+
+  it('renders each field control and sends typed values', async () => {
+    const saved = contact({
+      version: 2,
+      labels: [],
+      customFields: [
+        { fieldId: FIELD, value: 'Data Analysis' },
+        { fieldId: definitions[1]?.id, value: 2 },
+        { fieldId: definitions[2]?.id, value: true },
+        { fieldId: definitions[3]?.id, value: '2026-10-01' },
+        { fieldId: definitions[4]?.id, value: 'Beginner' },
+        { fieldId: definitions[5]?.id, value: ['Data', 'Marketing'] },
+      ],
+    });
+    const api = metadataApi(saved).on(`PATCH /tenants/${TENANT}/contacts/${CONTACT}/metadata`, {
+      status: 200,
+      body: { data: { version: 3, metadata: { labels: [], customFields: [] } } },
+    });
+    const { root } = await open(api);
+    click(root, `[data-act="live-contact-open"][data-arg="${CONTACT}"]`);
+    await settle();
+    expect(root.querySelectorAll('.metadata__field')).toHaveLength(6);
+    expect(root.querySelector('[data-form$="_paid"]')).toBeNull();
+
+    const cases: [number, string, unknown][] = [
+      [0, 'Advanced course', 'Advanced course'],
+      [1, '4', 4],
+      [2, 'false', false],
+      [3, '2026-11-01', '2026-11-01'],
+      [4, 'Advanced', 'Advanced'],
+      [5, 'Data, Marketing', ['Data', 'Marketing']],
+    ];
+    for (const [index, value, expected] of cases) {
+      const definition = definitions[index] as (typeof definitions)[number];
+      const selector = `[data-form="metadata_contact_${CONTACT}_${definition.id}"]`;
+      const control = root.querySelector(selector) as HTMLInputElement | HTMLSelectElement;
+      control.value = value;
+      control.dispatchEvent(new window.Event(control instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
+      click(root, `[data-act="live-metadata-field"][data-arg="contact|${CONTACT}|${definition.id}"]`);
+      await settle();
+      const patches = api.calls.filter((call) => call.method === 'PATCH' && call.path.endsWith('/metadata'));
+      expect(patches.at(-1)?.body).toMatchObject({ fields: [{ fieldId: definition.id, value: expected }] });
+    }
+  });
+
+  it('clears a typed value explicitly and refuses incomplete actions locally', async () => {
+    const saved = contact({ version: 2, labels: [], customFields: [{ fieldId: FIELD, value: 'Old' }] });
+    const api = metadataApi(saved).on(`PATCH /tenants/${TENANT}/contacts/${CONTACT}/metadata`, {
+      status: 200,
+      body: { data: { version: 3, metadata: { labels: [], customFields: [] } } },
+    });
+    const { root, app } = await open(api);
+    click(root, `[data-act="live-contact-open"][data-arg="${CONTACT}"]`);
+    await settle();
+    type(root, `[data-form="metadata_contact_${CONTACT}_${FIELD}"]`, '');
+    click(root, `[data-act="live-metadata-field"][data-arg="contact|${CONTACT}|${FIELD}"]`);
+    await settle();
+    expect(api.calls.filter((call) => call.method === 'PATCH').at(-1)?.body).toMatchObject({
+      fields: [{ fieldId: FIELD, value: null }],
+    });
+
+    const before = api.calls.length;
+    for (const [action, arg] of [
+      ['live-inbox-filter', 'unknown:value'],
+      ['live-contact-filter', 'unknown:value'],
+      ['live-metadata-label', 'invalid'],
+      ['live-metadata-field', 'invalid'],
+      ['live-metadata-label', `conversation|missing|${LABEL}|add`],
+      ['live-metadata-field', `conversation|missing|${FIELD}`],
+      ['live-metadata-label', `contact|missing|${LABEL}|add`],
+      ['live-metadata-field', `contact|missing|${FIELD}`],
+    ] as const) app.dispatch(action, arg);
+    app.state.dialogForm = { fieldTarget: 'unsupported', fieldType: 'text' };
+    app.dispatch('live-field-create');
+    app.state.dialogForm = { fieldTarget: 'contact', fieldType: 'unsupported' };
+    app.dispatch('live-field-create');
+    await settle();
+    expect(api.calls.length).toBe(before);
+  });
+
+  it('adds, removes and filters labels through the server', async () => {
+    let assigned = false;
+    const api = metadataApi().on(`GET /tenants/${TENANT}/contacts/${CONTACT}`, () => ({
+      status: 200,
+      body: { data: contact({ version: assigned ? 2 : 1, labels: assigned ? [labels[0]] : [] }) },
+    })).on(`PATCH /tenants/${TENANT}/contacts/${CONTACT}/metadata`, () => {
+      assigned = !assigned;
+      return {
+        status: 200,
+        body: { data: { version: assigned ? 2 : 3, metadata: { labels: assigned ? [labels[0]] : [], customFields: [] } } },
+      };
+    }).on(`GET /tenants/${TENANT}/contacts?label=${LABEL}`, { status: 200, body: { data: [contact()] } });
+    const { root } = await open(api);
+    click(root, `[data-act="live-contact-open"][data-arg="${CONTACT}"]`);
+    await settle();
+    choose(root, `[data-form="contact|${CONTACT}"]`, LABEL);
+    await settle();
+    expect(api.calls.find((call) => call.method === 'PATCH' && call.path.endsWith('/metadata'))?.body).toMatchObject({ addLabels: [LABEL] });
+    click(root, `[data-act="live-metadata-label"][data-arg="contact|${CONTACT}|${LABEL}|remove"]`);
+    await settle();
+    expect(api.calls.filter((call) => call.method === 'PATCH' && call.path.endsWith('/metadata')).at(-1)?.body).toMatchObject({ removeLabels: [LABEL] });
+    choose(root, '[data-form="labelId"]', LABEL);
+    await settle();
+    expect(api.countOf(`GET /tenants/${TENANT}/contacts?label=${LABEL}`)).toBe(1);
+  });
+
+  it('builds and clears typed contact filters', async () => {
+    const path = `/tenants/${TENANT}/contacts?fieldId=${FIELD}&fieldValue=Data+Analysis`;
+    const api = metadataApi().on(`GET ${path}`, { status: 200, body: { data: [contact()] } });
+    const { root } = await open(api);
+    choose(root, '[data-form="fieldId"]', FIELD);
+    type(root, '[data-form="contactFieldFilter"]', 'Data Analysis');
+    click(root, '[data-act="live-contact-field-filter"]');
+    await settle();
+    expect(api.countOf(`GET ${path}`)).toBe(1);
+    choose(root, '[data-form="fieldId"]', '');
+    await settle();
   });
 });

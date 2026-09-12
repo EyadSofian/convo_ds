@@ -128,6 +128,7 @@ export const BUILTIN_ROLES: Readonly<Record<BuiltinRoleKey, BuiltinRole>> = Obje
       'consent.record': 'scoped',
       'suppression.write': 'scoped',
       'report.read': 'scoped',
+      'catalog.read': 'scoped',
     },
     // "Merge / export contacts: Extra grant" in the matrix.
     grantable: ['contact.merge', 'contact.export'],
@@ -157,6 +158,7 @@ export const BUILTIN_ROLES: Readonly<Record<BuiltinRoleKey, BuiltinRole>> = Obje
       'consent.record': 'own',
       'suppression.write': 'own',
       'report.read': 'own',
+      'catalog.read': 'scoped',
     },
     grantable: [],
   },
@@ -178,6 +180,7 @@ export const BUILTIN_ROLES: Readonly<Record<BuiltinRoleKey, BuiltinRole>> = Obje
       'consent.record': 'scoped',
       'suppression.write': 'scoped',
       'report.read': 'scoped',
+      'catalog.read': 'scoped',
     },
     grantable: ['contact.merge', 'contact.export'],
   },

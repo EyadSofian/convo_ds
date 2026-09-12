@@ -1,4 +1,5 @@
 import type { ApiClient, ApiResult } from './client.js';
+import type { EntityMetadata } from './metadata.js';
 
 /**
  * The inbox operations, typed against the pinned OpenAPI.
@@ -30,7 +31,7 @@ export interface QueueCard {
   readonly version: number;
 }
 
-export interface Conversation {
+export interface Conversation extends EntityMetadata {
   readonly id: string;
   readonly connectionId: string;
   readonly peerIdentity: string;
@@ -163,15 +164,32 @@ export class ConversationsApi {
   constructor(private readonly client: ApiClient) {}
 
   /** Conversations the caller may read. Never a card. */
-  list(tenantId: string, queue: ConversationQueue): Promise<ApiResult<readonly Conversation[]>> {
+  list(
+    tenantId: string,
+    queue: ConversationQueue,
+    filters: { readonly unread: string; readonly priority: string; readonly channel: string; readonly labelId: string } = { unread: '', priority: '', channel: '', labelId: '' },
+  ): Promise<ApiResult<readonly Conversation[]>> {
+    const query = new URLSearchParams({ queue });
+    if (filters.unread !== '') query.set('unread', filters.unread);
+    if (filters.priority !== '') query.set('priority', filters.priority);
+    if (filters.channel !== '') query.set('channel', filters.channel);
+    if (filters.labelId !== '') query.append('label', filters.labelId);
     return this.client.get<readonly Conversation[]>(
-      `/tenants/${tenantId}/conversations?queue=${queue}`,
+      `/tenants/${tenantId}/conversations?${query.toString()}`,
     );
   }
 
   /** The Unassigned queue. Never a transcript. */
-  unassigned(tenantId: string): Promise<ApiResult<readonly QueueCard[]>> {
-    return this.client.get<readonly QueueCard[]>(`/tenants/${tenantId}/conversations/unassigned`);
+  unassigned(
+    tenantId: string,
+    filters: { readonly priority: string; readonly channel: string; readonly labelId: string } = { priority: '', channel: '', labelId: '' },
+  ): Promise<ApiResult<readonly QueueCard[]>> {
+    const query = new URLSearchParams();
+    if (filters.priority !== '') query.set('priority', filters.priority);
+    if (filters.channel !== '') query.set('channel', filters.channel);
+    if (filters.labelId !== '') query.append('label', filters.labelId);
+    const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+    return this.client.get<readonly QueueCard[]>(`/tenants/${tenantId}/conversations/unassigned${suffix}`);
   }
 
   read(tenantId: string, conversationId: string): Promise<ApiResult<Conversation>> {

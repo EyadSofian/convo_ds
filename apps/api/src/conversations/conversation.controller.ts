@@ -57,12 +57,26 @@ export class ConversationController {
     @Param('tenantId') tenantId: string,
     @Query('queue') queue: string | undefined,
     @Query('status') status: string | undefined,
+    @Query('unread') unread: string | undefined,
+    @Query('priority') priority: string | undefined,
+    @Query('channel') channel: string | undefined,
+    @Query('inboxId') inboxId: string | undefined,
+    @Query('teamId') teamId: string | undefined,
+    @Query('assigneeId') assigneeId: string | undefined,
+    @Query('label') label: string | string[] | undefined,
     @Req() request: FastifyRequest,
   ) {
     const session = await this.auth.authenticate(request.headers.cookie);
     const rows = await this.conversations.list(session, tenantId, {
       queue: queue === 'all' ? 'all' : 'mine',
       status: conversationStatus(status),
+      unread: optionalBoolean(unread),
+      priority: optionalPriority(priority),
+      channel: optionalChannel(channel),
+      inboxId: optionalUuid(inboxId, 'inboxId'),
+      teamId: optionalUuid(teamId, 'teamId'),
+      assigneeId: optionalUuid(assigneeId, 'assigneeId'),
+      labelIds: uuidList(label, 'label'),
     });
     return pageEnvelope(rows, null, request.id);
   }
@@ -72,10 +86,18 @@ export class ConversationController {
   async unassigned(
     @Param('tenantId') tenantId: string,
     @Query('inboxId') inboxId: string | undefined,
+    @Query('priority') priority: string | undefined,
+    @Query('channel') channel: string | undefined,
+    @Query('label') label: string | string[] | undefined,
     @Req() request: FastifyRequest,
   ) {
     const session = await this.auth.authenticate(request.headers.cookie);
-    const cards = await this.conversations.unassigned(session, tenantId, inboxId ?? null);
+    const cards = await this.conversations.unassigned(session, tenantId, {
+      connectionId: optionalUuid(inboxId, 'inboxId'),
+      priority: optionalPriority(priority),
+      channel: optionalChannel(channel),
+      labelIds: uuidList(label, 'label'),
+    });
     return pageEnvelope(cards, null, request.id);
   }
 
@@ -528,6 +550,48 @@ export class ConversationController {
  */
 function conversationStatus(value: string | undefined): string | null {
   return value !== undefined && isConversationState(value) ? value : null;
+}
+
+const CHANNELS = ['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom'];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function optionalBoolean(value: string | undefined): boolean | null {
+  if (value === undefined || value === '') return null;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw queryError('unread', 'Use true or false.');
+}
+
+function optionalPriority(value: string | undefined): string | null {
+  if (value === undefined || value === '') return null;
+  if (isPriority(value)) return value;
+  throw queryError('priority', 'Use low, normal, high or urgent.');
+}
+
+function optionalChannel(value: string | undefined): string | null {
+  if (value === undefined || value === '') return null;
+  if (CHANNELS.includes(value)) return value;
+  throw queryError('channel', 'Use a supported channel kind.');
+}
+
+function optionalUuid(value: string | undefined, field: string): string | null {
+  if (value === undefined || value === '') return null;
+  if (UUID.test(value)) return value;
+  throw queryError(field, 'Use a UUID.');
+}
+
+function uuidList(value: string | string[] | undefined, field: string): readonly string[] {
+  const values = value === undefined ? [] : Array.isArray(value) ? value : [value];
+  if (values.length > 20 || values.some((entry) => !UUID.test(entry))) {
+    throw queryError(field, 'Use at most 20 UUID values.');
+  }
+  return [...new Set(values)];
+}
+
+function queryError(field: string, message: string): ApiHttpError {
+  return new ApiHttpError(400, 'validation_failed', 'The query is not valid.', [
+    { field, code: 'invalid', message },
+  ]);
 }
 
 /**

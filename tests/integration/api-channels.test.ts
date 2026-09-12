@@ -246,11 +246,18 @@ function statusDelivery(
   };
 }
 
-function textMessage(id: string, body: string, from = '15559998888'): Record<string, unknown> {
+function textMessage(
+  id: string,
+  body: string,
+  from = '15559998888',
+  timestamp = String(Math.floor(Date.now() / 1000)),
+): Record<string, unknown> {
   return {
     id,
     from,
-    timestamp: '1789000000',
+    // This fixture opens a provider reply window. A calendar date here turns
+    // the suite red once it becomes older than the real 24-hour window.
+    timestamp,
     type: 'text',
     text: { body },
   };
@@ -324,6 +331,7 @@ describe('channel connections', () => {
     // not produce a working channel.
     expect(connection['status']).toBe('authorization_needed');
     expect(connection['credential_held']).toBe(true);
+    expect(connection['provider_app_id']).toBe('100000000000001');
     expect(connection['missing_evidence']).toEqual([
       'credential_verified',
       'webhook_subscribed',
@@ -332,6 +340,61 @@ describe('channel connections', () => {
     ]);
     // And the token is nowhere in the response, at any depth.
     expect(JSON.stringify(connection)).not.toContain('EAAGtestaccesstoken');
+  });
+
+  it('resolves the provider-facing Meta App ID and refuses an unconfigured one', async () => {
+    const connected = await send(api, owner, 'POST', '/channels', {
+      kind: 'whatsapp',
+      externalAssetId: 'phone-provider-app-1',
+      displayName: 'Provider app reference',
+      accessToken: 'EAAGtestaccesstoken0001',
+      providerAppId: '100000000000001',
+    });
+    expect(connected.statusCode, connected.body).toBe(201);
+    expect((connected.json() as { data: { provider_app_id: string } }).data.provider_app_id).toBe('100000000000001');
+
+    const unknown = await send(api, owner, 'POST', '/channels', {
+      kind: 'whatsapp',
+      externalAssetId: 'phone-provider-app-2',
+      displayName: 'Unknown provider app',
+      accessToken: 'EAAGtestaccesstoken0001',
+      providerAppId: '999999999999999',
+    });
+    expect(unknown.statusCode).toBe(422);
+    expect(unknown.json()).toMatchObject({ error: { code: 'channel_app_not_configured' } });
+
+    const absent = await send(api, owner, 'POST', '/channels', {
+      kind: 'whatsapp',
+      externalAssetId: 'phone-provider-app-3',
+      displayName: 'Missing provider app',
+      accessToken: 'EAAGtestaccesstoken0001',
+    });
+    expect(absent.statusCode).toBe(422);
+    expect(absent.json()).toMatchObject({ error: { code: 'channel_app_required' } });
+
+    const unknownInternal = await send(api, owner, 'POST', '/channels', {
+      kind: 'whatsapp',
+      externalAssetId: 'phone-provider-app-4',
+      displayName: 'Unknown internal app',
+      accessToken: 'EAAGtestaccesstoken0001',
+      appId: '99999999-9999-4999-8999-999999999999',
+    });
+    expect(unknownInternal.statusCode).toBe(422);
+    expect(unknownInternal.json()).toMatchObject({ error: { code: 'channel_app_not_configured' } });
+  });
+
+  it('connects a self-owned channel without a Meta app reference', async () => {
+    const response = await send(api, owner, 'POST', '/channels', {
+      kind: 'web_chat',
+      externalAssetId: 'website-widget-1',
+      displayName: 'Website chat',
+      accessToken: 'website-signing-key-0001',
+      settings: { origins: ['https://school.example'], ratePerMinute: 120 },
+    });
+    expect(response.statusCode, response.body).toBe(201);
+    expect(response.json()).toMatchObject({
+      data: { kind: 'web_chat', provider_app_id: null, credential_held: true },
+    });
   });
 
   it('never returns or stores the token in readable form', async () => {
@@ -1127,7 +1190,10 @@ describe('normalization', () => {
   });
 
   it('turns a journaled event into a normalized inbound event', async () => {
-    await deliver(api, messageDelivery([textMessage('wamid.norm-1', 'مرحبا بالعالم')]));
+    await deliver(
+      api,
+      messageDelivery([textMessage('wamid.norm-1', 'مرحبا بالعالم', '15559998888', '1789000000')]),
+    );
 
     expect(await normalizer.pendingTenants()).toContain(api.tenantId);
     const result = await normalizer.drain(api.tenantId);

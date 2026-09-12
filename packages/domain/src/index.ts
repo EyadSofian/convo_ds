@@ -14,6 +14,22 @@ export type {
 
 export type { SqlExecutor, SqlResult, TenantTransaction } from './ports/sql.js';
 
+export {
+  CUSTOM_FIELD_TARGETS,
+  CUSTOM_FIELD_TYPES,
+  isCustomFieldTarget,
+  isCustomFieldType,
+  normalizeSearchText,
+  validateFieldValue,
+} from './metadata/custom-fields.js';
+export type {
+  CustomFieldDefinition,
+  CustomFieldTarget,
+  CustomFieldType,
+  CustomFieldValue,
+  FieldValueResult,
+} from './metadata/custom-fields.js';
+
 /* ------------------------------------------------------------------- IAM -- */
 
 export {

@@ -350,9 +350,9 @@ exports                  (id, tenant_id, kind, filter jsonb, status, artifact_re
 
 Suppression is keyed by a **hashed identity value** so it survives contact merges and deletions.
 
-### As built (migration 0016)
+### As built (migrations 0016 and 0019)
 
-Three of the tables above exist today. The rest — merges, tags, custom fields, segments, imports, exports — do not, and are not stubbed: a `contact_tags` table with no way to make a tag is a place for data to fail to arrive.
+Contacts, scoped identities, consent, labels and typed custom fields exist today. Merges, segments, imports and exports remain unbuilt.
 
 ```
 contacts                 (id, tenant_id, display_name, attributes jsonb,
@@ -399,6 +399,21 @@ conversations.contact_id Nullable, resolved when the customer's first message is
                           number would be the inference this schema exists to refuse.
                           ON DELETE SET NULL: a purged contact does not take the conversation
                           with it.
+labels                    (id, tenant_id, name, color, state, version, created_at, updated_at)
+                          A partial unique index protects active names. Retirement preserves
+                          old assignments and frees the name for an intentional replacement.
+contact_labels            Assignment intervals with actor and removal attribution.
+conversation_labels       Assignment intervals with actor and removal attribution.
+custom_fields             (id, tenant_id, target, key, name, type, options, state, version)
+                          target ∈ contact|conversation; type ∈ text|number|boolean|date|
+                          single_select|multi_select. Target, key and type are immutable;
+                          changing one would reinterpret every historical value.
+contact_custom_field_values
+conversation_custom_field_values
+                          Store original `value_json` beside bounded `search_value`.
+                          Database triggers repeat target/state/type/option validation so a
+                          future writer cannot bypass the API's domain validator.
+metadata_audit            Append-only actor/effect evidence for catalogue and entity changes.
 ```
 
 **Suppression is not in `consents`.** It stays in `channel_suppressions`, keyed by `(kind, peer_identity)` rather than by contact — which is what makes "a suppression survives a contact merge, a deletion and a CRM import" true rather than hopeful. A contact's suppressed channels are derived by joining its **live** identities against that table, so an ended identity cannot carry a suppression forward to whoever holds the number now.

@@ -1,4 +1,5 @@
 import type { ApiClient, ApiResult } from './client.js';
+import type { EntityMetadata } from './metadata.js';
 
 /**
  * The contact operations, typed against the pinned OpenAPI.
@@ -37,10 +38,11 @@ export interface ConsentRecord {
  * server keeps them separate — so nothing can read a consent history that was
  * never loaded and find it empty.
  */
-export interface ContactSummary {
+export interface ContactSummary extends EntityMetadata {
   readonly id: string;
   readonly displayName: string;
   readonly attributes: Record<string, unknown>;
+  readonly version: number;
   readonly createdAt: string;
   readonly identities: readonly ContactIdentity[];
 }
@@ -64,8 +66,21 @@ export interface ConsentInput {
 export class ContactsApi {
   constructor(private readonly client: ApiClient) {}
 
-  list(tenantId: string, query: string): Promise<ApiResult<readonly ContactSummary[]>> {
-    const suffix = query.trim() === '' ? '' : `?q=${encodeURIComponent(query.trim())}`;
+  list(
+    tenantId: string,
+    input: string | { readonly query: string; readonly labelId: string; readonly fieldId: string; readonly fieldValue: string },
+  ): Promise<ApiResult<readonly ContactSummary[]>> {
+    const filters = typeof input === 'string'
+      ? { query: input, labelId: '', fieldId: '', fieldValue: '' }
+      : input;
+    const query = new URLSearchParams();
+    if (filters.query.trim() !== '') query.set('q', filters.query.trim());
+    if (filters.labelId !== '') query.append('label', filters.labelId);
+    if (filters.fieldId !== '' && filters.fieldValue !== '') {
+      query.set('fieldId', filters.fieldId);
+      query.set('fieldValue', filters.fieldValue);
+    }
+    const suffix = query.size === 0 ? '' : `?${query.toString()}`;
     return this.client.get<readonly ContactSummary[]>(`/tenants/${tenantId}/contacts${suffix}`);
   }
 
@@ -76,7 +91,7 @@ export class ContactsApi {
   update(
     tenantId: string,
     contactId: string,
-    input: { readonly displayName?: string; readonly attributes?: Record<string, unknown> },
+    input: { readonly displayName: string },
   ): Promise<ApiResult<Contact>> {
     return this.client.patch<Contact>(`/tenants/${tenantId}/contacts/${contactId}`, {
       body: input,

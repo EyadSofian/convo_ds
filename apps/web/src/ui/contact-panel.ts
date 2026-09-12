@@ -8,6 +8,7 @@ import { isDenial, isUnauthenticated } from '../live/store.js';
 import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { button, isolated, pill, stateBox } from './parts.js';
+import { metadataSection } from './metadata-section.js';
 import type { Tone } from './parts.js';
 
 /**
@@ -185,6 +186,8 @@ export function contactBody(
       }),
       attributeList(state, contact),
     ]),
+
+    metadataSection(state, live, 'contact', contact),
 
     h('section', { class: 'contact__section' }, [
       h('h3', { class: 'contact__heading' }, [t(state, 'كيف نصل إليه', 'How we reach them')]),

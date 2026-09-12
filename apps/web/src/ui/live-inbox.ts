@@ -3,7 +3,7 @@ import type { Conversation, QueueCard, TimelineMessage } from '../api/conversati
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { clockTime, initials, relativeTime } from '../format.js';
-import { isDenial, isUnauthenticated } from '../live/store.js';
+import { isDenial, isUnauthenticated, rowsOf } from '../live/store.js';
 import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { LIST_WIDTH_MAX, LIST_WIDTH_MIN } from '../state.js';
@@ -24,6 +24,8 @@ import {
   statusPill,
 } from './lifecycle-panel.js';
 import { avatar, button, CHANNEL_ICON, isolated, pill, stateBox } from './parts.js';
+import { selectControl } from './parts.js';
+import { metadataSection } from './metadata-section.js';
 
 /**
  * The Inbox, backed entirely by the API.
@@ -105,9 +107,12 @@ export function renderInbox(state: AppState): HTMLElement {
       // The customer beside the conversation, once there is a conversation to
       // stand beside. It is a column rather than a drawer: at these widths the
       // timeline keeps its 640px either way.
-      state.live.openConversationId === null
+          state.live.openConversationId === null
         ? null
         : renderContactPanel(state, state.live, [
+            state.live.openConversation.status === 'ready'
+              ? metadataSection(state, state.live, 'conversation', state.live.openConversation.value)
+              : null,
             state.live.openConversation.status === 'ready'
               ? routingSection(
                   state,
@@ -242,6 +247,7 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
           disabled: live.busy !== null,
         }),
       ]),
+      inboxFilters(state, live),
       connectionNotice(state, live),
     ]),
     listResizer(state),
@@ -249,6 +255,34 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
       sessionNotice(state) ??
         (state.inboxQueue === 'mine' ? mineList(state, live) : queueList(state, live)),
     ]),
+  ]);
+}
+
+function inboxFilters(state: AppState, live: LiveState): HTMLElement {
+  const filters = live.inboxFilters;
+  const labels = rowsOf(live.labels).filter((entry) => entry.state === 'active');
+  const common = { act: 'live-inbox-filter', disabled: live.busy !== null };
+  return h('div', { class: 'listtools__filters', 'aria-label': t(state, 'تصفية المحادثات', 'Filter conversations') }, [
+    selectControl({ ...common, value: filters.unread, form: 'unread', ariaLabel: t(state, 'القراءة', 'Read state'), options: [
+      { value: '', label: t(state, 'الكل', 'All') },
+      { value: 'true', label: t(state, 'غير مقروء', 'Unread') },
+      { value: 'false', label: t(state, 'مقروء', 'Read') },
+    ] }),
+    selectControl({ ...common, value: filters.priority, form: 'priority', ariaLabel: t(state, 'الأولوية', 'Priority'), options: [
+      { value: '', label: t(state, 'كل الأولويات', 'Any priority') },
+      { value: 'urgent', label: t(state, 'عاجل', 'Urgent') },
+      { value: 'high', label: t(state, 'مرتفع', 'High') },
+      { value: 'normal', label: t(state, 'عادي', 'Normal') },
+      { value: 'low', label: t(state, 'منخفض', 'Low') },
+    ] }),
+    selectControl({ ...common, value: filters.channel, form: 'channel', ariaLabel: t(state, 'القناة', 'Channel'), options: [
+      { value: '', label: t(state, 'كل القنوات', 'Any channel') },
+      ...Object.entries(CHANNEL_LABEL).map(([value, label]) => ({ value, label: t(state, label.ar, label.en) })),
+    ] }),
+    selectControl({ ...common, value: filters.labelId, form: 'labelId', ariaLabel: t(state, 'التصنيف', 'Label'), options: [
+      { value: '', label: t(state, 'كل التصنيفات', 'Any label') },
+      ...labels.map((entry) => ({ value: entry.id, label: entry.name })),
+    ] }),
   ]);
 }
 

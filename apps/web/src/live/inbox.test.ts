@@ -273,6 +273,23 @@ afterEach(() => {
 });
 
 describe('the queue', () => {
+  it('reloads both inbox halves with the operator filters', async () => {
+    const api = inboxApi()
+      .on(`GET /tenants/${TENANT}/conversations/unassigned?priority=urgent`, {
+        status: 200,
+        body: { data: [] },
+      })
+      .on(`GET /tenants/${TENANT}/conversations?queue=mine&priority=urgent`, {
+        status: 200,
+        body: { data: [] },
+      });
+    const { app } = await open(api);
+    app.dispatch('live-inbox-filter', 'priority:urgent');
+    await settle();
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations/unassigned?priority=urgent`)).toBe(1);
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations?queue=mine&priority=urgent`)).toBe(1);
+  });
+
   it('shows a projected card, and nothing that was not sent', async () => {
     const { root } = await open(inboxApi());
     const row = root.querySelector('.convrow--card');

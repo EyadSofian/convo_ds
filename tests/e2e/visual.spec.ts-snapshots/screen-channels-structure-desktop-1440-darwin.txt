@@ -17,6 +17,14 @@ div.workspace
     div.card__body
       p.field__hint
       div.filterbar
+        select.select [form-toggle]
+          option
+          option
+          option
+          option
+          option
+        span.searchbox
+          input.input [form-toggle]
         span.searchbox
           input.input [form-toggle]
         span.searchbox

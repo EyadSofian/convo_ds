@@ -8,6 +8,7 @@ import { loadRouting } from './routing-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
 import { currentTenantId, failed, forTenant, fromResult, LOADING, ready } from './store.js';
+import { loadMetadataCatalog } from './metadata-catalog.js';
 
 /**
  * The Inbox, against the real API.
@@ -44,13 +45,14 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
     context.refresh();
 
     const [unassigned, mine] = await Promise.all([
-      live.conversationsApi.unassigned(tenantId),
-      live.conversationsApi.list(tenantId, 'mine'),
+      live.conversationsApi.unassigned(tenantId, live.inboxFilters),
+      live.conversationsApi.list(tenantId, 'mine', live.inboxFilters),
     ]);
     const now = context.now();
     live.unassigned = fromResult(unassigned, now);
     live.conversations = fromResult(mine, now);
     context.refresh();
+    if (live.labels.status === 'idle') await loadMetadataCatalog(context);
   });
 }
 
@@ -130,7 +132,7 @@ export async function openConversation(context: LiveContext, id: string): Promis
  * not ask for — the next action against a stale version is refused by the
  * server's fence anyway.
  */
-async function refreshOpenConversation(context: LiveContext, id: string): Promise<void> {
+export async function refreshOpenConversation(context: LiveContext, id: string): Promise<void> {
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
     const fresh = await live.conversationsApi.read(tenantId, id);

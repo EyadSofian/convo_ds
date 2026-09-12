@@ -1,10 +1,11 @@
 import type { ContactSummary } from '../api/contacts.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
+import { rowsOf } from '../live/store.js';
 import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { contactBody, contactError, labelFor } from './contact-panel.js';
-import { button, isolated, pill, stateBox, textInput } from './parts.js';
+import { button, field, isolated, pill, selectControl, stateBox, textInput } from './parts.js';
 
 /**
  * The Contacts directory.
@@ -85,6 +86,44 @@ export function renderContacts(state: AppState): HTMLElement {
           disabled: live.busy !== null,
         }),
       ]),
+      h('div', { class: 'contactfilters' }, [
+        selectControl({
+          value: live.contactFilters.labelId,
+          form: 'labelId',
+          act: 'live-contact-filter',
+          ariaLabel: t(state, 'التصنيف', 'Label'),
+          options: [
+            { value: '', label: t(state, 'كل التصنيفات', 'Any label') },
+            ...rowsOf(live.labels).map((entry) => ({ value: entry.id, label: entry.name })),
+          ],
+        }),
+        selectControl({
+          value: live.contactFilters.fieldId,
+          form: 'fieldId',
+          act: 'live-contact-filter',
+          ariaLabel: t(state, 'الحقل المخصّص', 'Custom field'),
+          options: [
+            { value: '', label: t(state, 'بلا حقل', 'No field filter') },
+            ...rowsOf(live.customFields)
+              .filter((entry) => entry.target === 'contact')
+              .map((entry) => ({ value: entry.id, label: entry.name })),
+          ],
+        }),
+        live.contactFilters.fieldId === ''
+          ? null
+          : textInput(
+              'contactFieldFilter',
+              live.contactFilters.fieldValue,
+              t(state, 'قيمة الحقل', 'Field value'),
+            ),
+        live.contactFilters.fieldId === ''
+          ? null
+          : button({
+              label: t(state, 'تطبيق', 'Apply'),
+              act: 'live-contact-field-filter',
+              small: true,
+            }),
+      ]),
       h('p', { class: 'field__hint' }, [
         t(
           state,
@@ -94,12 +133,52 @@ export function renderContacts(state: AppState): HTMLElement {
       ]),
     ]),
 
+    catalogCard(state, live),
+
     h('div', { class: 'contacts' }, [
       h('section', { class: 'card', 'aria-label': t(state, 'جهات الاتصال', 'Contacts') }, [
         listBody(state, live),
       ]),
       h('section', { class: 'card', 'aria-label': t(state, 'السجل', 'The record') }, [
         selectedBody(state, live),
+      ]),
+    ]),
+  ]);
+}
+
+function catalogCard(state: AppState, live: LiveState): HTMLElement {
+  return h('section', { class: 'card metadata-catalog', 'aria-label': t(state, 'كتالوج البيانات', 'Data catalogue') }, [
+    h('div', { class: 'card__header' }, [
+      h('div', {}, [
+        h('h2', { class: 'card__title' }, [t(state, 'كتالوج مساحة العمل', 'Workspace catalogue')]),
+        h('p', { class: 'field__hint' }, [
+          t(state, 'أنشئ تصنيفات وحقولًا محددة النوع تستخدمها المحادثات والعملاء.', 'Create labels and typed fields shared by conversations and contacts.'),
+        ]),
+      ]),
+    ]),
+    h('div', { class: 'cataloggrid' }, [
+      h('div', { class: 'cataloggrid__form' }, [
+        field(t(state, 'تصنيف جديد', 'New label'), textInput('labelName', state.dialogForm['labelName'] ?? '', t(state, 'مثال: مهتم', 'e.g. Interested'))),
+        h('input', { class: 'input input--color', type: 'color', value: state.dialogForm['labelColor'] ?? '#3B82F6', 'data-act': 'form', 'data-form': 'labelColor', 'aria-label': t(state, 'لون التصنيف', 'Label color') }),
+        button({ label: t(state, 'إنشاء التصنيف', 'Create label'), act: 'live-label-create', small: true, disabled: live.busy !== null }),
+      ]),
+      h('div', { class: 'cataloggrid__form' }, [
+        field(t(state, 'اسم الحقل', 'Field name'), textInput('fieldName', state.dialogForm['fieldName'] ?? '', t(state, 'مثال: مستوى الدورة', 'e.g. Course level'))),
+        field(t(state, 'المفتاح', 'Key'), textInput('fieldKey', state.dialogForm['fieldKey'] ?? '', 'course_level')),
+        selectControl({ value: state.dialogForm['fieldTarget'] ?? 'contact', form: 'fieldTarget', ariaLabel: t(state, 'نوع السجل', 'Record type'), options: [
+          { value: 'contact', label: t(state, 'عميل', 'Contact') },
+          { value: 'conversation', label: t(state, 'محادثة', 'Conversation') },
+        ] }),
+        selectControl({ value: state.dialogForm['fieldType'] ?? 'text', form: 'fieldType', ariaLabel: t(state, 'نوع الحقل', 'Field type'), options: [
+          { value: 'text', label: t(state, 'نص', 'Text') },
+          { value: 'number', label: t(state, 'رقم', 'Number') },
+          { value: 'boolean', label: t(state, 'نعم / لا', 'Yes / No') },
+          { value: 'date', label: t(state, 'تاريخ', 'Date') },
+          { value: 'single_select', label: t(state, 'اختيار واحد', 'Single select') },
+          { value: 'multi_select', label: t(state, 'اختيارات متعددة', 'Multi select') },
+        ] }),
+        textInput('fieldOptions', state.dialogForm['fieldOptions'] ?? '', t(state, 'الاختيارات مفصولة بفاصلة', 'Comma-separated options')),
+        button({ label: t(state, 'إنشاء الحقل', 'Create field'), act: 'live-field-create', small: true, disabled: live.busy !== null }),
       ]),
     ]),
   ]);

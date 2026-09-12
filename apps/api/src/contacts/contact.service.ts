@@ -1,10 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { SqlExecutor } from '@convo/domain';
-import { authorize } from '@convo/domain';
+import type { PermissionKey, Principal, SqlExecutor } from '@convo/domain';
+import { normalizeSearchText, reachFor, validateFieldValue } from '@convo/domain';
+import type { CustomFieldType } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
+import { readMetadata } from '../metadata/metadata.service.js';
+import type { CustomFieldEntry, Label } from '../metadata/metadata.service.js';
 
 /**
  * Contacts: who the customer is, how we reach them, and what they agreed to.
@@ -48,8 +51,11 @@ export interface ContactSummary {
   readonly id: string;
   readonly displayName: string;
   readonly attributes: Record<string, unknown>;
+  readonly version: number;
   readonly createdAt: string;
   readonly identities: readonly ContactIdentity[];
+  readonly labels: readonly Label[];
+  readonly customFields: readonly CustomFieldEntry[];
 }
 
 export interface ContactDetail extends ContactSummary {
@@ -69,6 +75,7 @@ interface RawContact {
   readonly id: string;
   readonly display_name: string;
   readonly attributes: Record<string, unknown>;
+  readonly version: number;
   readonly created_at: Date;
 }
 
@@ -117,8 +124,8 @@ export class ContactService {
     // as we can prove*. A search for a similar name or number would be the
     // inference CT-03 forbids; if they are the same person, a human merges them.
     const contact = await sql.query<{ id: string }>(
-      `INSERT INTO contacts (tenant_id, display_name) VALUES ($1, $2) RETURNING id::text`,
-      [tenantId, identity.externalId],
+      `INSERT INTO contacts (tenant_id, display_name, search_name) VALUES ($1, $2, $3) RETURNING id::text`,
+      [tenantId, identity.externalId, normalizeSearchText(identity.externalId)],
     );
     const contactId = requireRow(contact.rows, 'the contact insert returned no id').id;
     await sql.query(
@@ -142,23 +149,72 @@ export class ContactService {
   async list(
     session: AuthenticatedSession,
     tenantId: string,
-    query: string | null,
+    query: {
+      readonly text: string | null;
+      readonly labelIds: readonly string[];
+      readonly fieldId: string | null;
+      readonly fieldValue: string | null;
+    },
   ): Promise<readonly ContactSummary[]> {
-    return this.authorization.authorized(session, tenantId, 'contact.read', async ({ sql }) => {
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const reach = reachFor(principal, 'contact.read');
+      if (reach === 'none') throw denied();
+      const field = await contactFilter(sql, query.fieldId, query.fieldValue);
+      const tenantWide = principal.scopes.some((scope) => scope.type === 'tenant');
+      const teams = principal.scopes.flatMap((scope) => scope.type === 'team' && scope.id !== null ? [scope.id] : []);
+      const inboxes = principal.scopes.flatMap((scope) => scope.type === 'inbox' && scope.id !== null ? [scope.id] : []);
       const rows = await sql.query<RawContact>(
-        `SELECT id::text, display_name, attributes, created_at
+        `SELECT id::text, display_name, attributes, version, created_at
            FROM contacts
           WHERE deleted_at IS NULL
-            AND ($1::text IS NULL OR display_name ILIKE '%' || $1 || '%')
+            AND ($1::text IS NULL OR search_name LIKE '%' || $1 || '%')
+            AND (cardinality($2::uuid[]) = 0 OR (
+              SELECT count(DISTINCT cl.label_id) FROM contact_labels cl
+               WHERE cl.contact_id = contacts.id AND cl.removed_at IS NULL
+                 AND cl.label_id = ANY($2::uuid[])
+            ) = cardinality($2::uuid[]))
+            AND ($3::uuid IS NULL OR EXISTS (
+              SELECT 1 FROM contact_custom_field_values cfv
+               WHERE cfv.contact_id = contacts.id AND cfv.field_id = $3
+                 AND (($5::boolean AND cfv.search_value LIKE '%' || $4 || '%')
+                   OR (NOT $5::boolean AND cfv.search_value = $4))
+            ))
+            AND ($6::text = 'tenant' OR EXISTS (
+              SELECT 1 FROM conversations visible
+               WHERE visible.contact_id = contacts.id
+                 AND ($8::boolean
+                   OR visible.team_id = ANY($9::uuid[])
+                   OR visible.connection_id = ANY($10::uuid[]))
+                 AND ($6::text = 'scoped'
+                   OR visible.assignee_membership_id = $7
+                   OR EXISTS (SELECT 1 FROM conversation_participants cp
+                               WHERE cp.conversation_id = visible.id AND cp.membership_id = $7)
+                   OR EXISTS (SELECT 1 FROM conversation_collaborators cc
+                               WHERE cc.conversation_id = visible.id AND cc.membership_id = $7
+                                 AND cc.removed_at IS NULL))
+            ))
           ORDER BY created_at DESC, id
           LIMIT 200`,
-        [query],
+        [
+          query.text === null ? null : normalizeSearchText(query.text),
+          query.labelIds,
+          query.fieldId,
+          field?.search ?? '',
+          field?.contains ?? false,
+          reach,
+          principal.membershipId,
+          tenantWide,
+          teams,
+          inboxes,
+        ],
       );
       const identities = await identitiesFor(
         sql,
         rows.rows.map((row) => row.id),
       );
-      return rows.rows.map((row) => summaryOf(row, identities.get(row.id) ?? []));
+      return Promise.all(rows.rows.map(async (row) =>
+        summaryOf(row, identities.get(row.id) ?? [], await readMetadata(sql, 'contact', row.id)),
+      ));
     });
   }
 
@@ -169,9 +225,11 @@ export class ContactService {
     contactId: string,
   ): Promise<ContactDetail> {
     this.authorization.assertTenantId(contactId);
-    return this.authorization.authorized(session, tenantId, 'contact.read', async ({ sql }) =>
-      detailOf(sql, contactId),
-    );
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      await readContact(sql, contactId);
+      if (!(await canReachContact(sql, principal, contactId, 'contact.read'))) throw denied();
+      return detailOf(sql, contactId);
+    });
   }
 
   /**
@@ -185,33 +243,24 @@ export class ContactService {
     session: AuthenticatedSession,
     tenantId: string,
     contactId: string,
-    input: { readonly displayName?: string; readonly attributes?: Record<string, unknown> },
+    input: { readonly displayName: string },
   ): Promise<ContactDetail> {
     this.authorization.assertTenantId(contactId);
     return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
       // Existence first: a caller who may not edit a contact that does not
       // exist should be told it does not exist, not that they may not.
       await readContact(sql, contactId);
-      const decision = authorize(principal, 'contact.edit', {
-        // A contact is not scoped to one inbox: the same person can write to
-        // several. Ownership is decided by the conversations they are in, which
-        // is why an `own`-level grant reaches a contact through a conversation
-        // and not directly.
-        ...(await ownershipOf(sql, contactId)),
-      });
-      if (!decision.allowed) {
-        throw denied();
-      }
+      if (!(await canReachContact(sql, principal, contactId, 'contact.edit'))) throw denied();
       await sql.query(
         `UPDATE contacts
-            SET display_name = coalesce($2, display_name),
-                attributes = coalesce($3::jsonb, attributes),
+            SET display_name = $2,
+                search_name = $3,
                 updated_at = now()
           WHERE id = $1`,
         [
           contactId,
-          input.displayName ?? null,
-          input.attributes === undefined ? null : JSON.stringify(input.attributes),
+          input.displayName,
+          normalizeSearchText(input.displayName),
         ],
       );
       return detailOf(sql, contactId);
@@ -245,10 +294,7 @@ export class ContactService {
   ): Promise<ContactDetail> {
     this.authorization.assertTenantId(contactId);
     return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
-      const decision = authorize(principal, 'consent.record', await ownershipOf(sql, contactId));
-      if (!decision.allowed) {
-        throw denied();
-      }
+      if (!(await canReachContact(sql, principal, contactId, 'consent.record'))) throw denied();
       await readContact(sql, contactId);
 
       if (input.state === 'granted' && input.source === 'import') {
@@ -289,6 +335,28 @@ export class ContactService {
   }
 }
 
+async function contactFilter(
+  sql: SqlExecutor,
+  fieldId: string | null,
+  raw: string | null,
+): Promise<{ readonly search: string; readonly contains: boolean } | null> {
+  if (fieldId === null && raw === null) return null;
+  if (fieldId === null || raw === null) throw new ApiHttpError(400, 'validation_failed', 'fieldId and fieldValue must be sent together.');
+  const rows = await sql.query<{ type: CustomFieldType; options: readonly string[] }>(
+    `SELECT type, options FROM custom_fields WHERE id = $1 AND target = 'contact' AND state = 'active'`,
+    [fieldId],
+  );
+  const field = rows.rows[0];
+  if (field === undefined) throw new ApiHttpError(422, 'custom_field_unavailable', 'The contact field is retired or missing.');
+  const candidate: unknown =
+    field.type === 'number' ? Number(raw) :
+    field.type === 'boolean' ? raw === 'true' ? true : raw === 'false' ? false : raw :
+    field.type === 'multi_select' ? raw.split(',').filter(Boolean) : raw;
+  const checked = validateFieldValue(field, candidate);
+  if (!checked.ok) throw new ApiHttpError(422, 'custom_field_value_invalid', 'The filter value does not match the field definition.');
+  return { search: checked.search, contains: field.type === 'text' };
+}
+
 /**
  * A contact and everything a reader needs beside it.
  *
@@ -300,7 +368,7 @@ async function detailOf(sql: SqlExecutor, contactId: string): Promise<ContactDet
   const contact = await readContact(sql, contactId);
   const identities = (await identitiesFor(sql, [contactId])).get(contactId) ?? [];
   return {
-    ...summaryOf(contact, identities),
+    ...summaryOf(contact, identities, await readMetadata(sql, 'contact', contactId)),
     consent: await consentFor(sql, contactId),
     suppressed: await suppressionsFor(sql, identities),
   };
@@ -314,37 +382,36 @@ async function detailOf(sql: SqlExecutor, contactId: string): Promise<ContactDet
  * who holds *any* conversation with this person may edit their record, which is
  * what "own conversation's contact" means in the role matrix.
  */
-async function ownershipOf(
+async function canReachContact(
   sql: SqlExecutor,
+  principal: Principal,
   contactId: string,
-): Promise<{
-  readonly assigneeMembershipId: string | null;
-  readonly participantMembershipIds: readonly string[];
-}> {
-  const rows = await sql.query<{ assignee_membership_id: string | null; membership_id: string | null }>(
-    `SELECT c.assignee_membership_id::text, p.membership_id::text
-       FROM conversations c
-       LEFT JOIN conversation_participants p ON p.conversation_id = c.id
-      WHERE c.contact_id = $1`,
-    [contactId],
+  permission: PermissionKey,
+): Promise<boolean> {
+  const reach = reachFor(principal, permission);
+  if (reach === 'none') return false;
+  if (reach === 'tenant') return true;
+  const tenantWide = principal.scopes.some((scope) => scope.type === 'tenant');
+  const teams = principal.scopes.flatMap((scope) => scope.type === 'team' && scope.id !== null ? [scope.id] : []);
+  const inboxes = principal.scopes.flatMap((scope) => scope.type === 'inbox' && scope.id !== null ? [scope.id] : []);
+  const rows = await sql.query(
+    `SELECT 1 FROM conversations c
+      WHERE c.contact_id = $1
+        AND ($4::boolean OR c.team_id = ANY($5::uuid[]) OR c.connection_id = ANY($6::uuid[]))
+        AND ($2::text = 'scoped' OR c.assignee_membership_id = $3
+          OR EXISTS (SELECT 1 FROM conversation_participants p
+                      WHERE p.conversation_id = c.id AND p.membership_id = $3)
+          OR EXISTS (SELECT 1 FROM conversation_collaborators x
+                      WHERE x.conversation_id = c.id AND x.membership_id = $3 AND x.removed_at IS NULL))
+      LIMIT 1`,
+    [contactId, reach, principal.membershipId, tenantWide, teams, inboxes],
   );
-  const participants = new Set<string>();
-  let assignee: string | null = null;
-  for (const row of rows.rows) {
-    if (row.assignee_membership_id !== null) {
-      assignee = row.assignee_membership_id;
-      participants.add(row.assignee_membership_id);
-    }
-    if (row.membership_id !== null) {
-      participants.add(row.membership_id);
-    }
-  }
-  return { assigneeMembershipId: assignee, participantMembershipIds: [...participants] };
+  return rows.rows.length > 0;
 }
 
 async function readContact(sql: SqlExecutor, contactId: string): Promise<RawContact> {
   const rows = await sql.query<RawContact>(
-    `SELECT id::text, display_name, attributes, created_at
+    `SELECT id::text, display_name, attributes, version, created_at
        FROM contacts WHERE id = $1 AND deleted_at IS NULL`,
     [contactId],
   );
@@ -438,13 +505,20 @@ async function suppressionsFor(
   return rows.rows.map((row) => row.kind);
 }
 
-function summaryOf(row: RawContact, identities: readonly ContactIdentity[]): ContactSummary {
+function summaryOf(
+  row: RawContact,
+  identities: readonly ContactIdentity[],
+  metadata: { readonly labels: readonly Label[]; readonly customFields: readonly CustomFieldEntry[] },
+): ContactSummary {
   return {
     id: row.id,
     displayName: row.display_name,
     attributes: row.attributes,
+    version: row.version,
     createdAt: row.created_at.toISOString(),
     identities,
+    labels: metadata.labels,
+    customFields: metadata.customFields,
   };
 }
 

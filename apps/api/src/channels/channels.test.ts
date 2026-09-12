@@ -242,6 +242,7 @@ describe('parseConnectChannel', () => {
       externalAssetId: 'phone-1',
       displayName: 'Enrollment line',
       accessToken: 'EAAGabcdef123456',
+      providerAppId: null,
       appId: null,
       settings: {},
     });
@@ -252,6 +253,12 @@ describe('parseConnectChannel', () => {
     const result = parseConnectChannel({ ...VALID_CONNECT, appId });
     if (!result.ok) throw new Error('unreachable');
     expect(result.value.appId).toBe(appId);
+  });
+
+  it('accepts the provider-facing app id the operator can copy from Meta', () => {
+    const result = parseConnectChannel({ ...VALID_CONNECT, providerAppId: ' 100000000000009 ' });
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.value.providerAppId).toBe('100000000000009');
   });
 
   it.each([
@@ -269,6 +276,13 @@ describe('parseConnectChannel', () => {
     ['a short token', { ...VALID_CONNECT, accessToken: 'abc' }, ['accessToken']],
     ['a non-string token', { ...VALID_CONNECT, accessToken: 42 }, ['accessToken']],
     ['a non-uuid app id', { ...VALID_CONNECT, appId: 'app-1' }, ['appId']],
+    ['a malformed provider app id', { ...VALID_CONNECT, providerAppId: '../app' }, ['providerAppId']],
+    ['a non-string provider app id', { ...VALID_CONNECT, providerAppId: 42 }, ['providerAppId']],
+    [
+      'two app references',
+      { ...VALID_CONNECT, appId: '55555555-5555-4555-8555-555555555555', providerAppId: '100000000000009' },
+      ['appReference'],
+    ],
   ])('rejects %s', (_label, body, expected) => {
     const result = parseConnectChannel(body);
     if (result.ok) throw new Error('expected a rejection');

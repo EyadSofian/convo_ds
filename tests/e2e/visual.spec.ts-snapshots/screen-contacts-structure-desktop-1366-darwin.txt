@@ -9,7 +9,43 @@ div.workspace
     div.formrow
       input.input [form]
       button.btn [live-contacts-search]
+    div.contactfilters
+      select.select [live-contact-filter]
+        option
+      select.select [live-contact-filter]
+        option
     p.field__hint
+  section.card.metadata-catalog
+    div.card__header
+      div
+        h2.card__title
+        p.field__hint
+    div.cataloggrid
+      div.cataloggrid__form
+        label.field
+          span.field__label
+          input.input [form]
+        input.input.input--color [form]
+        button.btn.btn--sm [live-label-create]
+      div.cataloggrid__form
+        label.field
+          span.field__label
+          input.input [form]
+        label.field
+          span.field__label
+          input.input [form]
+        select.select [form]
+          option
+          option
+        select.select [form]
+          option
+          option
+          option
+          option
+          option
+          option
+        input.input [form]
+        button.btn.btn--sm [live-field-create]
   div.contacts
     section.card
       ul.contactlist

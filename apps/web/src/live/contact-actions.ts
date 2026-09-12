@@ -2,6 +2,7 @@ import type { Contact } from '../api/contacts.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { forTenant, fromResult, LOADING, ready } from './store.js';
+import { loadMetadataCatalog } from './metadata-catalog.js';
 
 /**
  * Contacts, against the real API.
@@ -56,9 +57,15 @@ export async function loadContactsScreen(context: LiveContext): Promise<void> {
   return forTenant(context, undefined, async (tenantId) => {
     live.contacts = LOADING;
     context.refresh();
-    const result = await live.contactsApi.list(tenantId, live.contactQuery);
+    const result = await live.contactsApi.list(tenantId, {
+      query: live.contactQuery,
+      labelId: live.contactFilters.labelId,
+      fieldId: live.contactFilters.fieldId,
+      fieldValue: live.contactFilters.fieldValue,
+    });
     live.contacts = fromResult(result, context.now());
     context.refresh();
+    if (live.labels.status === 'idle') await loadMetadataCatalog(context);
   });
 }
 
@@ -85,7 +92,7 @@ export async function openContact(context: LiveContext, contactId: string): Prom
 export async function saveContact(
   context: LiveContext,
   contactId: string,
-  input: { readonly displayName?: string; readonly attributes?: Record<string, unknown> },
+  input: { readonly displayName: string },
 ): Promise<boolean> {
   const { live } = context;
   return forTenant(context, false, async (tenantId) => {

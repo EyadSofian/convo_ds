@@ -2,6 +2,7 @@ import type {
   CapabilityMatrix,
   ChannelCatalogueEntry,
   ChannelConnection,
+  ChannelKind,
   ChannelReadiness,
 } from '../api/channels.js';
 import type { ApiError } from '../api/client.js';
@@ -10,7 +11,7 @@ import { h } from '../dom.js';
 import { channelTokenField } from '../live/dispatch.js';
 import { isDenial, isUnauthenticated, type LiveState, type Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
-import { button, checkItem, isolated, pill, stateBox } from './parts.js';
+import { button, checkItem, isolated, pill, selectControl, stateBox } from './parts.js';
 import type { Tone } from './parts.js';
 
 /**
@@ -246,6 +247,10 @@ function mutationError(state: AppState, live: LiveState): Child {
  */
 function connectCard(state: AppState, live: LiveState): HTMLElement {
   const connecting = live.busy === 'connect-channel';
+  const rawKind = state.dialogForm['channelKind'] ?? 'whatsapp';
+  const kind = (['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom'] as const).find((value) => value === rawKind) ?? 'whatsapp';
+  const meta = kind === 'whatsapp' || kind === 'messenger' || kind === 'instagram';
+  const providerApp = state.dialogForm['channelProviderApp'] ?? '';
   const asset = state.dialogForm['channelAsset'] ?? '';
   const name = state.dialogForm['channelName'] ?? '';
   const token = state.dialogForm['channelToken'] ?? '';
@@ -262,10 +267,36 @@ function connectCard(state: AppState, live: LiveState): HTMLElement {
         ),
       ]),
       h('div', { class: 'filterbar' }, [
+        selectControl({
+          value: kind,
+          act: 'form-toggle',
+          form: 'channelKind',
+          ariaLabel: t(state, 'نوع القناة', 'Channel kind'),
+          options: [
+            { value: 'whatsapp', label: kindLabel(state, 'whatsapp') },
+            { value: 'messenger', label: kindLabel(state, 'messenger') },
+            { value: 'instagram', label: kindLabel(state, 'instagram') },
+            { value: 'web_chat', label: kindLabel(state, 'web_chat') },
+            { value: 'custom', label: kindLabel(state, 'custom') },
+          ],
+        }),
+        meta
+          ? h('span', { class: 'searchbox', style: 'flex:1 1 11rem' }, [
+              h('input', {
+                class: 'input',
+                inputmode: 'numeric',
+                placeholder: t(state, 'Meta App ID', 'Meta App ID'),
+                'aria-label': t(state, 'معرّف تطبيق ميتا المهيّأ على الخادم', 'Meta App ID configured on the server'),
+                value: providerApp,
+                'data-act': 'form-toggle',
+                'data-form': 'channelProviderApp',
+              }),
+            ])
+          : null,
         h('span', { class: 'searchbox', style: 'flex:1 1 12rem' }, [
           h('input', {
             class: 'input',
-            placeholder: t(state, 'معرّف رقم واتساب', 'WhatsApp phone number id'),
+            placeholder: assetPlaceholder(state, kind),
             'aria-label': t(state, 'معرّف الأصل', 'Provider asset id'),
             value: asset,
             'data-act': 'form-toggle',
@@ -287,7 +318,9 @@ function connectCard(state: AppState, live: LiveState): HTMLElement {
             class: 'input',
             type: 'password',
             autocomplete: 'off',
-            placeholder: t(state, 'رمز وصول المزوّد', 'Provider access token'),
+            placeholder: meta
+              ? t(state, 'رمز وصول المزوّد', 'Provider access token')
+              : t(state, 'مفتاح توقيع قوي', 'Strong signing key'),
             'aria-label': t(state, 'رمز الوصول', 'Access token'),
             value: token,
             'data-act': 'form-toggle',
@@ -297,12 +330,12 @@ function connectCard(state: AppState, live: LiveState): HTMLElement {
         button({
           label: connecting
             ? t(state, 'جارٍ الربط…', 'Connecting…')
-            : t(state, 'ربط واتساب', 'Connect WhatsApp'),
+            : t(state, 'ربط القناة', 'Connect channel'),
           icon: 'plus',
           act: 'live-connect-channel',
           variant: 'primary',
           small: true,
-          disabled: connecting || asset === '' || name === '' || token === '',
+          disabled: connecting || (meta && providerApp === '') || asset === '' || name === '' || token === '',
         }),
       ]),
       mutationError(state, live),
@@ -346,6 +379,12 @@ function connectionCard(state: AppState, live: LiveState, connection: ChannelCon
       h('dd', {}, [kindLabel(state, connection.kind)]),
       h('dt', {}, [t(state, 'الأصل', 'Asset')]),
       h('dd', {}, [isolated(connection.external_asset_id, true)]),
+      connection.provider_app_id === null
+        ? null
+        : h('dt', {}, [t(state, 'تطبيق ميتا', 'Meta app')]),
+      connection.provider_app_id === null
+        ? null
+        : h('dd', {}, [isolated(connection.provider_app_id, true)]),
       h('dt', {}, [t(state, 'معرّف الاتصال', 'Connection id')]),
       h('dd', {}, [isolated(connection.id, true)]),
       h('dt', {}, [t(state, 'نافذة الرد', 'Reply window')]),
@@ -415,6 +454,18 @@ function connectionCard(state: AppState, live: LiveState, connection: ChannelCon
           }),
         ]),
   ]);
+}
+
+function assetPlaceholder(state: AppState, kind: ChannelKind): string {
+  const labels: Record<ChannelKind, { ar: string; en: string }> = {
+    whatsapp: { ar: 'Phone Number ID', en: 'Phone Number ID' },
+    messenger: { ar: 'Page ID', en: 'Page ID' },
+    instagram: { ar: 'Instagram Account ID', en: 'Instagram Account ID' },
+    web_chat: { ar: 'معرّف ويدجت الموقع', en: 'Website widget ID' },
+    custom: { ar: 'معرّف القناة المخصّصة', en: 'Custom channel ID' },
+  };
+  const label = labels[kind];
+  return t(state, label.ar, label.en);
 }
 
 function windowLabel(state: AppState, capabilities: CapabilityMatrix): string {

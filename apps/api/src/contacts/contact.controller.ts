@@ -26,13 +26,21 @@ export class ContactController {
   async list(
     @Param('tenantId') tenantId: string,
     @Query('q') query: string | undefined,
+    @Query('label') label: string | string[] | undefined,
+    @Query('fieldId') fieldId: string | undefined,
+    @Query('fieldValue') fieldValue: string | undefined,
     @Req() request: FastifyRequest,
   ) {
     const session = await this.auth.authenticate(request.headers.cookie);
     const rows = await this.contacts.list(
       session,
       tenantId,
-      query === undefined || query.trim() === '' ? null : query.trim(),
+      {
+        text: query === undefined || query.trim() === '' ? null : query.trim(),
+        labelIds: uuidList(label),
+        fieldId: optionalUuid(fieldId, 'fieldId'),
+        fieldValue: fieldValue === undefined || fieldValue === '' ? null : fieldValue,
+      },
     );
     return pageEnvelope(rows, null, request.id);
   }
@@ -94,14 +102,13 @@ const STATES = ['granted', 'withdrawn'];
 const SOURCES = ['customer_message', 'agent_recorded', 'import', 'web_form'];
 
 interface UpdateInput {
-  readonly displayName?: string;
-  readonly attributes?: Record<string, unknown>;
+  readonly displayName: string;
 }
 
 function parseUpdate(body: unknown): UpdateInput {
   const record = asRecord(body);
   const details: { field: string; code: string; message: string }[] = [];
-  const input: { displayName?: string; attributes?: Record<string, unknown> } = {};
+  let displayName: string | null = null;
 
   const name = record['displayName'];
   if (name !== undefined) {
@@ -112,35 +119,29 @@ function parseUpdate(body: unknown): UpdateInput {
         message: 'A display name is 1 to 200 characters.',
       });
     } else {
-      input.displayName = name.trim();
+      displayName = name.trim();
     }
   }
 
-  const attributes = record['attributes'];
-  if (attributes !== undefined) {
-    const parsed = asRecordOrNull(attributes);
-    if (parsed === null) {
-      details.push({
-        field: 'attributes',
-        code: 'invalid',
-        message: 'Business fields are an object of named values.',
-      });
-    } else {
-      input.attributes = parsed;
-    }
+  if (record['attributes'] !== undefined) {
+    details.push({
+      field: 'attributes',
+      code: 'retired_input',
+      message: 'Use the typed custom-field catalogue instead of arbitrary attributes.',
+    });
   }
 
   if (details.length > 0) {
     throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', details);
   }
-  if (input.displayName === undefined && input.attributes === undefined) {
+  if (displayName === null) {
     // An update that changes nothing is a request that was not written
     // correctly; answering 200 would hide that from whoever sent it.
     throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', [
-      { field: 'displayName', code: 'required', message: 'Send a display name or attributes.' },
+      { field: 'displayName', code: 'required', message: 'Send a display name.' },
     ]);
   }
-  return input;
+  return { displayName };
 }
 
 interface ConsentInput {
@@ -188,4 +189,24 @@ function asRecordOrNull(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function optionalUuid(value: string | undefined, field: string): string | null {
+  if (value === undefined || value === '') return null;
+  if (UUID.test(value)) return value;
+  throw new ApiHttpError(400, 'validation_failed', 'The query is not valid.', [
+    { field, code: 'invalid', message: 'Use a UUID.' },
+  ]);
+}
+
+function uuidList(value: string | string[] | undefined): readonly string[] {
+  const values = value === undefined ? [] : Array.isArray(value) ? value : [value];
+  if (values.length > 20 || values.some((entry) => !UUID.test(entry))) {
+    throw new ApiHttpError(400, 'validation_failed', 'The query is not valid.', [
+      { field: 'label', code: 'invalid', message: 'Use at most 20 UUID values.' },
+    ]);
+  }
+  return [...new Set(values)];
 }

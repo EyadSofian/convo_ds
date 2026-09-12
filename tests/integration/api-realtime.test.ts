@@ -1205,6 +1205,8 @@ describe('the inbox surface', () => {
 describe('contacts', () => {
   const peer = '15557000100';
   let contactId: string;
+  let metadataLabelId: string;
+  let metadataFieldId: string;
 
   beforeAll(async () => {
     await customerWrites(INBOX_A, peer, 'أول اتصال', 'wamid.rt-100');
@@ -1269,16 +1271,20 @@ describe('contacts', () => {
     expect((missing.json() as { data: unknown[] }).data).toEqual([]);
   });
 
-  it('corrects the business fields without touching the identity', async () => {
+  it('corrects the display name and retires the untyped attributes input', async () => {
     const response = await send(api, owner, 'PATCH', `/contacts/${contactId}`, {
       displayName: 'سارة عبد الله',
       attributes: { grade: 'الصف السادس', branch: 'المعادي' },
     });
-    expect(response.statusCode).toBe(200);
-    const contact = (response.json() as { data: Record<string, unknown> }).data;
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'validation_failed', details: [{ code: 'retired_input' }] } });
+
+    const renamed = await send(api, owner, 'PATCH', `/contacts/${contactId}`, {
+      displayName: 'سارة عبد الله',
+    });
+    expect(renamed.statusCode).toBe(200);
+    const contact = (renamed.json() as { data: Record<string, unknown> }).data;
     expect(contact['displayName']).toBe('سارة عبد الله');
-    expect(contact['attributes']).toEqual({ grade: 'الصف السادس', branch: 'المعادي' });
-    // Renaming somebody links nothing and unlinks nothing.
     expect((contact['identities'] as { externalId: string }[])[0]?.externalId).toBe(peer);
   });
 
@@ -1476,15 +1482,12 @@ describe('contacts', () => {
     expect(rows.find((row) => row.id === made.rotated)?.identities).toHaveLength(1);
   });
 
-  it('updates only the attributes when only they are sent', async () => {
+  it('refuses the retired untyped attributes input', async () => {
     const response = await send(api, owner, 'PATCH', `/contacts/${contactId}`, {
       attributes: { plan: 'سنوي' },
     });
-    expect(response.statusCode).toBe(200);
-    const contact = (response.json() as { data: Record<string, unknown> }).data;
-    expect(contact['attributes']).toEqual({ plan: 'سنوي' });
-    // The name is left exactly as it was rather than blanked by an omission.
-    expect(contact['displayName']).toBe('سارة ع.');
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'validation_failed', details: [{ code: 'retired_input' }] } });
   });
 
   it('refuses a body that is not an object at all', async () => {
@@ -1499,6 +1502,351 @@ describe('contacts', () => {
       payload: '"a string"',
     });
     expect(response.statusCode).toBe(400);
+  });
+
+  it('creates a versioned label and typed contact field catalogue', async () => {
+    const label = await send(api, owner, 'POST', '/labels', {
+      name: 'مهتم بالدورات',
+      color: '#5865f2',
+    });
+    expect(label.statusCode).toBe(201);
+    metadataLabelId = (label.json() as { data: { id: string; color: string } }).data.id;
+    expect((label.json() as { data: { color: string } }).data.color).toBe('#5865F2');
+
+    const field = await send(api, owner, 'POST', '/custom-fields', {
+      target: 'contact',
+      key: 'course_interest',
+      name: 'الدورة المطلوبة',
+      type: 'single_select',
+      options: ['Data Analysis', 'Digital Marketing'],
+    });
+    expect(field.statusCode).toBe(201);
+    metadataFieldId = (field.json() as { data: { id: string } }).data.id;
+
+    expect((await send(api, owner, 'GET', '/labels')).statusCode).toBe(200);
+    expect((await send(api, owner, 'GET', '/custom-fields?target=contact')).statusCode).toBe(200);
+    expect((await send(api, agentA, 'POST', '/labels', { name: 'مرفوض', color: '#112233' })).statusCode).toBe(403);
+  });
+
+  it('assigns contact metadata atomically and filters on stored typed values', async () => {
+    const before = await send(api, owner, 'GET', `/contacts/${contactId}`);
+    const version = (before.json() as { data: { version: number } }).data.version;
+    const changed = await send(api, owner, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version,
+      addLabels: [metadataLabelId],
+      fields: [{ fieldId: metadataFieldId, value: 'Data Analysis' }],
+    });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(changed.json()).toMatchObject({ data: { version: version + 1 } });
+
+    const byLabel = await send(api, owner, 'GET', `/contacts?label=${metadataLabelId}`);
+    expect((byLabel.json() as { data: { id: string }[] }).data.map((row) => row.id)).toContain(contactId);
+    const byField = await send(api, owner, 'GET', `/contacts?fieldId=${metadataFieldId}&fieldValue=Data%20Analysis`);
+    expect((byField.json() as { data: { id: string }[] }).data.map((row) => row.id)).toContain(contactId);
+
+    const stale = await send(api, owner, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version,
+      removeLabels: [metadataLabelId],
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ error: { code: 'entity_version_conflict' } });
+  });
+
+  it('protects definitions in use and lets retired metadata be removed', async () => {
+    const fieldRows = await send(api, owner, 'GET', '/custom-fields?target=contact');
+    const field = (fieldRows.json() as { data: { id: string; version: number }[] }).data.find((row) => row.id === metadataFieldId);
+    const unsafe = await send(api, owner, 'PATCH', `/custom-fields/${metadataFieldId}`, {
+      version: field?.version,
+      options: ['Digital Marketing'],
+    });
+    expect(unsafe.statusCode).toBe(409);
+    expect(unsafe.json()).toMatchObject({ error: { code: 'field_options_in_use' } });
+
+    const labels = await send(api, owner, 'GET', '/labels');
+    const label = (labels.json() as { data: { id: string; version: number }[] }).data.find((row) => row.id === metadataLabelId);
+    const renamed = await send(api, owner, 'PATCH', `/labels/${metadataLabelId}`, {
+      version: label?.version,
+      name: 'مهتم بالتسجيل',
+    });
+    const retired = await send(api, owner, 'DELETE', `/labels/${metadataLabelId}`, {
+      version: (renamed.json() as { data: { version: number } }).data.version,
+    });
+    expect(retired.statusCode).toBe(200);
+
+    const current = await send(api, owner, 'GET', `/contacts/${contactId}`);
+    const removed = await send(api, owner, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version: (current.json() as { data: { version: number } }).data.version,
+      removeLabels: [metadataLabelId],
+    });
+    expect(removed.statusCode).toBe(200);
+    expect((removed.json() as { data: { metadata: { labels: unknown[] } } }).data.metadata.labels).toEqual([]);
+
+    const all = await send(api, owner, 'GET', '/labels?includeRetired=true');
+    expect((all.json() as { data: { id: string; state: string }[] }).data).toContainEqual(expect.objectContaining({ id: metadataLabelId, state: 'retired' }));
+  });
+
+  it('writes conversation metadata and append-only evidence without false no-op events', async () => {
+    const conversation = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE contact_id = $1 LIMIT 1', [contactId]),
+    );
+    const conversationIdForContact = conversation.rows[0]?.id as string;
+    const definition = await send(api, owner, 'POST', '/custom-fields', {
+      target: 'conversation', key: 'lead_temperature', name: 'Lead temperature',
+      type: 'text', options: [],
+    });
+    const fieldId = (definition.json() as { data: { id: string } }).data.id;
+    const record = await send(api, owner, 'GET', `/conversations/${conversationIdForContact}`);
+    const version = (record.json() as { data: { version: number } }).data.version;
+    const changed = await send(api, owner, 'PATCH', `/conversations/${conversationIdForContact}/metadata`, {
+      version, fields: [{ fieldId, value: 'Hot lead' }],
+    });
+    expect(changed.statusCode, changed.body).toBe(200);
+    const afterVersion = (changed.json() as { data: { version: number } }).data.version;
+    const noOp = await send(api, owner, 'PATCH', `/conversations/${conversationIdForContact}/metadata`, {
+      version: afterVersion, fields: [{ fieldId, value: 'Hot lead' }],
+    });
+    expect(noOp.statusCode).toBe(200);
+    expect((noOp.json() as { data: { version: number } }).data.version).toBe(afterVersion);
+
+    const evidence = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ count: string }>(
+        `SELECT count(*)::text FROM metadata_audit
+          WHERE entity_id = $1 AND act = 'field_value_set'`,
+        [conversationIdForContact],
+      ),
+    );
+    expect(evidence.rows[0]?.count).toBe('1');
+  });
+
+  it('enforces catalogue uniqueness, versions, option safety and retirement', async () => {
+    const firstLabel = await send(api, owner, 'POST', '/labels', {
+      name: 'Catalogue conflict', color: '#123456',
+    });
+    expect(firstLabel.statusCode).toBe(201);
+    const label = (firstLabel.json() as { data: { id: string; version: number } }).data;
+    expect((await send(api, owner, 'POST', '/labels', {
+      name: 'catalogue conflict', color: '#654321',
+    })).json()).toMatchObject({ error: { code: 'label_exists' } });
+    expect((await send(api, owner, 'PATCH', `/labels/${label.id}`, {
+      version: label.version + 1, name: 'Stale name',
+    })).json()).toMatchObject({ error: { code: 'label_version_conflict' } });
+    expect((await send(api, owner, 'PATCH', '/labels/99999999-9999-4999-8999-999999999999', {
+      version: 1, name: 'Missing',
+    })).statusCode).toBe(404);
+    const recolored = await send(api, owner, 'PATCH', `/labels/${label.id}`, {
+      version: label.version, color: '#FEDCBA',
+    });
+    expect(recolored.statusCode, recolored.body).toBe(200);
+
+    const textResponse = await send(api, owner, 'POST', '/custom-fields', {
+      target: 'contact', key: 'catalogue_notes', name: 'Catalogue notes', type: 'text', options: [],
+    });
+    const textField = (textResponse.json() as { data: { id: string; version: number } }).data;
+    expect((await send(api, owner, 'POST', '/custom-fields', {
+      target: 'contact', key: 'catalogue_notes', name: 'Duplicate', type: 'text', options: [],
+    })).json()).toMatchObject({ error: { code: 'custom_field_exists' } });
+    expect((await send(api, owner, 'PATCH', `/custom-fields/${textField.id}`, {
+      version: textField.version, options: ['not valid for text'],
+    })).json()).toMatchObject({ error: { code: 'validation_failed' } });
+
+    const optionsConfirmed = await send(api, owner, 'PATCH', `/custom-fields/${textField.id}`, {
+      version: textField.version, options: [],
+    });
+    expect(optionsConfirmed.statusCode, optionsConfirmed.body).toBe(200);
+    const optionsVersion = (optionsConfirmed.json() as { data: { version: number } }).data.version;
+    const renamed = await send(api, owner, 'PATCH', `/custom-fields/${textField.id}`, {
+      version: optionsVersion, name: 'Notes renamed',
+    });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    const renamedField = (renamed.json() as { data: { version: number } }).data;
+    expect((await send(api, owner, 'PATCH', `/custom-fields/${textField.id}`, {
+      version: optionsVersion, name: 'Stale',
+    })).json()).toMatchObject({ error: { code: 'field_version_conflict' } });
+    const retired = await send(api, owner, 'DELETE', `/custom-fields/${textField.id}`, {
+      version: renamedField.version,
+    });
+    expect(retired.statusCode, retired.body).toBe(200);
+    const retiredField = (retired.json() as { data: { version: number; state: string } }).data;
+    expect(retiredField.state).toBe('retired');
+    expect((await send(api, owner, 'PATCH', `/custom-fields/${textField.id}`, {
+      version: retiredField.version, name: 'Cannot revive',
+    })).json()).toMatchObject({ error: { code: 'field_version_conflict' } });
+    expect((await send(api, owner, 'DELETE', `/custom-fields/${textField.id}`, {
+      version: retiredField.version,
+    })).json()).toMatchObject({ error: { code: 'field_version_conflict' } });
+    expect((await send(api, owner, 'PATCH', '/custom-fields/99999999-9999-4999-8999-999999999999', {
+      version: 1, name: 'Missing',
+    })).statusCode).toBe(404);
+
+    const conversationSelect = await send(api, owner, 'POST', '/custom-fields', {
+      target: 'conversation', key: 'catalogue_stage', name: 'Stage', type: 'single_select',
+      options: ['New', 'Qualified'],
+    });
+    const select = (conversationSelect.json() as { data: { id: string; version: number } }).data;
+    const safe = await send(api, owner, 'PATCH', `/custom-fields/${select.id}`, {
+      version: select.version, options: ['New', 'Qualified', 'Won'],
+    });
+    expect(safe.statusCode, safe.body).toBe(200);
+    expect((await send(api, owner, 'GET', '/custom-fields?includeRetired=true')).statusCode).toBe(200);
+  });
+
+  it('validates every metadata mutation and supports explicit clears', async () => {
+    const labelResponse = await send(api, owner, 'POST', '/labels', {
+      name: 'Mutation coverage', color: '#ABCDEF',
+    });
+    const labelId = (labelResponse.json() as { data: { id: string } }).data.id;
+    const wrongTargetResponse = await send(api, owner, 'POST', '/custom-fields', {
+      target: 'conversation', key: 'wrong_contact_target', name: 'Wrong target', type: 'text', options: [],
+    });
+    const wrongTargetId = (wrongTargetResponse.json() as { data: { id: string } }).data.id;
+
+    const readVersion = async (): Promise<number> => {
+      const response = await send(api, owner, 'GET', `/contacts/${contactId}`);
+      return (response.json() as { data: { version: number } }).data.version;
+    };
+    let version = await readVersion();
+    const assigned = await send(api, owner, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version, addLabels: [labelId, labelId], fields: [{ fieldId: metadataFieldId, value: 'Digital Marketing' }],
+    });
+    expect(assigned.statusCode, assigned.body).toBe(200);
+    version = (assigned.json() as { data: { version: number } }).data.version;
+
+    const noOp = await send(api, owner, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version, addLabels: [labelId], removeLabels: [],
+    });
+    expect((noOp.json() as { data: { version: number } }).data.version).toBe(version);
+    const absentRemoval = await send(api, owner, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version, removeLabels: [metadataLabelId],
+    });
+    expect((absentRemoval.json() as { data: { version: number } }).data.version).toBe(version);
+
+    for (const body of [
+      { version, fields: [{ fieldId: metadataFieldId, value: 'Unknown course' }] },
+      { version, fields: [{ fieldId: wrongTargetId, value: 'wrong' }] },
+      { version, fields: [{ fieldId: '99999999-9999-4999-8999-999999999999', value: 'missing' }] },
+    ]) {
+      const refused = await send(api, owner, 'PATCH', `/contacts/${contactId}/metadata`, body);
+      expect(refused.statusCode).toBe(422);
+    }
+    expect((await send(api, owner, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version, addLabels: [metadataLabelId],
+    })).json()).toMatchObject({ error: { code: 'label_unavailable' } });
+
+    const cleared = await send(api, owner, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version, fields: [{ fieldId: metadataFieldId, value: null }],
+    });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+    version = (cleared.json() as { data: { version: number } }).data.version;
+    const clearedAgain = await send(api, owner, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version, fields: [{ fieldId: metadataFieldId, value: null }],
+    });
+    expect((clearedAgain.json() as { data: { version: number } }).data.version).toBe(version);
+
+    const conversationRows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE contact_id = $1 LIMIT 1', [contactId]),
+    );
+    const conversationId = conversationRows.rows[0]?.id as string;
+    const record = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    let conversationVersion = (record.json() as { data: { version: number } }).data.version;
+    const added = await send(api, owner, 'PATCH', `/conversations/${conversationId}/metadata`, {
+      version: conversationVersion, addLabels: [labelId],
+    });
+    conversationVersion = (added.json() as { data: { version: number } }).data.version;
+    const removed = await send(api, owner, 'PATCH', `/conversations/${conversationId}/metadata`, {
+      version: conversationVersion, removeLabels: [labelId],
+    });
+    expect(removed.statusCode, removed.body).toBe(200);
+
+    expect((await send(api, agentB, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version, addLabels: [labelId],
+    })).statusCode).toBe(403);
+    expect((await send(api, owner, 'PATCH', '/contacts/99999999-9999-4999-8999-999999999999/metadata', {
+      version: 1, addLabels: [labelId],
+    })).statusCode).toBe(404);
+    expect((await send(api, agentB, 'PATCH', `/conversations/${conversationId}/metadata`, {
+      version: conversationVersion + 1, addLabels: [labelId],
+    })).statusCode).toBe(403);
+    expect((await send(api, owner, 'PATCH', '/conversations/99999999-9999-4999-8999-999999999999/metadata', {
+      version: 1, addLabels: [labelId],
+    })).statusCode).toBe(404);
+  });
+
+  it('validates and applies contact and inbox filters without filtering after pagination', async () => {
+    const numberField = await send(api, owner, 'POST', '/custom-fields', {
+      target: 'contact', key: 'filter_number', name: 'Number filter', type: 'number', options: [],
+    });
+    const booleanField = await send(api, owner, 'POST', '/custom-fields', {
+      target: 'contact', key: 'filter_boolean', name: 'Boolean filter', type: 'boolean', options: [],
+    });
+    const multiField = await send(api, owner, 'POST', '/custom-fields', {
+      target: 'contact', key: 'filter_multi', name: 'Multi filter', type: 'multi_select', options: ['A', 'B'],
+    });
+    const textField = await send(api, owner, 'POST', '/custom-fields', {
+      target: 'contact', key: 'filter_text', name: 'Text filter', type: 'text', options: [],
+    });
+    const ids = [numberField, booleanField, multiField, textField].map((response) =>
+      (response.json() as { data: { id: string } }).data.id,
+    );
+
+    for (const path of [
+      `/contacts?fieldId=${ids[0]}&fieldValue=4`,
+      `/contacts?fieldId=${ids[1]}&fieldValue=true`,
+      `/contacts?fieldId=${ids[1]}&fieldValue=false`,
+      `/contacts?fieldId=${ids[2]}&fieldValue=A%2CB`,
+      `/contacts?fieldId=${ids[3]}&fieldValue=%D8%B3%D8%A7%D8%B1%D8%A9`,
+    ]) expect((await send(api, owner, 'GET', path)).statusCode).toBe(200);
+
+    for (const path of [
+      '/contacts?fieldId=bad&fieldValue=x',
+      '/contacts?label=bad',
+      `/contacts?fieldId=${ids[0]}`,
+      '/contacts?fieldValue=x',
+      '/contacts?fieldId=99999999-9999-4999-8999-999999999999&fieldValue=x',
+      `/contacts?fieldId=${ids[0]}&fieldValue=not-a-number`,
+      `/contacts?fieldId=${ids[1]}&fieldValue=not-a-boolean`,
+      `/contacts?fieldId=${ids[2]}&fieldValue=unknown`,
+    ]) expect((await send(api, owner, 'GET', path)).statusCode).toBeGreaterThanOrEqual(400);
+
+    const repeatedLabels = new URLSearchParams();
+    for (let index = 0; index < 21; index += 1) repeatedLabels.append('label', '99999999-9999-4999-8999-999999999999');
+    expect((await send(api, owner, 'GET', `/contacts?${repeatedLabels.toString()}`)).statusCode).toBe(400);
+
+    const validId = '99999999-9999-4999-8999-999999999999';
+    expect((await send(api, owner, 'GET', `/conversations?queue=all&unread=true&priority=high&channel=whatsapp&inboxId=${validId}&teamId=${validId}&assigneeId=${validId}`)).statusCode).toBe(200);
+    expect((await send(api, owner, 'GET', '/conversations?unread=false')).statusCode).toBe(200);
+    expect((await send(api, owner, 'GET', `/conversations/unassigned?priority=urgent&channel=instagram&inboxId=${validId}`)).statusCode).toBe(200);
+    for (const path of [
+      '/conversations?unread=maybe',
+      '/conversations?priority=critical',
+      '/conversations?channel=telegram',
+      '/conversations?inboxId=bad',
+      '/conversations?teamId=bad',
+      '/conversations?assigneeId=bad',
+      '/conversations?label=bad',
+    ]) expect((await send(api, owner, 'GET', path)).statusCode).toBe(400);
+    expect((await send(api, owner, 'GET', `/conversations?${repeatedLabels.toString()}`)).statusCode).toBe(400);
+
+    const noContactReaderId = await addMember(api, 'integration-filter@realtime.test', 'integration_developer', [
+      { type: 'tenant', id: null },
+    ]);
+    expect(noContactReaderId).toBeTruthy();
+    const noContactReader = await login(api, 'integration-filter@realtime.test', MEMBER_PASSWORD);
+    expect((await send(api, noContactReader, 'GET', '/contacts')).statusCode).toBe(403);
+    expect((await send(api, noContactReader, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version: 1, addLabels: ['99999999-9999-4999-8999-999999999999'],
+    })).statusCode).toBe(403);
+    const teamScopedId = await addMember(api, 'team-filter@realtime.test', 'supervisor', [
+      { type: 'team', id: validId },
+    ]);
+    expect(teamScopedId).toBeTruthy();
+    const teamScoped = await login(api, 'team-filter@realtime.test', MEMBER_PASSWORD);
+    expect((await send(api, teamScoped, 'GET', '/contacts')).statusCode).toBe(200);
+    expect((await send(api, teamScoped, 'GET', `/contacts/${contactId}`)).statusCode).toBe(403);
+    expect((await send(api, teamScoped, 'PATCH', `/contacts/${contactId}/metadata`, {
+      version: 1, addLabels: ['99999999-9999-4999-8999-999999999999'],
+    })).statusCode).toBe(403);
+    expect((await send(api, agentA, 'GET', '/contacts')).statusCode).toBe(200);
+    expect((await send(api, agentB, 'GET', `/contacts/${contactId}`)).statusCode).toBe(403);
   });
 
   it('refuses consent from somebody without the grant', async () => {

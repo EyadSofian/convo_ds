@@ -1,6 +1,7 @@
 import { ChannelsApi } from './channels.js';
 import { ContactsApi } from './contacts.js';
 import { ConversationsApi } from './conversations.js';
+import { MetadataApi } from './metadata.js';
 import type { ApiResult } from './client.js';
 import { ApiClient, API_BASE_URL } from './client.js';
 
@@ -262,6 +263,11 @@ export function disconnectedConversationsApi(): ConversationsApi {
 /** The same, for contacts. */
 export function disconnectedContactsApi(): ContactsApi {
   return new ContactsApi(deadClient());
+}
+
+/** The same, for labels and typed fields. */
+export function disconnectedMetadataApi(): MetadataApi {
+  return new MetadataApi(deadClient());
 }
 
 function deadClient(): ApiClient {

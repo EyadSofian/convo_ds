@@ -29,6 +29,9 @@ export interface ConnectChannelRequest {
    * stored the same encrypted way, and never returned by any operation.
    */
   readonly accessToken: string;
+  /** Provider-facing app id, e.g. the numeric Meta App ID shown in Meta Business. */
+  readonly providerAppId: string | null;
+  /** Legacy/internal reference accepted for service-to-service callers. */
   readonly appId: string | null;
   /** Per-connection configuration, only meaningful for the channels we own. */
   readonly settings: ChannelSettings;
@@ -152,6 +155,19 @@ export function parseConnectChannel(input: unknown): ParseResult<ConnectChannelR
     }
   }
 
+  let providerAppId: string | null = null;
+  if ('providerAppId' in record && record['providerAppId'] !== null) {
+    const value = typeof record['providerAppId'] === 'string' ? record['providerAppId'].trim() : '';
+    if (!ASSET_ID.test(value)) {
+      details.push({ field: 'providerAppId', code: 'malformed', message: 'Provide the app id shown by the provider.' });
+    } else {
+      providerAppId = value;
+    }
+  }
+  if (appId !== null && providerAppId !== null) {
+    details.push({ field: 'appReference', code: 'conflicting', message: 'Send providerAppId or appId, not both.' });
+  }
+
   const settings = parseSettings(record['settings'], details);
 
   if (details.length > 0 || kind === null) {
@@ -159,7 +175,7 @@ export function parseConnectChannel(input: unknown): ParseResult<ConnectChannelR
   }
   return {
     ok: true,
-    value: { kind, externalAssetId: assetId, displayName, accessToken, appId, settings },
+    value: { kind, externalAssetId: assetId, displayName, accessToken, providerAppId, appId, settings },
   };
 }
 

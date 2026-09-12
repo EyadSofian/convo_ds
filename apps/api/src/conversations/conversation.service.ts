@@ -32,6 +32,8 @@ import {
   timelineCodec,
 } from './timeline.js';
 import type { TimelinePage } from './timeline.js';
+import { MetadataService } from '../metadata/metadata.service.js';
+import type { EntityMetadata } from '../metadata/metadata.service.js';
 
 export type { ConversationDetail, ConversationRow } from './record.js';
 
@@ -43,7 +45,7 @@ export type { ConversationDetail, ConversationRow } from './record.js';
  * and putting it on the record would invite a caller to cache it and show one
  * agent another's unread state.
  */
-export interface ConversationListRow extends ConversationDetail {
+export interface ConversationListRow extends ConversationDetail, EntityMetadata {
   readonly unread: boolean;
 }
 
@@ -83,6 +85,7 @@ export class ConversationService {
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(RealtimeService) private readonly realtime: RealtimeService,
     @Inject(LifecycleService) private readonly lifecycle: LifecycleService,
+    @Inject(MetadataService) private readonly metadata: MetadataService,
   ) {}
 
   /**
@@ -237,7 +240,12 @@ export class ConversationService {
   async unassigned(
     session: AuthenticatedSession,
     tenantId: string,
-    connectionId: string | null = null,
+    filters: {
+      readonly connectionId: string | null;
+      readonly priority: string | null;
+      readonly channel: string | null;
+      readonly labelIds: readonly string[];
+    },
   ): Promise<readonly QueueCard[]> {
     return this.authorization.authorized(
       session,
@@ -255,9 +263,16 @@ export class ConversationService {
             WHERE c.assignee_membership_id IS NULL
               AND c.status = 'open'
               AND ($1::uuid IS NULL OR c.connection_id = $1)
+              AND ($2::text IS NULL OR c.priority = $2)
+              AND ($3::text IS NULL OR n.kind = $3)
+              AND (cardinality($4::uuid[]) = 0 OR (
+                SELECT count(DISTINCT cl.label_id) FROM conversation_labels cl
+                 WHERE cl.conversation_id = c.id AND cl.removed_at IS NULL
+                   AND cl.label_id = ANY($4::uuid[])
+              ) = cardinality($4::uuid[]))
             ORDER BY c.waiting_since NULLS LAST, c.id
             LIMIT 200`,
-          [connectionId],
+          [filters.connectionId, filters.priority, filters.channel, filters.labelIds],
         );
         const cards: QueueCard[] = [];
         for (const row of rows.rows) {
@@ -313,7 +328,17 @@ export class ConversationService {
   async list(
     session: AuthenticatedSession,
     tenantId: string,
-    query: { readonly queue: 'mine' | 'all'; readonly status: string | null },
+    query: {
+      readonly queue: 'mine' | 'all';
+      readonly status: string | null;
+      readonly unread: boolean | null;
+      readonly priority: string | null;
+      readonly channel: string | null;
+      readonly inboxId: string | null;
+      readonly teamId: string | null;
+      readonly assigneeId: string | null;
+      readonly labelIds: readonly string[];
+    },
   ): Promise<readonly ConversationListRow[]> {
     return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
       const rows = await sql.query<
@@ -332,9 +357,30 @@ export class ConversationService {
             -- Archived threads are history. They are reachable by id and by an
             -- explicit status filter, never by the working list.
             AND ($1::text IS NOT NULL OR c.status <> 'archived')
+            AND ($4::text IS NULL OR c.priority = $4)
+            AND ($5::text IS NULL OR n.kind = $5)
+            AND ($6::uuid IS NULL OR c.connection_id = $6)
+            AND ($7::uuid IS NULL OR c.team_id = $7)
+            AND ($8::boolean IS NULL OR
+              (r.read_through IS NULL OR r.read_through < c.last_activity_at) = $8)
+            AND (cardinality($9::uuid[]) = 0 OR (
+              SELECT count(DISTINCT cl.label_id) FROM conversation_labels cl
+               WHERE cl.conversation_id = c.id AND cl.removed_at IS NULL
+                 AND cl.label_id = ANY($9::uuid[])
+            ) = cardinality($9::uuid[]))
           ORDER BY c.last_activity_at DESC, c.id
           LIMIT 200`,
-        [query.status, query.queue === 'mine' ? principal.membershipId : null, principal.membershipId],
+        [
+          query.status,
+          query.queue === 'mine' ? principal.membershipId : query.assigneeId,
+          principal.membershipId,
+          query.priority,
+          query.channel,
+          query.inboxId,
+          query.teamId,
+          query.unread,
+          query.labelIds,
+        ],
       );
 
       const visible: ConversationListRow[] = [];
@@ -357,6 +403,7 @@ export class ConversationService {
             unread:
               row.read_through === null ||
               row.read_through.getTime() < row.last_activity_at.getTime(),
+            ...(await this.metadata.conversationMetadata(sql, row.id)),
           });
         }
       }
@@ -430,7 +477,7 @@ export class ConversationService {
     tenantId: string,
     conversationId: string,
     expectedVersion: number,
-  ): Promise<ConversationDetail> {
+  ): Promise<ConversationDetail & EntityMetadata> {
     this.authorization.assertTenantId(conversationId);
     return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
       const existing = await readConversation(sql, conversationId);
@@ -496,10 +543,11 @@ export class ConversationService {
           waitingSinceAt: null,
         },
       });
-      return requireRow(
+      const detail = requireRow(
         [await readDetail(sql, conversationId)].filter(present),
         'the conversation vanished after a claim',
       );
+      return { ...detail, ...(await this.metadata.conversationMetadata(sql, conversationId)) };
     });
   }
 
@@ -515,7 +563,7 @@ export class ConversationService {
     session: AuthenticatedSession,
     tenantId: string,
     conversationId: string,
-  ): Promise<ConversationDetail> {
+  ): Promise<ConversationDetail & EntityMetadata> {
     this.authorization.assertTenantId(conversationId);
     return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
       const detail = await readDetail(sql, conversationId);
@@ -523,7 +571,7 @@ export class ConversationService {
         throw notFound();
       }
       requireReadable(principal, detail);
-      return detail;
+      return { ...detail, ...(await this.metadata.conversationMetadata(sql, conversationId)) };
     });
   }
 
@@ -587,4 +635,3 @@ function deliveryRank(state: string): number {
 function present(detail: ConversationDetail | null): detail is ConversationDetail {
   return detail !== null;
 }
-

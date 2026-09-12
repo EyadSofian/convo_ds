@@ -9,6 +9,26 @@ div.inbox.inbox--live
             path
             path
             path
+      div.listtools__filters
+        select.select [live-inbox-filter]
+          option
+          option
+          option
+        select.select [live-inbox-filter]
+          option
+          option
+          option
+          option
+          option
+        select.select [live-inbox-filter]
+          option
+          option
+          option
+          option
+          option
+          option
+        select.select [live-inbox-filter]
+          option
       p.listtools__hint
     button.list-resizer [resize-list-step]
     div.zone__body
@@ -328,6 +348,13 @@ div.inbox.inbox--live
             dt
             dd
               bdi
+        section.contact__section.metadata
+          div.metadata__heading
+            h3.contact__heading
+            span.pill.pill--neutral
+          div.metadata__labels
+          p.field__hint
+          p.field__hint
         section.contact__section
           h3.contact__heading
           ul.contact__identities
@@ -349,6 +376,13 @@ div.inbox.inbox--live
             button.btn.btn--sm [live-consent-panel]
             button.btn.btn--sm [live-consent-panel]
           p.field__hint
+      section.contact__section.metadata
+        div.metadata__heading
+          h3.contact__heading
+          span.pill.pill--neutral
+        div.metadata__labels
+        p.field__hint
+        p.field__hint
       section.routing
         h3.contact__heading
         div.routing__current

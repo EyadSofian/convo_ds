@@ -50,6 +50,7 @@ export interface ChannelConnection {
   readonly provider: string;
   readonly display_name: string;
   readonly external_asset_id: string;
+  readonly provider_app_id: string | null;
   readonly status: ChannelReadiness;
   readonly capabilities: CapabilityMatrix;
   readonly evidence: readonly ChannelEvidence[];
@@ -74,6 +75,7 @@ export interface ConnectChannelInput {
   readonly externalAssetId: string;
   readonly displayName: string;
   readonly accessToken: string;
+  readonly providerAppId: string | null;
 }
 
 export class ChannelsApi {

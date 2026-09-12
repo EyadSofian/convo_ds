@@ -12,6 +12,8 @@ import type {
   TimelineMessage,
 } from '../api/conversations.js';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
+import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
+import { disconnectedMetadataApi } from '../api/people.js';
 import type { RealtimeSubscription } from './realtime.js';
 import type {
   Invitation,
@@ -82,6 +84,7 @@ export interface LiveState {
   readonly channels: ChannelsApi;
   readonly conversationsApi: ConversationsApi;
   readonly contactsApi: ContactsApi;
+  readonly metadataApi: MetadataApi;
   session: SessionState;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
@@ -166,6 +169,10 @@ export interface LiveState {
   contactQuery: string;
   selectedContactId: string | null;
   selectedContact: Resource<Contact>;
+  labels: Resource<readonly Label[]>;
+  customFields: Resource<readonly CustomField[]>;
+  inboxFilters: { unread: string; priority: string; channel: string; labelId: string };
+  contactFilters: { labelId: string; fieldId: string; fieldValue: string };
   busy: string | null;
   error: ApiError | null;
   /** Incremented on every settled mutation, so a view can key off freshness. */
@@ -191,6 +198,7 @@ export function createLiveState(
   channels: ChannelsApi,
   conversations: ConversationsApi,
   contacts: ContactsApi,
+  metadata: MetadataApi = disconnectedMetadataApi(),
 ): LiveState {
   return {
     api,
@@ -231,8 +239,13 @@ export function createLiveState(
     contactQuery: '',
     selectedContactId: null,
     selectedContact: IDLE,
+    labels: IDLE,
+    customFields: IDLE,
+    inboxFilters: { unread: '', priority: '', channel: '', labelId: '' },
+    contactFilters: { labelId: '', fieldId: '', fieldValue: '' },
     conversationsApi: conversations,
     contactsApi: contacts,
+    metadataApi: metadata,
     busy: null,
     error: null,
     revision: 0,
