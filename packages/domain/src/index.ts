@@ -231,6 +231,24 @@ export {
   ownershipPermits,
   settledStateOf,
 } from './conversations/routing.js';
+
+/* ------------------------------------------------------------- campaigns -- */
+
+export {
+  applyCampaignTrigger,
+  campaignEditTarget,
+  CAMPAIGN_EFFECTS,
+  CAMPAIGN_STATES,
+  CAMPAIGN_TRIGGERS,
+  isCampaignState,
+} from './campaigns/lifecycle.js';
+export type {
+  CampaignEffect,
+  CampaignRefusal,
+  CampaignState,
+  CampaignTransition,
+  CampaignTrigger,
+} from './campaigns/lifecycle.js';
 export type {
   AssignmentAct,
   HandoffAction,

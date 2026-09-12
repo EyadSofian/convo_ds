@@ -3,93 +3,54 @@ div.workspace.workspace--broadcasts
     div.workspace__introtext
       h1.workspace__heading
       p.workspace__lede
+    div.workspace__actions
+      button.btn.btn--sm [live-campaigns-reload]
+        svg
+          path
+          path
+          path
+      button.btn.btn--primary [dialog]
+        svg
+          path
   section.grid3
     div.metric
       span.metric__label
-      strong.metric__value
-        bdi.mono
-      span.metric__foot
-        bdi.mono
-    div.metric
-      span.metric__label
-      strong.metric__value
-        bdi.mono
+      span.metric__value
+        bdi
       span.metric__foot
     div.metric
       span.metric__label
-      strong.metric__value
-        bdi.mono
+      span.metric__value
+        bdi
       span.metric__foot
     div.metric
       span.metric__label
-      strong.metric__value
-        bdi.mono
+      span.metric__value
+        bdi
       span.metric__foot
-  section.broadcast-flow
-    div.broadcast-flow__head
-      div
-        h2.broadcast-flow__title
-        p.broadcast-flow__sub
-      span.pill.pill--accent
-        svg
-          path
-    ol.broadcast-steps
-      li.broadcast-step
-        span.broadcast-step__number
-        strong.broadcast-step__title
-        span.broadcast-step__body
-      li.broadcast-step
-        span.broadcast-step__number
-        strong.broadcast-step__title
-        span.broadcast-step__body
-      li.broadcast-step
-        span.broadcast-step__number
-        strong.broadcast-step__title
-        span.broadcast-step__body
-      li.broadcast-step
-        span.broadcast-step__number
-        strong.broadcast-step__title
-        span.broadcast-step__body
-      li.broadcast-step
-        span.broadcast-step__number
-        strong.broadcast-step__title
-        span.broadcast-step__body
+    div.metric
+      span.metric__label
+      span.metric__value
+        bdi
+      span.metric__foot
   div.notice.notice--info
     span.notice__icon
       svg
-        circle
         path
-        circle
+        path
     span
-  div.broadcast-sectionhead
-    div
-      h2.broadcast-sectionhead__title
-      p.broadcast-sectionhead__sub
-    span.pill.pill--neutral
   div.broadcast-grid
     section.card.broadcast-card
       div.card__header
         h3.card__title
         span.card__spacer
-        span.pill.pill--success
+        span.pill.pill--neutral
         span.pill.pill--success
           svg
             path
       div.card__body
-        div.broadcast-card__objective
-          span.broadcast-card__kicker
-          strong
-        div.broadcast-card__example
-          span.broadcast-card__channel
-          p
-          span.broadcast-card__cta
+        p.broadcast-card__objective
         dl.broadcast-card__details
-          div
-            dt
-            dd
-          div
-            dt
-            dd
           div
             dt
             dd
@@ -97,49 +58,11 @@ div.workspace.workspace--broadcasts
           div
             dt
             dd
-              bdi
-        div.bars.broadcast-card__bars
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill.bars__fill--warm
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-        div.notice
-          span.notice__icon
-            svg
-              circle
-              path
-              circle
-          span
+          div
+            dt
+            dd
         div.workspace__actions.broadcast-card__actions
-          button.btn.btn--sm [campaign]
-          button.btn.btn--primary.btn--sm [campaign]
-          button.btn.btn--sm [campaign]
+          button.btn.btn--primary.btn--sm [live-campaign-launch]
     section.card.broadcast-card
       div.card__header
         h3.card__title
@@ -149,20 +72,8 @@ div.workspace.workspace--broadcasts
           svg
             path
       div.card__body
-        div.broadcast-card__objective
-          span.broadcast-card__kicker
-          strong
-        div.broadcast-card__example
-          span.broadcast-card__channel
-          p
-          span.broadcast-card__cta
+        p.broadcast-card__objective
         dl.broadcast-card__details
-          div
-            dt
-            dd
-          div
-            dt
-            dd
           div
             dt
             dd
@@ -170,49 +81,13 @@ div.workspace.workspace--broadcasts
           div
             dt
             dd
-              bdi
-        div.bars.broadcast-card__bars
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill.bars__fill--warm
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-        div.notice
-          span.notice__icon
-            svg
-              circle
-              path
-              circle
-          span
+          div
+            dt
+            dd
         div.workspace__actions.broadcast-card__actions
-          button.btn.btn--sm [campaign]
-          button.btn.btn--primary.btn--sm [campaign]
-          button.btn.btn--sm [campaign]
+          button.btn.btn--sm [live-campaign-control]
+          button.btn.btn--sm [live-campaign-control]
+          button.btn.btn--sm [live-campaign-ledger]
     section.card.broadcast-card
       div.card__header
         h3.card__title
@@ -224,20 +99,8 @@ div.workspace.workspace--broadcasts
             path
             circle
       div.card__body
-        div.broadcast-card__objective
-          span.broadcast-card__kicker
-          strong
-        div.broadcast-card__example
-          span.broadcast-card__channel
-          p
-          span.broadcast-card__cta
+        p.broadcast-card__objective
         dl.broadcast-card__details
-          div
-            dt
-            dd
-          div
-            dt
-            dd
           div
             dt
             dd
@@ -245,120 +108,8 @@ div.workspace.workspace--broadcasts
           div
             dt
             dd
-              bdi
-        div.bars.broadcast-card__bars
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill.bars__fill--warm
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-        div.notice
-          span.notice__icon
-            svg
-              circle
-              path
-              circle
-          span
+          div
+            dt
+            dd
         div.workspace__actions.broadcast-card__actions
-          button.btn.btn--sm [campaign]
-          button.btn.btn--primary.btn--sm [campaign]
-          button.btn.btn--sm [campaign]
-    section.card.broadcast-card
-      div.card__header
-        h3.card__title
-        span.card__spacer
-        span.pill.pill--neutral
-        span.pill.pill--warning
-          svg
-            path
-            path
-            circle
-      div.card__body
-        div.broadcast-card__objective
-          span.broadcast-card__kicker
-          strong
-        div.broadcast-card__example
-          span.broadcast-card__channel
-          p
-          span.broadcast-card__cta
-        dl.broadcast-card__details
-          div
-            dt
-            dd
-          div
-            dt
-            dd
-          div
-            dt
-            dd
-              bdi.mono
-          div
-            dt
-            dd
-        div.bars.broadcast-card__bars
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill.bars__fill--warm
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-          div.bars__row
-            span
-            span.bars__track
-              span.bars__fill
-            span.bars__value
-              bdi
-        div.notice
-          span.notice__icon
-            svg
-              circle
-              path
-              circle
-          span
-        div.workspace__actions.broadcast-card__actions
-          button.btn.btn--sm [campaign]
-          button.btn.btn--primary.btn--sm [campaign]
-          button.btn.btn--sm [campaign]
+          button.btn.btn--primary.btn--sm [live-campaign-validate]

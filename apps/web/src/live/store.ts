@@ -13,6 +13,8 @@ import type {
 } from '../api/conversations.js';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
+import type { Campaign, CampaignRecipient, CampaignsApi } from '../api/campaigns.js';
+import { disconnectedCampaignsApi } from '../api/campaigns.js';
 import { disconnectedMetadataApi } from '../api/people.js';
 import type { RealtimeSubscription } from './realtime.js';
 import type {
@@ -85,6 +87,7 @@ export interface LiveState {
   readonly conversationsApi: ConversationsApi;
   readonly contactsApi: ContactsApi;
   readonly metadataApi: MetadataApi;
+  readonly campaignsApi: CampaignsApi;
   session: SessionState;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
@@ -171,6 +174,9 @@ export interface LiveState {
   selectedContact: Resource<Contact>;
   labels: Resource<readonly Label[]>;
   customFields: Resource<readonly CustomField[]>;
+  campaigns: Resource<readonly Campaign[]>;
+  campaignRecipients: Resource<readonly CampaignRecipient[]>;
+  selectedCampaignId: string | null;
   inboxFilters: { unread: string; priority: string; channel: string; labelId: string };
   contactFilters: { labelId: string; fieldId: string; fieldValue: string };
   busy: string | null;
@@ -199,6 +205,7 @@ export function createLiveState(
   conversations: ConversationsApi,
   contacts: ContactsApi,
   metadata: MetadataApi = disconnectedMetadataApi(),
+  campaignsApi: CampaignsApi = disconnectedCampaignsApi(),
 ): LiveState {
   return {
     api,
@@ -241,11 +248,15 @@ export function createLiveState(
     selectedContact: IDLE,
     labels: IDLE,
     customFields: IDLE,
+    campaigns: IDLE,
+    campaignRecipients: IDLE,
+    selectedCampaignId: null,
     inboxFilters: { unread: '', priority: '', channel: '', labelId: '' },
     contactFilters: { labelId: '', fieldId: '', fieldValue: '' },
     conversationsApi: conversations,
     contactsApi: contacts,
     metadataApi: metadata,
+    campaignsApi,
     busy: null,
     error: null,
     revision: 0,

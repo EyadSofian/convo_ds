@@ -1,6 +1,7 @@
 import type { Child } from '../dom';
 import { h } from '../dom';
 import type { AppState } from '../state';
+import { rowsOf } from '../live/store';
 import { button, dialogShell, field, notice, selectInput, textInput } from './parts';
 
 function t(state: AppState, ar: string, en: string): string {
@@ -174,29 +175,34 @@ export function renderDialog(state: AppState): HTMLElement | null {
   }
 
   if (dialog.kind === 'campaign') {
+    const connections = rowsOf(state.live.connections).filter((connection) => connection.status === 'healthy');
     return dialogShell(
       t(state, 'حملة جديدة', 'New campaign'),
       [
         field(t(state, 'اسم الحملة', 'Campaign name'), textInput('campaignName', state.dialogForm.campaignName ?? '', t(state, 'مثال: تذكير المحاضرة المباشرة', 'e.g. Live session reminder'))),
         field(
           t(state, 'القناة', 'Channel'),
-          selectInput('campaignChannel', state.dialogForm.campaignChannel ?? 'whatsapp', [
-            { value: 'whatsapp', label: 'WhatsApp' },
-            { value: 'messenger', label: 'Messenger' },
-          ]),
+          selectInput('campaignConnection', state.dialogForm.campaignConnection ?? (connections[0]?.id ?? ''),
+            connections.map((connection) => ({ value: connection.id, label: connection.display_name }))),
           t(
             state,
             'قالب واتساب ليس قالب ماسنجر — لا شيء يُنسخ بين القنوات.',
             'A WhatsApp template is not a Messenger template — nothing is copied across channels.',
           ),
         ),
+        field(t(state, 'الهدف', 'Objective'), textInput('campaignObjective', state.dialogForm.campaignObjective ?? '', t(state, 'مثال: تسجيل الدورة', 'e.g. Course enrolment'))),
+        field(t(state, 'نص الرسالة', 'Message'), h('textarea', {
+          class: 'field__input', rows: '4', 'data-act': 'form', 'data-form': 'campaignMessage',
+          placeholder: t(state, 'اكتب الرسالة التي سيستلمها الطالب', 'Write the message the learner will receive'),
+        }, [state.dialogForm.campaignMessage ?? ''])),
+        field(t(state, 'بحث الجمهور', 'Audience search'), textInput('campaignSearch', state.dialogForm.campaignSearch ?? '', t(state, 'اتركه فارغًا لكل جهات الاتصال', 'Leave blank for all contacts'))),
         notice(
           'warning',
           'alert',
           t(
             state,
-            'الخطوات التالية: الجمهور ← المحتوى ← الجدولة والميزانية ← المراجعة. الاعتماد سجل منفصل مرتبط بالمراجعة، و«جاهزة» لا تعني «معتمدة».',
-            'Next steps: audience → content → schedule & budget → review. Approval is a separate revision-bound record, and “ready” is not “approved”.',
+            connections.length === 0 ? 'اربط قناة سليمة أولًا، ثم أنشئ المسودة وثبّت الجمهور واعتمد النسخة قبل الإطلاق.' : 'بعد إنشاء المسودة: ثبّت الجمهور، اعتمد النسخة، ثم أطلقها.',
+            connections.length === 0 ? 'Connect a healthy channel first, then create, freeze, approve and launch.' : 'After creating the draft: freeze the audience, approve the revision, then launch.',
           ),
         ),
       ],
@@ -204,10 +210,10 @@ export function renderDialog(state: AppState): HTMLElement | null {
         h('span', { class: 'dialog__footerspacer' }),
         closeButton(state),
         button({
-          label: t(state, 'التالي: الجمهور', 'Next: audience'),
-          act: 'demo',
-          arg: t(state, 'معالج الحملات معطّل في العرض التجريبي', 'The campaign wizard is disabled in the demo'),
+          label: t(state, 'إنشاء المسودة', 'Create draft'),
+          act: 'live-campaign-create',
           variant: 'primary',
+          disabled: connections.length === 0 || state.live.busy !== null,
         }),
       ],
     );

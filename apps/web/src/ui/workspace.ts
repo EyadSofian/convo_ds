@@ -1,7 +1,7 @@
-import type { Campaign } from '../data';
+import type { Child } from '../dom';
+import type { Campaign, CampaignState } from '../api/campaigns';
 import { h } from '../dom';
-import { conversationCount, formatNumber, relativeTime } from '../format';
-import type { Lang } from '../format';
+import { conversationCount, formatNumber } from '../format';
 import { can, ROLE_LABELS } from '../permissions';
 import type { AppState } from '../state';
 import { currentActor } from '../state';
@@ -18,23 +18,6 @@ import {
   switchControl,
 } from './parts';
 
-/**
- * A campaign's channel, in the reader's language.
- *
- * Local to this screen now that the inbox reads its channel labels from the
- * server's own vocabulary. The demo campaigns are still seeded data, so their
- * labels are still ours to write.
- */
-function channelLabel(channel: string, lang: Lang): string {
-  const labels: Record<string, { ar: string; en: string }> = {
-    whatsapp: { ar: 'واتساب', en: 'WhatsApp' },
-    instagram: { ar: 'إنستغرام', en: 'Instagram' },
-    messenger: { ar: 'ماسنجر', en: 'Messenger' },
-  };
-  const label = labels[channel];
-  return label === undefined ? channel : lang === 'ar' ? label.ar : label.en;
-}
-
 function t(state: AppState, ar: string, en: string): string {
   return state.lang === 'ar' ? ar : en;
 }
@@ -50,156 +33,115 @@ function intro(
       h('h1', { class: 'workspace__heading' }, [heading]),
       h('p', { class: 'workspace__lede' }, [lede]),
     ]),
-    actions.length === 0 ? null : h('div', { class: 'workspace__actions' }, actions),
+    h('div', { class: 'workspace__actions' }, actions),
   ]);
 }
 
 /* ---------------------------------------------------------------- channels -- */
 
 export function renderBroadcasts(state: AppState): HTMLElement {
+  const live = state.live;
   const actor = currentActor(state);
-  const draft = can(actor, 'campaign.draft');
-  const stateLabels: Record<Campaign['state'], { ar: string; en: string }> = {
-    draft: { ar: 'مسودة', en: 'Draft' },
-    validating: { ar: 'قيد التحقق', en: 'Validating' },
-    ready: { ar: 'جاهزة', en: 'Ready' },
-    scheduled: { ar: 'مجدولة', en: 'Scheduled' },
-    running: { ar: 'قيد التنفيذ', en: 'Running' },
-    paused: { ar: 'موقوفة', en: 'Paused' },
-    dispatch_completed: { ar: 'اكتمل الإرسال', en: 'Dispatch completed' },
-    cancelled: { ar: 'ملغاة', en: 'Cancelled' },
-  };
-  const totals = state.dataset.campaigns.reduce(
-    (sum, campaign) => ({
-      audience: sum.audience + campaign.audienceSize,
-      accepted: sum.accepted + campaign.ledger.accepted,
-      pending: sum.pending + campaign.ledger.pending,
-      failed: sum.failed + campaign.ledger.failed,
-    }),
-    { audience: 0, accepted: 0, pending: 0, failed: 0 },
-  );
+  const mayDraft = can(actor, 'campaign.draft');
+  const mayApprove = can(actor, 'campaign.approve');
+  const campaigns = live.campaigns.status === 'ready' ? live.campaigns.value : [];
+  const totals = campaigns.reduce((sum, campaign) => ({
+    total: sum.total + (campaign.audience?.total ?? 0),
+    eligible: sum.eligible + (campaign.audience?.eligible ?? 0),
+    excluded: sum.excluded + (campaign.audience?.excluded ?? 0),
+  }), { total: 0, eligible: 0, excluded: 0 });
+
+  const body: Child[] = [];
+  if (live.session.status === 'unknown' || (live.session.status === 'signed_in' && live.session.tenantId !== null && (live.campaigns.status === 'idle' || live.campaigns.status === 'loading'))) {
+    body.push(h('div', { class: 'skeleton', 'aria-busy': 'true' }, [
+      h('div', { class: 'skeletonrow' }, [h('div', { class: 'skeletonrow__lines' })]),
+      h('div', { class: 'skeletonrow' }, [h('div', { class: 'skeletonrow__lines' })]),
+    ]));
+  } else if (live.session.status === 'signed_out') {
+    body.push(stateBox({ kind: 'denied', iconName: 'lock', title: t(state, 'تحتاج جلسة', 'You need a session'),
+      body: t(state, 'سجّل الدخول لعرض الحملات الحقيقية.', 'Sign in to view real campaigns.'),
+      actionLabel: t(state, 'إعادة المحاولة', 'Try again'), act: 'live-campaigns-reload' }));
+  } else if (live.session.tenantId === null) {
+    body.push(stateBox({ kind: 'info', iconName: 'users', title: t(state, 'لا توجد عضوية نشطة', 'No active membership'),
+      body: t(state, 'لا توجد شركة نشطة لعرض حملاتها.', 'There is no active company whose campaigns can be shown.') }));
+  } else if (live.campaigns.status === 'error') {
+    body.push(stateBox({ kind: 'denied', iconName: 'alert', title: live.campaigns.error.message,
+      body: live.campaigns.error.requestId === null ? t(state, 'تعذر الاتصال بالخادم.', 'The server could not be reached.') : `Request ID: ${live.campaigns.error.requestId}`,
+      actionLabel: t(state, 'إعادة التحميل', 'Reload'), act: 'live-campaigns-reload' }));
+  } else if (campaigns.length === 0) {
+    body.push(stateBox({ kind: 'empty', iconName: 'broadcasts', title: t(state, 'لا توجد حملات بعد', 'No campaigns yet'),
+      body: t(state, 'أنشئ مسودة، ثبّت جمهورها، اعتمد النسخة، ثم أطلقها.', 'Create a draft, freeze its audience, approve the revision, then launch it.') }));
+  } else {
+    body.push(h('div', { class: 'broadcast-grid' }, campaigns.map((campaign) => campaignCard(state, campaign, mayDraft, mayApprove))));
+  }
 
   return h('div', { class: 'workspace workspace--broadcasts', tabindex: '0', 'data-scroll': 'screen' }, [
-    intro(
-      state,
-      t(state, 'الحملات', 'Broadcasts'),
-      t(
-        state,
-        'اختَر الجمهور، جهّز الرسالة، راجع الموافقات، حدّد الموعد، ثم تابع نتيجة كل مستلم من مكان واحد.',
-        'Choose the audience, prepare the message, validate consent, schedule it, then track every recipient from one place.',
-      ),
-      draft
-        ? [
-            button({ label: t(state, 'إنشاء Broadcast', 'Create broadcast'), icon: 'plus', act: 'dialog', arg: 'campaign', variant: 'primary' }),
-            button({ label: t(state, 'استيراد جمهور', 'Import audience'), icon: 'users', act: 'demo', arg: t(state, 'مثال: استيراد قائمة متدربين من CSV', 'Example: import learners from CSV') }),
-          ]
-        : [],
-    ),
-    // A compact metric strip, not a KPI wall: four counts that a campaign
-    // manager reads at a glance, in the shared `.metric` component. Dispatch,
-    // delivery and failure stay separate quantities (business-rules §5.1).
-    h('section', { class: 'grid3', 'aria-label': t(state, 'ملخص الحملات', 'Broadcast summary') }, [
-      h('div', { class: 'metric' }, [
-        h('span', { class: 'metric__label' }, [t(state, 'إجمالي الجمهور', 'Total audience')]),
-        h('strong', { class: 'metric__value' }, [isolated(formatNumber(totals.audience, state.lang), true)]),
-        h('span', { class: 'metric__foot' }, [
-          t(state, 'عبر ', 'across '),
-          isolated(formatNumber(state.dataset.campaigns.length, state.lang), true),
-          t(state, ' حملات', ' campaigns'),
-        ]),
-      ]),
-      h('div', { class: 'metric' }, [
-        h('span', { class: 'metric__label' }, [t(state, 'قبلها المزوّد', 'Provider accepted')]),
-        h('strong', { class: 'metric__value' }, [isolated(formatNumber(totals.accepted, state.lang), true)]),
-        // Acceptance is not delivery (I6) — the label must not imply a receipt.
-        h('span', { class: 'metric__foot' }, [t(state, 'قبول لا يعني تسليمًا', 'accepted, not yet delivered')]),
-      ]),
-      h('div', { class: 'metric' }, [
-        h('span', { class: 'metric__label' }, [t(state, 'قيد الإرسال', 'In progress')]),
-        h('strong', { class: 'metric__value' }, [isolated(formatNumber(totals.pending, state.lang), true)]),
-        h('span', { class: 'metric__foot' }, [t(state, 'لم تُحسم بعد', 'no terminal result yet')]),
-      ]),
-      h('div', { class: 'metric' }, [
-        h('span', { class: 'metric__label' }, [t(state, 'تحتاج مراجعة', 'Needs attention')]),
-        h('strong', { class: 'metric__value' }, [isolated(formatNumber(totals.failed, state.lang), true)]),
-        h('span', { class: 'metric__foot' }, [t(state, 'فشل إرسال', 'failed dispatches')]),
-      ]),
+    intro(state, t(state, 'الحملات', 'Broadcasts'),
+      t(state, 'مسودة واضحة، جمهور ثابت، اعتماد مرتبط بالنسخة، ثم سجل مستقل لكل مستلم.',
+        'A clear draft, frozen audience, revision-bound approval, then one ledger per recipient.'),
+      [button({ label: t(state, 'تحديث', 'Reload'), icon: 'refresh', act: 'live-campaigns-reload', small: true, disabled: live.busy !== null }),
+       ...(mayDraft ? [button({ label: t(state, 'حملة جديدة', 'New campaign'), icon: 'plus', act: 'dialog', arg: 'campaign', variant: 'primary', disabled: live.busy !== null })] : [])]),
+    h('section', { class: 'grid3', 'aria-label': t(state, 'ملخص الحملات', 'Campaign summary') }, [
+      metric(t(state, 'الحملات', 'Campaigns'), formatNumber(campaigns.length, state.lang), t(state, 'كل الحالات', 'all states')),
+      metric(t(state, 'الجمهور المثبّت', 'Frozen audience'), formatNumber(totals.total, state.lang), t(state, 'لا يتغير بعد المراجعة', 'fixed after review')),
+      metric(t(state, 'مؤهل للإرسال', 'Eligible'), formatNumber(totals.eligible, state.lang), t(state, 'موافقة تسويقية فعالة', 'active marketing consent')),
+      metric(t(state, 'مستبعد', 'Excluded'), formatNumber(totals.excluded, state.lang), t(state, 'Opt-out أو بلا موافقة', 'opt-out or no consent')),
     ]),
-    h('section', { class: 'broadcast-flow' }, [
-      h('div', { class: 'broadcast-flow__head' }, [
-        h('div', {}, [
-          h('h2', { class: 'broadcast-flow__title' }, [t(state, 'كيف تعمل الـBroadcast؟', 'How a broadcast works')]),
-          h('p', { class: 'broadcast-flow__sub' }, [t(state, 'مسار واضح من الفكرة حتى التقرير النهائي', 'A clear path from idea to final report')]),
-        ]),
-        pill(t(state, '5 خطوات', '5 steps'), 'accent', 'sparkline'),
-      ]),
-      h('ol', { class: 'broadcast-steps' }, [
-        ['01', t(state, 'الرسالة', 'Message'), t(state, 'قالب + متغيرات + زر إجراء', 'Template, variables and CTA')],
-        ['02', t(state, 'الجمهور', 'Audience'), t(state, 'شرائح وفلاتر أو CSV', 'Segments, filters or CSV')],
-        ['03', t(state, 'المراجعة', 'Validation'), t(state, 'موافقة + منع التكرار + Opt-out', 'Approval, dedupe and opt-out')],
-        ['04', t(state, 'الجدولة', 'Schedule'), t(state, 'فوري أو موعد ومنطقة زمنية', 'Now or scheduled with timezone')],
-        ['05', t(state, 'النتائج', 'Results'), t(state, 'قبول وتسليم وقراءة وفشل', 'Accepted, delivered, read and failed')],
-      ].map(([number, title, body]) => h('li', { class: 'broadcast-step' }, [
-        h('span', { class: 'broadcast-step__number' }, [number]),
-        h('strong', { class: 'broadcast-step__title' }, [title]),
-        h('span', { class: 'broadcast-step__body' }, [body]),
-      ]))),
+    notice('info', 'shield', t(state,
+      'الإطلاق لا يرسل تلقائيًا إلى نتيجة مجهولة، ولا يضيف أشخاصًا بعد تثبيت الجمهور. القناة يجب أن تكون سليمة قبل التحقق والإطلاق.',
+      'Unknown outcomes are never retried automatically, and nobody is added after the audience freezes. The channel must be healthy before validation and launch.')),
+    ...body,
+    campaignLedger(state),
+  ]);
+}
+
+const CAMPAIGN_LABELS: Readonly<Record<CampaignState, { ar: string; en: string }>> = {
+  draft: { ar: 'مسودة', en: 'Draft' }, validating: { ar: 'قيد التحقق', en: 'Validating' },
+  ready: { ar: 'جاهزة', en: 'Ready' }, scheduled: { ar: 'مجدولة', en: 'Scheduled' },
+  running: { ar: 'قيد التنفيذ', en: 'Running' }, pausing: { ar: 'جارٍ الإيقاف', en: 'Pausing' },
+  paused: { ar: 'متوقفة', en: 'Paused' }, dispatch_completed: { ar: 'اكتمل الإرسال', en: 'Completed' },
+  cancelling: { ar: 'جارٍ الإلغاء', en: 'Cancelling' }, cancelled: { ar: 'ملغاة', en: 'Cancelled' },
+  failed: { ar: 'فشلت', en: 'Failed' },
+};
+
+function campaignCard(state: AppState, campaign: Campaign, mayDraft: boolean, mayApprove: boolean): HTMLElement {
+  const actions: HTMLElement[] = [];
+  if (campaign.state === 'draft' && mayDraft) actions.push(button({ label: t(state, 'تثبيت الجمهور', 'Freeze audience'), act: 'live-campaign-validate', arg: campaign.id, small: true, variant: 'primary', disabled: state.live.busy !== null }));
+  if (campaign.state === 'ready' && !campaign.approved && mayApprove) actions.push(button({ label: t(state, 'اعتماد النسخة', 'Approve revision'), act: 'live-campaign-approve', arg: campaign.id, small: true, variant: 'primary', disabled: state.live.busy !== null }));
+  if (campaign.state === 'ready' && campaign.approved && mayDraft) actions.push(button({ label: t(state, 'إطلاق الآن', 'Launch now'), act: 'live-campaign-launch', arg: campaign.id, small: true, variant: 'primary', disabled: state.live.busy !== null }));
+  if (campaign.state === 'running') actions.push(button({ label: t(state, 'إيقاف مؤقت', 'Pause'), act: 'live-campaign-control', arg: `${campaign.id}:pause`, small: true, disabled: state.live.busy !== null }));
+  if (campaign.state === 'paused') actions.push(button({ label: t(state, 'استئناف', 'Resume'), act: 'live-campaign-control', arg: `${campaign.id}:resume`, small: true, variant: 'primary', disabled: state.live.busy !== null }));
+  if (['scheduled','running','paused'].includes(campaign.state)) actions.push(button({ label: t(state, 'إلغاء الباقي', 'Cancel remaining'), act: 'live-campaign-control', arg: `${campaign.id}:cancel`, small: true, disabled: state.live.busy !== null }));
+  if (campaign.execution !== null) actions.push(button({ label: t(state, 'سجل المستلمين', 'Recipient ledger'), act: 'live-campaign-ledger', arg: campaign.id, small: true, disabled: state.live.busy !== null }));
+  const audience = campaign.audience;
+  const cardElement = card(campaign.name, [
+    pill(t(state, CAMPAIGN_LABELS[campaign.state].ar, CAMPAIGN_LABELS[campaign.state].en), campaign.state === 'running' ? 'accent' : campaign.state === 'failed' ? 'danger' : 'neutral'),
+    campaign.approved ? pill(t(state, 'معتمدة', 'Approved'), 'success', 'check') : pill(t(state, 'غير معتمدة', 'Not approved'), 'warning', 'alert'),
+  ], [
+    h('p', { class: 'broadcast-card__objective' }, [campaign.objective ?? t(state, 'بلا هدف مكتوب', 'No objective recorded')]),
+    h('dl', { class: 'broadcast-card__details' }, [
+      h('div', {}, [h('dt', {}, [t(state, 'المراجعة', 'Revision')]), h('dd', {}, [isolated(String(campaign.revision), true)])]),
+      h('div', {}, [h('dt', {}, [t(state, 'الجمهور', 'Audience')]), h('dd', {}, [audience === null ? t(state, 'لم يُثبّت', 'Not frozen') : `${formatNumber(audience.eligible, state.lang)} / ${formatNumber(audience.total, state.lang)}`])]),
+      h('div', {}, [h('dt', {}, [t(state, 'التنفيذ', 'Execution')]), h('dd', {}, [campaign.execution?.state ?? t(state, 'لم يبدأ', 'Not started')])]),
     ]),
-    notice(
-      'info',
-      'info',
-      t(state, 'بيانات تجريبية — الأمثلة توضح دورة العمل ولا ترسل رسائل حقيقية لأي مزوّد.', 'Demo data — these examples explain the workflow and send nothing to any provider.'),
-    ),
-    h('div', { class: 'broadcast-sectionhead' }, [
-      h('div', {}, [
-        h('h2', { class: 'broadcast-sectionhead__title' }, [t(state, 'الحملات والأمثلة', 'Campaigns and examples')]),
-        h('p', { class: 'broadcast-sectionhead__sub' }, [t(state, 'كل بطاقة توضح الجمهور والرسالة والتوقيت والنتائج', 'Each card shows its audience, message, timing and results')]),
-      ]),
-      pill(t(state, '4 حملات', '4 campaigns'), 'neutral'),
-    ]),
-    h('div', { class: 'broadcast-grid' }, state.dataset.campaigns.map((campaign) => {
-      const total = Math.max(campaign.audienceSize, 1);
-      const example = campaign.example;
-      const campaignCard = card(
-        t(state, campaign.name, campaign.nameEn),
-        [
-          pill(t(state, stateLabels[campaign.state].ar, stateLabels[campaign.state].en), campaign.state === 'running' ? 'accent' : campaign.state === 'dispatch_completed' ? 'success' : 'neutral'),
-          campaign.approved ? pill(t(state, 'معتمدة', 'Approved'), 'success', 'check') : pill(t(state, 'غير معتمدة', 'Not approved'), 'warning', 'alert'),
-        ],
-        [
-          h('div', { class: 'broadcast-card__objective' }, [
-            h('span', { class: 'broadcast-card__kicker' }, [t(state, 'الهدف', 'OBJECTIVE')]),
-            h('strong', {}, [t(state, example.objective[0], example.objective[1])]),
-          ]),
-          h('div', { class: 'broadcast-card__example' }, [
-            h('span', { class: 'broadcast-card__channel' }, [channelLabel(campaign.channel, state.lang)]),
-            h('p', {}, [t(state, example.message[0], example.message[1])]),
-            h('span', { class: 'broadcast-card__cta' }, [t(state, example.cta[0], example.cta[1])]),
-          ]),
-          h('dl', { class: 'broadcast-card__details' }, [
-            h('div', {}, [h('dt', {}, [t(state, 'الجمهور', 'Audience')]), h('dd', {}, [t(state, example.audience[0], example.audience[1])])]),
-            h('div', {}, [h('dt', {}, [t(state, 'التوقيت', 'Timing')]), h('dd', {}, [t(state, example.timing[0], example.timing[1])])]),
-            h('div', {}, [h('dt', {}, [t(state, 'القالب', 'Template')]), h('dd', {}, [isolated(campaign.templateRevision, true)])]),
-            h('div', {}, [h('dt', {}, [t(state, 'لقطة الجمهور', 'Audience snapshot')]), h('dd', {}, [campaign.snapshotAt === null ? t(state, 'لم تُثبَّت بعد', 'Not fixed yet') : isolated(`${formatNumber(campaign.audienceSize, state.lang)} · ${relativeTime(campaign.snapshotAt, state.dataset.now, state.lang)}`)])]),
-          ]),
-          h('div', { class: 'bars broadcast-card__bars' }, [
-            barRow(t(state, 'مقبولة', 'Accepted'), campaign.ledger.accepted / total, formatNumber(campaign.ledger.accepted, state.lang)),
-            barRow(t(state, 'قيد الانتظار', 'Pending'), campaign.ledger.pending / total, formatNumber(campaign.ledger.pending, state.lang), true),
-            barRow(t(state, 'متخطّاة', 'Skipped'), campaign.ledger.skipped / total, formatNumber(campaign.ledger.skipped, state.lang)),
-            barRow(t(state, 'فاشلة', 'Failed'), campaign.ledger.failed / total, formatNumber(campaign.ledger.failed, state.lang)),
-            barRow(t(state, 'نتيجة غير معروفة', 'Outcome unknown'), campaign.ledger.unknown / total, formatNumber(campaign.ledger.unknown, state.lang)),
-          ]),
-          notice('plain', 'info', t(state, 'القبول من المزوّد ليس تسليمًا، والتسليم ليس قراءة. كل مستلم له سجل مستقل.', 'Provider acceptance is not delivery, and delivery is not read. Every recipient has an independent ledger.')),
-          h('div', { class: 'workspace__actions broadcast-card__actions', style: 'margin-inline-start:0' }, [
-            button({ label: t(state, 'تعديل', 'Edit'), act: 'campaign', arg: `edit:${campaign.id}`, small: true, disabled: !draft }),
-            button({ label: t(state, 'إطلاق', 'Launch'), act: 'campaign', arg: `launch:${campaign.id}`, small: true, variant: 'primary', disabled: !draft }),
-            button({ label: t(state, 'سجل المستلمين', 'Recipient ledger'), act: 'campaign', arg: `ledger:${campaign.id}`, small: true, disabled: !draft }),
-          ]),
-        ],
-      );
-      campaignCard.classList.add('broadcast-card');
-      return campaignCard;
-    })),
+    h('div', { class: 'workspace__actions broadcast-card__actions', style: 'margin-inline-start:0' }, actions),
+  ]);
+  cardElement.classList.add('broadcast-card');
+  return cardElement;
+}
+
+function campaignLedger(state: AppState): HTMLElement | null {
+  const resource = state.live.campaignRecipients;
+  if (state.live.selectedCampaignId === null) return null;
+  if (resource.status === 'idle' || resource.status === 'loading') return h('section', { class: 'card', 'aria-busy': 'true' }, [t(state, 'جارٍ تحميل السجل…', 'Loading ledger…')]);
+  if (resource.status === 'error') return notice('warning', 'alert', `${resource.error.message}${resource.error.requestId === null ? '' : ` · ${resource.error.requestId}`}`);
+  return h('section', { class: 'card' }, [
+    h('div', { class: 'card__header' }, [h('h2', { class: 'card__title' }, [t(state, 'سجل المستلمين', 'Recipient ledger')]), pill(formatNumber(resource.value.length, state.lang), 'neutral')]),
+    resource.value.length === 0 ? stateBox({ kind: 'empty', iconName: 'users', title: t(state, 'لا يوجد مستلمون', 'No recipients'), body: t(state, 'الجمهور المثبت لم يحتوِ مستلمين مؤهلين.', 'The frozen audience contained no eligible recipients.') }) :
+      h('div', { class: 'tablewrap' }, [h('table', { class: 'datatable' }, [
+        h('thead', {}, [h('tr', {}, [h('th', {}, [t(state, 'الاسم', 'Name')]), h('th', {}, [t(state, 'الحالة', 'State')]), h('th', {}, [t(state, 'التكلفة المقدرة', 'Estimated cost')])])]),
+        h('tbody', {}, resource.value.map((row) => h('tr', {}, [h('td', {}, [row.display_name]), h('td', {}, [pill(row.state, row.state === 'failed' ? 'danger' : 'neutral')]), h('td', {}, [isolated(row.estimated_amount_minor === null ? '—' : `${row.estimated_amount_minor} ${row.currency ?? ''}`, true)])]))),
+      ])]),
   ]);
 }
 

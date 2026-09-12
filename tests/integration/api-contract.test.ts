@@ -184,6 +184,13 @@ describe('pinned OpenAPI contract', () => {
       "retireCustomField",
       "updateConversationMetadata",
       "updateContactMetadata",
+      "listCampaigns",
+      "createCampaign",
+      "validateCampaign",
+      "approveCampaign",
+      "launchCampaign",
+      "controlCampaign",
+      "listCampaignRecipients",
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);

@@ -32,6 +32,15 @@ import {
 import { createField, createLabel, setEntityLabel, setFieldValue } from './metadata-actions.js';
 import { rowsOf } from './store.js';
 import {
+  approveCampaign,
+  controlCampaign,
+  createCampaign,
+  launchCampaign,
+  loadCampaignRecipients,
+  loadCampaignsScreen,
+  validateCampaign,
+} from './campaign-actions.js';
+import {
   addTeamMember,
   archiveTeam,
   changeRole,
@@ -292,6 +301,45 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     await loadSession(context);
     await loadChannelsScreen(context);
   },
+
+  'live-campaigns-reload': async (context) => {
+    await loadSession(context);
+    await loadCampaignsScreen(context);
+  },
+
+  'live-campaign-create': async (context) => {
+    const name = form(context, 'campaignName');
+    const connectionId = form(context, 'campaignConnection');
+    const message = form(context, 'campaignMessage');
+    if (name === '' || connectionId === '' || message === '') return false;
+    const created = await createCampaign(context, {
+      name,
+      objective: form(context, 'campaignObjective') || null,
+      connectionId,
+      content: { text: message },
+      variables: { display_name: 'display_name' },
+      audienceFilter: { search: form(context, 'campaignSearch') },
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      budgetAmountMinor: 0,
+      budgetCurrency: 'USD',
+    });
+    if (created) {
+      context.state.dialog = null;
+      clearForm(context, ['campaignName','campaignConnection','campaignMessage','campaignObjective','campaignSearch']);
+      context.refresh();
+    }
+    return created;
+  },
+
+  'live-campaign-validate': async (context, arg) => validateCampaign(context, arg),
+  'live-campaign-approve': async (context, arg) => approveCampaign(context, arg),
+  'live-campaign-launch': async (context, arg) => launchCampaign(context, arg),
+  'live-campaign-control': async (context, arg) => {
+    const { id, value } = splitArg(arg);
+    if (value !== 'pause' && value !== 'resume' && value !== 'cancel') return false;
+    return controlCampaign(context, id, value);
+  },
+  'live-campaign-ledger': async (context, arg) => loadCampaignRecipients(context, arg),
 
   /* ----------------------------------------------------------------- inbox -- */
 

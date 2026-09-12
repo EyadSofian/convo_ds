@@ -30,7 +30,9 @@ export const ROLE_GRANTS: Readonly<Record<RoleId, readonly string[]>> = {
     'consent.read',
     'consent.record',
     'campaign.draft',
+    'campaign.approve',
     'campaign.launch',
+    'campaign.control',
     'channel.manage',
     'member.manage',
     'role.manage',
@@ -48,7 +50,9 @@ export const ROLE_GRANTS: Readonly<Record<RoleId, readonly string[]>> = {
     'consent.read',
     'consent.record',
     'campaign.draft',
+    'campaign.approve',
     'campaign.launch',
+    'campaign.control',
     'channel.manage',
     'member.manage',
     'role.manage',
@@ -77,7 +81,7 @@ export const ROLE_GRANTS: Readonly<Record<RoleId, readonly string[]>> = {
     'contact.read',
     'consent.read',
   ],
-  campaign_manager: ['campaign.draft', 'campaign.launch', 'report.read'],
+  campaign_manager: ['campaign.draft', 'campaign.launch', 'campaign.control', 'report.read'],
   analyst: ['report.read'],
 };
 

@@ -5145,6 +5145,443 @@
           }
         }
       }
+    },
+    "/tenants/{tenantId}/campaigns": {
+      "get": {
+        "operationId": "listCampaigns",
+        "summary": "List campaigns",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Committed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCampaign",
+        "summary": "Create an immutable campaign draft revision",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Committed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCampaignRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}/validate": {
+      "post": {
+        "operationId": "validateCampaign",
+        "summary": "Freeze and validate the campaign audience",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Committed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}/approve": {
+      "post": {
+        "operationId": "approveCampaign",
+        "summary": "Approve the exact current revision",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Committed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}/launch": {
+      "post": {
+        "operationId": "launchCampaign",
+        "summary": "Launch exactly one campaign execution",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Committed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LaunchCampaignRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}/control": {
+      "post": {
+        "operationId": "controlCampaign",
+        "summary": "Pause, resume or cancel undispatched work",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Committed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ControlCampaignRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}/recipients": {
+      "get": {
+        "operationId": "listCampaignRecipients",
+        "summary": "List the per-recipient ledger",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Committed result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignRecipientListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -9375,6 +9812,353 @@
           },
           "request_id": {
             "type": "string"
+          }
+        }
+      },
+      "CampaignAudience": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "total",
+          "eligible",
+          "excluded"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "eligible": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "excluded": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CampaignExecution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "state",
+          "scheduled_for"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string"
+          },
+          "scheduled_for": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "Campaign": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "objective",
+          "connection_id",
+          "state",
+          "version",
+          "revision_id",
+          "revision",
+          "revision_hash",
+          "approved",
+          "audience",
+          "execution",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "objective": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "validating",
+              "ready",
+              "scheduled",
+              "running",
+              "pausing",
+              "paused",
+              "dispatch_completed",
+              "cancelling",
+              "cancelled",
+              "failed"
+            ]
+          },
+          "version": {
+            "type": "integer"
+          },
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "revision_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "audience": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CampaignAudience"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "execution": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CampaignExecution"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CampaignResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Campaign"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CampaignListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Campaign"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CampaignRecipient": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "contact_id",
+          "display_name",
+          "external_id",
+          "state",
+          "last_error",
+          "estimated_amount_minor",
+          "currency"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contact_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "last_error": {},
+          "estimated_amount_minor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CampaignRecipientListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "page",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CampaignRecipient"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/Page"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateCampaignRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "connectionId",
+          "content"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "objective": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "content": {
+            "type": "object"
+          },
+          "variables": {
+            "type": "object"
+          },
+          "audienceFilter": {
+            "type": "object"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "budgetAmountMinor": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "budgetCurrency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "LaunchCampaignRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "now",
+              "scheduled"
+            ]
+          },
+          "scheduledFor": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ControlCampaignRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "pause",
+              "resume",
+              "cancel"
+            ]
           }
         }
       }

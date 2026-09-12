@@ -87,6 +87,32 @@ const BODIES = [
   'تم الحجز، وسيصلك تذكير قبلها بيوم.',
 ];
 
+function campaigns(): readonly Record<string, unknown>[] {
+  const common = {
+    connection_id: 'cn-1', version: 3, revision: 1,
+    created_at: new Date(Date.UTC(2026, 8, 7, 9, 0)).toISOString(),
+    updated_at: new Date(Date.UTC(2026, 8, 9, 9, 0)).toISOString(),
+  };
+  return [
+    {
+      ...common, id: 'campaign-intake', name: 'دفعة الخريف', objective: 'تأكيد التسجيل قبل بداية الدراسة',
+      state: 'ready', revision_id: 'revision-intake', revision_hash: 'a'.repeat(64), approved: true,
+      audience: { total: 1280, eligible: 1146, excluded: 134 }, execution: null,
+    },
+    {
+      ...common, id: 'campaign-reminder', name: 'تذكير المحاضرة المباشرة', objective: 'رفع نسبة الحضور',
+      state: 'running', revision_id: 'revision-reminder', revision_hash: 'b'.repeat(64), approved: true,
+      audience: { total: 640, eligible: 618, excluded: 22 },
+      execution: { id: 'execution-reminder', state: 'running', scheduled_for: null },
+    },
+    {
+      ...common, id: 'campaign-followup', name: 'متابعة المهتمين', objective: null,
+      state: 'draft', revision_id: 'revision-followup', revision_hash: 'c'.repeat(64), approved: false,
+      audience: null, execution: null,
+    },
+  ];
+}
+
 function timeline(): readonly Record<string, unknown>[] {
   return BODIES.map((body, index) => ({
     id: `m-${String(index).padStart(2, '0')}`,
@@ -239,6 +265,9 @@ export async function installApi(page: Page): Promise<void> {
           },
         ],
       });
+    }
+    if (path.endsWith('/campaigns')) {
+      return json(route, paged(campaigns()));
     }
     if (path.endsWith('/contacts')) {
       return json(route, paged(contacts()));

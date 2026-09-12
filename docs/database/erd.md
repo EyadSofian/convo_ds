@@ -531,9 +531,11 @@ campaign_recipients      (id, tenant_id, execution_id, contact_id, identity_id,
                           state ∈ planned|queued|in_flight|accepted|delivered|read
                                  |failed|skipped|cancelled|outcome_unknown
                           UNIQUE (tenant_id, execution_id, identity_id)
-budget_reservations      (id, tenant_id, execution_id, recipient_id, amount_minor numeric(20,6),
-                          currency, state, created_at, released_at)
-                          state ∈ reserved|committed|released|held_unknown
+budget_reservations      (id, tenant_id, execution_id, recipient_id,
+                          estimated_amount_minor numeric(20,6), reserved_amount_minor numeric(20,6),
+                          committed_amount_minor numeric(20,6), reconciled_amount_minor numeric(20,6),
+                          currency, state, created_at, released_at, reconciled_at)
+                          state ∈ reserved|committed|released|held_unknown|reconciled
 usage_events             (id, tenant_id, kind, quantity, amount_minor, currency,
                           estimated bool, reconciled_at, provider_ref)
 price_cards              (id, provider, category, market, currency, amount_minor,

@@ -61,6 +61,7 @@ describe('migrate', () => {
       '0017_conversation_lifecycle.sql',
       '0018_work_routing.sql',
       '0019_metadata_catalogue.sql',
+      '0020_campaign_core.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -71,12 +72,21 @@ describe('migrate', () => {
     );
     expect(tables.rows.map((r) => r.table_name)).toEqual([
       'admin_audit_events',
+      'audience_snapshot_members',
+      'audience_snapshots',
       'auth_rate_limits',
       'broker_dead_letters',
       'broker_deliveries',
       'broker_outbox',
+      'budget_reservations',
       'builtin_role_definitions',
       'builtin_role_grants',
+      'campaign_approvals',
+      'campaign_audit',
+      'campaign_executions',
+      'campaign_recipients',
+      'campaign_revisions',
+      'campaigns',
       'channel_apps',
       'channel_asset_registry',
       'channel_connections',
@@ -123,6 +133,8 @@ describe('migrate', () => {
       'schema_migrations',
       'team_members',
       'teams',
+      'template_revisions',
+      'templates',
       'tenant_event_sequences',
       'tenants',
       'user_membership_index',

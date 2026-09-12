@@ -163,7 +163,7 @@ test.describe('workspace screen baselines', () => {
     'settings',
   ] as const) {
     test(`screen — ${screen}`, async ({ page }) => {
-      await openScreen(page, screen);
+      await openScreen(page, screen, screen === 'broadcasts' ? '?as=campaign_manager' : '');
       await expect(page).toHaveScreenshot(`screen-${screen}.png`);
       // The half the pixels cannot do: this fails the moment a screen is
       // replaced by a different one, however similar the two look.

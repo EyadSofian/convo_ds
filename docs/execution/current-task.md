@@ -4,7 +4,62 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T10 (Milestone E: labels, typed custom fields and deployment-ready channel slots)
+## Last completed task — P1-T11 (Milestone F: campaign core and live Broadcasts UI)
+
+**Task / requirement IDs:** CMP-01, CMP-02, CMP-04, CMP-06, CMP-08 and CMP-09 implemented; CMP-03, CMP-14, CMP-17 and CMP-20 partial. UX-09 remains `partial` because Analytics and Settings are still demo-backed and campaign dispatch workers are the next slice.
+
+### Behavior delivered
+
+**Broadcasts now uses the API and PostgreSQL.** The old campaign cards and local launch success path are gone. An authorized operator can create a draft against a healthy channel, freeze its audience, approve the exact immutable revision, launch it now or through the scheduling API, pause/resume/cancel future work, and open the per-recipient ledger. Loading, empty, refusal and committed-success states are distinct.
+
+**The campaign lifecycle is one total transition table.** Invalid transitions are typed `409` responses. A second validation of the same immutable revision is rejected before touching its one audience snapshot; this replaced a database-constraint `500` found by the integration tests.
+
+**Review evidence cannot drift after approval.** `campaign_revisions`, audience snapshots and their member rows are immutable at the runtime role. Audience selection and member insertion come from the same materialized SQL candidate set, so the totals shown for approval are the rows launch uses. Approval carries the revision hash, and the database foreign key verifies it belongs to that revision.
+
+**Launch is atomic and replay-safe.** The execution, frozen recipients and exact-decimal budget reservations commit together. One campaign ID has one execution under concurrent calls. The same idempotency key and body returns the original result; the same key with a changed request is a conflict. Cancellation changes only planned/queued recipients and never claims to recall a provider request already on the wire.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0020_campaign_core.sql` | campaign definitions, approvals, snapshots, execution, ledger, budgets, RLS and immutable evidence |
+| `packages/domain/src/campaigns/lifecycle.ts` | closed campaign state machine |
+| `apps/api/src/campaigns/` | seven server operations and request validation |
+| `apps/web/src/api/campaigns.ts` | typed browser client |
+| `apps/web/src/live/campaign-actions.ts` | committed workflow mutations |
+| `apps/web/src/ui/workspace.ts` | server-backed Broadcasts screen and recipient ledger |
+| `docs/api/openapi.v1.json` | pinned 90-operation contract |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web 196.24 kB / 58.78 kB gzip |
+| `pnpm test:unit` | **0** | 73 files, **1421 tests** |
+| `pnpm test:integration` | **0** | 23 files, **493 tests** against PostgreSQL 17.4 |
+| `pnpm test:property` | **0** | 5 exhaustive/metamorphic properties |
+| `pnpm test:coverage` | **0** | 97 files, **1919 tests**, **100/100/100/100** |
+| `pnpm test:contracts` | **0** | OpenAPI drift clean; channel contracts pass |
+| `pnpm test:security` | **0** | 354 tests + production audit; no known vulnerabilities |
+| `pnpm test:e2e` | **0** | **150 tests** at 1440×900 and 1366×768 |
+| `pnpm test:a11y` | **0** | **25 tests**, no WCAG 2.1 AA axe violations |
+| `pnpm test:visual` | **0** | **20 tests**, including reviewed Broadcasts pixels and structure |
+
+### Honest remaining scope
+
+- The recipient ledger is durable, but a `worker-campaign` planner has not yet turned planned recipients into outbound commands. Scheduled executions likewise need a durable due-time sweeper. This is the next execution slice.
+- Dispatch-time eligibility, reservation release/commit/reconciliation and campaign attempt aggregation remain to be wired to the existing outbound dispatcher.
+- Templates, test-send, edit/revise, clone and retry-failures are not built yet.
+- **Analytics and Settings are still demo-backed.** Campaign reporting/export and SLA/business-hours read models remain.
+- **No live provider HTTP client yet.** Provider activation remains `blocked_no_asset` until the owner supplies Meta App credentials and Phone/Page/Instagram asset IDs.
+- **CRM remains intentionally deferred by the owner** and is not on the MVP release critical path.
+
+**Next execution slice:** implement the durable campaign scheduler/planner and dispatch-time recheck, using the existing campaign worker role, outbound command dispatcher and fairness machinery.
+
+---
+
+## Previously completed — P1-T10 (Milestone E: labels, typed custom fields and deployment-ready channel slots)
 
 **Task / requirement IDs:** CON-08 and CT-05 closed. UX-09 remains `partial` only because Broadcasts, Analytics and Settings are still demo-backed.
 
@@ -61,7 +116,7 @@ The coverage run exposed a calendar-dependent test fixture: a hard-coded inbound
 - Merge/import/export/segments, MFA/SSO and advanced media remain later scope.
 - Mutation, target-load and recovery drills still need their P4/staging environments.
 
-**Next execution slice:** replace the Broadcasts demo with the real Milestone F campaign core and UI. That is the shortest path to the client-visible MVP the owner described; CRM and provider activation stay outside the critical path.
+**Next execution slice at that point:** replace the Broadcasts demo with the real campaign core and UI. Completed in P1-T11 above.
 
 ---
 

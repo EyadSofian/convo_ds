@@ -25,45 +25,129 @@ function text(element: HTMLElement): string {
 }
 
 describe('broadcasts', () => {
-  it('renders one card per campaign with its ledger', () => {
-    const element = renderBroadcasts(stateAs('admin'));
-    expect(element.querySelectorAll('.card')).toHaveLength(4);
-    expect(text(element)).toContain('نتيجة غير معروفة');
-    expect(text(element)).toContain('اكتمل الإرسال');
-    expect(text(element)).toContain('غير معتمدة');
+  function liveState(role: RoleId = 'admin', lang: 'ar' | 'en' = 'ar'): AppState {
+    const state = stateAs(role, lang);
+    state.live.session = { status: 'signed_in', email: 'owner@test.local', memberships: [], tenantId: 'tenant-1' };
+    state.live.campaigns = { status: 'ready', loadedAt: NOW.getTime(), value: [
+      {
+        id: 'campaign-1', name: 'September intake', objective: 'Enrolment', connection_id: 'channel-1',
+        state: 'ready', version: 3, revision_id: 'revision-1', revision: 1,
+        revision_hash: 'a'.repeat(64), approved: true,
+        audience: { total: 12, eligible: 10, excluded: 2 }, execution: null,
+        created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
+      },
+      {
+        id: 'campaign-2', name: 'Started campaign', objective: null, connection_id: 'channel-1',
+        state: 'running', version: 4, revision_id: 'revision-2', revision: 1,
+        revision_hash: 'b'.repeat(64), approved: true,
+        audience: { total: 4, eligible: 4, excluded: 0 },
+        execution: { id: 'execution-2', state: 'running', scheduled_for: null },
+        created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
+      },
+    ] };
+    return state;
+  }
+
+  it('renders only server-backed campaigns and their frozen totals', () => {
+    const element = renderBroadcasts(liveState());
+    expect(element.querySelectorAll('.broadcast-card')).toHaveLength(2);
+    expect(text(element)).toContain('September intake');
+    expect(text(element)).toContain('مؤهل للإرسال');
+    expect(text(element)).not.toContain('بيانات تجريبية');
   });
 
-  it('labels demo data and refuses to imply provider success', () => {
-    const element = renderBroadcasts(stateAs('admin'));
-    expect(text(element)).toContain('بيانات تجريبية');
-    expect(text(element)).toContain('القبول من المزوّد ليس تسليمًا');
+  it('offers actions that the current server state can accept', () => {
+    const element = renderBroadcasts(liveState());
+    expect(element.querySelector('[data-act="live-campaign-launch"]')).not.toBeNull();
+    expect(element.querySelector('[data-act="live-campaign-control"][data-arg$=":pause"]')).not.toBeNull();
+    expect(element.querySelector('[data-act="live-campaign-ledger"]')).not.toBeNull();
   });
 
-  it('names a channel it does not have a label for by its own name', () => {
-    const state = stateAs('admin');
-    const first = state.dataset.campaigns[0];
-    if (first === undefined) throw new Error('the seed has no campaign');
-    state.dataset = {
-      ...state.dataset,
-      campaigns: [{ ...first, channel: 'telegram' as typeof first.channel }],
-    };
-    // A newer server naming a channel this build has no word for is
-    // information, not noise: it is shown as itself rather than dropped.
-    expect(text(renderBroadcasts(state))).toContain('telegram');
-  });
+  it('shows signed-out, loading, failure and empty states distinctly', () => {
+    const loading = stateAs('admin');
+    expect(renderBroadcasts(loading).querySelector('[aria-busy="true"]')).not.toBeNull();
+    loading.live.session = { status: 'signed_out', error: null };
+    expect(text(renderBroadcasts(loading))).toContain('تحتاج جلسة');
+    loading.live.session = { status: 'signed_in', email: 'a@b.c', memberships: [], tenantId: 't' };
+    loading.live.campaigns = { status: 'error', error: { code: 'down', message: 'الخادم متوقف', requestId: 'req-1', status: 503, details: [] } };
+    expect(text(renderBroadcasts(loading))).toContain('req-1');
+    loading.live.campaigns = { status: 'ready', value: [], loadedAt: 1 };
+    expect(text(renderBroadcasts(loading))).toContain('لا توجد حملات');
 
-  it('shows an unfixed audience snapshot honestly', () => {
-    expect(text(renderBroadcasts(stateAs('admin')))).toContain('لم تُثبَّت بعد');
+    const noTenant = stateAs('admin');
+    noTenant.live.session = { status: 'signed_in', email: 'a@b.c', memberships: [], tenantId: null };
+    expect(text(renderBroadcasts(noTenant))).toContain('لا توجد عضوية نشطة');
+
+    const network = liveState();
+    network.live.campaigns = { status: 'error', error: { code: 'network', message: 'offline', requestId: null, status: null, details: [] } };
+    expect(text(renderBroadcasts(network))).toContain('تعذر الاتصال بالخادم');
   });
 
   it('hides authoring controls without campaign.draft', () => {
-    const element = renderBroadcasts(stateAs('supervisor'));
+    const element = renderBroadcasts(liveState('supervisor'));
     expect(element.querySelector('[data-arg="campaign"]')).toBeNull();
-    expect(element.querySelectorAll('button[disabled]').length).toBeGreaterThan(0);
+    expect(element.querySelector('[data-act="live-campaign-launch"]')).toBeNull();
+  });
+
+  it('renders a recipient ledger from the server response', () => {
+    const state = liveState();
+    state.live.selectedCampaignId = 'campaign-2';
+    state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: [
+      { id: 'r1', contact_id: 'c1', display_name: 'Mona', external_id: '2010', state: 'planned', last_error: null, estimated_amount_minor: '12.500000', currency: 'USD' },
+    ] };
+    const element = renderBroadcasts(state);
+    expect(text(element)).toContain('سجل المستلمين');
+    expect(text(element)).toContain('Mona');
+    expect(text(element)).toContain('12.500000 USD');
+  });
+
+  it('renders every actionable campaign state from the server record', () => {
+    const state = liveState();
+    const base = state.live.campaigns.status === 'ready' ? state.live.campaigns.value[0] : undefined;
+    if (base === undefined) throw new Error('fixture has no campaign');
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [
+      { ...base, id: 'draft', state: 'draft', approved: false, audience: null },
+      { ...base, id: 'approval', state: 'ready', approved: false, objective: null },
+      { ...base, id: 'scheduled', state: 'scheduled', execution: { id: 'e1', state: 'scheduled', scheduled_for: NOW.toISOString() } },
+      { ...base, id: 'paused', state: 'paused', execution: { id: 'e2', state: 'paused', scheduled_for: null } },
+      { ...base, id: 'failed', state: 'failed', execution: { id: 'e3', state: 'failed', scheduled_for: null } },
+    ] };
+    state.live.busy = 'some-operation';
+    const element = renderBroadcasts(state);
+    expect(element.querySelector('[data-act="live-campaign-validate"]')).not.toBeNull();
+    expect(element.querySelector('[data-act="live-campaign-approve"]')).not.toBeNull();
+    expect(element.querySelector('[data-arg="paused:resume"]')).not.toBeNull();
+    expect(element.querySelector('[data-arg="scheduled:cancel"]')).not.toBeNull();
+    expect(text(element)).toContain('بلا هدف مكتوب');
+    expect(text(element)).toContain('لم يُثبّت');
+    expect(element.querySelector('.pill--danger')).not.toBeNull();
+    expect(Array.from(element.querySelectorAll('button')).some((button) => button.disabled)).toBe(true);
+  });
+
+  it('distinguishes ledger loading, failure, empty and failed-recipient states', () => {
+    const state = liveState('admin', 'en');
+    state.live.selectedCampaignId = 'campaign-2';
+    expect(text(renderBroadcasts(state))).toContain('Loading ledger');
+
+    state.live.campaignRecipients = { status: 'error', error: { code: 'down', message: 'Ledger unavailable', requestId: null, status: 503, details: [] } };
+    expect(text(renderBroadcasts(state))).toContain('Ledger unavailable');
+    state.live.campaignRecipients = { status: 'error', error: { code: 'down', message: 'Ledger unavailable', requestId: 'req-ledger', status: 503, details: [] } };
+    expect(text(renderBroadcasts(state))).toContain('req-ledger');
+    state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: [] };
+    expect(text(renderBroadcasts(state))).toContain('No recipients');
+    state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: [
+      { id: 'r2', contact_id: 'c2', display_name: 'Omar', external_id: '2011', state: 'failed', last_error: { code: 'provider' }, estimated_amount_minor: null, currency: null },
+      { id: 'r3', contact_id: 'c3', display_name: 'Laila', external_id: '2012', state: 'planned', last_error: null, estimated_amount_minor: '1.000000', currency: null },
+    ] };
+    const failed = renderBroadcasts(state);
+    expect(text(failed)).toContain('Omar');
+    expect(text(failed)).toContain('—');
+    expect(text(failed)).toContain('1.000000');
+    expect(failed.querySelector('.pill--danger')).not.toBeNull();
   });
 
   it('renders in English', () => {
-    expect(text(renderBroadcasts(stateAs('admin', 'en')))).toContain('Outcome unknown');
+    expect(text(renderBroadcasts(liveState('admin', 'en')))).toContain('Unknown outcomes are never retried automatically');
   });
 });
 

@@ -5,6 +5,7 @@ import { ChannelsApi } from './api/channels';
 import { ContactsApi } from './api/contacts';
 import { ConversationsApi } from './api/conversations';
 import { MetadataApi } from './api/metadata';
+import { CampaignsApi } from './api/campaigns';
 import {
   disconnectedApi,
   disconnectedChannelsApi,
@@ -22,6 +23,7 @@ import {
   stopRealtime,
 } from './live/inbox-actions';
 import { loadContactsScreen } from './live/contact-actions';
+import { loadCampaignsScreen } from './live/campaign-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
 import { createLiveState, rowsOf } from './live/store';
@@ -367,6 +369,7 @@ const SCREEN_LOADERS: Readonly<Record<string, (context: LiveContext) => Promise<
   channels: loadChannelsScreen,
   inbox: loadInboxScreen,
   contacts: loadContactsScreen,
+  broadcasts: loadCampaignsScreen,
 };
 
 /**
@@ -408,6 +411,7 @@ export function mount(options: MountOptions): AppHandle {
     client === null ? disconnectedConversationsApi() : new ConversationsApi(client);
   const contacts = client === null ? disconnectedContactsApi() : new ContactsApi(client);
   const metadata = client === null ? disconnectedMetadataApi() : new MetadataApi(client);
+  const campaigns = client === null ? undefined : new CampaignsApi(client);
   /**
    * The clock the whole screen reads.
    *
@@ -419,7 +423,7 @@ export function mount(options: MountOptions): AppHandle {
    * which is exactly what it was.
    */
   const clock = (): Date => options.now ?? new Date();
-  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata));
+  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata, campaigns));
   const root = options.root;
   const host = options.host;
   let sessionRequested = false;

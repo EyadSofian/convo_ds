@@ -54,6 +54,8 @@ import { PeopleService } from './people/people.service.js';
 import { MembershipService } from './memberships/membership.service.js';
 import { MetadataController } from './metadata/metadata.controller.js';
 import { MetadataService } from './metadata/metadata.service.js';
+import { CampaignController } from './campaigns/campaign.controller.js';
+import { CampaignService } from './campaigns/campaign.service.js';
 import {
   API_CONFIG,
   API_POOL,
@@ -115,6 +117,7 @@ export class ApiModule {
         ConversationController,
         ContactController,
         MetadataController,
+        CampaignController,
         RealtimeController,
       ],
       providers: [
@@ -159,6 +162,7 @@ export class ApiModule {
         RealtimeService,
         ContactService,
         MetadataService,
+        CampaignService,
         ConversationService,
         LifecycleService,
         RoutingService,
