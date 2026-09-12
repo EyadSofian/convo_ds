@@ -36,6 +36,16 @@ export async function loadCampaignsScreen(context: LiveContext): Promise<void> {
   context.refresh();
 }
 
+export async function loadCampaignReport(context: LiveContext): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  context.live.campaignReport = LOADING;
+  context.refresh();
+  const result = await context.live.campaignsApi.report(tenantId);
+  context.live.campaignReport = fromResult(result, context.now());
+  context.refresh();
+}
+
 export function createCampaign(context: LiveContext, input: CreateCampaignInput): Promise<boolean> {
   return mutate(context, 'campaign-create',
     (tenantId) => context.live.campaignsApi.create(tenantId, input, context.newKey()),

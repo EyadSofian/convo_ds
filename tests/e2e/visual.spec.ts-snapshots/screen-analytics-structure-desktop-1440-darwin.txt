@@ -1,10 +1,10 @@
-div.workspace
+div.workspace.workspace--analytics
   div.workspace__intro
     div.workspace__introtext
       h1.workspace__heading
       p.workspace__lede
     div.workspace__actions
-      button.btn [demo]
+      button.btn [live-report-reload]
         svg
           path
           path
@@ -59,24 +59,42 @@ div.workspace
             span.bars__fill
           span.bars__value
             bdi
-        div.bars__row
-          span
-          span.bars__track
-            span.bars__fill
-          span.bars__value
-            bdi
-        div.bars__row
-          span
-          span.bars__track
-            span.bars__fill
-          span.bars__value
-            bdi
   section.card
     div.card__header
       h3.card__title
       span.card__spacer
     div.card__body
       div.bars
+        div.bars__row
+          span
+          span.bars__track
+            span.bars__fill
+          span.bars__value
+            bdi
+        div.bars__row
+          span
+          span.bars__track
+            span.bars__fill
+          span.bars__value
+            bdi
+        div.bars__row
+          span
+          span.bars__track
+            span.bars__fill
+          span.bars__value
+            bdi
+        div.bars__row
+          span
+          span.bars__track
+            span.bars__fill
+          span.bars__value
+            bdi
+        div.bars__row
+          span
+          span.bars__track
+            span.bars__fill
+          span.bars__value
+            bdi
         div.bars__row
           span
           span.bars__track
@@ -98,19 +116,7 @@ div.workspace
         div.bars__row
           span
           span.bars__track
-            span.bars__fill
-          span.bars__value
-            bdi
-        div.bars__row
-          span
-          span.bars__track
-            span.bars__fill
-          span.bars__value
-            bdi
-        div.bars__row
-          span
-          span.bars__track
-            span.bars__fill
+            span.bars__fill.bars__fill--warm
           span.bars__value
             bdi
   section.card
@@ -118,13 +124,6 @@ div.workspace
       h3.card__title
       span.card__spacer
     div.card__body
-      div.notice.notice--warning
-        span.notice__icon
-          svg
-            path
-            path
-            circle
-        span
       dl.attrgrid
         dt
         dd
@@ -138,10 +137,51 @@ div.workspace
               circle
               path
               circle
-        dt
-        dd
-          span.pill.pill--neutral
-            svg
-              circle
-              path
-              circle
+  section.card
+    div.card__header
+      h3.card__title
+      span.card__spacer
+      span.pill.pill--neutral
+    div.card__body
+      div.tablewrap
+        table.datatable
+          thead
+            tr
+              th
+              th
+              th
+              th
+          tbody
+            tr
+              td
+                bdi
+              td
+                bdi.mono
+              td
+                bdi.mono
+              td
+                bdi.mono
+  section.card
+    div.card__header
+      h3.card__title
+      span.card__spacer
+    div.card__body
+      div.bars
+        div.bars__row
+          span
+          span.bars__track
+            span.bars__fill.bars__fill--warm
+          span.bars__value
+            bdi
+        div.bars__row
+          span
+          span.bars__track
+            span.bars__fill.bars__fill--warm
+          span.bars__value
+            bdi
+        div.bars__row
+          span
+          span.bars__track
+            span.bars__fill.bars__fill--warm
+          span.bars__value
+            bdi

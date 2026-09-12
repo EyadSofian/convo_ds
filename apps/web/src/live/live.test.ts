@@ -1065,13 +1065,13 @@ describe('the transport the browser actually gets', () => {
     const api = signedInApi();
     handle = mount({
       root: mountRoot(),
-      host: createHost('#/analytics'),
+      host: createHost('#/settings'),
       now: NOW,
       fetch: api.fetch,
       readCsrfToken: () => 'csrf-token',
     });
     await settle();
-    // Analytics is still seeded locally. A workspace that only opens a demo
+    // Settings is still seeded locally. A workspace that only opens a demo
     // screen must never call the API — the session is resolved by the screens
     // that need it, not on boot.
     expect(api.calls).toEqual([]);

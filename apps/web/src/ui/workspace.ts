@@ -1,7 +1,7 @@
 import type { Child } from '../dom';
 import type { Campaign, CampaignState } from '../api/campaigns';
 import { h } from '../dom';
-import { conversationCount, formatNumber } from '../format';
+import { dateFormat, formatNumber, numberFormat } from '../format';
 import { can, ROLE_LABELS } from '../permissions';
 import type { AppState } from '../state';
 import { currentActor } from '../state';
@@ -162,27 +162,43 @@ export function renderAnalytics(state: AppState): HTMLElement {
       }),
     ]);
   }
-  const open = state.dataset.conversations.filter((entry) => entry.status === 'open').length;
-  const unassigned = state.dataset.conversations.filter((entry) => entry.assigneeId === null).length;
-  const breached = state.dataset.conversations.filter((entry) => entry.sla === 'breached').length;
-  const resolved = state.dataset.conversations.filter((entry) => entry.status === 'resolved').length;
-  const denominator = state.dataset.conversations.length;
-  return h('div', { class: 'workspace', tabindex: '0', 'data-scroll': 'screen' }, [
+  const resource = state.live.campaignReport;
+  const tenantId = state.live.session.status === 'signed_in' ? state.live.session.tenantId : null;
+  if (state.live.session.status === 'unknown' || (tenantId !== null && (resource.status === 'idle' || resource.status === 'loading'))) {
+    return h('div', { class: 'workspace workspace--analytics', tabindex: '0', 'data-scroll': 'screen' }, [
+      intro(state, t(state, 'تقارير الحملات', 'Campaign analytics'), t(state, 'جارٍ قراءة سجل التنفيذ…', 'Reading the execution ledger…'), []),
+      h('div', { class: 'skeleton', 'aria-busy': 'true' }, [h('div', { class: 'skeletonrow' }), h('div', { class: 'skeletonrow' })]),
+    ]);
+  }
+  if (state.live.session.status === 'signed_out') {
+    return reportState(state, 'denied', t(state, 'تحتاج جلسة', 'You need a session'), t(state, 'سجّل الدخول لعرض تقارير الخادم.', 'Sign in to view server reports.'));
+  }
+  if (tenantId === null) {
+    return reportState(state, 'info', t(state, 'لا توجد عضوية نشطة', 'No active membership'), t(state, 'اختر شركة لعرض تقاريرها.', 'Choose a company to view its reports.'));
+  }
+  if (resource.status === 'error') {
+    return h('div', { class: 'workspace workspace--analytics', tabindex: '0', 'data-scroll': 'screen' }, [
+      intro(state, t(state, 'تقارير الحملات', 'Campaign analytics'), t(state, 'نتائج فعلية من سجل التنفيذ.', 'Live results from the execution ledger.'), []),
+      stateBox({ kind: 'denied', iconName: 'alert', title: resource.error.message,
+        body: resource.error.requestId === null ? t(state, 'تعذر الاتصال بالخادم.', 'The server could not be reached.') : `Request ID: ${resource.error.requestId}`,
+        actionLabel: t(state, 'إعادة التحميل', 'Reload'), act: 'live-report-reload' }),
+    ]);
+  }
+  const report = (resource as Extract<typeof resource, { readonly status: 'ready' }>).value;
+  const denominator = report.milestones.denominator;
+  const freshness = dateFormat(state.lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(report.fresh_through));
+  const ratio = (value: number): string => denominator === 0 ? '—' : numberFormat(state.lang, { style: 'percent', maximumFractionDigits: 1 }).format(value / denominator);
+  return h('div', { class: 'workspace workspace--analytics', tabindex: '0', 'data-scroll': 'screen', 'data-report-ready': 'true' }, [
     intro(
       state,
-      t(state, 'التقارير', 'Analytics'),
+      t(state, 'تقارير الحملات', 'Campaign analytics'),
       t(
         state,
         'كل رقم هنا يحمل مقامه المنشور ووقت تحديثه. لا نسب بلا مقام، ولا إيصالات مفترضة.',
         'Every number carries its published denominator and freshness. No ratios without a denominator, and no assumed receipts.',
       ),
       [
-        button({
-          label: t(state, 'تصدير CSV', 'Export CSV'),
-          icon: 'download',
-          act: 'demo',
-          arg: t(state, 'التصدير غير مفعّل في العرض التجريبي', 'Export is disabled in the demo'),
-        }),
+        button({ label: t(state, 'تحديث', 'Reload'), icon: 'refresh', act: 'live-report-reload' }),
       ],
     ),
     notice(
@@ -190,94 +206,103 @@ export function renderAnalytics(state: AppState): HTMLElement {
       'info',
       t(
         state,
-        `بيانات تجريبية — محسوبة من ${conversationCount(denominator, state.lang)} في هذه النسخة، وليست من نظام إنتاج.`,
-        `Demo data — computed from ${conversationCount(denominator, state.lang)} in this build, not from a production system.`,
+        `آخر دليل تشغيلي داخل التقرير: ${freshness}. الحالات الحالية منفصلة، ومراحل الوصول تراكمية.`,
+        `Latest execution evidence in this report: ${freshness}. Current states are disjoint; reached milestones are cumulative.`,
       ),
     ),
     h('div', { class: 'grid3' }, [
       metric(
-        t(state, 'محادثات مفتوحة', 'Open conversations'),
-        formatNumber(open, state.lang),
-        t(state, `من إجمالي ${formatNumber(denominator, state.lang)}`, `of ${formatNumber(denominator, state.lang)} total`),
+        t(state, 'قُبلت للإرسال', 'Accepted'), formatNumber(report.milestones.accepted, state.lang),
+        `${ratio(report.milestones.accepted)} · ${t(state, 'من', 'of')} ${formatNumber(denominator, state.lang)}`,
       ),
       metric(
-        t(state, 'غير مُسندة', 'Unassigned'),
-        formatNumber(unassigned, state.lang),
-        t(state, 'تُعرض كبطاقات طابور فقط للموظفين', 'Shown to agents as queue cards only'),
+        t(state, 'تم التسليم', 'Delivered'), formatNumber(report.milestones.delivered, state.lang),
+        `${ratio(report.milestones.delivered)} · ${t(state, 'من', 'of')} ${formatNumber(denominator, state.lang)}`,
       ),
       metric(
-        t(state, 'تجاوزت الـ SLA', 'SLA breached'),
-        formatNumber(breached, state.lang),
-        t(state, 'حسب سياسة الفريق النشطة', 'Per the active team policy'),
+        t(state, 'تمت القراءة', 'Read'), formatNumber(report.milestones.read, state.lang),
+        `${ratio(report.milestones.read)} · ${t(state, 'من', 'of')} ${formatNumber(denominator, state.lang)}`,
       ),
       metric(
-        t(state, 'محلولة', 'Resolved'),
-        formatNumber(resolved, state.lang),
-        t(state, 'كل إعادة فتح تبدأ حلقة قياس جديدة', 'Each reopen starts a new reporting episode'),
+        t(state, 'نتيجة غير معلومة', 'Outcome unknown'), formatNumber(report.current.outcome_unknown, state.lang),
+        t(state, 'لا تُعاد تلقائيًا', 'never automatically retried'),
       ),
     ]),
     card(
-      t(state, 'التوزيع حسب القناة', 'Distribution by channel'),
-      [pill(t(state, 'محدَّث الآن', 'Fresh now'), 'neutral', 'clock')],
+      t(state, 'الأداء حسب القناة', 'Performance by channel'),
+      [pill(t(state, 'دليل حي', 'Live evidence'), 'neutral', 'clock')],
       [
         h(
           'div',
           { class: 'bars' },
-          state.dataset.inboxes.map((inbox) => {
-            const count = state.dataset.conversations.filter((entry) => entry.inboxId === inbox.id).length;
-            return barRow(
-              state.lang === 'ar' ? inbox.name : inbox.nameEn,
-              count / Math.max(denominator, 1),
-              formatNumber(count, state.lang),
-            );
-          }),
+          report.channels.map((channel) => barRow(channelLabel(state, channel.kind),
+            channel.accepted / Math.max(channel.denominator, 1),
+            `${formatNumber(channel.accepted, state.lang)} / ${formatNumber(channel.denominator, state.lang)}`)),
         ),
       ],
     ),
     card(
-      t(state, 'حمل الفريق', 'Team workload'),
+      t(state, 'الحالات الحالية', 'Current states'),
       [],
       [
         h(
           'div',
           { class: 'bars' },
-          state.dataset.members
-            .filter((member) => member.inboxIds.length > 0)
-            .map((member) =>
-              barRow(
-                state.lang === 'ar' ? member.name : member.nameEn,
-                member.openLoad / 15,
-                formatNumber(member.openLoad, state.lang),
-                member.openLoad > 10,
-              ),
-            ),
+          (['planned','queued','in_flight','accepted','delivered','read','failed','skipped','cancelled','outcome_unknown'] as const)
+            .filter((key) => report.current[key] > 0)
+            .map((key) => barRow(reportStateLabel(state, key), report.current[key] / Math.max(report.current.denominator, 1), formatNumber(report.current[key], state.lang), key === 'failed' || key === 'outcome_unknown')),
         ),
       ],
     ),
     card(
-      t(state, 'الإيصالات', 'Receipts'),
+      t(state, 'الإيصالات حسب القناة', 'Receipts by channel'),
       [],
       [
-        notice(
-          'warning',
-          'alert',
-          t(
-            state,
-            'إيصالات القراءة غير مدعومة على كل القنوات. غير المدعوم يُعرض «غير متاح» ولا يُحسب صفرًا ولا 0%.',
-            'Read receipts are not supported on every channel. Unsupported is shown as “not available” — never 0 and never 0%.',
-          ),
-        ),
-        h('dl', { class: 'attrgrid' }, [
-          h('dt', {}, [t(state, 'واتساب — تسليم', 'WhatsApp — delivered')]),
-          h('dd', {}, [pill(t(state, 'مدعوم', 'Supported'), 'success', 'check')]),
-          h('dt', {}, [t(state, 'إنستجرام — قراءة', 'Instagram — read')]),
-          h('dd', {}, [pill(t(state, 'غير متاح', 'Not available'), 'neutral', 'info')]),
-          h('dt', {}, [t(state, 'ماسنجر — قراءة', 'Messenger — read')]),
-          h('dd', {}, [pill(t(state, 'غير متاح', 'Not available'), 'neutral', 'info')]),
-        ]),
+        h('dl', { class: 'attrgrid' }, report.channels.flatMap((channel) => [
+          h('dt', {}, [channelLabel(state, channel.kind)]),
+          h('dd', {}, [channel.read_receipts
+            ? pill(`${formatNumber(channel.read, state.lang)} / ${formatNumber(channel.denominator, state.lang)}`, 'success', 'check')
+            : pill(t(state, 'غير متاح', 'Not available'), 'neutral', 'info')]),
+        ])),
       ],
     ),
+    card(t(state, 'التكلفة', 'Cost'), [pill(t(state, 'مقدّرة وفعلية منفصلتان', 'Estimated and reconciled separated'), 'neutral')], [
+      report.costs.length === 0 ? notice('plain', 'info', t(state, 'لا توجد تكلفة بعد.', 'No cost evidence yet.')) :
+        h('div', { class: 'tablewrap' }, [h('table', { class: 'datatable' }, [
+          h('thead', {}, [h('tr', {}, [h('th', {}, [t(state, 'العملة', 'Currency')]), h('th', {}, [t(state, 'مقدّرة', 'Estimated')]), h('th', {}, [t(state, 'مُلتزم بها', 'Committed')]), h('th', {}, [t(state, 'مُصالَحة', 'Reconciled')])])]),
+          h('tbody', {}, report.costs.map((cost) => h('tr', {}, [h('td', {}, [isolated(cost.currency)]), h('td', {}, [isolated(cost.estimated_amount_minor, true)]), h('td', {}, [isolated(cost.committed_amount_minor, true)]), h('td', {}, [isolated(cost.reconciled_amount_minor, true)])]))),
+        ])]),
+    ]),
+    card(t(state, 'أخطاء التنفيذ', 'Execution errors'), [], [
+      report.errors.length === 0 ? notice('plain', 'check', t(state, 'لا توجد أخطاء مسجلة.', 'No errors recorded.')) :
+        h('div', { class: 'bars' }, report.errors.map((error) => barRow(error.code, error.count / Math.max(report.current.denominator, 1), formatNumber(error.count, state.lang), true))),
+    ]),
   ]);
+}
+
+function reportState(state: AppState, kind: 'denied' | 'info', title: string, body: string): HTMLElement {
+  return h('div', { class: 'workspace workspace--analytics', tabindex: '0', 'data-scroll': 'screen' }, [
+    stateBox({ kind, iconName: kind === 'denied' ? 'lock' : 'info', title, body }),
+  ]);
+}
+
+function channelLabel(state: AppState, kind: string): string {
+  const labels: Readonly<Record<string, readonly [string, string]>> = {
+    whatsapp: ['واتساب', 'WhatsApp'], messenger: ['ماسنجر', 'Messenger'], instagram: ['إنستجرام', 'Instagram'],
+    web_chat: ['محادثة الموقع', 'Website chat'], custom: ['قناة مخصصة', 'Custom channel'],
+  };
+  const label = labels[kind];
+  return label === undefined ? kind : label[state.lang === 'ar' ? 0 : 1];
+}
+
+function reportStateLabel(state: AppState, key: 'planned' | 'queued' | 'in_flight' | 'accepted' | 'delivered' | 'read' | 'failed' | 'skipped' | 'cancelled' | 'outcome_unknown'): string {
+  const labels: Readonly<Record<typeof key, readonly [string, string]>> = {
+    planned: ['مخطط', 'Planned'], queued: ['في الطابور', 'Queued'], in_flight: ['قيد الإرسال', 'In flight'],
+    accepted: ['مقبول', 'Accepted'], delivered: ['تم التسليم', 'Delivered'], read: ['تمت القراءة', 'Read'],
+    failed: ['فشل', 'Failed'], skipped: ['مستبعد', 'Skipped'], cancelled: ['ملغي', 'Cancelled'],
+    outcome_unknown: ['نتيجة غير معلومة', 'Outcome unknown'],
+  };
+  return labels[key][state.lang === 'ar' ? 0 : 1];
 }
 
 /* ---------------------------------------------------------------- settings -- */

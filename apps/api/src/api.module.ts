@@ -57,6 +57,7 @@ import { MetadataService } from './metadata/metadata.service.js';
 import { CampaignController } from './campaigns/campaign.controller.js';
 import { CampaignService } from './campaigns/campaign.service.js';
 import { CampaignPlannerService } from './campaigns/campaign-planner.service.js';
+import { CampaignReportingService } from './campaigns/reporting.service.js';
 import {
   API_CONFIG,
   API_POOL,
@@ -165,6 +166,7 @@ export class ApiModule {
         MetadataService,
         CampaignService,
         CampaignPlannerService,
+        CampaignReportingService,
         ConversationService,
         LifecycleService,
         RoutingService,

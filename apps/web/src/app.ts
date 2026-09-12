@@ -24,6 +24,7 @@ import {
 } from './live/inbox-actions';
 import { loadContactsScreen } from './live/contact-actions';
 import { loadCampaignsScreen } from './live/campaign-actions';
+import { loadCampaignReport } from './live/campaign-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
 import { createLiveState, rowsOf } from './live/store';
@@ -370,6 +371,7 @@ const SCREEN_LOADERS: Readonly<Record<string, (context: LiveContext) => Promise<
   inbox: loadInboxScreen,
   contacts: loadContactsScreen,
   broadcasts: loadCampaignsScreen,
+  analytics: loadCampaignReport,
 };
 
 /**

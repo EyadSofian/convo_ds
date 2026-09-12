@@ -441,6 +441,29 @@ describe('campaign API', () => {
         [api.tenantId, planned.recipient_id],
       );
     });
+
+    const report = await send(api, 'GET', '/reports/campaigns');
+    expect(report.statusCode, report.body).toBe(200);
+    const value = (report.json() as { data: {
+      generated_at: string; fresh_through: string; timezone: string;
+      current: Record<string, number>; milestones: { denominator: number; accepted: number; delivered: number; read: number };
+      audience: { denominator: number; eligible: number; excluded: number };
+      errors: readonly { code: string; count: number }[];
+      costs: readonly { currency: string; estimated_amount_minor: string; committed_amount_minor: string; reconciled_amount_minor: string }[];
+    } }).data;
+    expect(Number.isNaN(new Date(value.generated_at).getTime())).toBe(false);
+    expect(Number.isNaN(new Date(value.fresh_through).getTime())).toBe(false);
+    expect(value.timezone).toBe('UTC');
+    expect(Object.entries(value.current).filter(([key]) => key !== 'denominator').reduce((sum, [, count]) => sum + count, 0)).toBe(value.current['denominator']);
+    expect(value.milestones.denominator).toBe(value.current['denominator']);
+    expect(value.milestones.accepted).toBeGreaterThanOrEqual(value.milestones.delivered);
+    expect(value.milestones.delivered).toBeGreaterThanOrEqual(value.milestones.read);
+    expect(value.audience.denominator).toBe(value.audience.eligible + value.audience.excluded);
+    expect(value.errors).toContainEqual({ code: 'marketing_consent_missing', count: 1 });
+    expect(value.costs.find((row) => row.currency === 'USD')).toMatchObject({
+      estimated_amount_minor: expect.any(String), committed_amount_minor: expect.any(String), reconciled_amount_minor: expect.any(String),
+    });
+    expect((await send(api, 'GET', `/../${randomUUID()}/reports/campaigns`)).statusCode).toBe(404);
   });
 
   it('holds queued work across pause, refreshes the fence on resume and removes it on cancel', async () => {

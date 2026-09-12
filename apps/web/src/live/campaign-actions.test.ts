@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Campaign, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
+import type { Campaign, CampaignReport, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
 import type { ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import { createState } from '../state.js';
@@ -11,6 +11,7 @@ import {
   createCampaign,
   launchCampaign,
   loadCampaignRecipients,
+  loadCampaignReport,
   loadCampaignsScreen,
   testSendCampaign,
   updateCampaign,
@@ -38,6 +39,7 @@ const TEST_SEND: CampaignTestSend = {
   recipient_label: 'Owner phone', peer_identity: '201000000000', message_id: 'message-1',
   state: 'queued', state_reason: null, created_at: NOW.toISOString(),
 };
+const REPORT = { generated_at: NOW.toISOString(), fresh_through: NOW.toISOString() } as CampaignReport;
 const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 const fail = <T>(): ApiResult<T> => ({ ok: false, error: ERROR });
 
@@ -59,6 +61,7 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     clone: vi.fn().mockResolvedValue(mutation),
     testSend: vi.fn().mockResolvedValue(ok(TEST_SEND)),
     recipients: vi.fn().mockResolvedValue(ok([])),
+    report: vi.fn().mockResolvedValue(ok(REPORT)),
   } as unknown as CampaignsApi;
   const channels = {
     connections: vi.fn().mockResolvedValue(ok([])),
@@ -81,10 +84,23 @@ describe('campaign actions', () => {
     const { context, campaigns } = setup({ tenant: null });
     await loadCampaignsScreen(context);
     await loadCampaignRecipients(context, 'campaign-1');
+    await loadCampaignReport(context);
     expect(await createCampaign(context, INPUT)).toBe(false);
     expect(await testSendCampaign(context, 'campaign-1', 'recipient-1', 1)).toBe(false);
     expect(campaigns.list).not.toHaveBeenCalled();
     expect(campaigns.recipients).not.toHaveBeenCalled();
+    expect(campaigns.report).not.toHaveBeenCalled();
+  });
+
+  it('loads the campaign report and preserves a server refusal', async () => {
+    const ready = setup();
+    await loadCampaignReport(ready.context);
+    expect(ready.state.live.campaignReport).toMatchObject({ status: 'ready', value: REPORT });
+    expect(ready.campaigns.report).toHaveBeenCalledWith('tenant-1');
+
+    vi.mocked(ready.campaigns.report).mockResolvedValueOnce(fail());
+    await LIVE_ACTIONS['live-report-reload']?.(ready.context, '');
+    expect(ready.state.live.campaignReport).toEqual({ status: 'error', error: ERROR });
   });
 
   it('queues a test only after the server commits and keeps a refusal in the dialog', async () => {

@@ -5,18 +5,26 @@ import { ApiHttpError } from '../http-error.js';
 import { pageEnvelope } from '../pagination.js';
 import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignLaunch, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
 import { CampaignService } from './campaign.service.js';
+import { CampaignReportingService } from './reporting.service.js';
 
 @Controller()
 export class CampaignController {
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(CampaignService) private readonly campaigns: CampaignService,
+    @Inject(CampaignReportingService) private readonly reporting: CampaignReportingService,
   ) {}
 
   @Get('tenants/:tenantId/campaigns')
   async list(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
     const session = await this.auth.authenticate(request.headers.cookie);
     return pageEnvelope(await this.campaigns.list(session, tenantId), null, request.id);
+  }
+
+  @Get('tenants/:tenantId/reports/campaigns')
+  async report(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return { data: await this.reporting.report(session, tenantId), request_id: request.id };
   }
 
   @Post('tenants/:tenantId/campaigns')

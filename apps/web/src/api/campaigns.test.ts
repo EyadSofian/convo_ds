@@ -41,6 +41,7 @@ describe('CampaignsApi', () => {
     await api.clone('tenant-1', 'campaign-1', 'Copy', 'clone-key');
     await api.testSend('tenant-1', 'campaign-1', 'recipient-1', 3, 'test-key');
     await api.recipients('tenant-1', 'campaign-1');
+    await api.report('tenant-1');
 
     expect(calls.map(({ path, init }) => [init.method, path])).toEqual([
       ['GET', '/api/v1/tenants/tenant-1/campaigns'],
@@ -53,6 +54,7 @@ describe('CampaignsApi', () => {
       ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/clone'],
       ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/test-send'],
       ['GET', '/api/v1/tenants/tenant-1/campaigns/campaign-1/recipients'],
+      ['GET', '/api/v1/tenants/tenant-1/reports/campaigns'],
     ]);
     expect(calls[1]?.init.headers).toMatchObject({ 'idempotency-key': 'create-key' });
     expect(calls[2]?.init.headers).toMatchObject({ 'idempotency-key': 'update-key' });

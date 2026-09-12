@@ -161,25 +161,47 @@ describe('broadcasts', () => {
 });
 
 describe('analytics', () => {
+  function reportState(lang: 'ar' | 'en' = 'ar'): AppState {
+    const state = stateAs('supervisor', lang);
+    state.live.session = { status: 'signed_in', email: 'report@test.local', memberships: [], tenantId: 'tenant-1' };
+    state.live.campaignReport = { status: 'ready', loadedAt: NOW.getTime(), value: {
+      generated_at: NOW.toISOString(), fresh_through: NOW.toISOString(), timezone: 'UTC',
+      definitions: { campaigns: 2, executions: 1 }, audience: { denominator: 12, eligible: 10, excluded: 2 },
+      current: { denominator: 10, planned: 0, queued: 0, in_flight: 0, accepted: 0, delivered: 4, read: 3, failed: 2, skipped: 0, cancelled: 0, outcome_unknown: 1 },
+      milestones: { denominator: 10, accepted: 8, delivered: 7, read: 3 },
+      costs: [{ currency: 'USD', estimated_amount_minor: '700.000000', committed_amount_minor: '560.000000', reconciled_amount_minor: '520.000000' }],
+      channels: [
+        { kind: 'whatsapp', denominator: 8, accepted: 7, delivered: 6, read: 3, delivery_receipts: true, read_receipts: true },
+        { kind: 'instagram', denominator: 2, accepted: 1, delivered: 0, read: 0, delivery_receipts: false, read_receipts: false },
+      ],
+      errors: [{ code: 'provider_rejected', count: 2 }],
+      campaigns: [{ id: 'campaign-1', name: 'September', state: 'dispatch_completed', denominator: 10, accepted: 8, delivered: 7, read: 3, failed: 2, outcome_unknown: 1, fresh_through: NOW.toISOString() }],
+    } };
+    return state;
+  }
+
   it('publishes denominators and freshness', () => {
-    const element = renderAnalytics(stateAs('supervisor'));
+    const element = renderAnalytics(reportState());
     expect(element.querySelectorAll('.metric').length).toBeGreaterThanOrEqual(4);
-    expect(text(element)).toContain('من إجمالي');
-    expect(text(element)).toContain('بيانات تجريبية');
+    expect(text(element)).toContain('من 10');
+    expect(text(element)).toContain('آخر دليل تشغيلي');
+    expect(text(element)).not.toContain('بيانات تجريبية');
   });
 
   it('never reports an unsupported receipt as zero', () => {
-    const element = renderAnalytics(stateAs('supervisor'));
-    const receipts = Array.from(element.querySelectorAll('.card')).at(-1) as HTMLElement;
+    const element = renderAnalytics(reportState());
+    const receipts = Array.from(element.querySelectorAll('.card')).find((node) => node.textContent?.includes('الإيصالات')) as HTMLElement;
     const values = Array.from(receipts.querySelectorAll('dd')).map((node) => node.textContent ?? '');
-    expect(values.filter((value) => value.includes('غير متاح'))).toHaveLength(2);
+    const unsupported = values.filter((value) => value.includes('غير متاح'));
+    expect(unsupported).toHaveLength(1);
     // An unsupported receipt is never rendered as a number, a zero or a ratio.
-    for (const value of values) expect(value).not.toMatch(/[0-90-9%٪]/);
+    for (const value of unsupported) expect(value).not.toMatch(/[0-9%٪]/);
   });
 
   it('renders channel and workload distributions', () => {
-    const element = renderAnalytics(stateAs('supervisor'));
-    expect(element.querySelectorAll('.bars__row').length).toBeGreaterThan(6);
+    const element = renderAnalytics(reportState());
+    expect(element.querySelectorAll('.bars__row').length).toBe(7);
+    expect(text(element)).toContain('provider_rejected');
   });
 
   it('denies the screen without report.read', () => {
@@ -189,7 +211,38 @@ describe('analytics', () => {
   });
 
   it('renders in English', () => {
-    expect(text(renderAnalytics(stateAs('admin', 'en')))).toContain('Not available');
+    expect(text(renderAnalytics(reportState('en')))).toContain('Not available');
+  });
+
+  it('distinguishes loading, signed-out, no-membership, failure and empty evidence', () => {
+    const loading = stateAs('supervisor');
+    expect(renderAnalytics(loading).querySelector('[aria-busy="true"]')).not.toBeNull();
+    loading.live.session = { status: 'signed_out', error: null };
+    expect(text(renderAnalytics(loading))).toContain('تحتاج جلسة');
+    loading.live.session = { status: 'signed_in', email: 'x@y.z', memberships: [], tenantId: null };
+    expect(text(renderAnalytics(loading))).toContain('لا توجد عضوية نشطة');
+    loading.live.session = { status: 'signed_in', email: 'x@y.z', memberships: [], tenantId: 'tenant-1' };
+    loading.live.campaignReport = { status: 'error', error: { code: 'down', message: 'Report failed', requestId: 'req-report', status: 503, details: [] } };
+    expect(text(renderAnalytics(loading))).toContain('req-report');
+    loading.live.campaignReport = { status: 'error', error: { code: 'network', message: 'Offline', requestId: null, status: null, details: [] } };
+    expect(text(renderAnalytics(loading))).toContain('تعذر الاتصال بالخادم');
+
+    const empty = reportState('en');
+    if (empty.live.campaignReport.status !== 'ready') throw new Error('report fixture not ready');
+    empty.live.campaignReport = { status: 'ready', loadedAt: 1, value: {
+      ...empty.live.campaignReport.value,
+      current: { denominator: 0, planned: 0, queued: 0, in_flight: 0, accepted: 0, delivered: 0, read: 0, failed: 0, skipped: 0, cancelled: 0, outcome_unknown: 0 }, milestones: { denominator: 0, accepted: 0, delivered: 0, read: 0 },
+      channels: [
+        { kind: 'custom', denominator: 0, accepted: 0, delivered: 0, read: 0, delivery_receipts: false, read_receipts: false },
+        { kind: 'future_channel', denominator: 0, accepted: 0, delivered: 0, read: 0, delivery_receipts: false, read_receipts: false },
+      ],
+      costs: [], errors: [],
+    } };
+    const rendered = renderAnalytics(empty);
+    expect(text(rendered)).toContain('No cost evidence yet');
+    expect(text(rendered)).toContain('No errors recorded');
+    expect(text(rendered)).toContain('Custom channel');
+    expect(text(rendered)).toContain('future_channel');
   });
 });
 

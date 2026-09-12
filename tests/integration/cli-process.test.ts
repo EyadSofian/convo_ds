@@ -113,6 +113,7 @@ describe('convo-db entry point', () => {
       'applied 0020_campaign_core.sql',
       'applied 0021_campaign_dispatch_queue.sql',
       'applied 0022_campaign_test_send.sql',
+      'applied 0023_campaign_reporting.sql',
     ]);
 
     const second = await runBin(['migrate'], env);

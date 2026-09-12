@@ -51,6 +51,24 @@ export interface CampaignTestSend {
   readonly created_at: string;
 }
 
+export interface CampaignReport {
+  readonly generated_at: string;
+  readonly fresh_through: string;
+  readonly timezone: 'UTC';
+  readonly definitions: { readonly campaigns: number; readonly executions: number };
+  readonly audience: { readonly denominator: number; readonly eligible: number; readonly excluded: number };
+  readonly current: {
+    readonly denominator: number; readonly planned: number; readonly queued: number; readonly in_flight: number;
+    readonly accepted: number; readonly delivered: number; readonly read: number; readonly failed: number;
+    readonly skipped: number; readonly cancelled: number; readonly outcome_unknown: number;
+  };
+  readonly milestones: { readonly denominator: number; readonly accepted: number; readonly delivered: number; readonly read: number };
+  readonly costs: readonly { readonly currency: string; readonly estimated_amount_minor: string; readonly committed_amount_minor: string; readonly reconciled_amount_minor: string }[];
+  readonly channels: readonly { readonly kind: string; readonly denominator: number; readonly accepted: number; readonly delivered: number; readonly read: number; readonly delivery_receipts: boolean; readonly read_receipts: boolean }[];
+  readonly errors: readonly { readonly code: string; readonly count: number }[];
+  readonly campaigns: readonly { readonly id: string; readonly name: string; readonly state: string; readonly denominator: number; readonly accepted: number; readonly delivered: number; readonly read: number; readonly failed: number; readonly outcome_unknown: number; readonly fresh_through: string }[];
+}
+
 export interface CreateCampaignInput {
   readonly name: string;
   readonly objective: string | null;
@@ -99,6 +117,9 @@ export class CampaignsApi {
   }
   recipients(tenantId: string, id: string): Promise<ApiResult<readonly CampaignRecipient[]>> {
     return this.client.get(`/tenants/${tenantId}/campaigns/${id}/recipients`);
+  }
+  report(tenantId: string): Promise<ApiResult<CampaignReport>> {
+    return this.client.get(`/tenants/${tenantId}/reports/campaigns`);
   }
 }
 

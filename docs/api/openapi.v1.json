@@ -6017,6 +6017,52 @@
           }
         }
       }
+    },
+    "/tenants/{tenantId}/reports/campaigns": {
+      "get": {
+        "operationId": "getCampaignReport",
+        "summary": "Read campaign execution metrics with explicit denominators and freshness",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current campaign report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignReportResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10870,6 +10916,350 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/CampaignTestSend"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CampaignReportCurrent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "denominator",
+          "planned",
+          "queued",
+          "in_flight",
+          "accepted",
+          "delivered",
+          "read",
+          "failed",
+          "skipped",
+          "cancelled",
+          "outcome_unknown"
+        ],
+        "properties": {
+          "denominator": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "planned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queued": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "in_flight": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "accepted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "delivered": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cancelled": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outcome_unknown": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CampaignReportChannel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "denominator",
+          "accepted",
+          "delivered",
+          "read",
+          "delivery_receipts",
+          "read_receipts"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "denominator": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "accepted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "delivered": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "delivery_receipts": {
+            "type": "boolean"
+          },
+          "read_receipts": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CampaignReportCost": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "currency",
+          "estimated_amount_minor",
+          "committed_amount_minor",
+          "reconciled_amount_minor"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "estimated_amount_minor": {
+            "type": "string"
+          },
+          "committed_amount_minor": {
+            "type": "string"
+          },
+          "reconciled_amount_minor": {
+            "type": "string"
+          }
+        }
+      },
+      "CampaignReportError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "count"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CampaignReportCampaign": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "state",
+          "denominator",
+          "accepted",
+          "delivered",
+          "read",
+          "failed",
+          "outcome_unknown",
+          "fresh_through"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "denominator": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "accepted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "delivered": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outcome_unknown": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fresh_through": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CampaignReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "generated_at",
+          "fresh_through",
+          "timezone",
+          "definitions",
+          "audience",
+          "current",
+          "milestones",
+          "costs",
+          "channels",
+          "errors",
+          "campaigns"
+        ],
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fresh_through": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "definitions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "campaigns",
+              "executions"
+            ],
+            "properties": {
+              "campaigns": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "executions": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "audience": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "denominator",
+              "eligible",
+              "excluded"
+            ],
+            "properties": {
+              "denominator": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "eligible": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "excluded": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "current": {
+            "$ref": "#/components/schemas/CampaignReportCurrent"
+          },
+          "milestones": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "denominator",
+              "accepted",
+              "delivered",
+              "read"
+            ],
+            "properties": {
+              "denominator": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "accepted": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "delivered": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "read": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "costs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CampaignReportCost"
+            }
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CampaignReportChannel"
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CampaignReportError"
+            }
+          },
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CampaignReportCampaign"
+            }
+          },
+          "timezone": {
+            "type": "string",
+            "const": "UTC"
+          }
+        }
+      },
+      "CampaignReportResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CampaignReport"
           },
           "request_id": {
             "type": "string"

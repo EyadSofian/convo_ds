@@ -118,6 +118,24 @@ function campaigns(): readonly Record<string, unknown>[] {
   ];
 }
 
+function campaignReport(): Record<string, unknown> {
+  const fresh = new Date(Date.UTC(2026, 8, 9, 9, 15)).toISOString();
+  return {
+    generated_at: fresh, fresh_through: fresh, timezone: 'UTC',
+    definitions: { campaigns: 3, executions: 1 },
+    audience: { denominator: 1920, eligible: 1764, excluded: 156 },
+    current: { denominator: 618, planned: 38, queued: 42, in_flight: 8, accepted: 101, delivered: 214, read: 187, failed: 19, skipped: 7, cancelled: 0, outcome_unknown: 2 },
+    milestones: { denominator: 618, accepted: 504, delivered: 401, read: 187 },
+    costs: [{ currency: 'USD', estimated_amount_minor: '30.900000', committed_amount_minor: '25.200000', reconciled_amount_minor: '24.650000' }],
+    channels: [
+      { kind: 'whatsapp', denominator: 500, accepted: 422, delivered: 358, read: 170, delivery_receipts: true, read_receipts: true },
+      { kind: 'instagram', denominator: 118, accepted: 82, delivered: 43, read: 17, delivery_receipts: false, read_receipts: false },
+    ],
+    errors: [{ code: 'provider_rejected', count: 12 }, { code: 'marketing_consent_missing', count: 7 }, { code: 'attempt_never_completed', count: 2 }],
+    campaigns: [{ id: 'campaign-reminder', name: 'تذكير المحاضرة المباشرة', state: 'running', denominator: 618, accepted: 504, delivered: 401, read: 187, failed: 19, outcome_unknown: 2, fresh_through: fresh }],
+  };
+}
+
 function channelCapabilities(kind = 'whatsapp'): Record<string, unknown> {
   return {
     kind, version: 'v21.0', host: 'graph.facebook.com',
@@ -358,6 +376,9 @@ export async function installApi(page: Page): Promise<void> {
         { key: 'conversation.read', description: 'Read assigned conversations', delegable: true },
         { key: 'conversation.reply', description: 'Reply to assigned conversations', delegable: true },
       ]));
+    }
+    if (path.endsWith('/reports/campaigns')) {
+      return json(route, { data: campaignReport(), request_id: 'e2e' });
     }
     if (path.endsWith('/campaigns')) {
       return json(route, paged(campaigns()));

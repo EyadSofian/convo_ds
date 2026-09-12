@@ -4,7 +4,58 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
-## Last completed task — P1-T15 (Milestone F: safe campaign test-send)
+## Last completed task — P1-T16 (campaign reporting + live Analytics)
+
+**Task / requirement IDs:** CMP-22 implemented; CMP-23 partial; REP-01..03 partial; REP-04 and REP-05 implemented; UX-09 advanced.
+
+### Behavior delivered
+
+**Analytics now reads the server.** `GET T/reports/campaigns` is authorized by `report.read` and returns campaign execution evidence from the tenant-isolated `campaign_report_rows` projection. The UI has distinct session, loading, denial, network-failure and ready states and refreshes through the real endpoint.
+
+**Counts cannot be added twice.** Current recipient states are ten disjoint counters whose sum is mechanically checked against one denominator. Accepted, delivered and read are separate cumulative milestones over the same denominator, so a delivered recipient is not added again to accepted when reporting a total.
+
+**Unknown and unsupported remain explicit.** `outcome_unknown` has its own current-state card and is labelled never automatically retried. Receipt support comes from the connection capability matrix; unsupported reads render `not_available`, never zero or 0%. Error categories come from typed ledger codes.
+
+**Costs retain their meaning.** Exact decimal estimated, committed and reconciled amounts are returned and rendered as separate columns per currency. The report publishes UTC, generation time and the newest evidence instant.
+
+### Main files
+
+| Path | Purpose |
+|---|---|
+| `packages/database/migrations/0023_campaign_reporting.sql` | tenant-isolated reporting projection |
+| `apps/api/src/campaigns/reporting.service.ts` | one defined aggregate and `report.read` boundary |
+| `apps/web/src/ui/workspace.ts` | live bilingual Analytics states and metrics |
+| `tests/integration/api-campaigns.test.ts` | PostgreSQL denominator, milestone, errors and cost reconciliation |
+| `docs/api/openapi.v1.json` | pinned 97-operation contract |
+
+### Evidence and checks
+
+| Command | Exit | Result |
+|---|---:|---|
+| `pnpm lint` | **0** | clean |
+| `pnpm typecheck` | **0** | clean |
+| `pnpm build` | **0** | web 208.14 kB / 61.80 kB gzip |
+| `pnpm test:unit` | **0** | 77 files, **1453 tests** |
+| `pnpm test:integration` | **0** | 23 files, **505 tests** against PostgreSQL 17.4 |
+| `pnpm test:property` | **0** | 5 exhaustive/metamorphic properties |
+| `pnpm test:coverage` | **0** | 101 files, **1963 tests**, **100/100/100/100** |
+| `pnpm test:contracts` | **0** | OpenAPI drift clean; channel contracts pass |
+| `pnpm test:security` | **0** | **372 tests** including campaign security + production audit; no known vulnerabilities |
+| `pnpm test:e2e` | **0** | **150 tests** at 1440×900 and 1366×768 |
+| `pnpm test:a11y` | **0** | **25 tests**, no WCAG 2.1 AA axe violations |
+| `pnpm test:visual` | **0** | **20 tests**, including the live Analytics baseline |
+
+### Honest remaining scope
+
+- CMP-23 still needs a scoped asynchronous export job.
+- CMP-24 failed-only retry remains.
+- Provider-live activation remains `blocked_no_asset`; CRM remains intentionally deferred by the owner.
+
+**Next execution slice:** failed-only safe campaign retry, then scoped export and production deployment checks.
+
+---
+
+## Previously completed — P1-T15 (Milestone F: safe campaign test-send)
 
 **Task / requirement IDs:** CMP-05 implemented; UX-09 advanced for Channels and Broadcasts.
 

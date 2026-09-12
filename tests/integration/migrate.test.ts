@@ -64,6 +64,7 @@ describe('migrate', () => {
       '0020_campaign_core.sql',
       '0021_campaign_dispatch_queue.sql',
       '0022_campaign_test_send.sql',
+      '0023_campaign_reporting.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -87,6 +88,7 @@ describe('migrate', () => {
       'campaign_audit',
       'campaign_executions',
       'campaign_recipients',
+      'campaign_report_rows',
       'campaign_revisions',
       'campaign_test_sends',
       'campaign_work_queue',

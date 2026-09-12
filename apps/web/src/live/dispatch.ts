@@ -38,6 +38,7 @@ import {
   createCampaign,
   launchCampaign,
   loadCampaignRecipients,
+  loadCampaignReport,
   loadCampaignsScreen,
   testSendCampaign,
   updateCampaign,
@@ -413,6 +414,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return queued;
   },
   'live-campaign-ledger': async (context, arg) => loadCampaignRecipients(context, arg),
+  'live-report-reload': async (context) => loadCampaignReport(context),
 
   /* ----------------------------------------------------------------- inbox -- */
 

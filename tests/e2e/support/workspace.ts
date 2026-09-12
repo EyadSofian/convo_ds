@@ -64,7 +64,7 @@ export async function openScreen(page: Page, screen: string, query = ''): Promis
   await page.goto(`/#/${screen}${query}`);
   await expect(page.locator('.workspace, .inbox')).toBeVisible();
   const readySelector: Readonly<Record<string, string>> = {
-    contacts: '.contactrow', channels: '[data-connection]', people: '[data-membership]', broadcasts: '.broadcast-grid',
+    contacts: '.contactrow', channels: '[data-connection]', people: '[data-membership]', broadcasts: '.broadcast-grid', analytics: '[data-report-ready]',
   };
   const selector = readySelector[screen];
   // Seeing the shell is not evidence that a server-backed card has arrived.
