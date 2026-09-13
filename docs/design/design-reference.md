@@ -48,6 +48,53 @@ The §6 component state contract and the §5 bidirectionality rules are **not** 
 implemented, and both are now enforced by tests (`theme.test.ts` forbids physical `left`/`right` in
 layout CSS; `layout.spec.ts` asserts a mixed Arabic/Latin message keeps its own base direction).
 
+## 1b. Operator UI redesign (2026-09-13) — the binding values today
+
+§1a's palette, font and layout numbers were replaced again by the operator UI redesign. The sources
+of truth are unchanged in kind — `styles/tokens.css` (one `:root` light block, one
+`:root[data-theme='dark']` block, no media-query copy), `theme.ts` and `theme.test.ts`, which parses
+the CSS and re-checks every contrast pair in both themes. Provenance is still `original` /
+`a11y-override`; nothing here is `measured`.
+
+### Palette
+
+| Token | Light | Dark | Note |
+|---|---|---|---|
+| `--canvas` | `#f4f3f0` | `#0b0d12` | Warm paper / graphite-navy ground |
+| `--surface-1` / `-2` / `-3` | `#fcfbf9` / `#f7f6f3` / `#efeee9` | `#11141b` / `#171b24` / `#1d2230` | Reading surfaces are opaque |
+| `--border` | `rgba(20,24,32,.10)` | `rgba(255,255,255,.08)` | Hairlines |
+| `--text` / `--text-muted` | `#17191f` / `#5f6674` | `#f4f5f8` / `#959eae` | Muted light text was darkened from the brief's `#697180` to pass AA on every surface |
+| `--accent` | `#6558d9` | `#6554e6` | Violet, not cyan. Dark accent sits deeper so white-on-accent passes 4.5:1 |
+| `--accent-text` | `#5346c9` | `#a59bff` | Accent used *as text* has its own contrast-tested value |
+| `--focus-ring` | `#6558d9` | `#a59bff` | 2px ring on every control; the composer draws it on its box |
+
+Translucency (`--glass`, `--nav-surface`) is used only by the navigation, menus, popovers and
+toasts — chrome and floating layers, never a surface anybody reads a conversation on. No gradients.
+
+### Type
+
+**IBM Plex Sans Arabic** replaces Readex Pro, self-hosted at 400/500/600 with its SIL OFL 1.1 text at
+`apps/web/public/fonts/IBM-Plex-OFL.txt`; no font host is contacted. Alexandria was the other
+candidate: it is display-leaning, and at 13–15px in dense tables and queue rows its Latin and digits
+read wider and looser than Plex, whose Arabic and Latin were drawn as one system with even figure
+widths. Scale: 13 / 14 / 15 / 17px for `--text-xs` … `--text-lg`; badges and timestamps may sit at
+12px, primary copy never below 13px (asserted in `tests/e2e/layout.spec.ts`). Western digits 0–9 in
+both languages, tabular numerals wherever figures are compared.
+
+### Layout contract (asserted in `tests/e2e/layout.spec.ts`)
+
+| Element | Value |
+|---|---|
+| Navigation | 64px collapsed (default), 232px expanded, remembered per browser; an overlay drawer with a focus trap below 960px |
+| Header | 56px: page title, company name (a real switcher only with two or more memberships), language, theme, account menu |
+| Queue list | 336px default, keyboard/pointer resizable 300–400px; ≥8 rows visible at 900px height |
+| Thread | Never squeezed below 560px; the widest column |
+| Customer panel | 304px inline when the screen area is ≥1200px, otherwise a drawer; collapsible |
+
+The inbox decides its columns with a container query on the screen area, because the navigation can
+be 64px or 232px wide and a viewport breakpoint cannot know which. The thresholds are documented at
+the top of `apps/web/src/styles/shell.css`.
+
 ---
 
 ## 2. Observed structure (from the visual inspection, not measured)

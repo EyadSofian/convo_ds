@@ -12,7 +12,43 @@ The cluster bootstrap completed once and all 25 migrations applied. The installa
 
 Provider-live delivery remains intentionally blocked until the customer supplies authorized Meta application credentials and channel asset IDs. CRM work remains deferred by scope. The exact production topology and runbook are in `docs/runbooks/railway-production.md`.
 
-## Last completed task — P1-T18 (asynchronous campaign report export)
+## Last completed task — Operator UI redesign and authentication gate (2026-09-13)
+
+**Requirement IDs:** UX-01, UX-02, UX-03, UX-05, UX-06, UX-07, UX-08 advanced; UX-09 → `implemented`; REP-01 advanced (report filters and trend); P9-04 Telegram recorded as not implemented.
+
+### Behavior delivered
+
+**Nothing protected exists before the server says who you are.** `app.ts` renders the gate until `GET /auth/session` answers: a branded wait, then the sign-in page only. No navigation, header, company name or inbox is built without `signed_in` and a tenant. A wrong address and a wrong password get one sentence; the password is dropped from state after every attempt. Any later 401 (from any request, through the client's `onUnauthenticated`) closes the workspace, discards the live state object so in-flight answers land nowhere, and shows the sign-in page with "your session ended". Sign-out calls `POST /auth/logout` from the user menu. The "view as" role switch is deleted; navigation, screens and controls come from the permission keys `/me/memberships` returns. Only view preferences (theme, navigation width) are stored in the browser.
+
+**Design system.** Graphite/navy dark and warm light palettes in one token file, every contrast pair tested in both themes; violet accent; glass only on navigation, menus and toasts; IBM Plex Sans Arabic self-hosted (chosen over Alexandria for dense tables and even figures); 13px minimum primary copy; Western digits; tabular numerals.
+
+**Shell.** 64px/232px navigation with a remembered toggle and an overlay drawer with focus trap below 960px; 56px header with the company name (never the slug) and a real switcher only for two or more memberships.
+
+**Screens.** Inbox: 336px resizable queue (300–400px) with ≥8 rows at 900px height, no message text in queue rows, widest thread column, reply/private-note tabs, collapsible customer panel, queue and panel drawers at narrow widths; the reply box now grows as it is typed. Channels: a six-integration catalogue with truthful connected/attention/not connected/unavailable states, Meta forms using the real API model, a second account addable in any state, disconnect confirmed first; Telegram is disabled as "Coming soon". Analytics: period/channel/campaign filters and a launch-day trend served by the API (commit a6b28b7), funnel with published denominator, seven KPIs with Replies shown as not measured, export states queued/running/completed/failed/expired. Settings: real sessions list and revoke; unimplemented workspace settings listed as unavailable.
+
+**Bugs fixed on the way.** Send/Add note stayed disabled after typing; a campaign edit wiped untouched fields; assignees showed raw membership UUIDs; a screen reload re-probed the session; a 403 with its own reason lost the reason; a 409 was always called a concurrent edit; mutation reloads blanked lists into skeletons; narrow lifecycle buttons lost their accessible names; the navigation drawer's focus trap counted a hidden control and let Tab escape. **Gate integrity:** `embedded-postgres` turned the end of every Vitest run that loaded the integration project into `process.exit(0)`, so failing integration tests and missed coverage thresholds exited 0. `tests/support/global-setup.ts` now keeps the failure code; verified with a deliberately failing test (exit 1) and a passing run (exit 0).
+
+### Evidence and checks
+
+| Command | Result |
+|---|---|
+| `pnpm lint` / `pnpm typecheck` / `pnpm build` | exit 0 |
+| `pnpm test:unit` | 80 files, 1552 tests, exit 0 |
+| `pnpm test:integration` | 23 files, 509 tests, exit 0 |
+| `pnpm test:coverage` | 104 files, 2066 tests, **100% lines / statements / functions / branches**, exit 0 |
+| `pnpm test:contracts` | 170 + 121 tests (OpenAPI drift both ways), exit 0 |
+| `pnpm test:security` | 374 tests; `pnpm audit --prod`: no known vulnerabilities; exit 0 |
+| `pnpm test:e2e` | 242 tests at 1440×900 and 1366×768, exit 0 |
+| `pnpm test:a11y` | 40 tests, zero WCAG 2.1 AA violations, exit 0 |
+| `pnpm test:visual` | 33 tests; 80 baselines regenerated for the redesign and each reviewed by eye before acceptance |
+
+No migration was added.
+
+### Honest remaining scope
+
+Meta, Telegram, CRM and email delivery are not live: no provider request with authorized assets has been executed. Telegram has no adapter at all. UX-06 is axe plus targeted assertions, not a manual screen-reader audit. UX-01 values remain `original`, not measured against the Figma file.
+
+## Previously completed — P1-T18 (asynchronous campaign report export)
 
 **Task / requirement IDs:** CMP-23 implemented; CT-10 and REP-01 advanced; UX-09 advanced.
 
