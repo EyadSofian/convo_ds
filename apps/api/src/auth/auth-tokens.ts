@@ -42,33 +42,62 @@ export function readCookie(header: string | undefined, name: string): string | u
   return values.length === 1 && values[0] !== '' ? values[0] : undefined;
 }
 
+/**
+ * Where each cookie lives.
+ *
+ * The session cookie is HttpOnly and only ever needed by the API, so it stays
+ * on the API path. The CSRF cookie exists to be read by the page and echoed in
+ * `x-csrf-token` (double submit), so it must be visible to `document.cookie` on
+ * the app's own pages at `/`. On `/api/v1` the page could never read it, and
+ * every browser mutation was refused as `csrf_invalid`.
+ */
+const SESSION_COOKIE_PATH = '/api/v1';
+const CSRF_COOKIE_PATH = '/';
+/** Where the CSRF cookie used to be set. Browsers may still hold one there. */
+const LEGACY_CSRF_COOKIE_PATH = '/api/v1';
+
+/**
+ * The cookies a new session sets.
+ *
+ * `clearLegacyCsrf` expires a CSRF cookie left on the old path. Two cookies of
+ * the same name on different paths are both sent to the API, and `readCookie`
+ * refuses an ambiguous value, so a browser holding the old one would fail every
+ * CSRF check until it expired.
+ */
 export function sessionCookieHeaders(
   tokens: AuthTokens,
   secure: boolean,
   ttlSeconds: number,
+  clearLegacyCsrf = false,
 ): readonly string[] {
-  const attributes = cookieAttributes(secure, ttlSeconds);
   return [
-    SESSION_COOKIE + '=' + tokens.session + '; HttpOnly; ' + attributes,
-    CSRF_COOKIE + '=' + tokens.csrf + '; ' + attributes,
+    SESSION_COOKIE + '=' + tokens.session + '; HttpOnly; ' + cookieAttributes(SESSION_COOKIE_PATH, secure, ttlSeconds),
+    CSRF_COOKIE + '=' + tokens.csrf + '; ' + cookieAttributes(CSRF_COOKIE_PATH, secure, ttlSeconds),
+    ...(clearLegacyCsrf ? [CSRF_COOKIE + '=; ' + cookieAttributes(LEGACY_CSRF_COOKIE_PATH, secure, 0)] : []),
   ];
 }
 
+/** Expires every cookie a session may have left, on every path it may be on. */
 export function clearedSessionCookieHeaders(secure: boolean): readonly string[] {
-  const attributes = cookieAttributes(secure, 0);
   return [
-    SESSION_COOKIE + '=; HttpOnly; ' + attributes,
-    CSRF_COOKIE + '=; ' + attributes,
+    SESSION_COOKIE + '=; HttpOnly; ' + cookieAttributes(SESSION_COOKIE_PATH, secure, 0),
+    CSRF_COOKIE + '=; ' + cookieAttributes(CSRF_COOKIE_PATH, secure, 0),
+    CSRF_COOKIE + '=; ' + cookieAttributes(LEGACY_CSRF_COOKIE_PATH, secure, 0),
   ];
+}
+
+/** Whether a Cookie header carries `name` at all, even ambiguously or empty. */
+export function hasCookie(header: string | undefined, name: string): boolean {
+  return (header ?? '').split(';').some((part) => part.trim().startsWith(name + '='));
 }
 
 function randomToken(): string {
   return randomBytes(32).toString('base64url');
 }
 
-function cookieAttributes(secure: boolean, maxAge: number): string {
+function cookieAttributes(path: string, secure: boolean, maxAge: number): string {
   return (
-    'Path=/api/v1; SameSite=Strict; Max-Age=' +
+    'Path=' + path + '; SameSite=Strict; Max-Age=' +
     maxAge +
     (secure ? '; Secure' : '')
   );

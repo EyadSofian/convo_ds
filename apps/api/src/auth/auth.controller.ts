@@ -3,6 +3,8 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { pageEnvelope } from '../pagination.js';
 import {
   clearedSessionCookieHeaders,
+  CSRF_COOKIE,
+  hasCookie,
   sessionCookieHeaders,
 } from './auth-tokens.js';
 import { AuthService, type AuthenticatedSession } from './auth.service.js';
@@ -65,7 +67,14 @@ export class AuthController {
     const outcome = await this.auth.login(body, request.ip, singleHeader(request.headers['user-agent']));
     reply.header(
       'set-cookie',
-      sessionCookieHeaders(outcome.tokens, this.auth.secureCookies, this.auth.sessionTtlSeconds),
+      sessionCookieHeaders(
+        outcome.tokens,
+        this.auth.secureCookies,
+        this.auth.sessionTtlSeconds,
+        // A browser that arrives with a CSRF cookie may be holding one on the
+        // old path; expiring it keeps the new one unambiguous.
+        hasCookie(request.headers.cookie, CSRF_COOKIE),
+      ),
     );
     await reply.status(200).send(sessionEnvelope(outcome.principal, request.id));
   }

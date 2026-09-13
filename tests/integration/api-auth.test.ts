@@ -396,6 +396,41 @@ describe('local authentication and permission boundary', () => {
     expect(survived.statusCode).toBe(200);
   });
 
+  it('puts the CSRF cookie where the page can read it, and replaces one left on the old path', async () => {
+    const fresh = await api.server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'owner@auth.test', password: OWNER_PASSWORD },
+    });
+    expect(fresh.statusCode).toBe(200);
+    const lines = asArray(fresh.headers['set-cookie']);
+    // The page at `/` reads convo_csrf and echoes it; the session stays on the API path.
+    expect(lines).toHaveLength(2);
+    expect(lines.find((line) => line.startsWith('convo_session='))).toContain('Path=/api/v1');
+    expect(lines.find((line) => line.startsWith('convo_csrf='))).toContain('Path=/;');
+
+    // A browser still holding the cookie the old path set gets it expired.
+    const stale = await api.server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      headers: { cookie: 'convo_csrf=left-over-from-the-old-path' },
+      payload: { email: 'owner@auth.test', password: OWNER_PASSWORD },
+    });
+    expect(stale.statusCode).toBe(200);
+    const staleLines = asArray(stale.headers['set-cookie']);
+    expect(staleLines).toHaveLength(3);
+    expect(staleLines[2]).toBe('convo_csrf=; Path=/api/v1; SameSite=Strict; Max-Age=0; Secure');
+
+    // And the new pair works for a mutation: the page's echo matches the cookie.
+    const cookie = lines.map((line) => line.split(';')[0]).join('; ');
+    const logout = await api.server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/logout',
+      headers: { cookie, 'x-csrf-token': cookieValue(cookie, 'convo_csrf') },
+    });
+    expect(logout.statusCode).toBe(204);
+  });
+
   it('accepts a client without a user-agent and clears cookies when it revokes itself', async () => {
     const response = await api.server.inject({
       method: 'POST',
@@ -414,7 +449,7 @@ describe('local authentication and permission boundary', () => {
       headers: { cookie, 'x-csrf-token': csrf },
     });
     expect(revoke.statusCode).toBe(204);
-    expect(asArray(revoke.headers['set-cookie'])).toHaveLength(2);
+    expect(asArray(revoke.headers['set-cookie'])).toHaveLength(3);
   });
 
   it('clears cookies on logout and rejects the next request', async () => {
@@ -424,8 +459,8 @@ describe('local authentication and permission boundary', () => {
       headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrf },
     });
     expect(logout.statusCode).toBe(204);
-    expect(asArray(logout.headers['set-cookie'])).toHaveLength(2);
-    expect(asArray(logout.headers['set-cookie'])[0]).toContain('Max-Age=0');
+    expect(asArray(logout.headers['set-cookie'])).toHaveLength(3);
+    expect(asArray(logout.headers['set-cookie']).every((line) => line.includes('Max-Age=0'))).toBe(true);
     const after = await api.server.inject({
       method: 'GET',
       url: '/api/v1/auth/session',

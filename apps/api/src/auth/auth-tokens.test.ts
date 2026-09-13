@@ -3,6 +3,7 @@ import {
   CSRF_COOKIE,
   SESSION_COOKIE,
   clearedSessionCookieHeaders,
+  hasCookie,
   issueAuthTokens,
   readCookie,
   sessionCookieHeaders,
@@ -53,11 +54,28 @@ describe('auth tokens', () => {
     const set = sessionCookieHeaders({ session: TOKEN, csrf: TOKEN }, true, 3600);
     expect(set).toEqual([
       SESSION_COOKIE + '=' + TOKEN + '; HttpOnly; Path=/api/v1; SameSite=Strict; Max-Age=3600; Secure',
-      CSRF_COOKIE + '=' + TOKEN + '; Path=/api/v1; SameSite=Strict; Max-Age=3600; Secure',
+      // Readable by the app's pages at `/`: the page echoes it as x-csrf-token.
+      CSRF_COOKIE + '=' + TOKEN + '; Path=/; SameSite=Strict; Max-Age=3600; Secure',
     ]);
     expect(clearedSessionCookieHeaders(false)).toEqual([
       SESSION_COOKIE + '=; HttpOnly; Path=/api/v1; SameSite=Strict; Max-Age=0',
+      CSRF_COOKIE + '=; Path=/; SameSite=Strict; Max-Age=0',
       CSRF_COOKIE + '=; Path=/api/v1; SameSite=Strict; Max-Age=0',
     ]);
+  });
+
+  it('expires a CSRF cookie left on the old API path when asked', () => {
+    expect(sessionCookieHeaders({ session: TOKEN, csrf: TOKEN }, false, 60, true)).toEqual([
+      SESSION_COOKIE + '=' + TOKEN + '; HttpOnly; Path=/api/v1; SameSite=Strict; Max-Age=60',
+      CSRF_COOKIE + '=' + TOKEN + '; Path=/; SameSite=Strict; Max-Age=60',
+      CSRF_COOKIE + '=; Path=/api/v1; SameSite=Strict; Max-Age=0',
+    ]);
+  });
+
+  it('tells whether a cookie header carries a name at all', () => {
+    expect(hasCookie(undefined, CSRF_COOKIE)).toBe(false);
+    expect(hasCookie('other=1', CSRF_COOKIE)).toBe(false);
+    expect(hasCookie('other=1; ' + CSRF_COOKIE + '=', CSRF_COOKIE)).toBe(true);
+    expect(hasCookie(CSRF_COOKIE + '=a; ' + CSRF_COOKIE + '=b', CSRF_COOKIE)).toBe(true);
   });
 });

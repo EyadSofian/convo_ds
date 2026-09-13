@@ -12,6 +12,16 @@ The cluster bootstrap completed once and all 25 migrations applied. The installa
 
 Provider-live delivery remains intentionally blocked until the customer supplies authorized Meta application credentials and channel asset IDs. CRM work remains deferred by scope. The exact production topology and runbook are in `docs/runbooks/railway-production.md`.
 
+## Production fix — CSRF cookie path (2026-09-13)
+
+**Found while signing in to production as the new admin.** The API set both cookies with `Path=/api/v1`. The browser sent them to the API, so reads worked, but `document.cookie` on the app's pages at `/` could never see `convo_csrf`, so the web client sent no `x-csrf-token` and **every state-changing request from a real browser was refused `403 csrf_invalid`** — sign-out, invitations, channel connect, campaigns, session revoke. It predates the redesign. Unit tests inject the token and the browser tests script the API, so neither could see it.
+
+**Fix.** `convo_session` stays `HttpOnly; Path=/api/v1`; `convo_csrf` is set on `Path=/`. Login expires a CSRF cookie left on the old path when the request carries one (two same-name cookies would make `readCookie` refuse the value); sign-out and self-revoke clear both paths. Evidence: `apps/api/src/auth/auth-tokens.test.ts` and a new `tests/integration/api-auth.test.ts` case asserting the paths, the old-path expiry and a successful mutation with the new pair.
+
+**Also found, not fixed:** `invitation_scopes` makes `scope_id` part of its primary key, so an invitation with the whole-workspace scope (`scope_id NULL`) cannot be stored — `POST /tenants/{id}/invitations` with `scopes: [{type: 'tenant'}]` fails. The People screen invites with no scopes, so it is not reachable from the UI today. Needs a forward-only migration.
+
+**Production admin.** `admin@convo.com` was created as Admin of Digital School through the invitation-acceptance endpoint (Argon2id hash by the API), then given the whole-workspace scope the way bootstrap scopes the Owner. The password was handed to the account holder directly and is not recorded anywhere in the repository.
+
 ## Last completed task — Operator UI redesign and authentication gate (2026-09-13)
 
 **Requirement IDs:** UX-01, UX-02, UX-03, UX-05, UX-06, UX-07, UX-08 advanced; UX-09 → `implemented`; REP-01 advanced (report filters and trend); P9-04 Telegram recorded as not implemented.
