@@ -21,6 +21,15 @@ export interface CurrentSession {
   readonly user: SessionUser;
 }
 
+/** One of this user's sessions. `current` is the one making the request. */
+export interface SessionSummary {
+  readonly id: string;
+  readonly created_at: string;
+  readonly last_seen_at: string;
+  readonly expires_at: string;
+  readonly current: boolean;
+}
+
 export interface MembershipSummary {
   readonly id: string;
   readonly tenant: { readonly id: string; readonly name: string; readonly slug: string };
@@ -108,6 +117,14 @@ export class PeopleApi {
 
   logout(): Promise<ApiResult<undefined>> {
     return this.client.post<undefined>('/auth/logout');
+  }
+
+  sessions(): Promise<ApiResult<readonly SessionSummary[]>> {
+    return this.client.get<readonly SessionSummary[]>('/auth/sessions');
+  }
+
+  revokeSession(id: string): Promise<ApiResult<undefined>> {
+    return this.client.delete<undefined>(`/auth/sessions/${id}`);
   }
 
   memberships(): Promise<ApiResult<readonly MembershipSummary[]>> {

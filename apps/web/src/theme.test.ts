@@ -1,39 +1,23 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { ColorToken, ThemeName } from './theme';
+import type { ThemeName } from './theme';
 import {
   contrastFailures,
   contrastRatio,
   CONTRAST_REQUIREMENTS,
-  DARK,
-  LIGHT,
-  PALETTES,
+  paletteFromCss,
   parseHex,
   relativeLuminance,
 } from './theme';
 
-const TOKENS_CSS = readFileSync(
-  fileURLToPath(new URL('./styles/tokens.css', import.meta.url)),
-  'utf8',
-);
+const STYLES = ['base', 'shell', 'components', 'inbox', 'screens'] as const;
 
-/**
- * Reads one `@tokens <name>` section out of the stylesheet and returns the
- * `#rrggbb` custom properties it declares. Anchored on the marker comments so
- * a reordered file does not silently match the wrong block.
- */
-function declaredColors(section: string): Record<string, string> {
-  const start = TOKENS_CSS.indexOf(`/* @tokens ${section} */`);
-  expect(start, `no "@tokens ${section}" marker in styles/tokens.css`).toBeGreaterThan(-1);
-  const after = TOKENS_CSS.indexOf('/* @tokens ', start + 1);
-  const body = TOKENS_CSS.slice(start, after === -1 ? undefined : after);
-  const found: Record<string, string> = {};
-  for (const match of body.matchAll(/--([a-z0-9-]+):\s*(#[0-9a-f]{6})\s*;/gi)) {
-    found[match[1] as string] = (match[2] as string).toLowerCase();
-  }
-  return found;
+function read(path: string): string {
+  return readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
 }
+
+const TOKENS_CSS = read('./styles/tokens.css');
 
 describe('colour maths', () => {
   it('computes WCAG luminance and ratio at the known anchors', () => {
@@ -42,25 +26,25 @@ describe('colour maths', () => {
     expect(contrastRatio('#ffffff', '#000000')).toBeCloseTo(21, 2);
     expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 2);
     expect(contrastRatio('#777777', '#777777')).toBeCloseTo(1, 5);
-    // Both channels below the 0.04045 knee exercise the linear branch.
+    // Channels below the 0.04045 knee exercise the linear branch.
     expect(relativeLuminance('#010101')).toBeGreaterThan(0);
   });
 
   it('parses a six-digit hex and rejects anything else', () => {
-    expect(parseHex('#1D4ED8')).toEqual([29, 78, 216]);
+    expect(parseHex('#6558D9')).toEqual([101, 88, 217]);
     expect(parseHex('  #ffffff ')).toEqual([255, 255, 255]);
     expect(() => parseHex('#fff')).toThrow(/not a #rrggbb colour/);
     expect(() => parseHex('rgb(0,0,0)')).toThrow(/not a #rrggbb colour/);
   });
 });
 
-describe('theme palettes', () => {
+describe('palettes read from styles/tokens.css', () => {
   /**
-   * The claim "AA in both themes" is worth nothing as prose. This is the check
-   * that makes it true, and it fails the build rather than a design review.
+   * The stylesheet is the only place a colour is written. These read it rather
+   * than a copy, so the contrast evidence describes what the browser receives.
    */
   it.each<ThemeName>(['light', 'dark'])('meets every contrast requirement in %s', (theme) => {
-    const failures = contrastFailures(theme).map(
+    const failures = contrastFailures(theme, paletteFromCss(TOKENS_CSS, theme)).map(
       (failure) =>
         `${failure.fg} on ${failure.bg} = ${failure.actual.toFixed(2)} (needs ${failure.min}) — ${failure.note}`,
     );
@@ -68,161 +52,148 @@ describe('theme palettes', () => {
   });
 
   it('checks a meaningful number of pairs, not a token list of two', () => {
-    expect(CONTRAST_REQUIREMENTS.length).toBeGreaterThanOrEqual(25);
+    expect(CONTRAST_REQUIREMENTS.length).toBeGreaterThanOrEqual(35);
+  });
+
+  it('declares the same colour tokens in both themes', () => {
+    const light = Object.keys(paletteFromCss(TOKENS_CSS, 'light')).sort();
+    const dark = Object.keys(paletteFromCss(TOKENS_CSS, 'dark')).sort();
+    expect(light.length).toBeGreaterThan(30);
+    expect(dark).toEqual(light);
+  });
+
+  it('uses the requested direction: warm light ground, graphite dark ground, a violet accent', () => {
+    const light = paletteFromCss(TOKENS_CSS, 'light');
+    const dark = paletteFromCss(TOKENS_CSS, 'dark');
+    expect(light['canvas']).toBe('#f4f3f0');
+    expect(dark['canvas']).toBe('#0b0d12');
+    // Not pure black, and not the old light blue.
+    expect(dark['canvas']).not.toBe('#000000');
+    for (const palette of [light, dark]) {
+      const [red, green, blue] = parseHex(palette['accent'] as string);
+      expect(blue).toBeGreaterThan(green);
+      expect(red).toBeGreaterThan(green);
+    }
+  });
+
+  it('gives outcome_unknown its own hue, not a shade of danger', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      const palette = paletteFromCss(TOKENS_CSS, theme);
+      expect(palette['unknown']).not.toBe(palette['danger']);
+      expect(palette['unknown-soft']).not.toBe(palette['danger-soft']);
+    }
   });
 
   it('reports the offending pair when a palette regresses', () => {
     // Guards the failure path itself: a checker that cannot fail is not a check.
-    const broken = { ...LIGHT, 'text-secondary': '#d8dde5' };
-    const failures = contrastFailures('light', broken);
-    expect(failures.length).toBeGreaterThan(0);
-    const secondary = failures.filter((failure) => failure.fg === 'text-secondary');
-    expect(secondary.length).toBeGreaterThan(0);
-    expect(secondary[0]?.theme).toBe('light');
-    expect(secondary[0]?.actual).toBeLessThan(4.5);
-    expect(secondary[0]?.note).toContain('body text');
+    const light = paletteFromCss(TOKENS_CSS, 'light');
+    const failures = contrastFailures('light', { ...light, 'text-muted': '#d8dde5' });
+    const muted = failures.filter((failure) => failure.fg === 'text-muted');
+    expect(muted.length).toBeGreaterThan(0);
+    expect(muted[0]?.theme).toBe('light');
+    expect(muted[0]?.actual).toBeLessThan(4.5);
   });
 
-  it('rounds the way a reporting tool does, so a near miss is still a miss', () => {
-    // 4.4996 must not be sold as a pass by floating-point luck.
-    const nearMiss = CONTRAST_REQUIREMENTS.every(
-      (requirement) => contrastRatio(LIGHT[requirement.fg], LIGHT[requirement.bg]) >= requirement.min,
-    );
-    expect(nearMiss).toBe(true);
+  it('counts a colour a requirement needs but the palette lacks as a failure', () => {
+    const light = paletteFromCss(TOKENS_CSS, 'light');
+    const withoutAccent = Object.fromEntries(Object.entries(light).filter(([token]) => token !== 'accent'));
+    const failures = contrastFailures('light', withoutAccent);
+    expect(failures.some((failure) => failure.bg === 'accent' && failure.actual === 0)).toBe(true);
   });
 
-  it('defines the same token names in both themes', () => {
-    expect(Object.keys(DARK).sort()).toEqual(Object.keys(LIGHT).sort());
-  });
-
-  it('gives outcome_unknown its own hue, not a shade of danger', () => {
-    // business-rules.md I7: an ambiguous outcome is never rendered as failure.
-    for (const theme of ['light', 'dark'] as const) {
-      expect(PALETTES[theme].unknown).not.toBe(PALETTES[theme].danger);
-      expect(PALETTES[theme]['unknown-soft']).not.toBe(PALETTES[theme]['danger-soft']);
-    }
+  it('refuses a stylesheet with no marker for the theme asked about', () => {
+    expect(() => paletteFromCss(':root { --canvas: #ffffff; }', 'light')).toThrow(/no "@tokens light" marker/);
+    // The last section runs to the end of the file.
+    expect(paletteFromCss('/* @tokens dark */ :root { --canvas: #101010; }', 'dark')).toEqual({ canvas: '#101010' });
   });
 });
 
-describe('styles/tokens.css', () => {
-  /**
-   * The stylesheet is what the browser reads; this module is what the tests
-   * read. If they drift, the contrast evidence above describes a palette that
-   * is not on screen — so drift is a test failure, not a comment.
-   */
-  it.each<[ThemeName, string]>([
-    ['light', 'light'],
-    ['dark', 'dark'],
-  ])('declares exactly the %s palette', (theme, section) => {
-    const declared = declaredColors(section);
-    for (const [token, value] of Object.entries(PALETTES[theme])) {
-      expect(declared[token], `--${token} in the ${section} block`).toBe(value);
-    }
-  });
-
-  it('declares one theme block per theme, not a stack of overrides', () => {
-    // The previous stylesheet had three `:root` colour blocks fighting each
-    // other. Two — light and dark — is the contract now.
-    const rootBlocks = TOKENS_CSS.match(/^\s{2}:root[^{]*\{/gm) ?? [];
-    expect(rootBlocks.length).toBeLessThanOrEqual(3); // light, dark, non-colour scale
-  });
-
-  it('keeps the dark media-query fallback in step with the dark palette', () => {
-    const media = TOKENS_CSS.slice(TOKENS_CSS.indexOf('@media (prefers-color-scheme: dark)'));
-    for (const [token, value] of Object.entries(DARK)) {
-      expect(media, `--${token} in the prefers-color-scheme fallback`).toContain(
-        `--${token}: ${value};`,
-      );
-    }
+describe('the token layer', () => {
+  it('has one light block, one dark block and no media-query copy', () => {
+    const blocks = TOKENS_CSS.match(/^\s{2}:root[^{]*\{/gm) ?? [];
+    expect(blocks.map((block) => block.trim())).toEqual([':root {', ":root[data-theme='dark'] {"]);
+    expect(TOKENS_CSS).not.toContain('prefers-color-scheme');
   });
 
   it('never hard-codes a colour outside the token layer', () => {
-    // Every other stylesheet must consume var(--token). The exceptions are
-    // spelled out here so they cannot spread silently:
-    //   #ffffff — the badge label on a filled danger/accent chip
-    //   #000    — the opaque stop of a mask gradient, which is alpha maths and
-    //             never paints a pixel of that colour
-    const allowed = new Set(['#ffffff', '#000']);
-    const files = ['base', 'shell', 'components', 'inbox', 'workspace'];
+    // Every other stylesheet consumes var(--token). `#ffffff` is not allowed
+    // either: a label on a filled control uses --on-accent or --on-brand.
     const offenders: string[] = [];
-    for (const name of files) {
-      const css = readFileSync(
-        fileURLToPath(new URL(`./styles/${name}.css`, import.meta.url)),
-        'utf8',
-      );
-      for (const match of css.matchAll(/#[0-9a-f]{3,8}\b/gi)) {
-        const value = (match[0] as string).toLowerCase();
-        if (!allowed.has(value)) offenders.push(`${name}.css: ${value}`);
+    for (const name of STYLES) {
+      const css = read(`./styles/${name}.css`);
+      for (const match of css.matchAll(/#[0-9a-f]{3,8}\b|rgba?\(/gi)) {
+        offenders.push(`${name}.css: ${match[0] as string}`);
       }
     }
     expect(offenders).toEqual([]);
   });
 
   it('uses no physical left/right layout properties', () => {
-    // design-reference.md §5: logical properties only, so one stylesheet serves
-    // Arabic and English without a mirrored copy.
-    const files = ['base', 'shell', 'components', 'inbox', 'workspace'];
+    // Logical properties only, so one stylesheet serves Arabic and English.
     const offenders: string[] = [];
-    for (const name of files) {
-      const css = readFileSync(
-        fileURLToPath(new URL(`./styles/${name}.css`, import.meta.url)),
-        'utf8',
-      );
-      for (const match of css.matchAll(
-        /^\s*(margin|padding|border)-(left|right)\s*:|^\s*(left|right)\s*:/gim,
-      )) {
+    for (const name of STYLES) {
+      const css = read(`./styles/${name}.css`);
+      // A four-value `padding`/`margin` shorthand is physical too: its second
+      // and fourth values are right and left.
+      for (const match of css.matchAll(/^[ \t]*(margin|padding|border)-(left|right)[ \t]*:|^[ \t]*(left|right)[ \t]*:|^[ \t]*(padding|margin):[ \t]*[^\s;]+[ \t]+[^\s;]+[ \t]+[^\s;]+[ \t]+[^\s;]+[ \t]*;/gim)) {
         offenders.push(`${name}.css: ${(match[0] as string).trim()}`);
       }
     }
     expect(offenders).toEqual([]);
   });
 
+  it('has no !important outside the reduced-motion override', () => {
+    const offenders: string[] = [];
+    for (const name of STYLES) {
+      const css = read(`./styles/${name}.css`).replace(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n {2}\}/, '');
+      if (css.includes('!important')) offenders.push(name);
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('states the geometry the layout tests assert', () => {
     for (const [token, value] of [
-      ['--rail-width', '56px'],
-      ['--topbar-height', '48px'],
-      ['--list-width', '332px'],
+      ['--nav-width-collapsed', '64px'],
+      ['--nav-width-expanded', '232px'],
+      ['--header-height', '56px'],
+      ['--list-width', '336px'],
       ['--list-width-min', '300px'],
-      ['--list-width-max', '380px'],
-      ['--row-height', '68px'],
-      ['--thread-header-height', '64px'],
-      ['--thread-min-width', '640px'],
+      ['--list-width-max', '400px'],
+      ['--panel-width', '304px'],
+      ['--thread-min-width', '560px'],
+      ['--row-height', '64px'],
       ['--composer-min-height', '44px'],
-      ['--composer-max-height', '88px'],
+      ['--composer-max-height', '120px'],
     ] satisfies readonly (readonly [string, string])[]) {
       expect(TOKENS_CSS).toContain(`${token}: ${value};`);
     }
   });
 
-  it('names one Arabic-first family and no leftovers from the old mixture', () => {
-    expect(TOKENS_CSS).toContain("--font-sans: 'Readex Pro'");
-    // Comments name the superseded families on purpose; declarations must not.
+  it('builds spacing on a 4px scale and keeps primary copy at 13px or more', () => {
+    for (const match of TOKENS_CSS.matchAll(/--space-(\d+):\s*(\d+)px;/g)) {
+      expect(Number(match[2]) % 4).toBe(0);
+      expect(Number(match[2])).toBe(Number(match[1]) * 4);
+    }
+    expect(TOKENS_CSS).toContain('--text-xs: 13px;');
+    expect(TOKENS_CSS).toContain('--text-sm: 14px;');
+  });
+
+  it('names one self-hosted Arabic-first family', () => {
+    expect(TOKENS_CSS).toContain("--font-sans: 'IBM Plex Sans Arabic'");
     const declarations = TOKENS_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
-    for (const dropped of ['Alexandria', 'IBM Plex Sans Arabic', 'Manrope', 'Inter']) {
+    for (const dropped of ['Readex Pro', 'Alexandria', 'Manrope', 'Inter']) {
       expect(declarations).not.toContain(dropped);
     }
-  });
-});
-
-describe('token coverage', () => {
-  it('every colour token declared in CSS exists in the module', () => {
-    const declared = Object.keys(declaredColors('light'));
-    const known = new Set<string>(Object.keys(LIGHT));
-    // Derived, non-contrast-bearing tokens live only in CSS by design.
-    const cssOnly = new Set([
-      'rail-hover',
-      'bubble-in',
-      'bubble-out',
-      'bubble-note',
-    ]);
-    const unknown = declared.filter((token) => !known.has(token) && !cssOnly.has(token));
-    expect(unknown).toEqual([]);
+    const base = read('./styles/base.css');
+    expect(base).not.toMatch(/url\(['"]?https?:/);
+    expect(base.match(/@font-face/g)?.length).toBe(9);
   });
 
-  it('exposes each token through PALETTES', () => {
-    for (const token of Object.keys(LIGHT) as ColorToken[]) {
-      expect(PALETTES.light[token]).toMatch(/^#[0-9a-f]{6}$/);
-      expect(PALETTES.dark[token]).toMatch(/^#[0-9a-f]{6}$/);
+  it('keeps the cascade-layer order in one place', () => {
+    const entry = read('./styles.css');
+    expect(entry).toContain('@layer tokens, base, components, shell, screens;');
+    for (const name of STYLES) {
+      expect(read(`./styles/${name}.css`)).toMatch(/@layer (base|components|shell|screens) \{/);
     }
   });
 });

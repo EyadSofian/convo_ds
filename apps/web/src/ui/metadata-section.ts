@@ -5,7 +5,7 @@ import { metadataFieldValue } from '../live/dispatch.js';
 import { rowsOf } from '../live/store.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
-import { button, field, isolated, pill, selectControl, textInput } from './parts.js';
+import { button, field, isolated, selectControl, textInput } from './parts.js';
 
 function t(state: AppState, ar: string, en: string): string {
   return state.lang === 'ar' ? ar : en;
@@ -31,27 +31,33 @@ export function metadataSection(
     (entry) => entry.target === target && entry.state === 'active',
   );
 
-  return h('section', { class: 'contact__section metadata', 'data-metadata': target }, [
-    h('div', { class: 'metadata__heading' }, [
-      h('h3', { class: 'contact__heading' }, [t(state, 'التصنيفات والبيانات', 'Labels & fields')]),
-      entityLabels.length === 0 ? pill(t(state, 'بلا تصنيف', 'Unlabelled'), 'neutral') : null,
+  const headingId = `metadata-${target}-${entity.id}`;
+  return h('section', { class: 'panel-section metadata', 'data-metadata': target, 'aria-labelledby': headingId }, [
+    h('h3', { class: 'panel-section__title', id: headingId }, [
+      target === 'contact' ? t(state, 'تصنيفات العميل وحقوله', 'Contact labels & fields') : t(state, 'تصنيفات المحادثة وحقولها', 'Conversation labels & fields'),
     ]),
-    h('div', { class: 'metadata__labels' }, entityLabels.map((label) =>
-      h('span', { class: 'metadata__label', style: `--label-color:${label.color}` }, [
-        isolated(label.name),
-        button({
-          label: '×',
-          act: 'live-metadata-label',
-          arg: `${target}|${entity.id}|${label.id}|remove`,
-          variant: 'ghost',
-          small: true,
-          disabled: busy,
-          title: t(state, 'إزالة التصنيف', 'Remove label'),
-        }),
-      ]),
-    )),
+    entityLabels.length === 0
+      ? h('p', { class: 'field__hint' }, [t(state, 'بلا تصنيف.', 'No labels.')])
+      : h('div', { class: 'metadata__labels' }, entityLabels.map((label) =>
+          // The colour is the company's own data, so it is set per label rather
+          // than taken from the palette.
+          h('span', { class: 'metadata__label', style: `--label-color:${label.color}` }, [
+            h('span', { class: 'metadata__swatch', 'aria-hidden': 'true' }),
+            isolated(label.name),
+            button({
+              icon: 'close',
+              act: 'live-metadata-label',
+              arg: `${target}|${entity.id}|${label.id}|remove`,
+              variant: 'ghost',
+              small: true,
+              disabled: busy,
+              title: t(state, `إزالة التصنيف ${label.name}`, `Remove label ${label.name}`),
+              extraClass: 'metadata__remove',
+            }),
+          ]),
+        )),
     available.length === 0
-      ? h('p', { class: 'field__hint' }, [t(state, 'لا تصنيفات أخرى متاحة.', 'No other labels available.')])
+      ? null
       : field(
           t(state, 'إضافة تصنيف', 'Add label'),
           selectControl({
@@ -67,9 +73,7 @@ export function metadataSection(
           }),
         ),
     fields.length === 0
-      ? h('p', { class: 'field__hint' }, [
-          t(state, 'لا حقول مخصّصة لهذا النوع.', 'No custom fields for this record type.'),
-        ])
+      ? null
       : h('div', { class: 'metadata__fields' }, fields.map((definition) => {
           const entry = entityFields.find((value) => value.fieldId === definition.id);
           const current = entry === undefined ? '' : Array.isArray(entry.value) ? entry.value.join(', ') : String(entry.value);

@@ -1,0 +1,218 @@
+/**
+ * @vitest-environment happy-dom
+ */
+import { describe, expect, it } from 'vitest';
+import type { Campaign, CampaignRecipient } from '../api/campaigns';
+import type { ChannelConnection } from '../api/channels';
+import { createState } from '../state';
+import type { AppState } from '../state';
+import { campaignStateBadge, errorCodeOf, renderBroadcasts } from './campaigns-screen';
+
+/**
+ * Campaigns. Each lifecycle step is offered only from a state the server accepts
+ * it in, and only to a membership whose server-issued keys include it.
+ */
+
+const NOW = new Date('2026-09-09T09:30:00.000Z');
+const ALL = ['campaign.read', 'campaign.draft', 'campaign.approve', 'campaign.launch', 'campaign.control', 'report.read'];
+
+function campaign(overrides: Partial<Campaign> = {}): Campaign {
+  return {
+    id: 'c-1', name: 'Autumn intake', objective: 'Enrolment', connection_id: 'cn-1', state: 'draft', version: 3,
+    revision_id: 'rev-1', revision: 2, revision_hash: 'a'.repeat(64), content: { text: 'Hi' }, variables: {},
+    audience_filter: {}, timezone: 'Africa/Cairo', expires_at: null, budget_amount_minor: '0', budget_currency: 'USD',
+    approved: false, audience: null, execution: null, created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
+    ...overrides,
+  };
+}
+
+function screen(campaigns: readonly Campaign[], permissions: readonly string[] = ALL, lang: 'ar' | 'en' = 'en'): AppState {
+  const state = createState(NOW);
+  state.lang = lang;
+  state.live.session = {
+    status: 'signed_in', email: 'a@b.c', tenantId: 't',
+    memberships: [{ id: 'm', tenant: { id: 't', name: 'School', slug: 'school' }, role: { id: 'r', key: 'x', name: 'X' }, permissions }],
+  };
+  state.live.campaigns = { status: 'ready', loadedAt: 1, value: campaigns };
+  state.live.connections = { status: 'ready', loadedAt: 1, value: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Admissions' } as ChannelConnection] };
+  return state;
+}
+
+function actions(state: AppState): string[] {
+  return Array.from(renderBroadcasts(state).querySelectorAll('.action-bar [data-act]')).map((element) => {
+    const act = element.getAttribute('data-act') ?? '';
+    const arg = element.getAttribute('data-arg') ?? '';
+    return act === 'dialog' ? arg.split(':')[0] as string : act === 'live-campaign-control' ? `control:${arg.split(':')[1] as string}` : act;
+  });
+}
+
+describe('the state badge', () => {
+  it('names a state this build does not know by the server’s word, in a neutral tone', () => {
+    const state = createState(new Date('2026-09-09T09:30:00.000Z'));
+    state.lang = 'en';
+    expect(campaignStateBadge(state, 'failed').className).toBe('badge badge--danger');
+    const unknown = campaignStateBadge(state, 'archived');
+    expect(unknown.className).toBe('badge badge--neutral');
+    expect(unknown.textContent).toBe('archived');
+  });
+});
+
+describe('the list', () => {
+  it('draws a loading state, a refusal and an empty workspace distinctly', () => {
+    const state = screen([]);
+    state.live.campaigns = { status: 'loading' };
+    expect(renderBroadcasts(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+    state.live.campaigns = { status: 'idle' };
+    expect(renderBroadcasts(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+    state.live.campaigns = { status: 'error', error: { code: 'x', message: 'x', requestId: 'r-1', status: 500, details: [] } };
+    expect(renderBroadcasts(state).textContent).toContain('r-1');
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [] };
+    const empty = renderBroadcasts(state);
+    expect(empty.textContent).toContain('No campaigns yet');
+    expect(empty.querySelector('.empty [data-arg="campaign"]')).not.toBeNull();
+  });
+
+  it('does not offer a new campaign without the draft key', () => {
+    const state = screen([], ['campaign.read']);
+    const root = renderBroadcasts(state);
+    expect(root.querySelector('[data-arg="campaign"]')).toBeNull();
+    expect(root.textContent).toContain('No campaign has been created');
+  });
+
+  it('summarises the list and marks the selected campaign', () => {
+    const state = screen([
+      campaign(),
+      campaign({ id: 'c-2', name: 'Waiting', state: 'ready', approved: false, audience: { total: 10, eligible: 9, excluded: 1 } }),
+      campaign({ id: 'c-3', name: 'Later', state: 'scheduled', objective: null }),
+      campaign({ id: 'c-4', name: 'Now', state: 'running' }),
+    ]);
+    state.live.selectedCampaignId = 'c-2';
+    const root = renderBroadcasts(state);
+    expect(Array.from(root.querySelectorAll('.kpi__value')).map((value) => value.textContent)).toEqual(['4', '1', '1', '1']);
+    expect(root.querySelector('tr[aria-current="true"]')?.getAttribute('data-campaign')).toBe('c-2');
+    expect(root.querySelector('[data-campaign="c-3"]')?.textContent).toContain('No objective');
+    expect(root.querySelector('[data-campaign="c-1"]')?.textContent).toContain('Not frozen');
+    expect(root.querySelector('[data-campaign-detail]')?.getAttribute('data-campaign-detail')).toBe('c-2');
+  });
+
+  it('opens the first campaign when none is selected, and the page’s refusal only when no dialog shows it', () => {
+    const state = screen([campaign()]);
+    state.live.error = { code: 'campaign_edit_locked', message: 'Locked.', requestId: 'r-4', status: 409, details: [] };
+    const root = renderBroadcasts(state);
+    expect(root.querySelector('[data-campaign-detail]')?.getAttribute('data-campaign-detail')).toBe('c-1');
+    expect(root.querySelector('.page__inner > [role="alert"]')?.textContent).toContain('r-4');
+    state.dialog = { kind: 'campaign', arg: '' };
+    expect(renderBroadcasts(state).querySelector('.page__inner > [role="alert"]')).toBeNull();
+  });
+});
+
+describe('the lifecycle offered for each state', () => {
+  it('drafts: freeze, edit, test and clone', () => {
+    expect(actions(screen([campaign()]))).toEqual(['live-campaign-validate', 'campaign-edit', 'campaign-test-send', 'live-campaign-clone']);
+  });
+
+  it('ready but unapproved: approve; approved: launch now or schedule', () => {
+    expect(actions(screen([campaign({ state: 'ready' })]))).toEqual(['live-campaign-approve', 'campaign-edit', 'campaign-test-send', 'live-campaign-clone']);
+    expect(actions(screen([campaign({ state: 'ready', approved: true })]))).toEqual(['live-campaign-launch', 'campaign-schedule', 'campaign-edit', 'campaign-test-send', 'live-campaign-clone']);
+  });
+
+  it('sending: pause and cancel; paused: resume and cancel; scheduled: cancel', () => {
+    const execution = { id: 'e', state: 'running', scheduled_for: null };
+    expect(actions(screen([campaign({ state: 'running', approved: true, execution })]))).toEqual(['control:pause', 'control:cancel', 'live-campaign-clone', 'campaign-report']);
+    expect(actions(screen([campaign({ state: 'paused', approved: true, execution })]))).toEqual(['control:resume', 'control:cancel', 'live-campaign-clone', 'campaign-report']);
+    expect(actions(screen([campaign({ state: 'scheduled', approved: true, execution: { id: 'e', state: 'scheduled', scheduled_for: '2026-09-10T09:00:00.000Z' } })]))).toEqual(['control:cancel', 'live-campaign-clone', 'campaign-report']);
+  });
+
+  it('finished or failed: retry the failed recipients only', () => {
+    const execution = { id: 'e', state: 'dispatch_completed', scheduled_for: null };
+    expect(actions(screen([campaign({ state: 'dispatch_completed', approved: true, execution })]))).toEqual(['live-campaign-retry', 'live-campaign-clone', 'campaign-report']);
+    expect(actions(screen([campaign({ state: 'failed', approved: true, execution })]))).toEqual(['live-campaign-retry', 'live-campaign-clone', 'campaign-report']);
+  });
+
+  it('offers nothing a membership’s keys do not allow', () => {
+    expect(actions(screen([campaign({ state: 'ready', approved: true, execution: { id: 'e', state: 'x', scheduled_for: null } })], ['campaign.read']))).toEqual([]);
+    expect(actions(screen([campaign({ state: 'ready' })], ['campaign.read', 'campaign.approve']))).toEqual(['live-campaign-approve']);
+  });
+
+  it('marks the one in flight busy', () => {
+    const state = screen([campaign()]);
+    state.live.busy = 'campaign-validate:c-1';
+    expect((renderBroadcasts(state).querySelector('[data-act="live-campaign-validate"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('the detail', () => {
+  it('walks the steps the server record has reached', () => {
+    const state = screen([campaign({ state: 'ready', approved: true, audience: { total: 1280, eligible: 1146, excluded: 134 } })]);
+    const root = renderBroadcasts(state);
+    const steps = Array.from(root.querySelectorAll('.steps__item'));
+    expect(steps.map((step) => step.className.includes('done'))).toEqual([true, true, true, false, false]);
+    expect(steps[3]?.getAttribute('aria-current')).toBe('step');
+    expect(root.querySelector('.validation')?.textContent).toContain('1,146');
+    expect(root.textContent).toContain('Admissions · WhatsApp');
+    expect(root.textContent).toContain('Not launched');
+  });
+
+  it('says the audience is not frozen, and names a channel it cannot find as absent', () => {
+    const state = screen([campaign({ connection_id: 'cn-gone' })]);
+    const root = renderBroadcasts(state);
+    expect(root.querySelector('.validation--pending')?.textContent).toContain('Audience not frozen');
+    expect(root.querySelector('.attrgrid')?.textContent).toContain('—');
+  });
+
+  it('shows when a scheduled launch will happen, and an execution’s state otherwise', () => {
+    const scheduled = screen([campaign({ state: 'scheduled', execution: { id: 'e', state: 'scheduled', scheduled_for: '2026-09-10T09:00:00.000Z' } })]);
+    expect(renderBroadcasts(scheduled).querySelector('.attrgrid')?.textContent).toContain('2026');
+    const done = screen([campaign({ state: 'dispatch_completed', approved: true, audience: { total: 2, eligible: 2, excluded: 0 }, execution: { id: 'e', state: 'dispatch_completed', scheduled_for: null } })]);
+    expect(renderBroadcasts(done).querySelector('.attrgrid')?.textContent).toContain('Sent');
+    expect(Array.from(renderBroadcasts(done).querySelectorAll('.steps__item--done'))).toHaveLength(5);
+  });
+});
+
+describe('the recipient ledger', () => {
+  const execution = { id: 'e', state: 'running', scheduled_for: null };
+
+  it('is absent before launch, and asked for when a launched campaign is opened', () => {
+    expect(renderBroadcasts(screen([campaign()])).querySelector('.ledger')).toBeNull();
+    const state = screen([campaign({ state: 'running', execution })]);
+    expect(renderBroadcasts(state).querySelector('.ledger [data-act="live-campaign-open"]')).not.toBeNull();
+  });
+
+  it('shows loading, refusal, emptiness and rows with their reasons', () => {
+    const state = screen([campaign({ state: 'running', execution })]);
+    state.live.selectedCampaignId = 'c-1';
+    state.live.campaignRecipients = { status: 'loading' };
+    expect(renderBroadcasts(state).querySelector('.ledger [aria-busy="true"]')).not.toBeNull();
+    state.live.campaignRecipients = { status: 'idle' };
+    expect(renderBroadcasts(state).querySelector('.ledger [aria-busy="true"]')).not.toBeNull();
+    state.live.campaignRecipients = { status: 'error', error: { code: 'x', message: 'x', requestId: 'r-7', status: 500, details: [] } };
+    expect(renderBroadcasts(state).querySelector('.ledger')?.textContent).toContain('r-7');
+    state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: [] };
+    expect(renderBroadcasts(state).querySelector('.ledger')?.textContent).toContain('No recipients');
+
+    const rows: CampaignRecipient[] = [
+      { id: 'r1', contact_id: 'k', display_name: 'Mona', external_id: '2010', state: 'failed', last_error: { code: 'provider_rejected' }, estimated_amount_minor: '12.5', currency: 'USD' },
+      { id: 'r2', contact_id: 'k', display_name: 'Omar', external_id: '2011', state: 'delivered', last_error: null, estimated_amount_minor: null, currency: null },
+      { id: 'r3', contact_id: 'k', display_name: 'Lina', external_id: '2012', state: 'weird', last_error: null, estimated_amount_minor: '1', currency: null },
+    ];
+    state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: rows };
+    const ledger = renderBroadcasts(state).querySelector('.ledger') as HTMLElement;
+    expect(ledger.querySelectorAll('tbody tr')).toHaveLength(3);
+    expect(ledger.textContent).toContain('Rejected by provider');
+    expect(ledger.textContent).toContain('12.5 USD');
+    expect(ledger.querySelectorAll('tbody tr')[2]?.querySelector('.badge--neutral')?.textContent).toBe('weird');
+  });
+
+  it('reads a typed error code out of a ledger error, and nothing out of anything else', () => {
+    expect(errorCodeOf({ code: 'window_closed' })).toBe('window_closed');
+    expect(errorCodeOf({ code: 7 })).toBeNull();
+    expect(errorCodeOf('provider_rejected')).toBeNull();
+    expect(errorCodeOf(null)).toBeNull();
+  });
+});
+
+it('speaks Arabic by default', () => {
+  const root = renderBroadcasts(screen([campaign()], ALL, 'ar'));
+  expect(root.textContent).toContain('تثبيت الجمهور');
+  expect(root.textContent).toContain('مسودة');
+});

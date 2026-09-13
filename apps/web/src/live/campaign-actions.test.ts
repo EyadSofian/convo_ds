@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Campaign, CampaignReport, CampaignReportExport, CampaignRetry, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
 import type { ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
-import { createState } from '../state.js';
+import { createState, NO_ANALYTICS_FILTERS } from '../state.js';
 import type { LiveContext } from './actions.js';
 import {
   approveCampaign,
@@ -42,7 +42,10 @@ const TEST_SEND: CampaignTestSend = {
   recipient_label: 'Owner phone', peer_identity: '201000000000', message_id: 'message-1',
   state: 'queued', state_reason: null, created_at: NOW.toISOString(),
 };
-const REPORT = { generated_at: NOW.toISOString(), fresh_through: NOW.toISOString() } as CampaignReport;
+const REPORT = {
+  generated_at: NOW.toISOString(), fresh_through: NOW.toISOString(),
+  campaigns: [{ id: 'campaign-1', name: 'September intake' }, { id: 'campaign-2', name: 'Reminder' }],
+} as unknown as CampaignReport;
 const RETRY: CampaignRetry = {
   id: 'retry-1', campaign_id: 'campaign-1', execution_id: 'execution-1', recipient_count: 2,
   state: 'running', requested_at: NOW.toISOString(),
@@ -90,6 +93,8 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     refresh: vi.fn(),
     now: () => NOW.getTime(),
     newKey: () => 'key-1',
+    endSession: vi.fn(),
+    switchWorkspace: vi.fn(),
   };
   return { state, context, campaigns, channels };
 }
@@ -114,6 +119,10 @@ describe('campaign actions', () => {
     const ready = setup();
     expect(await createCampaignReportExport(ready.context)).toBe(true);
     expect(ready.campaigns.createReportExport).toHaveBeenCalledWith('tenant-1', null, 'key-1');
+    // The file follows the campaign filter, the one scope the export takes.
+    ready.state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, campaignId: 'campaign-1' };
+    await createCampaignReportExport(ready.context);
+    expect(ready.campaigns.createReportExport).toHaveBeenLastCalledWith('tenant-1', 'campaign-1', 'key-1');
     expect(ready.state.live.campaignReportExport).toMatchObject({ status: 'ready', value: { id: 'export-1', state: 'queued' } });
     expect(ready.state.toasts.at(-1)?.text).toContain('CSV export queued');
     await LIVE_ACTIONS['live-report-export-refresh']?.(ready.context, '');
@@ -133,7 +142,30 @@ describe('campaign actions', () => {
     const ready = setup();
     await loadCampaignReport(ready.context);
     expect(ready.state.live.campaignReport).toMatchObject({ status: 'ready', value: REPORT });
-    expect(ready.campaigns.report).toHaveBeenCalledWith('tenant-1');
+    expect(ready.campaigns.report).toHaveBeenCalledWith('tenant-1', NO_ANALYTICS_FILTERS);
+    expect(ready.state.live.reportCampaigns).toEqual([{ id: 'campaign-1', name: 'September intake' }, { id: 'campaign-2', name: 'Reminder' }]);
+
+    // Narrowed to one campaign, the list of campaigns that could be chosen stays.
+    vi.mocked(ready.campaigns.report).mockResolvedValueOnce(ok({ ...REPORT, campaigns: [{ id: 'campaign-2', name: 'Reminder' }] } as unknown as CampaignReport));
+    expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'campaignId:campaign-2')).toBe(true);
+    expect(ready.state.analyticsFilters.campaignId).toBe('campaign-2');
+    expect(ready.state.live.reportCampaigns).toHaveLength(2);
+    // Choosing what is already chosen, or a filter that does not exist, does nothing.
+    expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'campaignId:campaign-2')).toBe(false);
+    expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'region:emea')).toBe(false);
+    expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'from:2026-09-01')).toBe(true);
+    expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'to:2026-09-09')).toBe(true);
+    expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'channel:whatsapp')).toBe(true);
+    expect(vi.mocked(ready.campaigns.report).mock.calls.at(-1)?.[1]).toEqual({ from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaignId: 'campaign-2' });
+    await LIVE_ACTIONS['live-report-filter-clear']?.(ready.context, '');
+    expect(ready.state.analyticsFilters).toEqual(NO_ANALYTICS_FILTERS);
+
+    // A deep link straight to one campaign still offers that campaign.
+    const linked = setup();
+    linked.state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, campaignId: 'campaign-2' };
+    vi.mocked(linked.campaigns.report).mockResolvedValueOnce(ok({ ...REPORT, campaigns: [{ id: 'campaign-2', name: 'Reminder' }] } as unknown as CampaignReport));
+    await loadCampaignReport(linked.context);
+    expect(linked.state.live.reportCampaigns).toEqual([{ id: 'campaign-2', name: 'Reminder' }]);
 
     vi.mocked(ready.campaigns.report).mockResolvedValueOnce(fail());
     await LIVE_ACTIONS['live-report-reload']?.(ready.context, '');
@@ -226,6 +258,9 @@ describe('campaign actions', () => {
     expect(english.state.toasts.at(-1)?.text).toBe('Audience frozen with 0 eligible recipients');
     await launchCampaign(english.context, 'campaign-1');
     expect(english.state.toasts.at(-1)?.text).toBe('Campaign execution started');
+    await launchCampaign(english.context, 'campaign-1', '2026-09-13T09:00:00.000Z');
+    expect(english.campaigns.launch).toHaveBeenLastCalledWith('tenant-1', 'campaign-1', 'key-1', '2026-09-13T09:00:00.000Z');
+    expect(english.state.toasts.at(-1)?.text).toBe('Campaign scheduled');
     await controlCampaign(english.context, 'campaign-1', 'pause');
     await controlCampaign(english.context, 'campaign-1', 'resume');
     await controlCampaign(english.context, 'campaign-1', 'cancel');
@@ -265,6 +300,15 @@ describe('campaign actions', () => {
   it('dispatches every campaign control and clears a completed create form', async () => {
     const empty = setup();
     expect(await LIVE_ACTIONS['live-campaign-create']?.(empty.context, '')).toBe(false);
+    expect(empty.state.formErrors).toEqual({ campaignName: 'Enter a campaign name.', campaignMessage: 'Write the message.' });
+    // Named and written, but with no healthy channel to send it on, nothing is sent.
+    empty.state.dialogForm = { campaignName: 'A', campaignMessage: 'B' };
+    expect(await LIVE_ACTIONS['live-campaign-create']?.(empty.context, '')).toBe(false);
+    expect(empty.campaigns.create).not.toHaveBeenCalled();
+    // The select shows the first healthy channel until it is changed, and that is what is sent.
+    empty.state.live.connections = { status: 'ready', loadedAt: 1, value: [{ id: 'sick', status: 'degraded' }, { id: 'well', status: 'healthy' }] as ChannelConnection[] };
+    expect(await LIVE_ACTIONS['live-campaign-create']?.(empty.context, '')).toBe(true);
+    expect(vi.mocked(empty.campaigns.create).mock.calls[0]?.[1]).toMatchObject({ connectionId: 'well' });
     expect(await LIVE_ACTIONS['live-campaign-control']?.(empty.context, 'campaign-1:wrong')).toBe(false);
     expect(await LIVE_ACTIONS['live-campaign-clone']?.(empty.context, ':')).toBe(false);
     expect(await LIVE_ACTIONS['live-campaign-update']?.(empty.context, 'missing')).toBe(false);
@@ -312,6 +356,24 @@ describe('campaign actions', () => {
     expect(await LIVE_ACTIONS['live-campaign-update']?.(readyCase.context, 'campaign-1')).toBe(true);
     expect(vi.mocked(readyCase.campaigns.update).mock.calls.at(-1)?.[2]).toMatchObject({ objective: null });
 
+    // Fields the operator never touched keep what the server holds: a rename
+    // must not clear the audience search or the objective, or refuse because the
+    // message was not retyped.
+    readyCase.state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{ ...CAMPAIGN, objective: 'Keep', audience_filter: { search: 'Mona' } }] };
+    readyCase.state.dialog = { kind: 'campaign-edit', arg: 'campaign-1' };
+    readyCase.state.dialogForm = { campaignName: 'Renamed only' };
+    expect(await LIVE_ACTIONS['live-campaign-update']?.(readyCase.context, 'campaign-1')).toBe(true);
+    expect(vi.mocked(readyCase.campaigns.update).mock.calls.at(-1)?.[2]).toMatchObject({
+      name: 'Renamed only', objective: 'Keep', connectionId: 'channel-1', content: { text: 'Hello' }, audienceFilter: { search: 'Mona' },
+    });
+    // A saved campaign whose content has no text, edited without a message, is refused before sending.
+    readyCase.state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{ ...CAMPAIGN, content: { template: 'welcome' } }] };
+    readyCase.state.dialogForm = { campaignName: '' };
+    const calls = vi.mocked(readyCase.campaigns.update).mock.calls.length;
+    expect(await LIVE_ACTIONS['live-campaign-update']?.(readyCase.context, 'campaign-1')).toBe(false);
+    expect(readyCase.state.formErrors).toEqual({ campaignName: 'Enter a campaign name.', campaignMessage: 'Write the message.' });
+    expect(vi.mocked(readyCase.campaigns.update).mock.calls).toHaveLength(calls);
+
     await LIVE_ACTIONS['live-campaign-validate']?.(readyCase.context, 'campaign-1');
     await LIVE_ACTIONS['live-campaign-approve']?.(readyCase.context, 'campaign-1');
     await LIVE_ACTIONS['live-campaign-launch']?.(readyCase.context, 'campaign-1');
@@ -328,7 +390,7 @@ describe('campaign actions', () => {
     expect(readyCase.campaigns.recipients).toHaveBeenCalled();
   });
 
-  it('reloads the session before the campaign screen from the global action table', async () => {
+  it('reloads the campaign screen, and not the session, from the global action table', async () => {
     const readyCase = setup();
     const peopleApi = {
       session: vi.fn().mockResolvedValue(ok({ user: { id: 'user-1', email: 'owner@example.com' } })),
@@ -339,7 +401,49 @@ describe('campaign actions', () => {
     };
     Object.defineProperty(readyCase.state.live, 'api', { value: peopleApi });
     await LIVE_ACTIONS['live-campaigns-reload']?.(readyCase.context, '');
-    expect(peopleApi.session).toHaveBeenCalledOnce();
+    // The workspace is already open; a 401 on the way closes it through the client.
+    expect(peopleApi.session).not.toHaveBeenCalled();
     expect(readyCase.campaigns.list).toHaveBeenCalledWith('tenant-1');
+  });
+});
+
+describe('opening and scheduling a campaign', () => {
+  it('opens a campaign, asking for recipients only when it has an execution', async () => {
+    const { context, state, campaigns } = setup();
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [CAMPAIGN, { ...CAMPAIGN, id: 'launched', execution: { id: 'e', state: 'running', scheduled_for: null } }] };
+    expect(await LIVE_ACTIONS['live-campaign-open']?.(context, 'missing')).toBe(false);
+    state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: [] };
+    expect(await LIVE_ACTIONS['live-campaign-open']?.(context, 'campaign-1')).toBe(true);
+    expect(state.live.selectedCampaignId).toBe('campaign-1');
+    expect(state.live.campaignRecipients).toEqual({ status: 'idle' });
+    expect(campaigns.recipients).not.toHaveBeenCalled();
+    expect(await LIVE_ACTIONS['live-campaign-open']?.(context, 'launched')).toBe(true);
+    expect(campaigns.recipients).toHaveBeenCalledWith('tenant-1', 'launched');
+  });
+
+  it('schedules only a time in the future, read in the operator’s own zone', async () => {
+    const { context, state, campaigns } = setup();
+    state.dialog = { kind: 'campaign-schedule', arg: 'campaign-1' };
+    expect(await LIVE_ACTIONS['live-campaign-schedule']?.(context, 'campaign-1')).toBe(false);
+    expect(state.formErrors['campaignScheduleAt']).toBe('Choose a time in the future.');
+    state.dialogForm = { campaignScheduleAt: 'not a time' };
+    expect(await LIVE_ACTIONS['live-campaign-schedule']?.(context, 'campaign-1')).toBe(false);
+    state.dialogForm = { campaignScheduleAt: '2020-01-01T09:00' };
+    expect(await LIVE_ACTIONS['live-campaign-schedule']?.(context, 'campaign-1')).toBe(false);
+    expect(campaigns.launch).not.toHaveBeenCalled();
+
+    const later = new Date(NOW.getTime() + 86_400_000);
+    const local = `${String(later.getFullYear())}-${String(later.getMonth() + 1).padStart(2, '0')}-${String(later.getDate()).padStart(2, '0')}T09:00`;
+    state.dialogForm = { campaignScheduleAt: local };
+    expect(await LIVE_ACTIONS['live-campaign-schedule']?.(context, 'campaign-1')).toBe(true);
+    expect(campaigns.launch).toHaveBeenCalledWith('tenant-1', 'campaign-1', 'key-1', new Date(local).toISOString());
+    expect(state.dialog).toBeNull();
+    expect(state.formErrors).toEqual({});
+
+    vi.mocked(campaigns.launch).mockResolvedValueOnce(fail());
+    state.dialog = { kind: 'campaign-schedule', arg: 'campaign-1' };
+    state.dialogForm = { campaignScheduleAt: local };
+    expect(await LIVE_ACTIONS['live-campaign-schedule']?.(context, 'campaign-1')).toBe(false);
+    expect(state.dialog).not.toBeNull();
   });
 });

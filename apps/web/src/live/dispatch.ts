@@ -1,5 +1,6 @@
 import type { TransitionCommand } from '../api/conversations.js';
 import type { ScopeRef } from '../api/people.js';
+import { NO_ANALYTICS_FILTERS } from '../state.js';
 import type { LiveContext } from './actions.js';
 import {
   loadContactsScreen,
@@ -63,6 +64,9 @@ import {
   loadChannelsScreen,
   loadPeopleScreen,
   loadSession,
+  loadSettingsScreen,
+  revokeSession,
+  switchTenant,
   offerOwnership,
   removeTeamMember,
   renameRole,
@@ -255,6 +259,36 @@ function form(context: LiveContext, key: string): string {
   return (context.state.dialogForm[key] ?? '').trim();
 }
 
+function text(context: LiveContext, ar: string, en: string): string {
+  return context.state.lang === 'ar' ? ar : en;
+}
+
+/**
+ * Records field problems found before sending, and says whether there were any.
+ * An empty map clears what the last attempt left behind.
+ */
+function invalid(context: LiveContext, errors: Record<string, string>): boolean {
+  context.state.formErrors = errors;
+  const found = Object.keys(errors).length > 0;
+  if (found) context.refresh();
+  return found;
+}
+
+/** A field's typed value, or what the server holds when it was never touched. */
+function edited(context: LiveContext, key: string, saved: string): string {
+  return context.state.dialogForm[key] === undefined ? saved : form(context, key);
+}
+
+function campaignErrors(
+  context: LiveContext,
+  values: { readonly campaignName: string; readonly campaignMessage: string },
+): Record<string, string> {
+  return {
+    ...(values.campaignName === '' ? { campaignName: text(context, 'أدخل اسم الحملة.', 'Enter a campaign name.') } : {}),
+    ...(values.campaignMessage === '' ? { campaignMessage: text(context, 'اكتب نص الرسالة.', 'Write the message.') } : {}),
+  };
+}
+
 /** Clears the fields a form owns once the server has accepted it. */
 function clearForm(context: LiveContext, keys: readonly string[]): void {
   const next = { ...context.state.dialogForm };
@@ -300,24 +334,60 @@ export function metadataFieldValue(target: string, entityId: string, fieldId: st
 }
 
 export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
+  /**
+   * Checks the form before sending anything, then signs in.
+   *
+   * The checks are only about shape — something typed, something that looks
+   * like an address. Whether the credentials are right is the server's answer,
+   * and it gives the same one for a wrong email and a wrong password.
+   */
   'live-signin': async (context) => {
-    await signIn(context, form(context, 'signinEmail'), form(context, 'signinPassword'));
+    const { state } = context;
+    if (context.live.busy === 'sign-in') return false;
+    const email = form(context, 'signinEmail');
+    // Not trimmed: a password is whatever was typed.
+    const password = state.dialogForm['signinPassword'] ?? '';
+    const errors: Record<string, string> = {};
+    if (email === '') {
+      errors['signinEmail'] = text(context, 'أدخل بريدك الإلكتروني.', 'Enter your email address.');
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors['signinEmail'] = text(context, 'أدخل بريدًا إلكترونيًا صحيحًا.', 'Enter a valid email address.');
+    }
+    if (password === '') {
+      errors['signinPassword'] = text(context, 'أدخل كلمة المرور.', 'Enter your password.');
+    }
+    if (invalid(context, errors)) {
+      return false;
+    }
+    const signedIn = await signIn(context, email, password);
     // The password never stays in state after the attempt, whatever the answer.
     clearForm(context, ['signinPassword']);
+    state.passwordVisible = false;
+    context.refresh();
+    return signedIn;
+  },
+
+  'live-session-retry': async (context) => {
+    context.live.busy = 'session-retry';
+    context.refresh();
+    await loadSession(context);
+    context.live.busy = null;
     context.refresh();
   },
 
   'live-signout': async (context) => signOut(context),
 
-  'live-reload': async (context) => {
-    await loadSession(context);
-    await loadPeopleScreen(context);
-  },
+  'live-tenant-switch': (context, arg) => Promise.resolve(switchTenant(context, arg)),
 
-  'live-channels-reload': async (context) => {
-    await loadSession(context);
-    await loadChannelsScreen(context);
-  },
+  'live-sessions-reload': async (context) => loadSettingsScreen(context),
+
+  'live-revoke-session': async (context, arg) => revokeSession(context, arg),
+
+  // A reload re-reads the screen's lists, never the session: the workspace is
+  // already open, and any 401 on the way closes it through the client.
+  'live-reload': async (context) => loadPeopleScreen(context),
+
+  'live-channels-reload': async (context) => loadChannelsScreen(context),
 
   'live-authorize-test-recipient': async (context, arg) => {
     const peerIdentity = form(context, channelTestIdentityField(arg));
@@ -336,16 +406,17 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return connectionId === '' || authorizationId === '' ? false : revokeTestRecipient(context, connectionId, authorizationId);
   },
 
-  'live-campaigns-reload': async (context) => {
-    await loadSession(context);
-    await loadCampaignsScreen(context);
-  },
+  'live-campaigns-reload': async (context) => loadCampaignsScreen(context),
 
   'live-campaign-create': async (context) => {
     const name = form(context, 'campaignName');
-    const connectionId = form(context, 'campaignConnection');
+    // The channel select shows the first healthy connection until it is changed.
+    const connectionId = form(context, 'campaignConnection') || (rowsOf(context.live.connections).find((connection) => connection.status === 'healthy')?.id ?? '');
     const message = form(context, 'campaignMessage');
-    if (name === '' || connectionId === '' || message === '') return false;
+    if (invalid(context, campaignErrors(context, { campaignName: name, campaignMessage: message }))) return false;
+    // The create button is disabled without a healthy connection; the server
+    // refuses a draft without one either way.
+    if (connectionId === '') return false;
     const created = await createCampaign(context, {
       name,
       objective: form(context, 'campaignObjective') || null,
@@ -367,17 +438,24 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
 
   'live-campaign-update': async (context, arg) => {
     const campaign = rowsOf(context.live.campaigns).find((entry) => entry.id === arg);
-    const name = form(context, 'campaignName');
-    const connectionId = form(context, 'campaignConnection');
-    const message = form(context, 'campaignMessage');
-    if (campaign === undefined || name === '' || connectionId === '' || message === '') return false;
+    if (campaign === undefined) return false;
+    // The editor shows the saved values until they are changed, so an untouched
+    // field means "keep what the server has". Reading an untouched field as
+    // empty used to clear the audience search and the objective on a rename —
+    // turning a cosmetic edit into a new revision — and silently refused any
+    // save that did not retype the message.
+    const savedText = typeof campaign.content['text'] === 'string' ? campaign.content['text'] : '';
+    const savedSearch = typeof campaign.audience_filter['search'] === 'string' ? campaign.audience_filter['search'] : '';
+    const name = edited(context, 'campaignName', campaign.name);
+    const message = edited(context, 'campaignMessage', savedText);
+    if (invalid(context, campaignErrors(context, { campaignName: name, campaignMessage: message }))) return false;
     const updated = await updateCampaign(context, arg, {
       name,
-      objective: form(context, 'campaignObjective') || null,
-      connectionId,
+      objective: edited(context, 'campaignObjective', campaign.objective ?? '') || null,
+      connectionId: edited(context, 'campaignConnection', campaign.connection_id),
       content: { ...campaign.content, text: message },
       variables: campaign.variables,
-      audienceFilter: { ...campaign.audience_filter, search: form(context, 'campaignSearch') },
+      audienceFilter: { ...campaign.audience_filter, search: edited(context, 'campaignSearch', savedSearch) },
       timezone: campaign.timezone,
       expiresAt: campaign.expires_at,
       budgetAmountMinor: Number(campaign.budget_amount_minor),
@@ -418,16 +496,66 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return queued;
   },
   'live-campaign-ledger': async (context, arg) => loadCampaignRecipients(context, arg),
+
+  /**
+   * Shows one campaign's detail, and its recipients when it has an execution.
+   * A campaign that never launched has no ledger to ask for.
+   */
+  'live-campaign-open': async (context, arg) => {
+    const campaign = rowsOf(context.live.campaigns).find((entry) => entry.id === arg);
+    if (campaign === undefined) return false;
+    if (campaign.execution === null) {
+      context.live.selectedCampaignId = campaign.id;
+      context.live.campaignRecipients = { status: 'idle' };
+      context.refresh();
+      return true;
+    }
+    await loadCampaignRecipients(context, campaign.id);
+    return true;
+  },
+
+  'live-campaign-schedule': async (context, arg) => {
+    const typed = form(context, 'campaignScheduleAt');
+    // `datetime-local` has no zone: it means that wall-clock time *here*, which
+    // is exactly how `new Date` reads it.
+    const at = typed === '' ? Number.NaN : new Date(typed).getTime();
+    if (invalid(context, Number.isNaN(at) || at <= context.now()
+      ? { campaignScheduleAt: text(context, 'اختر وقتًا مستقبليًا.', 'Choose a time in the future.') }
+      : {})) return false;
+    const scheduled = await launchCampaign(context, arg, new Date(at).toISOString());
+    if (scheduled) {
+      context.state.dialog = null;
+      clearForm(context, ['campaignScheduleAt']);
+      context.refresh();
+    }
+    return scheduled;
+  },
+
+  /**
+   * Narrows the report and reads it again. The scope goes into the address bar,
+   * so a filtered report can be shared and survives a reload.
+   */
+  'live-report-filter': async (context, arg) => {
+    const { id, value } = splitArg(arg);
+    const filters = context.state.analyticsFilters;
+    if (!(id === 'from' || id === 'to' || id === 'channel' || id === 'campaignId') || filters[id] === value) return false;
+    context.state.analyticsFilters = { ...filters, [id]: value };
+    await loadCampaignReport(context);
+    return true;
+  },
+
+  'live-report-filter-clear': async (context) => {
+    context.state.analyticsFilters = NO_ANALYTICS_FILTERS;
+    await loadCampaignReport(context);
+  },
+
   'live-report-reload': async (context) => loadCampaignReport(context),
   'live-report-export': async (context) => createCampaignReportExport(context),
   'live-report-export-refresh': async (context) => refreshCampaignReportExport(context),
 
   /* ----------------------------------------------------------------- inbox -- */
 
-  'live-inbox-reload': async (context) => {
-    await loadSession(context);
-    await loadInboxScreen(context);
-  },
+  'live-inbox-reload': async (context) => loadInboxScreen(context),
 
   'live-inbox-queue': (context, arg) => {
     // A local view switch, not a request: both halves are already loaded, and
@@ -628,10 +756,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
 
   /* -------------------------------------------------------------- contacts -- */
 
-  'live-contacts-reload': async (context) => {
-    await loadSession(context);
-    await loadContactsScreen(context);
-  },
+  'live-contacts-reload': async (context) => loadContactsScreen(context),
 
   'live-contacts-search': async (context) => {
     context.live.contactQuery = form(context, 'contactQuery');
@@ -744,25 +869,46 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
 
   'live-inbox-send': async (context) => sendReply(context),
 
+  /**
+   * Connects the kind the dialog was opened for.
+   *
+   * Required fields are checked before anything is sent. A success closes the
+   * dialog and opens the new connection, which starts unverified — the next
+   * step is to verify it, and the screen puts that step in front of the
+   * operator rather than a success badge the server has not earned.
+   */
   'live-connect-channel': async (context) => {
-    const selectedKind = form(context, 'channelKind') || 'whatsapp';
+    const { state } = context;
+    const selectedKind = state.dialog?.kind === 'connect-channel' ? state.dialog.arg : '';
     if (!['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom'].includes(selectedKind)) return false;
+    const meta = ['whatsapp', 'messenger', 'instagram'].includes(selectedKind);
+    const errors = {
+      ...(meta && form(context, 'channelProviderApp') === '' ? { channelProviderApp: text(context, 'أدخل معرّف تطبيق Meta.', 'Enter the Meta App ID.') } : {}),
+      ...(form(context, 'channelAsset') === '' ? { channelAsset: text(context, 'أدخل معرّف الأصل.', 'Enter the asset ID.') } : {}),
+      ...(form(context, 'channelName') === '' ? { channelName: text(context, 'أدخل اسمًا للعرض.', 'Enter a display name.') } : {}),
+      ...(form(context, 'channelToken').length < 8 ? { channelToken: text(context, 'أدخل رمزًا من 8 أحرف على الأقل.', 'Enter at least 8 characters.') } : {}),
+    };
+    if (invalid(context, errors)) return false;
     const connected = await connectChannel(context, {
       kind: selectedKind as 'whatsapp' | 'messenger' | 'instagram' | 'web_chat' | 'custom',
       externalAssetId: form(context, 'channelAsset'),
       displayName: form(context, 'channelName'),
       accessToken: form(context, 'channelToken'),
-      providerAppId: ['whatsapp', 'messenger', 'instagram'].includes(selectedKind)
-        ? form(context, 'channelProviderApp')
-        : null,
+      providerAppId: meta ? form(context, 'channelProviderApp') : null,
     });
     // The token is dropped from state whatever the answer was — a credential
-    // left in a form field is a credential in a screenshot. The other two are
-    // kept on a refusal, so the attempt can be corrected rather than retyped.
-    clearForm(context, connected
-      ? ['channelKind', 'channelProviderApp', 'channelAsset', 'channelName', 'channelToken']
-      : ['channelToken']);
+    // left in a form field is a credential in a screenshot. The rest is kept on a
+    // refusal, so the attempt can be corrected rather than retyped.
+    clearForm(context, ['channelToken']);
+    if (connected !== null) {
+      state.dialog = null;
+      state.dialogForm = {};
+      state.channelKind = selectedKind;
+      state.expandedConnection = connected;
+      state.focusTarget = `[data-connection="${connected}"] [data-act="connection-toggle"]`;
+    }
     context.refresh();
+    return connected !== null;
   },
 
   'live-test-channel': async (context, arg) => testChannel(context, arg),
@@ -780,16 +926,29 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return rotated;
   },
 
-  'live-disconnect-channel': async (context, arg) => disconnectChannel(context, arg),
+  'live-disconnect-channel': async (context, arg) => {
+    const disconnected = await disconnectChannel(context, arg);
+    if (disconnected && context.state.dialog?.kind === 'disconnect-channel') {
+      context.state.dialog = null;
+      context.refresh();
+    }
+    return disconnected;
+  },
 
   'live-invite': async (context) => {
     const email = form(context, 'inviteEmail');
     const roleId = form(context, 'inviteRole');
+    if (invalid(context, {
+      ...(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? { inviteEmail: text(context, 'أدخل بريدًا إلكترونيًا صحيحًا.', 'Enter a valid email address.') } : {}),
+      ...(roleId === '' ? { inviteRole: text(context, 'اختر دورًا.', 'Choose a role.') } : {}),
+    })) return false;
     const accepted = await invitePerson(context, email, roleId, []);
     if (accepted) {
+      context.state.dialog = null;
       clearForm(context, ['inviteEmail', 'inviteRole']);
       context.refresh();
     }
+    return accepted;
   },
 
   'live-revoke-invite': async (context, arg) => revokeInvitation(context, arg),
@@ -863,7 +1022,14 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     }
   },
 
-  'live-offer-ownership': async (context, arg) => offerOwnership(context, arg),
+  'live-offer-ownership': async (context, arg) => {
+    const offered = await offerOwnership(context, arg);
+    if (offered) {
+      context.state.dialog = null;
+      context.refresh();
+    }
+    return offered;
+  },
 
   'live-ownership': async (context, arg) => {
     const { id, value } = splitArg(arg);

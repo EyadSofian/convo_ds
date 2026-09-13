@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { createState } from '../state.js';
+import type { LiveContext } from './actions.js';
+import { startRealtime, stopRealtime } from './inbox-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceLike, RealtimeEvent } from './realtime.js';
 
@@ -257,5 +260,38 @@ describe('the realtime subscription', () => {
     // A closed subscription that still pushed into the screen would repopulate
     // an inbox the operator has navigated away from.
     expect([events.length, resets.length, disconnects.length]).toEqual([0, 0, 0]);
+  });
+});
+
+describe('the stream an open workspace holds', () => {
+  it('opens exactly one per workspace, and none without a company', () => {
+    const state = createState(new Date('2026-09-09T10:00:00.000Z'));
+    const opened: string[] = [];
+    const wiring = {
+      baseUrl: '/api/v1',
+      open: (url: string): EventSourceLike => {
+        opened.push(url);
+        return { addEventListener: () => undefined, close: () => undefined };
+      },
+    };
+    const context: LiveContext = {
+      state,
+      live: state.live,
+      refresh: () => undefined,
+      now: () => 0,
+      newKey: () => 'k',
+      endSession: () => undefined,
+      switchWorkspace: () => undefined,
+    };
+    startRealtime(context, wiring);
+    expect(opened).toEqual([]);
+
+    state.live.session = { status: 'signed_in', email: 'a@b.c', memberships: [], tenantId: 't-1' };
+    startRealtime(context, wiring);
+    // A second start while one is open would be a second socket for the same events.
+    startRealtime(context, wiring);
+    expect(opened).toHaveLength(1);
+    stopRealtime(context);
+    expect(state.live.subscription).toBeNull();
   });
 });

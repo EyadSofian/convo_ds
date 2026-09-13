@@ -230,6 +230,7 @@ function threadApi(record: Record<string, unknown> = conversation()): FakeApi {
             id: MEMBERSHIP,
             tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' },
             role: { id: 'agent-role', key: 'agent', name: 'Agent' },
+            permissions: ['conversation.read', 'conversation.unassigned.preview', 'conversation.reply', 'conversation.note', 'conversation.handoff.request'],
           },
         ],
       },
@@ -687,7 +688,8 @@ describe('internal notes', () => {
 
   it('keeps the note draft out of the reply composer', async () => {
     const { app, root } = await open(threadApi());
-    type(root, '.notes__field', 'ملاحظة داخلية');
+    click(root, control(root, 'composer-tab', 'note'));
+    type(root, '.composer__input--note', 'ملاحظة داخلية');
     await settle();
     expect(app.state.live.noteDraft).toBe('ملاحظة داخلية');
     // The one field that must never carry it.
@@ -700,7 +702,8 @@ describe('internal notes', () => {
       body: { data: note({ id: 'n-2', body: 'ملاحظة داخلية' }) },
     });
     const { app, root } = await open(api);
-    type(root, '.notes__field', 'ملاحظة داخلية');
+    click(root, control(root, 'composer-tab', 'note'));
+    type(root, '.composer__input--note', 'ملاحظة داخلية');
     await settle();
     click(root, control(root, 'live-note-add'));
     await settle();
@@ -717,7 +720,8 @@ describe('internal notes', () => {
       body: { error: { code: 'internal', message: 'The server failed.', request_id: 'r' } },
     });
     const { app, root } = await open(api);
-    type(root, '.notes__field', 'ملاحظة داخلية');
+    click(root, control(root, 'composer-tab', 'note'));
+    type(root, '.composer__input--note', 'ملاحظة داخلية');
     await settle();
     click(root, control(root, 'live-note-add'));
     await settle();
@@ -784,7 +788,7 @@ describe('internal notes', () => {
       },
     );
     const { root } = await open(api);
-    expect(text(root.querySelector('.notes') as HTMLElement)).toContain('تعذّر تحميل الملاحظات');
+    expect(text(root.querySelector('.notes') as HTMLElement)).toContain('تعذّر إكمال الطلب');
     click(root, control(root, 'live-notes-reload'));
     await settle();
     expect(text(root.querySelector('.notes') as HTMLElement)).toContain('العميل اتصل بالفعل');
@@ -832,7 +836,8 @@ describe('internal notes', () => {
 
   it('gives back the new-note draft when an edit is cancelled', async () => {
     const { app, root } = await open(threadApi());
-    type(root, '.notes__field', 'ملاحظة نصف مكتوبة');
+    click(root, control(root, 'composer-tab', 'note'));
+    type(root, '.composer__input--note', 'ملاحظة نصف مكتوبة');
     await settle();
     click(root, control(root, 'live-note-edit', NOTE));
     await settle();
@@ -912,9 +917,9 @@ describe('reporting episodes', () => {
       ]),
     );
     const { root } = await open(api);
-    const pills = root.querySelectorAll('.episodes__item .pill');
-    expect(pills[0]?.className).toContain('pill--neutral');
-    expect(pills[1]?.className).toContain('pill--accent');
+    const badges = root.querySelectorAll('.episodes__item .badge');
+    expect(badges[0]?.className).toContain('badge--neutral');
+    expect(badges[1]?.className).toContain('badge--accent');
   });
 
   it('says nothing at all when the episodes could not be read', async () => {
@@ -1039,7 +1044,7 @@ describe('a control rendered with the wrong argument', () => {
     const { root } = await open(threadApi(conversation({ status: 'quarantined' })));
     // The server is ahead of the browser. Guessing which transitions an unknown
     // status allows would be a guess at somebody's data.
-    expect(text(root.querySelector('.thread__toolbar') as HTMLElement)).toContain('quarantined');
+    expect(text(root.querySelector('.thread__header') as HTMLElement)).toContain('quarantined');
     expect(root.querySelector('.lifecycle__controls')).toBeNull();
   });
 

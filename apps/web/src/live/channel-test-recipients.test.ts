@@ -35,7 +35,7 @@ function setup() {
     revokeTestRecipient: vi.fn().mockResolvedValue(ok(undefined)),
   } as unknown as ChannelsApi;
   Object.defineProperty(state.live, 'channels', { value: channels });
-  const context: LiveContext = { state, live: state.live, refresh: vi.fn(), now: () => NOW.getTime(), newKey: () => 'key' };
+  const context: LiveContext = { state, live: state.live, refresh: vi.fn(), now: () => NOW.getTime(), newKey: () => 'key', endSession: vi.fn(), switchWorkspace: vi.fn() };
   return { state, context, channels };
 }
 

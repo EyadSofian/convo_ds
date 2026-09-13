@@ -2,233 +2,287 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest';
-import { h } from '../dom';
+import type { ApiError } from '../api/client';
+import { createState } from '../state';
+import { brandLockup, channelTile, logomark } from './brand';
+import { CHANNEL_NAMES, describeError, phrase, t } from './copy';
 import {
-  anchored,
   avatar,
-  banner,
-  barRow,
+  badge,
   button,
-  card,
-  CHANNEL_ICON,
-  checkItem,
+  channelIcon,
   countBadge,
   dialogShell,
+  emptyState,
+  errorState,
   field,
+  inlineError,
   isolated,
-  metric,
+  kpi,
   notice,
-  pill,
-  popover,
-  segment,
-  selectInput,
-  skeletonList,
-  stateBox,
-  switchControl,
+  page,
+  panel,
+  progress,
+  requestIdLine,
+  segmented,
+  selectControl,
+  skeleton,
   textInput,
+  toolbar,
 } from './parts';
 
+const NOW = new Date('2026-09-09T09:30:00.000Z');
+
+function error(status: number | null, overrides: Partial<ApiError> = {}): ApiError {
+  return { code: status === null ? 'network' : 'refused', message: 'Server message.', requestId: 'req-9', status, details: [], ...overrides };
+}
+
 describe('button', () => {
-  it('renders a labelled default button', () => {
-    const element = button({ label: 'إرسال', act: 'send' });
-    expect(element.getAttribute('data-act')).toBe('send');
-    expect(element.className).toBe('btn');
-    expect(element.textContent).toBe('إرسال');
-    expect(element.hasAttribute('aria-label')).toBe(false);
+  it('labels an icon-only button with its title and marks every state it is given', () => {
+    const iconOnly = button({ icon: 'close', act: 'close-dialog', title: 'Close', small: true, variant: 'ghost', pressed: true, expanded: false, controls: 'x', haspopup: 'menu' });
+    expect(iconOnly.className).toBe('btn btn--ghost btn--sm btn--icon');
+    expect(iconOnly.getAttribute('aria-label')).toBe('Close');
+    expect(iconOnly.getAttribute('aria-pressed')).toBe('true');
+    expect(iconOnly.getAttribute('aria-expanded')).toBe('false');
+    expect(iconOnly.getAttribute('aria-controls')).toBe('x');
+    expect(iconOnly.getAttribute('aria-haspopup')).toBe('menu');
+    expect(iconOnly.querySelector('svg')?.getAttribute('width')).toBe('14');
   });
 
-  it('renders every variant and modifier', () => {
-    expect(button({ label: 'a', act: 'x', variant: 'primary' }).className).toContain('btn--primary');
-    expect(button({ label: 'a', act: 'x', variant: 'ghost' }).className).toContain('btn--ghost');
-    expect(button({ label: 'a', act: 'x', variant: 'danger' }).className).toContain('btn--danger');
-    expect(button({ label: 'a', act: 'x', variant: 'default' }).className).toBe('btn');
-    expect(button({ label: 'a', act: 'x', small: true }).className).toContain('btn--sm');
-    expect(button({ label: 'a', act: 'x', extraClass: 'zz' }).className).toContain('zz');
+  it('shows progress on a busy button and refuses a second press', () => {
+    const busy = button({ label: 'Save', icon: 'check', act: 'save', busy: true, type: 'submit', extraClass: 'wide' });
+    expect(busy.disabled).toBe(true);
+    expect(busy.getAttribute('aria-busy')).toBe('true');
+    expect(busy.querySelector('.spinner')).not.toBeNull();
+    expect(busy.querySelector('svg')).toBeNull();
+    expect(busy.type).toBe('submit');
+    expect(busy.className).toContain('wide');
+    expect(busy.getAttribute('aria-label')).toBeNull();
   });
 
-  it('labels an icon-only button from its title', () => {
-    const element = button({ icon: 'close', act: 'x', title: 'إغلاق', small: true });
-    expect(element.className).toContain('btn--icon');
-    expect(element.getAttribute('aria-label')).toBe('إغلاق');
-    expect(element.querySelector('svg')).not.toBeNull();
-  });
-
-  it('carries pressed, expanded, disabled and arg state', () => {
-    const element = button({
-      label: 'x',
-      act: 'menu',
-      arg: 'f-status',
-      pressed: true,
-      expanded: false,
-      disabled: true,
-    });
-    expect(element.getAttribute('aria-pressed')).toBe('true');
-    expect(element.getAttribute('aria-expanded')).toBe('false');
-    expect(element.disabled).toBe(true);
-    expect(element.getAttribute('data-arg')).toBe('f-status');
+  it('defaults to a plain button with no busy state', () => {
+    const plain = button({ label: 'Go', act: 'go', variant: 'default', disabled: true });
+    expect(plain.className).toBe('btn');
+    expect(plain.disabled).toBe(true);
+    expect(plain.getAttribute('aria-busy')).toBeNull();
+    expect(plain.querySelector('svg')).toBeNull();
+    expect(button({ label: 'Go', icon: 'plus', act: 'go' }).querySelector('svg')?.getAttribute('width')).toBe('16');
   });
 });
 
-describe('pill, count and avatar', () => {
-  it('tones a pill and optionally draws an icon', () => {
-    expect(pill('x').className).toBe('pill pill--neutral');
-    expect(pill('x', 'danger').className).toContain('pill--danger');
-    expect(pill('x', 'accent', 'flag').querySelector('svg')).not.toBeNull();
+describe('badges, avatars and counts', () => {
+  it('draws a toned badge with an optional dot or icon', () => {
+    expect(badge('Draft').className).toBe('badge badge--neutral');
+    expect(badge('Live', 'success', { dot: true }).querySelector('.badge__dot')).not.toBeNull();
+    expect(badge('Approved', 'success', { icon: 'check' }).querySelector('svg')).not.toBeNull();
+    expect(countBadge(4, '4 unread').getAttribute('aria-label')).toBe('4 unread');
   });
 
-  it('renders a plain and an accented count', () => {
-    expect(countBadge(3).className).toBe('count');
-    expect(countBadge(3, true).className).toContain('count--accent');
+  it('shows initials, or a person glyph for somebody the caller may not identify', () => {
+    expect(avatar({ initials: 'مخ' }).className).toBe('avatar avatar--md');
+    expect(avatar({ initials: 'مخ', size: 'lg' }).textContent).toBe('مخ');
+    const masked = avatar({ initials: '', channel: 'whatsapp', size: 'sm' });
+    expect(masked.querySelector('svg')).not.toBeNull();
+    expect(masked.querySelector('.avatar__channel')?.className).toContain('channel-tile--whatsapp');
   });
 
-  it('renders each avatar size and an optional channel badge', () => {
-    expect(avatar({ initials: 'مخ' }).className).toBe('avatar');
-    expect(avatar({ initials: 'مخ', size: 'sm' }).className).toContain('avatar--sm');
-    expect(avatar({ initials: 'مخ', size: 'lg', title: 'x' }).getAttribute('title')).toBe('x');
-    const badged = avatar({ initials: 'مخ', channel: CHANNEL_ICON.whatsapp });
-    expect(badged.querySelector('.avatar__channel')).not.toBeNull();
+  it('gives every known channel its glyph and an unknown one a neutral globe', () => {
+    expect(channelIcon('whatsapp')).toBe('whatsapp');
+    expect(channelIcon('web_chat')).toBe('chat');
+    expect(channelIcon('telegram')).toBe('plane');
+    expect(channelIcon('pigeon')).toBe('globe');
   });
 });
 
-describe('segment', () => {
-  it('marks the current item and shows optional counts', () => {
-    const element = segment(
-      [
-        { value: 'all', label: 'الكل', count: 9 },
-        { value: 'mine', label: 'لديّ' },
-      ],
-      'all',
-      'queue',
-      'segments',
+describe('segmented control', () => {
+  it('presses the current item and shows counts only where they are known', () => {
+    const control = segmented(
+      [{ value: 'a', label: 'A', count: 3 }, { value: 'b', label: 'B' }],
+      'b',
+      'pick',
+      'Pick one',
     );
-    const buttons = element.querySelectorAll('button');
-    expect(buttons[0]?.getAttribute('aria-pressed')).toBe('true');
-    expect(buttons[1]?.getAttribute('aria-pressed')).toBe('false');
-    expect(element.querySelectorAll('.segment__count')).toHaveLength(1);
+    const items = control.querySelectorAll('button');
+    expect(items[0]?.getAttribute('aria-pressed')).toBe('false');
+    expect(items[1]?.getAttribute('aria-pressed')).toBe('true');
+    expect(control.querySelectorAll('.segmented__count')).toHaveLength(1);
+    expect(control.getAttribute('aria-label')).toBe('Pick one');
   });
 });
 
-describe('state surfaces', () => {
-  it('renders a state box with and without an action', () => {
-    const plain = stateBox({ kind: 'empty', iconName: 'inboxEmpty', title: 't', body: 'b' });
-    expect(plain.querySelector('button')).toBeNull();
-    const acting = stateBox({
-      kind: 'denied',
-      iconName: 'lock',
-      title: 't',
-      body: 'b',
-      actionLabel: 'go',
-      act: 'nav',
-      arg: 'inbox',
-    });
-    expect(acting.className).toContain('statebox--denied');
-    expect(acting.querySelector('button')?.getAttribute('data-arg')).toBe('inbox');
-    const halfSpecified = stateBox({
-      kind: 'offline',
-      iconName: 'wifiOff',
-      title: 't',
-      body: 'b',
-      actionLabel: 'go',
-    });
-    expect(halfSpecified.querySelector('button')).toBeNull();
+describe('empty and error states', () => {
+  it('names the next step in a compact empty state', () => {
+    const empty = emptyState({ icon: 'inbox', title: 'Nothing here', body: 'Connect a channel.', action: { label: 'Connect', act: 'dialog', arg: 'x', primary: true } });
+    expect(empty.getAttribute('role')).toBe('status');
+    expect(empty.className).toBe('empty empty--neutral');
+    expect(empty.querySelector('.btn--primary')?.getAttribute('data-arg')).toBe('x');
+    expect(emptyState({ icon: 'lock', title: 'No', body: 'No.', tone: 'denied', action: { label: 'Back', act: 'back' } }).querySelector('.btn--primary')).toBeNull();
+    expect(emptyState({ icon: 'inbox', title: 'Nothing', body: '' }).querySelector('button')).toBeNull();
   });
 
-  it('renders a banner with and without an action', () => {
-    expect(banner('warning', 'alert', 'x').querySelector('button')).toBeNull();
-    const acting = banner('info', 'info', 'x', { label: 'retry', act: 'preview', arg: 'ready' });
-    expect(acting.querySelector('button')?.getAttribute('data-act')).toBe('preview');
+  it('describes a failure by what to do next, quotes the request id and offers a retry', () => {
+    const state = createState(NOW);
+    state.lang = 'en';
+    const failure = errorState(state, error(500), 'live-reload');
+    expect(failure.getAttribute('role')).toBe('alert');
+    expect(failure.textContent).toContain('The server couldn’t complete this');
+    expect(failure.textContent).toContain('req-9');
+    expect(failure.querySelector('[data-act="live-reload"]')).not.toBeNull();
   });
 
-  it('renders notices in every tone', () => {
-    expect(notice('plain', 'info', 'x').className).toBe('notice');
-    expect(notice('info', 'info', 'x').className).toContain('notice--info');
-    expect(notice('warning', 'alert', 'x').className).toContain('notice--warning');
+  it('shows a denial quietly, without a retry that would only be refused again', () => {
+    const state = createState(NOW);
+    state.lang = 'en';
+    const denied = errorState(state, error(403), 'live-reload');
+    expect(denied.className).toContain('errorstate--denied');
+    expect(denied.querySelector('button')).toBeNull();
+    expect(errorState(state, error(null)).querySelector('.request-id')).toBeNull();
+    expect(errorState(state, error(null)).textContent).toContain('Can’t reach the server');
   });
 
-  it('renders a skeleton list', () => {
-    const element = skeletonList(3);
-    expect(element.getAttribute('aria-busy')).toBe('true');
-    expect(element.querySelectorAll('.skeletonrow')).toHaveLength(3);
+  it('keeps a refusal beside the form that caused it', () => {
+    const state = createState(NOW);
+    expect(inlineError(state, null)).toBeNull();
+    const shown = inlineError(state, error(409));
+    expect(shown?.getAttribute('role')).toBe('alert');
+    expect(shown?.textContent).toContain('Server message.');
+    expect(requestIdLine(state, null)).toBeNull();
+    expect(requestIdLine(state, 'r-1')?.textContent).toContain('r-1');
   });
 });
 
-describe('popover and anchors', () => {
-  it('marks checked options and renders an optional hint and footer', () => {
-    const element = popover(
-      'title',
-      [
-        { label: 'a', value: 'a', checked: true, hint: '12' },
-        { label: 'b', value: 'b', checked: false },
-      ],
-      'toggle-filter',
-    );
-    const options = element.querySelectorAll('.popover__option');
-    expect(options[0]?.getAttribute('aria-checked')).toBe('true');
-    expect(element.querySelectorAll('.popover__hint')).toHaveLength(1);
-    expect(element.querySelector('.popover__footer')).toBeNull();
-    const withFooter = popover('t', [], 'x', h('span', {}, ['f']), true);
-    expect(withFooter.className).toContain('popover--end');
-    expect(withFooter.querySelector('.popover__footer')).not.toBeNull();
+describe('copy', () => {
+  it('describes each kind of failure differently', () => {
+    const state = createState(NOW);
+    state.lang = 'en';
+    expect(describeError(state, error(401)).title).toBe('Your session has ended');
+    expect(describeError(state, error(401)).requestId).toBeNull();
+    expect(describeError(state, error(404)).title).toBe('Not found or not available to you');
+    expect(describeError(state, error(409)).body).toBe('Server message.');
+    expect(describeError(state, error(429)).title).toBe('Too many attempts');
+    expect(describeError(state, error(400)).body).toBe('Server message.');
+    expect(describeError(state, error(422, { details: [{ field: 'email', code: 'x', message: 'Email is required.' }, { field: 'x', code: 'y', message: '' }] })).body).toBe('Server message. · Email is required.');
+    expect(describeError(state, error(422, { message: '', details: [{ field: 'email', code: 'x', message: 'Email is required.' }] })).body).toBe('Email is required.');
+    // A refusal with its own reason keeps it; a bare one says who can help.
+    expect(describeError(state, error(403)).body).toBe('Server message.');
+    expect(describeError(state, error(403, { code: 'permission_denied' })).body).toBe('Ask a workspace administrator for access.');
+    expect(describeError(state, error(403, { message: '' })).body).toBe('Ask a workspace administrator for access.');
+    state.lang = 'ar';
+    expect(describeError(state, error(403)).title).toBe('لا تملك صلاحية لهذا الإجراء');
   });
 
-  it('wraps children in a positioning anchor', () => {
-    expect(anchored([h('span', {}, [])]).className).toBe('anchor');
+  it('names a known key in the operator’s language and shows an unknown one as itself', () => {
+    const state = createState(NOW);
+    expect(phrase(state, CHANNEL_NAMES, 'whatsapp')).toBe('واتساب');
+    state.lang = 'en';
+    expect(phrase(state, CHANNEL_NAMES, 'whatsapp')).toBe('WhatsApp');
+    expect(phrase(state, CHANNEL_NAMES, 'pigeon')).toBe('pigeon');
+    expect(t(state, 'نعم', 'Yes')).toBe('Yes');
   });
 });
 
-describe('form controls', () => {
-  it('renders a labelled field with an optional hint', () => {
-    const withHint = field('label', textInput('name', 'v', 'p'), 'hint');
-    expect(withHint.querySelectorAll('.field__hint')).toHaveLength(1);
-    expect(field('label', textInput('name', '', 'p')).querySelectorAll('.field__hint')).toHaveLength(0);
+describe('form atoms', () => {
+  it('builds a labelled field with an optional hint', () => {
+    expect(field('Name', textInput('name', '', 'Your name')).querySelector('.field__hint')).toBeNull();
+    const hinted = field('Name', null, 'As it appears');
+    expect(hinted.querySelector('.field__hint')?.textContent).toBe('As it appears');
   });
 
-  it('renders a text input bound to a form key', () => {
-    const element = textInput('name', 'x', 'p');
-    expect(element.getAttribute('data-form')).toBe('name');
-    expect(element.value).toBe('x');
+  it('wires a text input to the form collector, or to its own action', () => {
+    const plain = textInput('email', 'a@b.c', 'Email');
+    expect(plain.getAttribute('data-act')).toBe('form');
+    expect(plain.type).toBe('text');
+    const custom = textInput('q', '', 'Search', { type: 'search', act: 'live-search', ariaLabel: 'Search', id: 'q', autocomplete: 'off', inputmode: 'search', required: true });
+    expect(custom.getAttribute('data-act')).toBe('live-search');
+    expect(custom.type).toBe('search');
+    expect(custom.required).toBe(true);
   });
 
-  it('renders a select with the current value applied', () => {
-    const element = selectInput('scope', 'team', [
-      { value: 'private', label: 'p' },
-      { value: 'team', label: 't' },
-    ]);
-    expect(element.value).toBe('team');
-    expect(element.querySelectorAll('option')).toHaveLength(2);
+  it('selects the given value after its options exist', () => {
+    const select = selectControl({ value: 'b', options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }], act: 'pick', form: 'x', ariaLabel: 'Pick', disabled: true, id: 's' });
+    expect(select.value).toBe('b');
+    expect(select.disabled).toBe(true);
+    expect(selectControl({ value: 'a', options: [{ value: 'a', label: 'A' }] }).getAttribute('data-act')).toBe('form');
   });
 
-  it('renders a switch in both positions', () => {
-    const on = switchControl('x', true, 'form-toggle', 'a:off');
-    expect(on.querySelector('.switch__track')?.getAttribute('aria-checked')).toBe('true');
-    const off = switchControl('x', false, 'form-toggle', 'a:on');
-    expect(off.querySelector('.switch__track')?.getAttribute('aria-checked')).toBe('false');
+  it('isolates mixed-script values, in the monospace face when asked', () => {
+    expect(isolated('+20 100').tagName).toBe('BDI');
+    expect(isolated('abc', true).className).toBe('mono');
   });
 });
 
 describe('layout atoms', () => {
-  it('isolates mixed-script values, optionally in mono', () => {
-    expect(isolated('+20 100').tagName).toBe('BDI');
-    expect(isolated('CV-1', true).className).toBe('mono');
+  it('announces a loading list once', () => {
+    const state = createState(NOW);
+    const loading = skeleton(state);
+    expect(loading.getAttribute('aria-busy')).toBe('true');
+    expect(loading.querySelectorAll('.skeleton__row')).toHaveLength(3);
+    expect(skeleton(state, 5).querySelectorAll('.skeleton__row')).toHaveLength(5);
   });
 
-  it('renders a dialog shell with a header, body and footer', () => {
-    const element = dialogShell('عنوان', [h('p', {}, ['b'])], [h('span', {}, ['f'])]);
-    expect(element.className).toBe('scrim');
-    expect(element.getAttribute('data-scrim')).toBe('true');
-    expect(element.querySelector('.dialog__title')?.textContent).toBe('عنوان');
-    expect(element.querySelector('[role="dialog"]')?.getAttribute('aria-modal')).toBe('true');
+  it('makes a labelled modal dialog that keeps focus inside', () => {
+    const state = createState(NOW);
+    const shell = dialogShell(state, 'Connect', [h2('body')], [h2('footer')], { size: 'lg', description: 'Two steps.' });
+    const dialog = shell.querySelector('[role="dialog"]');
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+    expect(dialog?.getAttribute('data-trap')).toBe('dialog');
+    expect(dialog?.className).toContain('dialog--lg');
+    expect(shell.querySelector('.dialog__description')?.textContent).toBe('Two steps.');
+    expect(dialogShell(state, 'Plain', [], []).querySelector('.dialog__description')).toBeNull();
   });
 
-  it('renders a card, a metric, a bar row and a checklist item', () => {
-    expect(card('t', [pill('x')], [h('p', {}, [])]).querySelector('.card__title')?.textContent).toBe('t');
-    expect(metric('l', '5', 'f').querySelector('.metric__value')?.textContent).toBe('5');
-    const bar = barRow('l', 0.5, '5');
-    expect(bar.querySelector('.bars__fill')?.getAttribute('style')).toContain('50%');
-    expect(barRow('l', 2, '5', true).querySelector('.bars__fill')?.getAttribute('style')).toContain('100%');
-    expect(barRow('l', -1, '0').querySelector('.bars__fill')?.getAttribute('style')).toContain('0%');
-    expect(barRow('l', 0.2, '1', true).querySelector('.bars__fill')?.className).toContain('bars__fill--warm');
-    expect(checkItem('x', true).querySelector('.checklist__mark--yes')).not.toBeNull();
-    expect(checkItem('x', false).querySelector('.checklist__mark--no')).not.toBeNull();
+  it('titles a panel with an h2 and draws its actions and description only when present', () => {
+    const plain = panel('People', [h2('x')]);
+    expect(plain.querySelector('h2.panel__title')?.textContent).toBe('People');
+    expect(plain.querySelector('.panel__actions')).toBeNull();
+    expect(panel('People', [], { actions: [] }).querySelector('.panel__actions')).toBeNull();
+    const full = panel('People', [], { actions: [h2('a')], description: 'Everyone.', extraClass: 'wide', flush: true });
+    expect(full.className).toBe('panel wide');
+    expect(full.querySelector('.panel__body--flush')).not.toBeNull();
+    expect(full.querySelector('.panel__description')?.textContent).toBe('Everyone.');
+  });
+
+  it('builds a page with or without a toolbar', () => {
+    expect(page('x', null, [h2('a')]).querySelector('.pagebar')).toBeNull();
+    const bar = toolbar('Lede', [h2('a')]);
+    expect(page('x', bar, []).querySelector('.pagebar__lede')?.textContent).toBe('Lede');
+    expect(toolbar(null, []).querySelector('.pagebar__lede')).toBeNull();
+  });
+
+  it('shows a figure with its foot, tone and unavailable state', () => {
+    expect(kpi('Sent', '12').querySelector('.kpi__foot')).toBeNull();
+    const toned = kpi('Failed', '3', { foot: '1%', tone: 'danger' });
+    expect(toned.className).toBe('kpi kpi--danger');
+    expect(kpi('Replies', 'Not measured', { unavailable: true }).className).toBe('kpi kpi--unavailable');
+  });
+
+  it('clamps a progress bar and names its value', () => {
+    const bar = progress(1.7, '100% sent', 'success');
+    expect(bar.getAttribute('style')).toBe('--progress:100%');
+    expect(bar.getAttribute('aria-label')).toBe('100% sent');
+    expect(progress(-1, 'none').getAttribute('style')).toBe('--progress:0%');
+    expect(progress(0.1234, 'some').getAttribute('style')).toBe('--progress:12.3%');
+  });
+
+  it('wraps a notice around its content', () => {
+    expect(notice('warning', 'alert', 'Careful').className).toBe('notice notice--warning');
   });
 });
+
+describe('brand', () => {
+  it('draws the mark, the lockup and a channel tile, all decorative', () => {
+    expect(logomark().className).toBe('logomark logomark--sm');
+    expect(logomark('lg').querySelector('svg')?.getAttribute('width')).toBe('22');
+    expect(brandLockup().textContent).toBe('CONVO');
+    const tile = channelTile('instagram', 'lg');
+    expect(tile.className).toBe('channel-tile channel-tile--instagram channel-tile--lg');
+    expect(tile.getAttribute('aria-hidden')).toBe('true');
+    expect(channelTile('custom').querySelector('svg')?.getAttribute('width')).toBe('16');
+  });
+});
+
+function h2(text: string): HTMLElement {
+  const element = document.createElement('h2');
+  element.textContent = text;
+  return element;
+}

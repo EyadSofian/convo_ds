@@ -60,10 +60,48 @@ export interface CampaignRetry {
   readonly requested_at: string;
 }
 
+export interface CampaignReportFilterInput {
+  readonly from: string;
+  readonly to: string;
+  readonly channel: string;
+  readonly campaignId: string;
+}
+
+export interface CampaignReportTrendDay {
+  readonly day: string;
+  readonly recipients: number;
+  readonly accepted: number;
+  readonly delivered: number;
+  readonly read: number;
+  readonly failed: number;
+}
+
+export interface CampaignReportCampaign {
+  readonly id: string;
+  readonly name: string;
+  readonly state: string;
+  readonly denominator: number;
+  readonly pending: number;
+  readonly accepted: number;
+  readonly delivered: number;
+  readonly read: number;
+  readonly failed: number;
+  readonly outcome_unknown: number;
+  readonly included: number | null;
+  readonly excluded: number | null;
+  readonly fresh_through: string;
+}
+
 export interface CampaignReport {
   readonly generated_at: string;
   readonly fresh_through: string;
   readonly timezone: 'UTC';
+  readonly filters: {
+    readonly from: string | null;
+    readonly to: string | null;
+    readonly channel: string | null;
+    readonly campaign_id: string | null;
+  };
   readonly definitions: { readonly campaigns: number; readonly executions: number };
   readonly audience: { readonly denominator: number; readonly eligible: number; readonly excluded: number };
   readonly current: {
@@ -75,7 +113,8 @@ export interface CampaignReport {
   readonly costs: readonly { readonly currency: string; readonly estimated_amount_minor: string; readonly committed_amount_minor: string; readonly reconciled_amount_minor: string }[];
   readonly channels: readonly { readonly kind: string; readonly denominator: number; readonly accepted: number; readonly delivered: number; readonly read: number; readonly delivery_receipts: boolean; readonly read_receipts: boolean }[];
   readonly errors: readonly { readonly code: string; readonly count: number }[];
-  readonly campaigns: readonly { readonly id: string; readonly name: string; readonly state: string; readonly denominator: number; readonly accepted: number; readonly delivered: number; readonly read: number; readonly failed: number; readonly outcome_unknown: number; readonly fresh_through: string }[];
+  readonly trend: readonly CampaignReportTrendDay[];
+  readonly campaigns: readonly CampaignReportCampaign[];
 }
 
 export interface CampaignReportExport {
@@ -123,8 +162,10 @@ export class CampaignsApi {
   approve(tenantId: string, id: string): Promise<ApiResult<Campaign>> {
     return this.client.post(`/tenants/${tenantId}/campaigns/${id}/approve`);
   }
-  launch(tenantId: string, id: string, key: string): Promise<ApiResult<Campaign>> {
-    return this.client.post(`/tenants/${tenantId}/campaigns/${id}/launch`, { body: { mode: 'now' }, idempotencyKey: key });
+  /** Now when `scheduledFor` is null; otherwise a future instant the server re-checks. */
+  launch(tenantId: string, id: string, key: string, scheduledFor: string | null = null): Promise<ApiResult<Campaign>> {
+    const body = scheduledFor === null ? { mode: 'now' } : { mode: 'scheduled', scheduledFor };
+    return this.client.post(`/tenants/${tenantId}/campaigns/${id}/launch`, { body, idempotencyKey: key });
   }
   control(tenantId: string, id: string, action: 'pause' | 'resume' | 'cancel'): Promise<ApiResult<Campaign>> {
     return this.client.post(`/tenants/${tenantId}/campaigns/${id}/control`, { body: { action } });
@@ -143,8 +184,16 @@ export class CampaignsApi {
   recipients(tenantId: string, id: string): Promise<ApiResult<readonly CampaignRecipient[]>> {
     return this.client.get(`/tenants/${tenantId}/campaigns/${id}/recipients`);
   }
-  report(tenantId: string): Promise<ApiResult<CampaignReport>> {
-    return this.client.get(`/tenants/${tenantId}/reports/campaigns`);
+  report(tenantId: string, filters: CampaignReportFilterInput | null = null): Promise<ApiResult<CampaignReport>> {
+    const query = new URLSearchParams();
+    if (filters !== null) {
+      if (filters.from !== '') query.set('from', filters.from);
+      if (filters.to !== '') query.set('to', filters.to);
+      if (filters.channel !== '') query.set('channel', filters.channel);
+      if (filters.campaignId !== '') query.set('campaignId', filters.campaignId);
+    }
+    const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+    return this.client.get(`/tenants/${tenantId}/reports/campaigns${suffix}`);
   }
   createReportExport(tenantId: string, campaignId: string | null, key: string): Promise<ApiResult<CampaignReportExport>> {
     return this.client.post(`/tenants/${tenantId}/reports/campaigns/exports`, {

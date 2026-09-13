@@ -4,51 +4,52 @@ import {
   applyRoute,
   clampListWidth,
   createState,
-  currentActor,
   LIST_WIDTH_DEFAULT,
   LIST_WIDTH_MAX,
   LIST_WIDTH_MIN,
+  NO_ANALYTICS_FILTERS,
   nextId,
   pushToast,
   routeParamsFor,
   screenTitle,
-  VIEWABLE_ROLES,
 } from './state';
 
 /**
- * Workspace state, after the Inbox became server-backed.
+ * Workspace state.
  *
- * What used to live in this state — a local copy of every conversation, the
- * filters over them, the drafts and the saved views — is gone. The Inbox reads
- * from `state.live`, which is exercised against a real server elsewhere. What
- * remains here is the shell: the route, the language, the list column, dialogs
- * and the seeded dataset the three remaining demo screens still draw from.
+ * The view choices an operator makes — screen, language, drawers, filters —
+ * and `live`, which holds only what the server said. There is no role here:
+ * authority comes from the session the server returns, never from local state
+ * or the URL.
  */
 
 const NOW = new Date('2026-09-09T09:30:00.000Z');
 
 describe('createState', () => {
-  it('boots in Arabic, as a supervisor, showing the unassigned queue', () => {
+  it('boots in Arabic, signed out of nothing yet, showing the unassigned queue', () => {
     const state = createState(NOW);
     expect(state.lang).toBe('ar');
-    expect(state.role).toBe('supervisor');
     expect(state.inboxQueue).toBe('unassigned');
     expect(state.clock).toEqual(NOW);
+    // The session is unknown until the server answers the probe.
+    expect(state.live.session).toEqual({ status: 'unknown' });
+    expect(state.composerTab).toBe('reply');
+    expect(state.analyticsFilters).toEqual(NO_ANALYTICS_FILTERS);
   });
 
-  it('holds no conversation of its own', () => {
-    const state = createState(NOW);
-    // The inbox is not seeded locally any more. Everything it shows arrives
-    // from the API, so an empty live state is the honest starting point.
-    expect(state.live.conversations.status).toBe('idle');
-    expect(state.live.unassigned.status).toBe('idle');
-    expect(state.live.openConversationId).toBeNull();
-    expect(state.live.realtime).toEqual({ status: 'idle' });
+  it('carries no role, dataset or impersonation of any kind', () => {
+    const state = createState(NOW) as unknown as Record<string, unknown>;
+    expect(state['role']).toBeUndefined();
+    expect(state['dataset']).toBeUndefined();
   });
 
-  it('starts with the list drawer closed and the timeline at full width', () => {
+  it('starts with every drawer closed, the navigation collapsed and the panel wanted', () => {
     const state = createState(NOW);
     expect(state.listOpen).toBe(false);
+    expect(state.navOpen).toBe(false);
+    expect(state.navCollapsed).toBe(true);
+    expect(state.panelOpen).toBe(true);
+    expect(state.panelDrawer).toBe(false);
     expect(state.listWidth).toBe(LIST_WIDTH_DEFAULT);
   });
 
@@ -57,25 +58,6 @@ describe('createState', () => {
     expect(clampListWidth(999)).toBe(LIST_WIDTH_MAX);
     expect(clampListWidth(340.4)).toBe(340);
     expect(clampListWidth(Number.NaN)).toBe(LIST_WIDTH_DEFAULT);
-  });
-});
-
-describe('currentActor', () => {
-  it('keeps the identity and changes only the effective role', () => {
-    const state = createState(NOW);
-    const before = currentActor(state);
-    state.role = 'agent';
-    const after = currentActor(state);
-    expect(after.memberId).toBe(before.memberId);
-    expect(after.role).toBe('agent');
-  });
-
-  it('refuses to invent an actor when the seed has no such member', () => {
-    const state = createState(NOW);
-    state.dataset = { ...state.dataset, members: [] };
-    // A placeholder here would render a workspace belonging to nobody, and
-    // every permission decision on screen would be about that nobody.
-    expect(() => currentActor(state)).toThrow(/has no member/);
   });
 });
 
@@ -108,11 +90,9 @@ describe('URL round-trip', () => {
   it('encodes only what is worth sharing', () => {
     const state = createState(NOW);
     expect(routeParamsFor(state)).toEqual({});
-
     state.lang = 'en';
-    state.role = 'agent';
     state.inboxQueue = 'mine';
-    expect(routeParamsFor(state)).toEqual({ lang: 'en', as: 'agent', queue: 'mine' });
+    expect(routeParamsFor(state)).toEqual({ lang: 'en', queue: 'mine' });
   });
 
   it('does not encode the queue on another screen', () => {
@@ -122,19 +102,42 @@ describe('URL round-trip', () => {
     expect(routeParamsFor(state).queue).toBeUndefined();
   });
 
-  it('reads the language, the role, the queue and the conversation back', () => {
+  it('encodes the analytics scope on the analytics screen only', () => {
     const state = createState(NOW);
-    applyRoute(state, parseHash('#/inbox/cv-4820?lang=en&as=agent&queue=mine'));
+    state.analyticsFilters = { from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaignId: 'c-1' };
+    expect(routeParamsFor(state)).toEqual({});
+    state.route = { ...state.route, screen: 'analytics' };
+    expect(routeParamsFor(state)).toEqual({ from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaign: 'c-1' });
+    state.analyticsFilters = NO_ANALYTICS_FILTERS;
+    expect(routeParamsFor(state)).toEqual({});
+  });
+
+  it('reads the language, the queue and the conversation back', () => {
+    const state = createState(NOW);
+    applyRoute(state, parseHash('#/inbox/cv-4820?lang=en&queue=mine'));
     expect(state.lang).toBe('en');
-    expect(state.role).toBe('agent');
     expect(state.inboxQueue).toBe('mine');
     expect(state.route.conversationId).toBe('cv-4820');
   });
 
+  it('ignores a role in the URL, as it always must', () => {
+    const state = createState(NOW);
+    applyRoute(state, parseHash('#/inbox?as=owner'));
+    expect(routeParamsFor(state)).toEqual({});
+    expect((state as unknown as Record<string, unknown>)['role']).toBeUndefined();
+  });
+
+  it('reads the analytics scope back, and empties what is absent', () => {
+    const state = createState(NOW);
+    applyRoute(state, parseHash('#/analytics?from=2026-09-01&channel=instagram&campaign=c-9'));
+    expect(state.analyticsFilters).toEqual({ from: '2026-09-01', to: '', channel: 'instagram', campaignId: 'c-9' });
+    applyRoute(state, parseHash('#/analytics?to=2026-09-10'));
+    expect(state.analyticsFilters).toEqual({ from: '', to: '2026-09-10', channel: '', campaignId: '' });
+  });
+
   it('falls back to the defaults for values it does not recognise', () => {
     const state = createState(NOW);
-    applyRoute(state, parseHash('#/inbox?as=nope&queue=nope&lang=de'));
-    expect(state.role).toBe('supervisor');
+    applyRoute(state, parseHash('#/inbox?queue=nope&lang=de'));
     expect(state.inboxQueue).toBe('unassigned');
     expect(state.lang).toBe('ar');
   });
@@ -145,23 +148,16 @@ describe('URL round-trip', () => {
     applyRoute(state, parseHash('#/channels'));
     expect(state.inboxQueue).toBe('mine');
   });
-
-  it('round-trips every viewable role', () => {
-    const state = createState(NOW);
-    for (const role of VIEWABLE_ROLES) {
-      applyRoute(state, parseHash(`#/inbox?as=${role}`));
-      expect(state.role).toBe(role);
-    }
-  });
 });
 
 describe('screenTitle', () => {
   it('names every screen in both languages', () => {
     expect(screenTitle('inbox', 'ar')).toBe('صندوق الوارد');
-    expect(screenTitle('broadcasts', 'en')).toBe('Broadcasts');
+    expect(screenTitle('broadcasts', 'en')).toBe('Campaigns');
     expect(screenTitle('settings', 'ar')).toBe('الإعدادات');
     expect(screenTitle('channels', 'en')).toBe('Channels');
     expect(screenTitle('people', 'en')).toBe('People & roles');
+    expect(screenTitle('contacts', 'en')).toBe('Contacts');
     expect(screenTitle('analytics', 'ar')).toBe('التقارير');
   });
 });

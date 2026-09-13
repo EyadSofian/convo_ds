@@ -154,6 +154,7 @@ function conversation(overrides: Record<string, unknown> = {}): Record<string, u
     inboxLabel: 'خط التسجيل',
     channel: 'whatsapp',
     participantMembershipIds: [MEMBERSHIP],
+    lastActivityAt: '2026-09-09T09:25:00.000Z',
     ...overrides,
   };
 }
@@ -201,6 +202,7 @@ function inboxApi(): FakeApi {
             id: MEMBERSHIP,
             tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' },
             role: { id: 'agent-role', key: 'agent', name: 'Agent' },
+            permissions: ['conversation.read', 'conversation.unassigned.preview', 'conversation.reply', 'conversation.note', 'conversation.handoff.request'],
           },
         ],
       },
@@ -313,7 +315,7 @@ describe('the queue', () => {
       body: { data: [] },
     });
     const { root } = await open(api);
-    expect(text(root)).toContain('لا شيء في الانتظار');
+    expect(text(root)).toContain('لا توجد محادثات بانتظار الاستلام');
   });
 
   it('reports a refusal in the operator’s terms, with a way back', async () => {
@@ -322,7 +324,7 @@ describe('the queue', () => {
       body: { error: { code: 'permission_denied', message: 'No.' } },
     });
     const { root } = await open(api);
-    expect(text(root)).toContain('غير مسموح');
+    expect(text(root)).toContain('لا تملك صلاحية لهذا الإجراء');
   });
 
   it('switches to the caller’s own conversations without re-fetching', async () => {
@@ -447,10 +449,26 @@ describe('reading and replying', () => {
     );
     const { root } = await open(api, `#/inbox/${CONVERSATION}`);
     const outbound = root.querySelector('.msg--out');
-    expect(text(outbound as HTMLElement)).toContain('قبِلها المزوّد');
+    expect(text(outbound as HTMLElement)).toContain('قبلها المزوّد');
     expect(text(outbound as HTMLElement)).toContain('قُرئت');
     // A disagreement between receipts is shown, not smoothed over.
     expect(text(outbound as HTMLElement)).toContain('إيصالات متعارضة');
+  });
+
+  it('marks a message the provider has only accepted with a single tick', async () => {
+    const api = claimedApi().on(
+      `GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`,
+      page([message({ id: 'm-2', direction: 'out', text: 'تم', command_state: 'provider_accepted', delivery_state: 'sent' })]),
+    );
+    const { root } = await open(api, `#/inbox/${CONVERSATION}`);
+    expect(root.querySelector('.msg__delivery--sent')).not.toBeNull();
+  });
+
+  it('opens the customer details as a drawer when there is no room beside the thread', async () => {
+    const { root, app } = await open(claimedApi(), `#/inbox/${CONVERSATION}`);
+    expect(root.querySelector('.inbox')?.getAttribute('data-panel-drawer')).toBe('closed');
+    app.dispatch('panel-drawer');
+    expect(root.querySelector('.inbox')?.getAttribute('data-panel-drawer')).toBe('open');
   });
 
   it('sends a reply and shows it once the server has the command', async () => {
@@ -587,7 +605,7 @@ describe('reading and replying', () => {
       body: { error: { code: 'permission_denied', message: 'No.' } },
     });
     const { root } = await open(api, `#/inbox/${CONVERSATION}`);
-    expect(text(root)).toContain('غير مسموح');
+    expect(text(root)).toContain('لا تملك صلاحية لهذا الإجراء');
   });
 
   it('reports a failure to load an older page beside the composer', async () => {
@@ -681,6 +699,56 @@ describe('reading and replying', () => {
 });
 
 describe('what the screen does with what it is given', () => {
+  it('flags only what differs from ordinary open work on an assigned row', async () => {
+    const api = inboxApi().on(`GET /tenants/${TENANT}/conversations?queue=mine`, {
+      status: 200,
+      body: {
+        data: [
+          conversation({ id: 'c-low', peerIdentity: '1555000001', priority: 'low' }),
+          conversation({ id: 'c-resolved', peerIdentity: '1555000002', priority: 'normal', status: 'resolved' }),
+        ],
+      },
+    });
+    const { root } = await open(api);
+    click(root, '[data-act="live-inbox-queue"][data-arg="mine"]');
+    const rows = [...root.querySelectorAll('.convrow--record')];
+    expect(rows).toHaveLength(2);
+    // Low and normal priority carry no badge; a status other than open does.
+    expect(rows[0]?.querySelector('.badge')).toBeNull();
+    expect(rows[1]?.querySelectorAll('.badge')).toHaveLength(1);
+  });
+
+  it('filters the queue from its popover with the server’s own labels', async () => {
+    const api = inboxApi()
+      .on(`GET /tenants/${TENANT}/labels`, {
+        status: 200,
+        body: {
+          data: [
+            { id: 'l-1', name: 'VIP', color: '#6558d9', state: 'active', version: 1 },
+            { id: 'l-2', name: 'Old', color: '#697180', state: 'retired', version: 1 },
+          ],
+        },
+      })
+      .on(`GET /tenants/${TENANT}/conversations/unassigned?label=l-1`, { status: 200, body: { data: [] } })
+      .on(`GET /tenants/${TENANT}/conversations?queue=mine&label=l-1`, { status: 200, body: { data: [] } });
+    const { root, app } = await open(api);
+    click(root, '[data-act="menu"][data-arg="inbox-filters"]');
+    const popover = root.querySelector('.popover') as HTMLElement;
+    expect(popover).not.toBeNull();
+    const selects = [...popover.querySelectorAll('select')];
+    expect(selects.map((select) => select.getAttribute('data-form'))).toEqual(['unread', 'priority', 'channel', 'labelId']);
+    // Archived labels are not offered as a filter.
+    expect([...(selects[3] as HTMLSelectElement).options].map((option) => option.textContent)).toEqual(['كل التصنيفات', 'VIP']);
+    const label = selects[3] as HTMLSelectElement;
+    label.value = 'l-1';
+    label.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await settle();
+    expect(app.state.live.inboxFilters.labelId).toBe('l-1');
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations/unassigned?label=l-1`)).toBe(1);
+    // The control says how many filters are on.
+    expect(root.querySelector('[data-arg="inbox-filters"]')?.getAttribute('title')).toBe('تصفية (1 مفعّلة)');
+  });
+
   it('says a card has not waited yet when the server sends no wait time', async () => {
     const api = inboxApi().on(`GET /tenants/${TENANT}/conversations/unassigned`, {
       status: 200,
@@ -695,7 +763,7 @@ describe('what the screen does with what it is given', () => {
     expect(text(row as HTMLElement)).toContain('لم ينتظر بعد');
     // A channel with no provider logo gets the neutral mark; a priority this
     // build does not know is shown as itself rather than hidden.
-    expect(text(row as HTMLElement)).toContain('محادثة الموقع');
+    expect(text(row as HTMLElement)).toContain('دردشة الموقع');
     expect(text(row as HTMLElement)).toContain('exotic');
   });
 
@@ -725,7 +793,7 @@ describe('what the screen does with what it is given', () => {
       })
       .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`, page([]));
     const { root } = await open(api, `#/inbox/${CONVERSATION}`);
-    expect(text(root)).toContain('لا رسائل بعد');
+    expect(text(root)).toContain('لا توجد رسائل بعد');
   });
 
   it('reports a refused timeline where the messages would be', async () => {
@@ -739,7 +807,7 @@ describe('what the screen does with what it is given', () => {
         body: { error: { code: 'unavailable', message: 'Try later.' } },
       });
     const { root } = await open(api, `#/inbox/${CONVERSATION}`);
-    expect(text(root)).toContain('تعذّر الوصول للخادم');
+    expect(text(root)).toContain('تعذّر إكمال الطلب');
   });
 
   it('offers a claim instead of a composer while the conversation is nobody’s', async () => {
@@ -754,7 +822,7 @@ describe('what the screen does with what it is given', () => {
     // A disabled composer would describe a rule the server does not have: it is
     // not that replying is unavailable, it is that this is not theirs yet.
     expect(root.querySelector('.composer__input')).toBeNull();
-    expect(root.querySelector('.composer--claim [data-act="live-inbox-claim"]')).not.toBeNull();
+    expect(root.querySelector('.composer__toolbar--claim [data-act="live-inbox-claim"]')).not.toBeNull();
   });
 
   it('says the session ended when the server stops recognising it', async () => {
@@ -762,21 +830,25 @@ describe('what the screen does with what it is given', () => {
       status: 401,
       body: { error: { code: 'unauthenticated', message: 'Sign in.' } },
     });
-    const { root } = await open(api);
-    expect(text(root)).toContain('انتهت الجلسة');
+    const { root, app } = await open(api);
+    // The workspace closes to the sign-in page, with the queue it was reading gone.
+    expect(root.querySelector('#signin-email')).not.toBeNull();
+    expect(root.querySelector('.inbox')).toBeNull();
+    expect(text(root)).toContain('انتهت جلستك');
+    expect(app.state.live.unassigned.status).toBe('idle');
   });
 
   it('names a channel and a priority it has no word for by their own names', async () => {
     const api = inboxApi().on(`GET /tenants/${TENANT}/conversations?queue=mine`, {
       status: 200,
-      body: { data: [conversation({ channel: 'telegram', priority: 'blistering' })] },
+      body: { data: [conversation({ channel: 'pigeon', priority: 'blistering' })] },
     });
     const { root } = await open(api);
     click(root, '[data-act="live-inbox-queue"][data-arg="mine"]');
     const row = root.querySelector('.convrow--record');
     // A newer server naming something this build does not know is information,
     // not noise: it is shown as itself rather than hidden or guessed at.
-    expect(text(row as HTMLElement)).toContain('telegram');
+    expect(text(row as HTMLElement)).toContain('pigeon');
     expect(text(row as HTMLElement)).toContain('blistering');
   });
 
@@ -794,7 +866,7 @@ describe('what the screen does with what it is given', () => {
   it('says nothing is assigned to this agent when their list is empty', async () => {
     const { root } = await open(inboxApi());
     click(root, '[data-act="live-inbox-queue"][data-arg="mine"]');
-    expect(text(root)).toContain('لا محادثات لديك');
+    expect(text(root)).toContain('لا توجد محادثات مسندة إليك');
     // And back again, which is the other half of the same control.
     click(root, '[data-act="live-inbox-queue"][data-arg="unassigned"]');
     expect(root.querySelector('.convrow--card')).not.toBeNull();
@@ -806,7 +878,7 @@ describe('the live connection', () => {
     const { root, app } = await open(inboxApi());
     expect(FakeStream.last?.url).toBe(`/api/v1/tenants/${TENANT}/realtime/stream`);
     expect(app.state.live.realtime.status).toBe('live');
-    expect(text(root)).toContain('التحديث الحي يعمل');
+    expect(text(root)).toContain('تحديث مباشر');
   });
 
   it('re-reads the server when an event says something changed', async () => {
@@ -842,7 +914,7 @@ describe('the live connection', () => {
     FakeStream.last?.emit('stream_cycled', { reason: 'max_stream_age' });
     await settle();
     expect(app.state.live.realtime.status).toBe('stale');
-    expect(text(root)).toContain('انقطع التحديث الحي');
+    expect(text(root)).toContain('انقطع التحديث المباشر');
   });
 
   it('stops for good when access is revoked', async () => {
@@ -851,7 +923,7 @@ describe('the live connection', () => {
     await settle();
     expect(app.state.live.realtime).toEqual({ status: 'stopped', reason: 'access_revoked' });
     // Reconnecting would ask the same question and get the same answer.
-    expect(text(root)).toContain('أُوقف التحديث الحي');
+    expect(text(root)).toContain('توقف التحديث المباشر');
   });
 
   it('reloads the screen when the server says the view is unusable', async () => {
@@ -916,8 +988,11 @@ describe('while the server has not answered', () => {
       body: { error: { code: 'unauthenticated', message: 'Sign in.' } },
     });
     const { root } = await open(api);
-    expect(text(root)).toContain('تحتاج جلسة');
-    expect(root.querySelector('[data-act="live-inbox-reload"]')).not.toBeNull();
+    expect(root.querySelector('#signin-email')).not.toBeNull();
+    // The sign-in page is the way back; nothing of the inbox is drawn behind it.
+    expect(root.querySelector('.inbox')).toBeNull();
+    expect(root.querySelector('[data-act="live-inbox-reload"]')).toBeNull();
+    expect(api.calls.map((call) => call.path)).toEqual(['/auth/session']);
   });
 
   it('reloads the whole screen from the retry control', async () => {
@@ -932,9 +1007,10 @@ describe('while the server has not answered', () => {
     });
     click(root, '[data-act="live-inbox-reload"]');
     await settle();
-    // The session is re-checked too: "try again" after an outage means the
-    // whole screen, not one list.
-    expect(api.countOf('GET /auth/session')).toBe(2);
+    // Both lists are read again, but not the session: the workspace is open,
+    // and any 401 on the way closes it through the client.
+    expect(api.countOf('GET /auth/session')).toBe(1);
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations?queue=mine`)).toBe(2);
     expect(root.querySelector('.convrow--card')).not.toBeNull();
   });
 
@@ -946,6 +1022,6 @@ describe('while the server has not answered', () => {
       })
       .on('GET /me/memberships', { status: 200, body: { data: [] } });
     const { root } = await open(api);
-    expect(text(root)).toContain('لا توجد عضوية نشطة');
+    expect(text(root)).toContain('لا توجد مساحة عمل نشطة');
   });
 });

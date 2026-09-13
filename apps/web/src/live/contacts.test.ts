@@ -130,6 +130,7 @@ function contactsApi(): FakeApi {
             id: MEMBERSHIP,
             tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' },
             role: { id: 'owner-role', key: 'owner', name: 'Owner' },
+            permissions: ['conversation.read', 'conversation.assign', 'conversation.handoff.request', 'contact.read', 'contact.edit', 'consent.record'],
           },
         ],
       },
@@ -196,6 +197,31 @@ afterEach(() => {
 });
 
 describe('the contacts directory', () => {
+  it('shows at most two of a contact’s labels on its row', async () => {
+    const label = (id: string, name: string): Record<string, unknown> => ({ id, name, color: '#6558d9', state: 'active', version: 1 });
+    const api = contactsApi().on(`GET /tenants/${TENANT}/contacts`, {
+      status: 200,
+      body: { data: [contact({ labels: [label('l-1', 'VIP'), label('l-2', 'Parent'), label('l-3', 'Late')] })] },
+    });
+    const { root } = await open(api);
+    const labels = [...root.querySelectorAll('.contactrow .metadata__label')].map((node) => node.textContent);
+    expect(labels).toEqual(['VIP', 'Parent']);
+  });
+
+  it('reports a contact that could not be read beside the list, with a retry', async () => {
+    const api = contactsApi().on(`GET /tenants/${TENANT}/contacts/${CONTACT}`, {
+      status: 500,
+      body: { error: { code: 'internal_error', message: 'Broken.', request_id: 'r-8' } },
+    });
+    const { root } = await open(api);
+    click(root, '.contactrow');
+    await settle();
+    expect(root.querySelector('.contactrow')).not.toBeNull();
+    const failure = root.querySelector('.errorstate') as HTMLElement;
+    expect(text(failure)).toContain('r-8');
+    expect(failure.querySelector('[data-act="live-contacts-reload"]')).not.toBeNull();
+  });
+
   it('lists contacts with the channels they are reachable on', async () => {
     const { root } = await open(contactsApi());
     const row = root.querySelector('.contactrow');
@@ -225,7 +251,7 @@ describe('the contacts directory', () => {
     });
     const { root } = await open(api);
     const row = text(root.querySelector('.contactrow') as HTMLElement);
-    expect(row).toContain('لا هوية سارية');
+    expect(row).toContain('لا توجد هوية سارية');
     expect(row).not.toContain('واتساب');
   });
 
@@ -255,7 +281,7 @@ describe('the contacts directory', () => {
       body: { data: [] },
     });
     const { root } = await open(api);
-    expect(text(root)).toContain('لا جهات اتصال');
+    expect(text(root)).toContain('لا توجد جهات اتصال بعد');
   });
 
   it('reports a refusal in the operator’s terms', async () => {
@@ -264,7 +290,9 @@ describe('the contacts directory', () => {
       body: { error: { code: 'permission_denied', message: 'No.' } },
     });
     const { root } = await open(api);
-    expect(text(root)).toContain('غير مسموح');
+    expect(text(root)).toContain('لا تملك صلاحية لهذا الإجراء');
+    // A refusal is not an outage: no retry would change the answer.
+    expect(root.querySelector('.errorstate--denied')).not.toBeNull();
   });
 });
 
@@ -364,7 +392,7 @@ describe('one contact', () => {
           identities: [
             {
               id: 'ci-2',
-              kind: 'telegram',
+              kind: 'pigeon',
               scopeId: 'cn-9',
               externalId: '@sara',
               validFrom: NOW.toISOString(),
@@ -379,7 +407,7 @@ describe('one contact', () => {
     await settle();
     // A channel this build has no word for is still a channel the customer is
     // reachable on. An empty pill would hide it.
-    expect(text(root.querySelector('.contact__identity') as HTMLElement)).toContain('telegram');
+    expect(text(root.querySelector('.contact__identity') as HTMLElement)).toContain('pigeon');
   });
 
   it('shows a business field that is not text without dropping it', async () => {
@@ -403,8 +431,8 @@ describe('one contact', () => {
     const { root } = await open(api);
     click(root, '.contactrow');
     await settle();
-    // An empty grid would read as a record that failed to load.
-    expect(text(root.querySelector('.contact') as HTMLElement)).toContain('لا حقول عمل مسجّلة');
+    // An empty grid would read as a record that failed to load, so none is drawn.
+    expect(root.querySelector('.contact')).not.toBeNull();
     expect(root.querySelector('.attrgrid')).toBeNull();
   });
 
@@ -416,9 +444,12 @@ describe('one contact', () => {
     const { root } = await open(api);
     click(root, '.contactrow');
     await settle();
-    // Not "not permitted": the role never came into it, the session did.
-    expect(text(root)).toContain('انتهت الجلسة');
-    expect(text(root)).not.toContain('غير مسموح');
+    // Not "not permitted": the role never came into it, the session did. The
+    // workspace closes and only the sign-in form remains.
+    expect(text(root)).toContain('انتهت جلستك');
+    expect(root.querySelector('#signin-email')).not.toBeNull();
+    expect(root.querySelector('.contacts, .nav')).toBeNull();
+    expect(text(root)).not.toContain('لا تملك صلاحية');
   });
 });
 
@@ -484,7 +515,7 @@ describe('the customer panel beside a conversation', () => {
       body: { error: { code: 'permission_denied', message: 'No.' } },
     });
     const { root } = await open(api, `#/inbox/${CONVERSATION}`);
-    expect(text(root.querySelector('.zone--panel') as HTMLElement)).toContain('غير مسموح');
+    expect(text(root.querySelector('.zone--panel') as HTMLElement)).toContain('لا تملك صلاحية لهذا الإجراء');
     // The conversation is still readable: losing the contact record does not
     // take the thread with it.
     expect(root.querySelector('.zone--thread')).not.toBeNull();
@@ -621,7 +652,8 @@ describe('when there is no company to act on', () => {
 
     expect(api.calls.filter((call) => call.path.includes('/tenants/'))).toEqual([]);
     expect(api.calls.length).toBe(before);
-    expect(text(root)).toContain('لا توجد عضوية نشطة');
+    expect(text(root)).toContain('لا توجد مساحة عمل نشطة');
+    expect(root.querySelector('.nav')).toBeNull();
   });
 
   it('offers a way back when there is no session', async () => {
@@ -630,8 +662,10 @@ describe('when there is no company to act on', () => {
       body: { error: { code: 'unauthenticated', message: 'Sign in.' } },
     });
     const { root } = await open(api);
-    expect(text(root)).toContain('تحتاج جلسة');
-    expect(root.querySelector('[data-act="live-contacts-reload"]')).not.toBeNull();
+    // Nothing of the directory is drawn for a browser without a session.
+    expect(root.querySelector('#signin-email')).not.toBeNull();
+    expect(root.querySelector('.contacts, [data-act="live-contacts-reload"]')).toBeNull();
+    expect(api.calls.map((call) => call.path)).toEqual(['/auth/session']);
   });
 
   it('reloads the whole screen from the retry control', async () => {
@@ -643,7 +677,8 @@ describe('when there is no company to act on', () => {
     api.on(`GET /tenants/${TENANT}/contacts`, { status: 200, body: { data: [contact()] } });
     click(root, '[data-act="live-contacts-reload"]');
     await settle();
-    expect(api.countOf('GET /auth/session')).toBe(2);
+    // The session is not asked again: any 401 on the way closes the workspace.
+    expect(api.countOf('GET /auth/session')).toBe(1);
     expect(root.querySelector('.contactrow')).not.toBeNull();
   });
 });
@@ -711,13 +746,10 @@ describe('consent', () => {
     await settle();
 
     const notice = root.querySelector('.consent__suppressed');
-    expect(text(notice as HTMLElement)).toContain('الانسحاب يعلو أي موافقة');
+    expect(text(notice as HTMLElement)).toContain('حتى مع وجود موافقة');
     // Above, not beside: the order on screen is the order of authority.
-    const section = notice?.closest('.contact__section') as HTMLElement;
-    const children = Array.from(section.children);
-    expect(children.indexOf(notice as Element)).toBeLessThan(
-      children.indexOf(section.querySelector('.consent__list') as Element),
-    );
+    const list = root.querySelector('.consent__list') as Element;
+    expect(notice?.compareDocumentPosition(list)).toBe(window.Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('explains why a grant cannot paper over an opt-out', async () => {

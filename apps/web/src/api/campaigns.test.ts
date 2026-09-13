@@ -75,6 +75,26 @@ describe('CampaignsApi', () => {
     expect(JSON.parse(String(calls[12]?.init.body))).toEqual({ format: 'csv', campaignId: null });
   });
 
+  it('scopes the report by the filters that are set, and schedules a launch', async () => {
+    const calls: Array<{ path: string; init: RequestInit }> = [];
+    const fetch: FetchLike = (path, init) => {
+      calls.push({ path, init });
+      return Promise.resolve(new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    };
+    const api = new CampaignsApi(new ApiClient({ baseUrl: '/api/v1', fetch, readCsrfToken: () => 'csrf' }));
+
+    await api.report('tenant-1', { from: '', to: '', channel: '', campaignId: '' });
+    await api.report('tenant-1', { from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaignId: 'campaign-1' });
+    await api.launch('tenant-1', 'campaign-1', 'launch-key', '2026-09-10T09:00:00.000Z');
+
+    expect(calls.map((call) => call.path)).toEqual([
+      '/api/v1/tenants/tenant-1/reports/campaigns',
+      '/api/v1/tenants/tenant-1/reports/campaigns?from=2026-09-01&to=2026-09-09&channel=whatsapp&campaignId=campaign-1',
+      '/api/v1/tenants/tenant-1/campaigns/campaign-1/launch',
+    ]);
+    expect(JSON.parse(String(calls[2]?.init.body))).toEqual({ mode: 'scheduled', scheduledFor: '2026-09-10T09:00:00.000Z' });
+  });
+
   it('has an honest disconnected default', async () => {
     const api = disconnectedCampaignsApi();
     const result = await api.list('tenant-1');

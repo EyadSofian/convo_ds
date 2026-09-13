@@ -2,28 +2,27 @@
    CONVO — stylesheet entry point
 
    This file contains NO declarations. It fixes the cascade order once, then
-   loads each layer. Anything appended after this comment is a bug: the
-   previous stylesheet grew three stacked token blocks and an `!important`
-   tail because it had no layer discipline, and the result was a palette
-   nobody could reason about.
+   loads each layer. Anything appended after this comment is a bug.
 
    Layer order (later wins, regardless of selector specificity):
 
      tokens      one canonical set of custom properties per theme
      base        font faces, reset, document typography, focus, motion
-     shell       viewport, rail, top bar, inbox grid, drawers
-     components  reusable atoms from ui/parts.ts and ui/dialogs.ts
-     screens     inbox and workspace screens
+     components  reusable atoms from ui/parts.ts
+     shell       gate, navigation, header, inbox columns, floating layers
+     screens     the inside of each screen
 
-   Because every rule lives in a layer, a screen rule beats a component rule
-   without needing `!important` or a longer selector.
+   The shell comes after the components it arranges, so a shell rule that
+   hides a control at some width beats that control's own `display`. Because
+   every rule lives in a layer, a later layer wins without `!important` or a
+   longer selector.
    ========================================================================== */
 
-@layer tokens, base, shell, components, screens;
+@layer tokens, base, components, shell, screens;
 
 @import './styles/tokens.css';
 @import './styles/base.css';
 @import './styles/shell.css';
 @import './styles/components.css';
 @import './styles/inbox.css';
-@import './styles/workspace.css';
+@import './styles/screens.css';

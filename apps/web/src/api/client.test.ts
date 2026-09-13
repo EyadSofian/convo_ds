@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiClient, csrfFromCookie } from './client.js';
+import { ApiClient, csrfFromCookie, LOGIN_PATH } from './client.js';
 import type { FetchLike } from './client.js';
 
 /**
@@ -154,6 +154,49 @@ describe('describing a failure', () => {
     const controller = new AbortController();
     await client.request('GET', '/things', { signal: controller.signal });
     expect(seen[0]?.signal).toBe(controller.signal);
+  });
+});
+
+describe('a session that is refused', () => {
+  function watched(status: number): { client: ApiClient; heard: string[] } {
+    const heard: string[] = [];
+    const fetch: FetchLike = () =>
+      Promise.resolve(new Response(JSON.stringify({ error: { code: 'x', message: 'x' } }), { status }));
+    const client = new ApiClient({
+      baseUrl: '/api/v1',
+      fetch,
+      readCsrfToken: () => null,
+      onUnauthenticated: (path) => {
+        heard.push(path);
+      },
+    });
+    return { client, heard };
+  }
+
+  it('tells the workspace whenever a request is refused for want of a session', async () => {
+    const { client, heard } = watched(401);
+    const result = await client.get('/tenants/t/people');
+    expect(result.ok).toBe(false);
+    expect(heard).toEqual(['/tenants/t/people']);
+  });
+
+  it('does not treat a refused sign-in as an expired session', async () => {
+    // A 401 from the login endpoint means "those credentials", not "your session".
+    const { client, heard } = watched(401);
+    await client.post(LOGIN_PATH, { body: { email: 'a@b.c', password: 'x' } });
+    expect(heard).toEqual([]);
+  });
+
+  it('says nothing for a refusal that is not about the session', async () => {
+    const { client, heard } = watched(403);
+    await client.get('/tenants/t/people');
+    expect(heard).toEqual([]);
+  });
+
+  it('works without anybody listening', async () => {
+    const fetch: FetchLike = () => Promise.resolve(new Response('{}', { status: 401 }));
+    const client = new ApiClient({ baseUrl: '/api/v1', fetch, readCsrfToken: () => null });
+    expect((await client.get('/auth/session')).ok).toBe(false);
   });
 });
 

@@ -1,170 +1,131 @@
 /* ==========================================================================
-   Layer 5a — inbox screen
+   Layer 5 — screens: the Inbox
 
-   The daily operator surface: views column, queue list, timeline, composer and
-   customer panel. Density here is a contract, not a preference — the numbers
-   are asserted in tests/e2e/layout.spec.ts at 1440×900 and 1366×768, in both
-   directions and both themes.
+   Queue, conversation and customer panel. The column arrangement is in the
+   shell layer; this is what is inside each column.
    ========================================================================== */
 
 @layer screens {
-  /* --------------------------------------------------------- list column --
-     Chrome above the rows is capped so at least 8 rows stay visible at 768px:
-       768 − topbar 48 = 720 available
-       header 40 + tools 76 + meta 28            = 144
-       720 − 144 = 576 → 576 / 68 = 8.4 rows
-     -------------------------------------------------------------------- */
+  /* ---------------------------------------------------------------- queue -- */
 
-  .listtools {
+  .listhead {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
+    align-items: center;
+    gap: var(--space-2);
+    block-size: 52px;
     flex: none;
-    padding: var(--space-3) var(--space-5);
+    padding-inline: var(--space-3) var(--space-2);
+    border-block-end: 1px solid var(--border);
+  }
+
+  .listhead__tools {
+    display: flex;
+    align-items: center;
+    gap: var(--space-half);
+    margin-inline-start: auto;
+  }
+
+  .realtime {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: none;
+    padding: var(--space-1) var(--space-4);
     border-block-end: 1px solid var(--border-subtle);
-  }
-
-  /*
-   * The filter row scrolls sideways instead of wrapping. Wrapping cost a second
-   * 30px band in the chrome, and the queue needs that height for a row.
-   */
-  .listtools .filterbar {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding-block-end: 1px;
-  }
-
-  .listtools .filterbar::-webkit-scrollbar {
-    display: none;
-  }
-
-  .listtools .filterbar {
-    mask-image: linear-gradient(to left, transparent 0, #000 20px);
-  }
-
-  [dir='ltr'] .listtools .filterbar {
-    mask-image: linear-gradient(to right, transparent 0, #000 20px);
-  }
-
-  .listtools .filterbar > * {
-    flex: none;
-  }
-
-  .listtools__row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    min-inline-size: 0;
-  }
-
-  .listtools__row > .searchbox {
-    flex: 1 1 auto;
-  }
-
-  .listtools .input,
-  .listtools .select {
-    block-size: var(--control-height);
-    font-size: var(--text-xs);
-  }
-
-  .listtools .segment {
-    inline-size: 100%;
-  }
-
-  /* Now an inline count inside the list header, not a strip of its own. */
-  .listmeta {
     color: var(--text-muted);
-    font-size: var(--text-xs);
-    white-space: nowrap;
+    font-size: var(--text-2xs);
   }
 
-  .listmeta__spacer {
-    flex: 1 1 auto;
+  .realtime__dot {
+    inline-size: 7px;
+    block-size: 7px;
+    border-radius: var(--radius-full);
+    background: var(--success);
+  }
+
+  .realtime--stale {
+    background: var(--warning-soft);
+    color: var(--text);
+  }
+
+  .realtime--stale .realtime__dot {
+    background: var(--warning);
+    animation: convo-pulse 1.2s ease-in-out infinite;
+  }
+
+  .realtime--stopped {
+    background: var(--danger-soft);
+    color: var(--text);
+  }
+
+  .realtime--stopped .realtime__dot {
+    background: var(--danger);
   }
 
   .convlist {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    padding: var(--space-1);
   }
-
-  /* Carries the list semantics; the row inside it carries the interaction. */
-  .convlist__item {
-    display: flex;
-    flex: none;
-  }
-
-  /* ------------------------------------------------------ conversation row --
-     Fixed 68px so the visible-row count is deterministic rather than
-     content-dependent. Three lines: identity, one-line preview, essentials.
-     -------------------------------------------------------------------- */
 
   .convrow {
-    display: flex;
+    position: relative;
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
     align-items: center;
-    gap: var(--space-5);
+    gap: var(--space-3);
     inline-size: 100%;
-    block-size: var(--row-height);
-    flex: none;
-    padding-inline: var(--space-5);
+    min-block-size: var(--row-height);
+    padding: var(--space-2) var(--space-3);
     border: 0;
-    border-block-end: 1px solid var(--border-subtle);
-    border-inline-start: 2px solid transparent;
+    border-radius: var(--radius-md);
     background: transparent;
-    color: var(--text-primary);
+    color: var(--text);
     text-align: start;
-    overflow: hidden;
-    transition: background var(--motion-fast) var(--ease-out);
   }
 
-  .convrow:hover {
+  .convrow--record {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .convrow--record:hover {
     background: var(--surface-hover);
   }
 
   .convrow[aria-current='true'] {
-    background: var(--surface-active);
-    border-inline-start-color: var(--accent);
+    background: var(--surface-selected);
   }
 
-  .convrow:focus-visible {
-    outline-offset: -2px;
-  }
-
-  .convrow__body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    flex: 1 1 auto;
-    min-inline-size: 0;
-  }
-
-  .convrow__top {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    min-inline-size: 0;
-  }
-
-  .convrow__dot {
-    flex: none;
-    inline-size: 6px;
-    block-size: 6px;
+  .convrow[aria-current='true']::before {
+    content: '';
+    position: absolute;
+    inset-block: var(--space-2);
+    inset-inline-start: 0;
+    inline-size: 3px;
     border-radius: var(--radius-full);
     background: var(--accent);
+  }
+
+  .convrow__main {
+    display: grid;
+    gap: var(--space-half);
+    min-inline-size: 0;
+  }
+
+  .convrow__line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-inline-size: 0;
   }
 
   .convrow__name {
     flex: 1 1 auto;
     min-inline-size: 0;
     overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
-    line-height: 17px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .convrow--unread .convrow__name {
@@ -174,644 +135,274 @@
   .convrow__time {
     flex: none;
     color: var(--text-muted);
-    font-size: 11px;
-    line-height: 17px;
-  }
-
-  .convrow__preview {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    min-inline-size: 0;
-    block-size: 17px;
-  }
-
-  .convrow__dir {
-    display: grid;
-    place-items: center;
-    flex: none;
-    color: var(--text-muted);
-  }
-
-  .convrow__dir--out {
-    color: var(--accent);
-  }
-
-  /* One line, always. A wrapping preview is what makes a queue unscannable. */
-  .convrow__snippet {
-    flex: 1 1 auto;
-    min-inline-size: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    color: var(--text-secondary);
-    font-size: var(--text-xs);
-    line-height: 17px;
-    /* Same rule as the bubble: the preview is customer content. */
-    unicode-bidi: plaintext;
-    text-align: start;
-  }
-
-  .convrow--unread .convrow__snippet {
-    color: var(--text-primary);
-  }
-
-  /* Projected queue card: no transcript exists to show (business-rules §4.1). */
-  .convrow__snippet--masked {
-    color: var(--text-muted);
-    font-style: italic;
+    font-size: var(--text-2xs);
   }
 
   .convrow__meta {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    min-inline-size: 0;
-    block-size: 20px;
-    overflow: hidden;
-    flex-wrap: nowrap;
-    /* A clipped pill should read as "more, off-screen", not as a broken glyph. */
-    mask-image: linear-gradient(to left, transparent 0, #000 18px);
-  }
-
-  [dir='ltr'] .convrow__meta {
-    mask-image: linear-gradient(to right, transparent 0, #000 18px);
-  }
-
-  .convrow__meta > * {
-    flex: none;
-  }
-
-  .convrow__assignee {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    max-inline-size: 15ch;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
 
-  /* ---------------------------------------------------------------- thread -- */
+  .convrow__where {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .convrow__meta .badge {
+    block-size: 20px;
+  }
+
+  .convrow__dot {
+    flex: none;
+    inline-size: 8px;
+    block-size: 8px;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+  }
+
+  .convrow__claim {
+    align-self: center;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    color: var(--accent-text);
+  }
+
+  .convrow--card:hover .convrow__claim:not([disabled]),
+  .convrow__claim:focus-visible {
+    background: var(--accent-soft);
+  }
+
+  .convrow--card:hover {
+    background: var(--surface-hover);
+  }
+
+  /* --------------------------------------------------------------- thread -- */
 
   .thread {
-    display: flex;
-    flex-direction: column;
-    min-block-size: 0;
+    position: relative;
   }
 
-  /* One compact row, ≤64px. Secondary metadata wraps only when it must. */
+  .thread__placeholder {
+    display: grid;
+    flex: 1;
+    place-items: center;
+    padding: var(--space-6);
+  }
+
   .thread__header {
     display: flex;
     align-items: center;
-    gap: var(--space-5);
+    gap: var(--space-3);
+    block-size: var(--thread-header-height);
     flex: none;
-    min-block-size: 48px;
-    max-block-size: var(--thread-header-height);
-    padding: var(--space-4) var(--space-6);
-    border-block-end: 1px solid var(--border-subtle);
-    background: var(--surface-panel);
-    overflow: hidden;
-  }
-
-  .thread__ident {
-    display: flex;
-    align-items: center;
-    gap: var(--space-4);
-    min-inline-size: 0;
-    /* Identity is the header's job; the toolbar gives way, not the name. */
-    flex: 1 1 240px;
+    padding-inline: var(--space-4) var(--space-3);
+    border-block-end: 1px solid var(--border);
+    background: var(--surface-1);
   }
 
   .thread__names {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
+    display: grid;
     min-inline-size: 0;
   }
 
   .thread__name {
+    overflow: hidden;
     font-size: var(--text-md);
     font-weight: var(--weight-semibold);
     line-height: var(--leading-tight);
-    overflow: hidden;
-    white-space: nowrap;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .thread__sub {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: var(--leading-tight);
     overflow: hidden;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .thread__primary {
+  .thread__badges {
     display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    flex: none;
+    gap: var(--space-1);
   }
 
   .thread__toolbar {
     display: flex;
     align-items: center;
-    gap: var(--space-3);
-    flex: none;
+    gap: var(--space-1);
+    margin-inline-start: auto;
   }
 
-  .thread__toolspacer {
-    flex: 1 1 auto;
+  .lifecycle__controls {
+    display: flex;
+    gap: var(--space-1);
+  }
+
+  @container screen (max-width: 1100px) {
+    .thread__badges {
+      display: none;
+    }
+
+    /* Hidden from sight, not from assistive technology: the label stays the
+       button's accessible name, and the title shows it on hover. */
+    .lifecycle__controls .btn__label {
+      position: absolute;
+      inline-size: 1px;
+      block-size: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .lifecycle__controls .btn {
+      position: relative;
+    }
+
+    .lifecycle__controls .btn {
+      inline-size: var(--control-height-sm);
+      padding-inline: 0;
+    }
   }
 
   .thread__body {
     display: flex;
-    flex-direction: column;
-    /* 4px between groups: enough to separate speakers, cheap enough that the
-       seeded conversation still shows seven groups at 768px. */
-    gap: var(--space-2);
     flex: 1 1 auto;
+    flex-direction: column;
+    gap: var(--space-2);
     min-block-size: 0;
-    padding: var(--space-4) var(--space-6);
+    padding: var(--space-4) var(--space-5);
     overflow-y: auto;
     overscroll-behavior: contain;
-    background: var(--surface-sunken);
   }
 
-  /* A date rule is a landmark, not a section break — it earns 14px, not 26. */
+  .thread__older {
+    display: flex;
+    justify-content: center;
+  }
+
   .daysep {
     display: flex;
-    align-items: center;
-    gap: var(--space-4);
-    margin-block: 0;
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: 14px;
-  }
-
-  .daysep::before,
-  .daysep::after {
-    content: '';
-    flex: 1 1 auto;
-    block-size: 1px;
-    background: var(--border-subtle);
-  }
-
-  .eventline {
-    display: flex;
-    align-items: center;
     justify-content: center;
-    gap: var(--space-3);
-    padding-block: var(--space-1);
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: 16px;
-    text-align: center;
+    margin-block: var(--space-2);
   }
 
-  /* ------------------------------------------------------------- message --
-     Compact enough that a normal seeded conversation shows ≥7 groups at
-     1366×768 before scrolling: ~78px per inbound/outbound group.
-     -------------------------------------------------------------------- */
+  .daysep span {
+    padding: var(--space-half) var(--space-3);
+    border-radius: var(--radius-full);
+    background: var(--surface-3);
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+  }
 
   .msg {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    justify-items: start;
     gap: var(--space-1);
-    align-items: flex-start;
-    max-inline-size: min(72ch, 86%);
+    max-inline-size: min(640px, 78%);
   }
 
   .msg--out {
+    justify-items: end;
     align-self: flex-end;
-    align-items: flex-end;
-  }
-
-  .msg__author {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: 14px;
   }
 
   .msg__bubble {
-    padding: var(--space-3) var(--space-5);
-    border: 1px solid var(--border-subtle);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
     border-radius: var(--radius-lg);
+    border-end-start-radius: var(--radius-xs);
     background: var(--bubble-in);
-    color: var(--text-primary);
-    /* Conversation copy sits at the top of the 14–16px band. */
     font-size: var(--text-md);
     line-height: var(--leading-normal);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    /*
-     * Customer content carries its own direction. `plaintext` takes the base
-     * direction from the first strong character of each paragraph, so an Arabic
-     * message reads correctly in the English UI and vice versa. Without it a
-     * mixed Arabic/Latin sentence visually reorders around the Latin run.
-     */
+    /* Customer text picks its own paragraph direction, whatever the UI's is. */
     unicode-bidi: plaintext;
     text-align: start;
   }
 
   .msg--out .msg__bubble {
+    border-color: transparent;
+    border-end-start-radius: var(--radius-lg);
+    border-end-end-radius: var(--radius-xs);
     background: var(--bubble-out);
-    border-color: var(--accent-soft);
-  }
-
-  /* A private note never reaches a provider (I11) — it must never look sent. */
-  .msg--note .msg__bubble {
-    background: var(--bubble-note);
-    border-color: var(--warning);
-    border-style: dashed;
-  }
-
-  .msg--event {
-    align-self: center;
-    align-items: center;
-    max-inline-size: 100%;
   }
 
   .msg__meta {
     display: flex;
     align-items: center;
-    gap: var(--space-3);
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: 14px;
-  }
-
-  .msg__attachment {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-block-start: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    background: var(--surface-panel);
-    font-size: var(--text-xs);
-  }
-
-  /* ------------------------------------------------------------ composer --
-     Sticky inside the thread. Normal reply mode:
-       tabs 28 + textarea 44 + toolbar 30 + padding 12 = 114px  (cap 118)
-     The textarea grows to 88px; nothing else grows with it.
-     -------------------------------------------------------------------- */
-
-  /*
-   * Normal reply mode adds up to 116px, inside the 118px cap:
-   *   padding 5 + tabs 26 + gap 3 + textarea 44 + gap 3 + toolbar 30 + padding 5
-   * Only the textarea grows (to 88px); no other row moves with it.
-   */
-  .composer {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    flex: none;
-    position: sticky;
-    inset-block-end: 0;
-    padding: 5px var(--space-6);
-    border-block-start: 1px solid var(--border-subtle);
-    background: var(--surface-panel);
-  }
-
-  .composer__tabs {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    block-size: 26px;
-    flex: none;
-  }
-
-  .composer__tab {
-    display: inline-flex;
-    align-items: center;
     gap: var(--space-2);
-    block-size: 24px;
-    padding-inline: var(--space-4);
-    border: 0;
-    border-radius: var(--radius-md);
-    background: transparent;
+    padding-inline: var(--space-1);
     color: var(--text-muted);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-medium);
+    font-size: var(--text-2xs);
   }
 
-  .composer__tab:hover {
-    color: var(--text-primary);
-    background: var(--surface-hover);
+  .msg__delivery {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-half);
   }
 
-  .composer__tab[aria-pressed='true'] {
-    background: var(--accent-soft);
-    color: var(--accent);
+  .msg__delivery--read {
+    color: var(--accent-text);
   }
 
-  .composer__tab--note[aria-pressed='true'] {
-    background: var(--warning-soft);
+  .msg__state--rejected,
+  .msg__state--failed {
+    color: var(--danger);
+  }
+
+  .msg__state--outcome_unknown {
+    color: var(--unknown);
+  }
+
+  .msg__anomaly {
     color: var(--warning);
   }
 
-  .composer__tabspacer {
-    flex: 1 1 auto;
-  }
-
-  /* Column, not row: the toolbar sits under the textarea, not beside it. */
-  .composer__area {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-block-size: 0;
-  }
-
-  .composer__input {
-    inline-size: 100%;
-    /* Resting height is exact; app.ts grows it to fit content up to the max. */
-    block-size: var(--composer-min-height);
-    min-block-size: var(--composer-min-height);
-    max-block-size: var(--composer-max-height);
-    flex: none;
-    padding: var(--space-4) var(--space-5);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-md);
-    background: var(--surface-panel);
-    color: var(--text-primary);
-    font-size: var(--text-md);
-    line-height: var(--leading-normal);
-    resize: none;
-    overflow-y: auto;
-  }
-
-  .composer__toolbar {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    block-size: 30px;
-    flex: none;
-  }
-
-  .composer__toolspacer {
-    flex: 1 1 auto;
-  }
-
-  .composer__hint {
-    color: var(--text-muted);
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* Expired provider window: the composer is blocked, the draft is untouched. */
-  .composer__blocked {
-    display: flex;
-    align-items: center;
-    gap: var(--space-4);
-    padding: var(--space-4) var(--space-5);
-    border: 1px dashed var(--warning);
-    border-radius: var(--radius-md);
-    background: var(--warning-soft);
-    color: var(--warning);
-    font-size: var(--text-xs);
-    line-height: var(--leading-normal);
-  }
-
-  .composer__window {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-inline-size: 0;
-    flex: 0 1 auto;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-size: 11px;
-  }
-
-  /* -------------------------------------------------------- customer panel --
-     Three sections in one column: who they are, how we reach them, what they
-     agreed to. The suppression notice sits above the consent history because it
-     outranks it — the order on screen is the order of authority.
-     -------------------------------------------------------------------- */
-
-  .contact {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-6);
-    padding: var(--space-6);
-  }
-
-  .contact__section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-    align-items: flex-start;
-  }
-
-  .contact__heading {
-    margin: 0;
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
-    color: var(--text-muted);
-  }
-
-  .contact__identities,
-  .consent__list,
-  .contactlist {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    inline-size: 100%;
-  }
-
-  .contact__identity,
-  .consent__row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    flex-wrap: wrap;
-    font-size: var(--text-xs);
-  }
-
-  .contact__identityvalue {
-    font-family: var(--font-mono, monospace);
-    overflow-wrap: anywhere;
-  }
-
-  /* An opt-out is not a warning about a setting; it is the rule in force. */
-  .consent__suppressed {
-    margin: 0;
-    padding: var(--space-4) var(--space-5);
-    inline-size: 100%;
-    border: 1px solid var(--warning);
-    border-radius: var(--radius-md);
-    background: var(--warning-soft);
-    color: var(--warning);
-    font-size: var(--text-xs);
-    line-height: var(--leading-normal);
-  }
-
-  .consent__source,
-  .consent__when {
-    color: var(--text-muted);
-  }
-
-  .consent__when {
-    margin-inline-start: auto;
-  }
-
-  .consent__actions {
-    display: flex;
-    gap: var(--space-3);
-    flex-wrap: wrap;
-  }
-
-  /* ------------------------------------------------------ contacts screen -- */
-
-  .contacts {
-    display: grid;
-    grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-    gap: var(--space-5);
-    align-items: start;
-  }
-
-  @media (max-width: 899px) {
-    .contacts {
-      grid-template-columns: minmax(0, 1fr);
-    }
-  }
-
-  .contactrow {
-    display: flex;
-    align-items: center;
-    gap: var(--space-4);
-    inline-size: 100%;
-    padding: var(--space-4) var(--space-5);
-    border: 1px solid transparent;
-    border-radius: var(--radius-md);
-    background: transparent;
-    text-align: start;
-    cursor: pointer;
-  }
-
-  .contactrow:hover {
-    background: var(--surface-hover);
-  }
-
-  .contactrow[aria-current='true'] {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-  }
-
-  .contactrow__name {
-    font-weight: var(--weight-medium);
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-
-  .contactrow__channels {
-    display: flex;
-    gap: var(--space-2);
-    margin-inline-start: auto;
-  }
-
-  .formrow {
-    display: flex;
-    gap: var(--space-4);
-    align-items: flex-end;
-    flex-wrap: wrap;
-    padding: 0 var(--space-6) var(--space-5);
-  }
-
-  /* ------------------------------------------------- business fields -- */
-
-  .attrgrid {
-    display: grid;
-    grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
-    gap: var(--space-3) var(--space-4);
-    inline-size: 100%;
-    font-size: var(--text-xs);
-    line-height: var(--leading-normal);
-  }
-
-  .attrgrid > dt {
-    color: var(--text-muted);
-  }
-
-  .attrgrid > dd {
-    margin: 0;
-    overflow-wrap: anywhere;
-  }
-
-  /* ------------------------------------------------ lifecycle and notes --
-     The transition controls sit in the thread header beside the status; the
-     form they open is a band under it rather than a popover, because it holds
-     a text field somebody may spend a minute on and a layer that closes on
-     blur would lose it.
-     ---------------------------------------------------------------------- */
-
-  .lifecycle__controls {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-  }
+  /* ------------------------------------------------------------ lifecycle -- */
 
   .lifecycle__form {
-    display: flex;
-    flex-direction: column;
+    display: grid;
     gap: var(--space-3);
     flex: none;
-    padding: var(--space-4) var(--space-6);
-    border-block-end: 1px solid var(--border-subtle);
-    background: var(--surface-sunken);
+    padding: var(--space-3) var(--space-4);
+    border-block-end: 1px solid var(--border);
+    background: var(--surface-1);
   }
 
   .lifecycle__prompt {
-    margin: 0;
+    color: var(--text-secondary);
     font-size: var(--text-xs);
-    line-height: var(--leading-normal);
-    color: var(--text-muted);
   }
 
-  .lifecycle__presets {
+  .lifecycle__presets,
+  .lifecycle__formactions {
     display: flex;
-    gap: var(--space-2);
     flex-wrap: wrap;
+    gap: var(--space-2);
   }
 
   .lifecycle__formactions {
-    display: flex;
     justify-content: flex-end;
-    gap: var(--space-2);
   }
 
   .lifecycle__notice {
     display: flex;
-    align-items: baseline;
-    gap: var(--space-2);
     flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
     flex: none;
-    margin: 0;
-    padding: var(--space-3) var(--space-6);
+    padding: var(--space-2) var(--space-4);
     border-block-end: 1px solid var(--border-subtle);
-    font-size: var(--text-xs);
-    line-height: var(--leading-normal);
+    background: var(--surface-1);
     color: var(--text-secondary);
+    font-size: var(--text-xs);
   }
 
   .lifecycle__noticekey {
@@ -820,327 +411,383 @@
 
   .lifecycle__noticezone {
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--text-2xs);
   }
 
-  /* ---------------------------------------------------- internal notes -- */
+  /* ------------------------------------------------------------- composer -- */
 
-  .notes,
-  .episodes {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-5) var(--space-6);
-    border-block-start: 1px solid var(--border-subtle);
+  .composer {
+    flex: none;
+    margin: 0 var(--space-4) var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-1);
+    box-shadow: var(--shadow-sm);
   }
 
-  .notes__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    margin: 0;
-    padding: 0;
-    list-style: none;
+  .composer--note {
+    border-color: var(--note-edge);
+    background: var(--note-surface);
   }
 
-  .notes__item {
+  .composer__tabs {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-3);
+    flex: none;
+    gap: var(--space-half);
+  }
+
+  .composer__tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    block-size: 28px;
+    padding-inline: var(--space-2);
+    border: 0;
     border-radius: var(--radius-sm);
-    /* A tint rather than the reply bubble's colour: a note must never read as
-       something that was said to the customer. */
-    background: var(--surface-sunken);
-    border-inline-start: 2px solid var(--border-strong);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
   }
 
-  .notes__item--editing {
+  .composer__tab:hover {
+    color: var(--text);
+  }
+
+  .composer__tab[aria-selected='true'] {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+
+  .composer--note .composer__tab[aria-selected='true'] {
+    background: var(--warning-soft);
+    color: var(--warning);
+  }
+
+  .composer__box {
+    display: grid;
+  }
+
+  .composer__input {
+    display: block;
+    inline-size: 100%;
+    block-size: var(--composer-min-height);
+    min-block-size: var(--composer-min-height);
+    max-block-size: var(--composer-max-height);
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: var(--text-md);
+    line-height: 1.45;
+    resize: none;
+    unicode-bidi: plaintext;
+  }
+
+  .composer__input:focus-visible {
+    outline: none;
+  }
+
+  /* The box, not the bare textarea, carries the ring: a 2px ring in the
+     contrast-tested focus colour, the same weight as every other control. */
+  .composer:focus-within {
+    border-color: var(--focus-ring);
+    box-shadow: 0 0 0 1px var(--focus-ring);
+  }
+
+  .composer__toolbar {
+    display: flex;
+    align-items: center;
     gap: var(--space-2);
-    border-inline-start-color: var(--accent);
+    padding: var(--space-1) var(--space-2) var(--space-2);
   }
 
-  .notes__item--deleted {
-    border-inline-start-color: var(--border-subtle);
+  .composer__hint,
+  .composer__blocked {
+    display: inline-flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1);
+    min-inline-size: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .composer__blocked {
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+  }
+
+  .composer__hint--error {
+    color: var(--danger);
+  }
+
+  .composer__toolbar--claim {
+    padding: var(--space-2);
+  }
+
+  @container screen (max-width: 520px) {
+    .composer__hint {
+      visibility: hidden;
+    }
+  }
+
+  /* ------------------------------------------------------- customer panel -- */
+
+  .panel-section {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border-block-end: 1px solid var(--border-subtle);
+  }
+
+  .panel-section__title {
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.02em;
+  }
+
+  .contact {
+    display: grid;
+  }
+
+  .contact__identity-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .contact__name {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+  }
+
+  .contact__sub {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+  }
+
+  .contact__identities,
+  .consent__list,
+  .notes__list,
+  .episodes__list {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .contact__identity {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+  }
+
+  .contact__identitykind {
     color: var(--text-muted);
   }
 
-  .notes__body {
-    margin: 0;
+  .contact__identityvalue {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .consent__suppressed {
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--warning-soft);
+    color: var(--text);
     font-size: var(--text-xs);
-    line-height: var(--leading-relaxed);
-    overflow-wrap: anywhere;
+  }
+
+  .consent__row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-half) var(--space-2);
+    align-items: center;
+    font-size: var(--text-xs);
+  }
+
+  .consent__source {
+    grid-column: 2;
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+  }
+
+  .consent__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .metadata__labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .metadata__label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    block-size: 24px;
+    padding-inline: var(--space-2) var(--space-half);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-1);
+    font-size: var(--text-2xs);
+  }
+
+  .metadata__swatch {
+    inline-size: 8px;
+    block-size: 8px;
+    border-radius: var(--radius-full);
+    background: var(--label-color);
+  }
+
+  .metadata__remove {
+    inline-size: 20px;
+    block-size: 20px;
+  }
+
+  .metadata__fields {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .metadata__field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: var(--space-2);
+  }
+
+  .routing__current {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .routing__assignee {
+    display: flex;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+  }
+
+  .routing__key {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+  }
+
+  .routing__nobody {
+    color: var(--text-muted);
+  }
+
+  .routing__actions,
+  .routing__formactions,
+  .routing__priorities {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .routing__form,
+  .routing__offer {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+  }
+
+  .routing__offer {
+    background: var(--accent-soft);
+  }
+
+  .routing__prompt,
+  .routing__offerwhen,
+  .routing__offernote {
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+  }
+
+  .routing__collablist {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .routing__collab {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+  }
+
+  .routing__collabwhen {
+    color: var(--text-muted);
+  }
+
+  .notes__item {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    border-inline-start: 3px solid var(--note-edge);
+    border-radius: var(--radius-sm);
+    background: var(--note-surface);
+    font-size: var(--text-xs);
+  }
+
+  .notes__item--deleted {
+    border-inline-start-color: var(--border);
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .notes__body {
+    white-space: pre-wrap;
+    unicode-bidi: plaintext;
   }
 
   .notes__meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-2);
-    font-size: 11px;
+    gap: var(--space-1);
     color: var(--text-muted);
-  }
-
-  .notes__when,
-  .notes__edited {
-    white-space: nowrap;
-  }
-
-  .notes__composer {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: var(--space-2);
+    font-size: var(--text-2xs);
   }
 
   .notes__field {
-    inline-size: 100%;
+    min-block-size: 64px;
+    padding-block: var(--space-2);
     resize: vertical;
-    min-block-size: calc(var(--space-8) * 1.5);
-    font-family: inherit;
-  }
-
-  /* ------------------------------------------------ reporting episodes -- */
-
-  .episodes__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    margin: 0;
-    padding: 0;
-    list-style: none;
   }
 
   .episodes__item {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    padding-block-end: var(--space-3);
-    border-block-end: 1px solid var(--border-subtle);
-  }
-
-  .episodes__item:last-child {
-    border-block-end: 0;
-    padding-block-end: 0;
+    display: grid;
+    gap: var(--space-1);
+    font-size: var(--text-xs);
   }
 
   .episodes__top {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    font-size: 11px;
   }
 
-  .episodes__seq {
-    font-variant-numeric: tabular-nums;
-    color: var(--text-muted);
-  }
-
+  .episodes__seq,
   .episodes__when {
-    margin-inline-start: auto;
     color: var(--text-muted);
   }
 
   .episodes__resolution {
-    margin: 0;
-    font-size: var(--text-xs);
-    line-height: var(--leading-normal);
-    overflow-wrap: anywhere;
-  }
-
-  /* ---------------------------------------------------- work routing --
-     Sits at the top of the customer panel, above the notes: who holds the
-     conversation is the first question somebody opening a thread asks, and it
-     is the one thing on this panel that another person can change while you
-     are reading it.
-     ------------------------------------------------------------------ */
-
-  .routing {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-5) var(--space-6);
-    border-block-start: 1px solid var(--border-subtle);
-  }
-
-  .routing__current {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .routing__assignee {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-    margin: 0;
-    font-size: var(--text-xs);
-    line-height: var(--leading-normal);
-    overflow-wrap: anywhere;
-  }
-
-  .routing__key {
-    color: var(--text-muted);
-    font-size: 11px;
-  }
-
-  .routing__nobody {
-    color: var(--text-muted);
-    font-style: italic;
-  }
-
-  .routing__actions {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-  }
-
-  /* The unanswered offer. Tinted, because it is the one thing on this panel
-     that is waiting on a person rather than describing one. */
-  .routing__offer {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    border-radius: var(--radius-sm);
-    background: var(--surface-sunken);
-    border-inline-start: 2px solid var(--accent);
-  }
-
-  .routing__offertext {
-    margin: 0;
-    font-size: var(--text-xs);
-    line-height: var(--leading-normal);
-  }
-
-  .routing__offernote {
-    margin: 0;
-    font-size: var(--text-xs);
-    line-height: var(--leading-relaxed);
     color: var(--text-secondary);
-    overflow-wrap: anywhere;
   }
-
-  .routing__offerwhen {
-    margin: 0;
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-
-  .routing__form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-3);
-    border-radius: var(--radius-sm);
-    background: var(--surface-sunken);
-  }
-
-  .routing__prompt {
-    margin: 0;
-    font-size: 11px;
-    line-height: var(--leading-normal);
-    color: var(--text-muted);
-  }
-
-  .routing__priorities {
-    display: flex;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-  }
-
-  .routing__note {
-    inline-size: 100%;
-    resize: vertical;
-    font-family: inherit;
-  }
-
-  .routing__formactions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-  }
-
-  .routing__collaborators {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    align-items: flex-start;
-  }
-
-  .routing__collablist {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    inline-size: 100%;
-  }
-
-  .routing__collab {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-    font-size: var(--text-xs);
-  }
-
-  .routing__collabwhen {
-    color: var(--text-muted);
-    font-size: 11px;
-    margin-inline-end: auto;
-  }
-}
-.listtools__filters,
-.contactfilters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.listtools__filters .select,
-.contactfilters .select,
-.contactfilters .input {
-  min-inline-size: 0;
-  inline-size: 100%;
-  block-size: 34px;
-  font-size: var(--text-xs);
-}
-
-.metadata {
-  display: grid;
-  gap: 10px;
-}
-
-.metadata__heading,
-.metadata__field,
-.metadata__label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.metadata__heading { justify-content: space-between; }
-.metadata__labels { display: flex; flex-wrap: wrap; gap: 6px; }
-.metadata__label {
-  padding: 3px 5px 3px 9px;
-  border: 1px solid color-mix(in srgb, var(--label-color) 48%, var(--border));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--label-color) 12%, var(--surface));
-  font-size: var(--text-xs);
-}
-.metadata__label .button { min-inline-size: 24px; padding: 0; }
-.metadata__fields { display: grid; gap: 8px; }
-.metadata__field .field { flex: 1; min-inline-size: 0; }
-
-.metadata-catalog { margin-block: 0; }
-.cataloggrid { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(360px, 1.3fr); gap: 16px; }
-.cataloggrid__form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 10px; }
-.input--color { min-block-size: 40px; padding: 4px; }
-
-@media (max-width: 900px) {
-  .cataloggrid { grid-template-columns: 1fr; }
 }

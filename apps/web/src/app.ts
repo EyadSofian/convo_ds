@@ -14,8 +14,9 @@ import {
   disconnectedMetadataApi,
   PeopleApi,
 } from './api/people';
+import { allowedScreens, landingScreen } from './live/ability';
 import type { LiveContext } from './live/actions';
-import { loadChannelsScreen, loadPeopleScreen, loadSession } from './live/actions';
+import { loadChannelsScreen, loadPeopleScreen, loadSession, loadSettingsScreen } from './live/actions';
 import {
   loadInboxScreen,
   openConversation,
@@ -23,145 +24,28 @@ import {
   stopRealtime,
 } from './live/inbox-actions';
 import { loadContactsScreen } from './live/contact-actions';
-import { loadCampaignsScreen } from './live/campaign-actions';
-import { loadCampaignReport } from './live/campaign-actions';
+import { loadCampaignReport, loadCampaignsScreen, refreshCampaignReportExport } from './live/campaign-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
-import { createLiveState, rowsOf } from './live/store';
-import { attrOf, closestWithAttr, h, replace } from './dom';
-import { icon } from './icons';
-import type { IconName } from './icons';
-import { ROLE_LABELS } from './permissions';
+import { createLiveState, renewLiveState } from './live/store';
+import type { LiveState } from './live/store';
+import { attrOf, closestWithAttr, replace } from './dom';
+import type { PreferenceStore } from './preferences';
+import { browserStore, readPreferences, writePreferences } from './preferences';
 import type { Route, RouterHost, ScreenId } from './router';
-import { onRouteChange, readRoute, SCREENS, writeRoute } from './router';
+import { onRouteChange, readRoute, writeRoute } from './router';
 import type { AppState } from './state';
-import {
-  applyRoute,
-  createState,
-  currentActor,
-  routeParamsFor,
-  screenTitle,
-  VIEWABLE_ROLES,
-} from './state';
-import { renderContacts } from './ui/contacts-screen';
-import { renderInbox } from './ui/live-inbox';
-import { renderDialog } from './ui/dialogs';
-import { button, isolated, selectControl } from './ui/parts';
-import { initials } from './format';
-import { renderAnalytics, renderBroadcasts, renderSettings } from './ui/workspace';
+import { applyRoute, createState, NO_ANALYTICS_FILTERS, routeParamsFor } from './state';
+import { renderAnalytics } from './ui/analytics-screen';
+import { renderGate } from './ui/auth';
+import { renderBroadcasts } from './ui/campaigns-screen';
 import { renderChannels } from './ui/channels-screen';
+import { renderContacts } from './ui/contacts-screen';
+import { renderDialog } from './ui/dialogs';
+import { renderInbox } from './ui/live-inbox';
 import { renderPeople } from './ui/people-screen';
-
-function t(state: AppState, ar: string, en: string): string {
-  return state.lang === 'ar' ? ar : en;
-}
-
-const RAIL_ICONS: Record<ScreenId, IconName> = {
-  inbox: 'inbox',
-  contacts: 'users',
-  channels: 'channels',
-  people: 'people',
-  broadcasts: 'broadcasts',
-  analytics: 'analytics',
-  settings: 'settings',
-};
-
-function renderRail(state: AppState): HTMLElement {
-  const actor = currentActor(state);
-  // The rail's badge counts what this caller actually holds. It is the live
-  // list, not a demo count, so it is empty until the server has answered.
-  const unread = rowsOf(state.live.conversations).length;
-  return h('nav', { class: 'rail', 'aria-label': t(state, 'التنقّل الرئيسي', 'Primary navigation') }, [
-    h('span', { class: 'rail__brand', 'aria-hidden': 'true' }, ['CV']),
-    ...SCREENS.map((screen) =>
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'rail__item',
-          'data-act': 'nav',
-          'data-arg': screen,
-          'aria-current': state.route.screen === screen ? 'page' : undefined,
-          'aria-label': screenTitle(screen, state.lang),
-          title: screenTitle(screen, state.lang),
-        },
-        [
-          icon(RAIL_ICONS[screen], 18),
-          screen === 'inbox' && unread > 0
-            ? h('span', { class: 'rail__badge' }, [String(unread)])
-            : null,
-        ],
-      ),
-    ),
-    h('span', { class: 'rail__spacer' }),
-    h(
-      'span',
-      {
-        class: 'rail__avatar',
-        title: `${state.lang === 'ar' ? actor.name : actor.nameEn} · ${ROLE_LABELS[actor.role][state.lang]}`,
-      },
-      [initials(state.lang === 'ar' ? actor.name : actor.nameEn)],
-    ),
-  ]);
-}
-
-function renderTopbar(state: AppState): HTMLElement {
-  return h('header', { class: 'topbar' }, [
-    state.route.screen === 'inbox'
-      ? button({
-          icon: 'inbox',
-          act: 'list',
-          variant: 'ghost',
-          small: true,
-          pressed: state.listOpen,
-          title: state.listOpen
-            ? t(state, 'إغلاق قائمة المحادثات', 'Close the conversation list')
-            : t(state, 'فتح قائمة المحادثات', 'Open the conversation list'),
-          extraClass: 'list-toggle',
-        })
-      : null,
-    h('h1', { class: 'topbar__title' }, [screenTitle(state.route.screen, state.lang)]),
-    h('span', { class: 'topbar__sub' }, [
-      'Digital School · ',
-      isolated('workspace.digital-school', true),
-    ]),
-    h('span', { class: 'topbar__spacer' }),
-    h('div', { class: 'topbar__tools' }, [
-      h('label', { class: 'storyswitch' }, [
-        h('span', { class: 'storyswitch__label' }, [t(state, 'اعرض كـ', 'View as')]),
-        selectControl({
-          value: state.role,
-          act: 'role',
-          ariaLabel: t(state, 'اعرض كـ', 'View as'),
-          style: 'inline-size:auto',
-          options: VIEWABLE_ROLES.map((value) => ({
-            value,
-            label: ROLE_LABELS[value][state.lang],
-          })),
-        }),
-      ]),
-      button({
-        icon: state.theme === 'light' ? 'moon' : 'sun',
-        act: 'theme',
-        variant: 'ghost',
-        small: true,
-        title: state.theme === 'light'
-          ? t(state, 'تشغيل الوضع الداكن', 'Use dark theme')
-          : t(state, 'تشغيل الوضع الفاتح', 'Use light theme'),
-        extraClass: 'theme-toggle',
-      }),
-      button({
-        label: state.lang === 'ar' ? 'EN' : 'ع',
-        icon: 'language',
-        act: 'lang',
-        arg: state.lang === 'ar' ? 'en' : 'ar',
-        small: true,
-        title: t(state, 'التبديل إلى الإنجليزية', 'Switch to Arabic'),
-      }),
-    ]),
-  ]);
-}
-
+import { renderSettings } from './ui/settings-screen';
+import { renderShell, renderToasts } from './ui/shell';
 
 function renderScreen(state: AppState): HTMLElement {
   if (state.route.screen === 'contacts') return renderContacts(state);
@@ -173,48 +57,24 @@ function renderScreen(state: AppState): HTMLElement {
   return renderInbox(state);
 }
 
-function renderToasts(state: AppState): HTMLElement | null {
-  if (state.toasts.length === 0) return null;
-  return h(
-    'div',
-    { class: 'toasts', role: 'status', 'aria-live': 'polite' },
-    state.toasts.map((toast) =>
-      h(
-        'div',
-        {
-          class: toast.tone === 'default' ? 'toast' : `toast toast--${toast.tone}`,
-          style: 'pointer-events:auto',
-        },
-        [
-          h('span', {}, [toast.text]),
-          h(
-            'button',
-            {
-              type: 'button',
-              class: 'chip__remove',
-              'data-act': 'toast',
-              'data-arg': toast.id,
-              'aria-label': t(state, 'إغلاق التنبيه', 'Dismiss'),
-            },
-            [icon('close', 11)],
-          ),
-        ],
-      ),
-    ),
-  );
+/**
+ * Whether the workspace may be drawn at all.
+ *
+ * The single boundary between a visitor and the product: a session the server
+ * confirmed, and a company to work in. Until both are true nothing protected is
+ * built — not hidden with CSS, not rendered off-screen, not built.
+ */
+export function workspaceOpen(state: AppState): boolean {
+  return state.live.session.status === 'signed_in' && state.live.session.tenantId !== null;
 }
 
 export function renderApp(state: AppState): DocumentFragment {
   const fragment = document.createDocumentFragment();
-  fragment.appendChild(
-    h('div', { class: 'shell' }, [
-      renderRail(state),
-      h('div', { class: 'shell__main' }, [
-        renderTopbar(state),
-        h('main', { class: 'shell__screen' }, [renderScreen(state)]),
-      ]),
-    ]),
-  );
+  if (!workspaceOpen(state)) {
+    fragment.appendChild(renderGate(state));
+    return fragment;
+  }
+  fragment.appendChild(renderShell(state, renderScreen(state)));
   const dialog = renderDialog(state);
   if (dialog !== null) fragment.appendChild(dialog);
   const toasts = renderToasts(state);
@@ -226,9 +86,7 @@ export function renderApp(state: AppState): DocumentFragment {
  * The stream, opened by the browser.
  *
  * `withCredentials` because the session is a cookie and an `EventSource`
- * without it is an unauthenticated request that will be refused. Named rather
- * than inlined so the composition root has one obvious default and a test can
- * substitute another.
+ * without it is an unauthenticated request that will be refused.
  */
 export function browserEventSource(url: string): EventSource {
   return new EventSource(url, { withCredentials: true });
@@ -253,9 +111,8 @@ interface FocusSnapshot {
   readonly key: string;
   /**
    * Which control with that key, in document order. The same action and
-   * argument legitimately appear twice — a views-column row and a segment tab
-   * both drive `queue:mine` — so the key alone would move focus across the
-   * screen on re-render.
+   * argument legitimately appear twice, so the key alone would move focus
+   * across the screen on re-render.
    */
   readonly ordinal: number;
   readonly start: number;
@@ -265,20 +122,21 @@ interface FocusSnapshot {
 function focusKeyOf(element: Element | null): string | null {
   if (!(element instanceof HTMLElement)) return null;
   const act = element.getAttribute('data-act');
-  if (act === null) return null;
+  if (act === null) return element.id === '' ? null : `#${element.id}`;
   const arg = element.getAttribute('data-arg') ?? element.getAttribute('data-form') ?? '';
   return `${act}|${arg}`;
 }
 
 function keyedControls(root: Element, key: string): readonly Element[] {
+  if (key.startsWith('#')) {
+    return Array.from(root.querySelectorAll(key.replace(/[^#\w-]/g, '')));
+  }
   return Array.from(root.querySelectorAll('[data-act]')).filter(
     (element) => focusKeyOf(element) === key,
   );
 }
 
 function captureFocus(root: Element): FocusSnapshot | null {
-  // `Element.ownerDocument` is non-nullable, and this is only ever called with
-  // the mount element, so there is no "detached root" case to defend against.
   const active = root.ownerDocument.activeElement;
   const key = focusKeyOf(active);
   if (key === null || active === null) return null;
@@ -289,40 +147,79 @@ function captureFocus(root: Element): FocusSnapshot | null {
   return { key, ordinal, start: -1, end: -1 };
 }
 
-function restoreFocus(root: Element, snapshot: FocusSnapshot | null): void {
-  if (snapshot === null) return;
+function restoreFocus(root: Element, snapshot: FocusSnapshot | null): boolean {
+  if (snapshot === null) return false;
   const match = keyedControls(root, snapshot.key)[Math.max(snapshot.ordinal, 0)];
-  if (!(match instanceof HTMLElement)) return;
+  if (!(match instanceof HTMLElement)) return false;
   match.focus();
   if (
     snapshot.start >= 0 &&
     (match instanceof HTMLInputElement || match instanceof HTMLTextAreaElement)
   ) {
-    match.setSelectionRange(snapshot.start, snapshot.end);
+    try {
+      match.setSelectionRange(snapshot.start, snapshot.end);
+    } catch {
+      // `email` and `number` inputs have no selection API; focus is enough.
+    }
   }
+  return true;
+}
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function focusables(container: Element): HTMLElement[] {
+  return Array.from(container.querySelectorAll(FOCUSABLE)).filter(
+    (element): element is HTMLElement => element instanceof HTMLElement && rendered(element, container),
+  );
+}
+
+/**
+ * Whether the stylesheet draws a control at all. A control it hides — the
+ * collapse toggle inside the phone-width drawer, say — is not a Tab stop, and
+ * counting it as the layer's last one would let Tab walk out of the layer.
+ */
+function rendered(element: Element, container: Element): boolean {
+  for (let node: Element | null = element; node !== null && node !== container; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+  }
+  return true;
+}
+
+/**
+ * Which layer is on top, if any.
+ *
+ * Opening a layer moves focus into it and closing one returns focus to the
+ * control that opened it. The order is the stacking order: a dialog sits over a
+ * menu, which sits over a drawer.
+ */
+function overlayOf(state: AppState): string | null {
+  if (!workspaceOpen(state)) return null;
+  if (state.dialog !== null) return `dialog:${state.dialog.kind}`;
+  if (state.openMenu !== null) return `menu:${state.openMenu}`;
+  if (state.navOpen) return 'nav';
+  return null;
 }
 
 /**
  * Sizes the composer to its content, between the resting and maximum heights
- * in `styles/tokens.css`.
- *
- * A textarea cannot size itself to content in CSS that ships everywhere today
- * (`field-sizing` is not universal), and a fixed `rows` count would either
- * waste the timeline's space at rest or clip a long reply. Measuring after each
- * render keeps the resting composer at exactly 44px — which is what holds the
- * whole composer area inside its 118px budget — while letting a growing draft
- * reach 88px and stop.
+ * in `styles/tokens.css`. A textarea cannot size itself to content in CSS that
+ * ships everywhere today, and a fixed `rows` count would either waste the
+ * timeline's space at rest or clip a long reply.
  */
 export const COMPOSER_MIN_HEIGHT = 44;
-export const COMPOSER_MAX_HEIGHT = 88;
+export const COMPOSER_MAX_HEIGHT = 120;
 
 function growComposer(root: Element): void {
   const input = root.querySelector('.composer__input');
-  if (!(input instanceof HTMLTextAreaElement)) return;
+  if (input instanceof HTMLTextAreaElement) growField(input);
+}
+
+function growField(input: HTMLTextAreaElement): void {
   input.style.height = 'auto';
   // `scrollHeight` excludes the border under `box-sizing: border-box`, so a
-  // height set straight from it clips the text by the border width. Both
-  // operands are always numbers, so the difference is always a number.
+  // height set straight from it clips the text by the border width.
   const border = input.offsetHeight - input.clientHeight;
   const content = input.scrollHeight + border;
   const clamped = Math.min(Math.max(content, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT);
@@ -338,6 +235,10 @@ export interface AppHandle {
   destroy(): void;
 }
 
+/** Cancels a scheduled callback. */
+export type Cancel = () => void;
+export type Scheduler = (work: () => void, delayMs: number) => Cancel;
+
 export interface MountOptions {
   readonly root: HTMLElement;
   readonly host: RouterHost;
@@ -350,40 +251,42 @@ export interface MountOptions {
   readonly readCsrfToken?: (() => string | null) | undefined;
   /** Injected for deterministic idempotency keys in tests. */
   readonly newKey?: (() => string) | undefined;
-  /**
-   * How the live stream is opened. Injected for the same reason `fetch` is: so
-   * a test drives the real subscription without a browser, and so nothing here
-   * reaches for a global.
-   */
+  /** How the live stream is opened. Injected for the same reason `fetch` is. */
   readonly openEventSource?: EventSourceFactory | undefined;
+  /** Where the theme and navigation width are remembered. Never anything else. */
+  readonly preferences?: PreferenceStore | null | undefined;
+  /** The system colour scheme, for a first visit with no stored choice. */
+  readonly prefersDark?: (() => boolean) | undefined;
+  /** How follow-up reads are delayed, e.g. an export still being prepared. */
+  readonly schedule?: Scheduler | undefined;
 }
 
+/** How long to wait before asking again about an export that is still running. */
+export const EXPORT_POLL_MS = 2500;
+
 /**
- * Which screens talk to the server, and what each one loads.
+ * Which screens load what.
  *
- * A table rather than a chain of `if`s because the set is the interesting part:
- * a screen missing from it is a screen that makes no requests, which is worth
- * being able to read at a glance.
+ * A table rather than a chain of `if`s because every screen reads the server
+ * now, and one missing here is a screen that would silently show nothing.
  */
-const SCREEN_LOADERS: Readonly<Record<string, (context: LiveContext) => Promise<void>>> = {
+const SCREEN_LOADERS: Readonly<Record<ScreenId, (context: LiveContext) => Promise<void>>> = {
   people: loadPeopleScreen,
   channels: loadChannelsScreen,
   inbox: loadInboxScreen,
   contacts: loadContactsScreen,
   broadcasts: loadCampaignsScreen,
   analytics: loadCampaignReport,
+  settings: loadSettingsScreen,
 };
 
 /**
  * Entry point: finds (or creates) the mount node and starts the app.
- *
- * There is deliberately no viewport probe here any more. Both optional side
- * zones start closed (task §3), and whether an open zone is an inline column
- * or a drawer is decided in `styles/shell.css` from the arithmetic that keeps
- * the timeline at 640px. Duplicating that threshold in JavaScript is how the
- * two drift apart.
  */
-export function boot(document_: Document, host: RouterHost): AppHandle {
+export function boot(
+  document_: Document,
+  host: RouterHost & { readonly localStorage?: PreferenceStore; matchMedia?: (query: string) => { readonly matches: boolean } },
+): AppHandle {
   const existing = document_.getElementById('app');
   const root = existing ?? document_.body.appendChild(document_.createElement('div'));
   root.id = 'app';
@@ -392,13 +295,21 @@ export function boot(document_: Document, host: RouterHost): AppHandle {
     host,
     fetch: (input, init) => globalThis.fetch(input, init),
     readCsrfToken: () => csrfFromCookie(document_.cookie),
+    preferences: browserStore(host),
+    prefersDark: () => host.matchMedia?.('(prefers-color-scheme: dark)').matches === true,
   });
+}
+
+/** `setTimeout`, cancellable. The default scheduler outside tests. */
+export function browserScheduler(work: () => void, delayMs: number): Cancel {
+  const handle = setTimeout(work, delayMs);
+  return () => {
+    clearTimeout(handle);
+  };
 }
 
 export function mount(options: MountOptions): AppHandle {
   const transport = options.fetch;
-  // No transport was injected, so this page has no API behind it. Every request
-  // fails as a network error, which is what such a screen shows.
   const client =
     transport === undefined
       ? null
@@ -406,6 +317,9 @@ export function mount(options: MountOptions): AppHandle {
           baseUrl: API_BASE_URL,
           fetch: transport,
           readCsrfToken: options.readCsrfToken ?? (() => null),
+          // A function declaration below, hoisted: the client is built before the
+          // context it closes, and the hook only runs after a request has been sent.
+          onUnauthenticated: expireWorkspace,
         });
   const api = client === null ? disconnectedApi() : new PeopleApi(client);
   const channels = client === null ? disconnectedChannelsApi() : new ChannelsApi(client);
@@ -415,45 +329,30 @@ export function mount(options: MountOptions): AppHandle {
   const metadata = client === null ? disconnectedMetadataApi() : new MetadataApi(client);
   const campaigns = client === null ? undefined : new CampaignsApi(client);
   /**
-   * The clock the whole screen reads.
-   *
-   * When `now` is supplied it is the clock — frozen, and used for the relative
-   * times *and* for any instant an action computes. Without that, the option
-   * seeded `state.clock` and then the first render replaced it with the real
-   * time, so it made nothing deterministic and a snooze offset could not be
-   * asserted at all. In production nothing is supplied and this is `new Date()`,
-   * which is exactly what it was.
+   * The clock the whole screen reads. When `now` is supplied it is the clock —
+   * frozen, and used for relative times *and* for any instant an action
+   * computes. In production nothing is supplied and this is `new Date()`.
    */
   const clock = (): Date => options.now ?? new Date();
   const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata, campaigns));
+  const store = options.preferences ?? null;
+  const stored = readPreferences(store);
+  state.theme = stored.theme ?? ((options.prefersDark?.() ?? false) ? 'dark' : 'light');
+  state.navCollapsed = stored.navCollapsed ?? true;
+  let savedTheme = state.theme;
+  let savedNav = state.navCollapsed;
+
   const root = options.root;
   const host = options.host;
-  let sessionRequested = false;
-  /**
-   * The screen whose lists have been loaded.
-   *
-   * Every route change syncs the URL, and a language toggle is a route change —
-   * without this, changing the language would re-fetch the whole inbox. A
-   * deliberate reload has its own action.
-   */
-  let loadedScreen: string | null = null;
+  const schedule: Scheduler = options.schedule ?? browserScheduler;
+  /** The screen whose lists have been loaded for the current session. */
+  let loadedScreen: ScreenId | null = null;
   /** Whether the first render has happened. */
   let drawn = false;
-
-  const render = (): void => {
-    // Relative times are a function of when the screen was drawn, so the clock
-    // advances here rather than being read inside a view.
-    state.clock = clock();
-    const snapshot = captureFocus(root);
-    const document_ = root.ownerDocument;
-    document_.documentElement.setAttribute('lang', state.lang);
-    document_.documentElement.setAttribute('dir', state.lang === 'ar' ? 'rtl' : 'ltr');
-    document_.documentElement.setAttribute('data-theme', state.theme);
-    root.className = 'app-root';
-    replace(root, [renderApp(state)]);
-    growComposer(root);
-    restoreFocus(root, snapshot);
-  };
+  let overlay: string | null = null;
+  let returnFocus: FocusSnapshot | null = null;
+  let cancelPoll: Cancel | null = null;
+  let destroyed = false;
 
   const syncUrl = (): void => {
     const next: Route = {
@@ -465,6 +364,136 @@ export function mount(options: MountOptions): AppHandle {
     writeRoute(host, next);
   };
 
+  const render = (): void => {
+    // Relative times are a function of when the screen was drawn, so the clock
+    // advances here rather than being read inside a view.
+    state.clock = clock();
+    const snapshot = captureFocus(root);
+    const document_ = root.ownerDocument;
+    document_.documentElement.setAttribute('lang', state.lang);
+    document_.documentElement.setAttribute('dir', state.lang === 'ar' ? 'rtl' : 'ltr');
+    document_.documentElement.setAttribute('data-theme', state.theme);
+    if (state.theme !== savedTheme || state.navCollapsed !== savedNav) {
+      savedTheme = state.theme;
+      savedNav = state.navCollapsed;
+      writePreferences(store, { theme: state.theme, navCollapsed: state.navCollapsed });
+    }
+    root.className = 'app-root';
+    replace(root, [renderApp(state)]);
+    growComposer(root);
+
+    const nextOverlay = overlayOf(state);
+    if (nextOverlay !== overlay) {
+      const opened = nextOverlay !== null;
+      if (opened && overlay === null) returnFocus = snapshot;
+      overlay = nextOverlay;
+      if (opened) {
+        // Every overlay carries one of the two markers, so an opened layer is there.
+        const layer = root.querySelector('[data-trap], [data-overlay]') as HTMLElement;
+        const first = focusables(layer)[0];
+        if (first !== undefined) {
+          first.focus();
+          return;
+        }
+      } else if (restoreFocus(root, returnFocus)) {
+        returnFocus = null;
+        return;
+      }
+    }
+    if (state.focusTarget !== null) {
+      const target = root.querySelector(state.focusTarget);
+      state.focusTarget = null;
+      if (target instanceof HTMLElement) {
+        target.focus();
+        return;
+      }
+    }
+    restoreFocus(root, snapshot);
+  };
+
+  /**
+   * Draws, then makes sure the screen on show has its data.
+   *
+   * The load runs *before* the draw when it is needed: a load marks its lists
+   * busy and re-renders synchronously, so the first frame of a newly opened
+   * workspace is a loading state rather than whatever the lists held before.
+   */
+  const refresh = (): void => {
+    if (destroyed) return;
+    syncUrl();
+    if (!ensureScreen()) render();
+    followExport();
+  };
+
+  const makeContext = (live: LiveState): LiveContext => ({
+    state,
+    live,
+    refresh,
+    now: () => clock().getTime(),
+    newKey: options.newKey ?? (() => `${String(Date.now())}-${String(Math.random()).slice(2, 10)}`),
+    endSession: () => {
+      closeWorkspace(false);
+    },
+    switchWorkspace: (tenantId) => {
+      const session = state.live.session;
+      stopRealtime(liveContext);
+      cancelPoll?.();
+      cancelPoll = null;
+      state.live = renewLiveState(state.live);
+      state.live.session = { ...session, tenantId } as typeof session;
+      liveContext = makeContext(state.live);
+      state.dialog = null;
+      state.dialogForm = {};
+      state.openMenu = null;
+      state.analyticsFilters = NO_ANALYTICS_FILTERS;
+      state.channelKind = '';
+      state.expandedConnection = null;
+      state.route = { ...state.route, conversationId: null };
+      loadedScreen = null;
+      refresh();
+    },
+  });
+  let liveContext = makeContext(state.live);
+
+  /**
+   * Closes the workspace: stream, timers, drafts and every protected list.
+   *
+   * The route stays in the address bar, so signing back in lands where the
+   * operator was. A deliberate sign-out drops the open conversation from it:
+   * the next person to sign in on this browser has no business being sent to
+   * somebody else's thread.
+   */
+  const closeWorkspace = (expired: boolean): void => {
+    stopRealtime(liveContext);
+    cancelPoll?.();
+    cancelPoll = null;
+    state.live = renewLiveState(state.live);
+    state.live.session = expired
+      ? { status: 'signed_out', error: null, expired: true }
+      : { status: 'signed_out', error: null };
+    liveContext = makeContext(state.live);
+    state.dialog = null;
+    state.dialogForm = {};
+    state.formErrors = {};
+    state.openMenu = null;
+    state.navOpen = false;
+    state.listOpen = false;
+    state.toasts = [];
+    state.passwordVisible = false;
+    loadedScreen = null;
+    if (!expired && state.route.conversationId !== null) {
+      state.route = { ...state.route, conversationId: null };
+      syncUrl();
+    }
+    render();
+  };
+
+  function expireWorkspace(): void {
+    // Only a workspace that was open can expire. A 401 during the probe or on
+    // the gate is the ordinary signed-out answer and is handled where it lands.
+    if (workspaceOpen(state)) closeWorkspace(true);
+  }
+
   const context: ActionContext = {
     state,
     navigate: (screen, conversationId) => {
@@ -473,33 +502,65 @@ export function mount(options: MountOptions): AppHandle {
         conversationId,
         params: state.route.params,
       };
-      syncUrl();
-      render();
-      // Arriving at a screen is what triggers its first load, whether the
-      // route came from a click or from the address bar. The hash this just
-      // wrote will re-enter `handleRoute`, which sees the same route and does
-      // nothing — so the load has to happen here.
-      ensureLiveSession();
+      refresh();
     },
-    refresh: () => {
-      syncUrl();
-      render();
-    },
+    refresh,
   };
 
-  const liveContext: LiveContext = {
-    state,
-    live: state.live,
-    refresh: () => {
-      render();
-    },
-    now: () => clock().getTime(),
-    newKey: options.newKey ?? (() => `${String(Date.now())}-${String(Math.random()).slice(2, 10)}`),
+  /**
+   * Loads the current screen once per session, and keeps the route inside what
+   * this membership can open.
+   *
+   * Returns whether it drew, so `refresh` does not draw a second time.
+   */
+  const ensureScreen = (): boolean => {
+    if (!workspaceOpen(state)) return false;
+    if (!allowedScreens(state.live).includes(state.route.screen)) {
+      // A screen this membership cannot use is not offered in the navigation,
+      // so a link to one lands on the first screen it can. The server still
+      // refuses the data either way.
+      state.route = { screen: landingScreen(state.live), conversationId: null, params: state.route.params };
+      syncUrl();
+    }
+    const screen = state.route.screen;
+    if (loadedScreen === screen) return false;
+    loadedScreen = screen;
+    const current = liveContext;
+    const load = SCREEN_LOADERS[screen];
+    let drew = false;
+    const settled = load({ ...current, refresh: () => { drew = true; refresh(); } });
+    void settled.then(() => {
+      afterLoad(screen, current);
+    });
+    return drew;
+  };
+
+  /**
+   * Follows a CSV export that is still being prepared, until it settles.
+   *
+   * A poll of a real endpoint, not a timer standing in for a result: each tick
+   * asks the server, and "completed" is only drawn when the server says so.
+   */
+  const followExport = (): void => {
+    const job = state.live.campaignReportExport;
+    const pending =
+      workspaceOpen(state) &&
+      job.status === 'ready' &&
+      (job.value.state === 'queued' || job.value.state === 'running');
+    if (!pending) {
+      cancelPoll?.();
+      cancelPoll = null;
+      return;
+    }
+    if (cancelPoll !== null) return;
+    const current = liveContext;
+    cancelPoll = schedule(() => {
+      cancelPoll = null;
+      void refreshCampaignReportExport(current);
+    }, EXPORT_POLL_MS);
   };
 
   const dispatch = (name: string, arg = ''): void => {
-    // `live-*` actions reach the server, so they settle later and re-render
-    // themselves. Everything else is the synchronous demo action table.
     const pending = runLiveAction(liveContext, name, arg);
     if (pending !== null) {
       void pending;
@@ -511,9 +572,11 @@ export function mount(options: MountOptions): AppHandle {
   const onClick = (event: Event): void => {
     const target = closestWithAttr(event.target, 'data-act');
     if (target === null) {
-      if (state.openMenu !== null) {
+      // A click inside an open popover is somebody using it, not dismissing it.
+      const inside = event.target instanceof Element && event.target.closest('[data-overlay]') !== null;
+      if (state.openMenu !== null && !inside) {
         state.openMenu = null;
-        render();
+        refresh();
       }
       return;
     }
@@ -522,8 +585,29 @@ export function mount(options: MountOptions): AppHandle {
     if (target instanceof HTMLTextAreaElement) return;
     // The scrim only closes when the click landed on the scrim itself.
     if (target.hasAttribute('data-scrim') && event.target !== target) return;
+    const mouse = event as MouseEvent;
+    // A navigation link opened in a new tab is the browser's business.
+    if (target instanceof HTMLAnchorElement && (mouse.metaKey || mouse.ctrlKey || mouse.shiftKey)) return;
     event.preventDefault();
-    dispatch(attrOf(target, 'data-act'), attrOf(target, 'data-arg'));
+    const act = attrOf(target, 'data-act');
+    if (act === 'skip-to-content') {
+      root.ownerDocument.getElementById('main')?.focus();
+      return;
+    }
+    // A submit button's form already dispatches on `submit`.
+    if (target instanceof HTMLButtonElement && target.type === 'submit' && target.form !== null) {
+      target.form.requestSubmit();
+      return;
+    }
+    dispatch(act, attrOf(target, 'data-arg'));
+  };
+
+  const onSubmit = (event: Event): void => {
+    // Only a form fires `submit`.
+    const form = event.target as HTMLFormElement;
+    event.preventDefault();
+    const act = form.getAttribute('data-submit');
+    if (act !== null) dispatch(act, form.getAttribute('data-arg') ?? '');
   };
 
   const onInput = (event: Event): void => {
@@ -540,13 +624,61 @@ export function mount(options: MountOptions): AppHandle {
     const formName = target.getAttribute('data-form');
     const arg = formName === null ? target.value : `${formName}:${target.value}`;
     dispatch(act, arg);
-    if (formName !== null && target instanceof HTMLSelectElement) render();
+    if (formName !== null && target instanceof HTMLSelectElement && act === 'form') refresh();
+    // A draft is recorded without a re-render, so the caret never jumps; the one
+    // control its emptiness gates is updated in place instead. Without this the
+    // Send button stayed disabled until something else happened to redraw.
+    // The draft grows as it is typed, not only when something else redraws.
+    if (target instanceof HTMLTextAreaElement && target.classList.contains('composer__input')) growField(target);
+    const enables = target.getAttribute('data-enables');
+    const gated = enables === null ? null : root.querySelector(`[data-act="${enables}"]`);
+    if (gated instanceof HTMLButtonElement && gated.getAttribute('aria-busy') !== 'true') {
+      gated.disabled = target.value.trim() === '';
+    }
   };
 
   /**
-   * Escape unwinds exactly one layer, outermost first: dialog, then an open
-   * menu, then whichever side zones are open. Without the ordering, dismissing
-   * a dialog would also collapse the panel behind it.
+   * Keeps Tab inside the top layer while it is modal. Every modal layer has at
+   * least its own close button, so there is always a first and a last stop.
+   */
+  const trapTab = (keyboard: KeyboardEvent): boolean => {
+    const layer = root.querySelector('[data-trap]') as HTMLElement;
+    const items = focusables(layer);
+    const first = items[0] as HTMLElement;
+    const last = items[items.length - 1] as HTMLElement;
+    const active = root.ownerDocument.activeElement;
+    if (keyboard.shiftKey && (active === first || !layer.contains(active))) {
+      last.focus();
+      return true;
+    }
+    if (!keyboard.shiftKey && (active === last || !layer.contains(active))) {
+      first.focus();
+      return true;
+    }
+    return false;
+  };
+
+  /** Arrow keys walk a menu's items; Home and End jump to its ends. */
+  const moveInMenu = (keyboard: KeyboardEvent): void => {
+    const menu = root.querySelector('[role="menu"]') as HTMLElement;
+    const items = Array.from(menu.querySelectorAll('[role^="menuitem"]:not([disabled])')).filter(
+      (element): element is HTMLElement => element instanceof HTMLElement,
+    );
+    const index = items.indexOf(root.ownerDocument.activeElement as HTMLElement);
+    const next =
+      keyboard.key === 'Home'
+        ? 0
+        : keyboard.key === 'End'
+          ? items.length - 1
+          : keyboard.key === 'ArrowDown'
+            ? (index + 1) % items.length
+            : (index - 1 + items.length) % items.length;
+    (items[next] as HTMLElement).focus();
+  };
+
+  /**
+   * Escape unwinds exactly one layer, outermost first: dialog, menu, then the
+   * navigation drawer, then the queue drawer.
    */
   const onKeyDown = (event: Event): void => {
     const keyboard = event as KeyboardEvent;
@@ -566,6 +698,17 @@ export function mount(options: MountOptions): AppHandle {
       return;
     }
 
+    if (keyboard.key === 'Tab' && (state.dialog !== null || state.navOpen)) {
+      if (trapTab(keyboard)) event.preventDefault();
+      return;
+    }
+
+    if (state.openMenu !== null && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(keyboard.key)) {
+      event.preventDefault();
+      moveInMenu(keyboard);
+      return;
+    }
+
     if (keyboard.key !== 'Escape') return;
     if (state.dialog !== null) {
       event.preventDefault();
@@ -577,7 +720,12 @@ export function mount(options: MountOptions): AppHandle {
       dispatch('close-menu');
       return;
     }
-    if (state.listOpen) {
+    if (state.navOpen) {
+      event.preventDefault();
+      dispatch('nav-drawer-close');
+      return;
+    }
+    if (state.listOpen || state.panelDrawer) {
       event.preventDefault();
       dispatch('close-overlays');
     }
@@ -585,8 +733,7 @@ export function mount(options: MountOptions): AppHandle {
 
   /**
    * Pointer drag on the queue-list separator. Width is measured from the
-   * column's own inline start, so the same arithmetic serves RTL and LTR
-   * without a direction branch on the coordinate itself.
+   * column's own inline start, so the same arithmetic serves RTL and LTR.
    */
   const onPointerDown = (event: Event): void => {
     const pointer = event as PointerEvent;
@@ -613,48 +760,17 @@ export function mount(options: MountOptions): AppHandle {
   };
 
   /**
-   * Resolves the session the first time a server-backed screen is opened.
-   *
-   * Not on boot: the screens that are still seeded demos work with no API
-   * reachable, and a workspace that never opens a server-backed screen never
-   * makes a request. Each screen then loads its own lists, so opening Channels
-   * does not fetch the People ones.
-   */
-  const ensureLiveSession = (): void => {
-    const screen = state.route.screen;
-    const load = SCREEN_LOADERS[screen];
-    if (load === undefined || screen === loadedScreen) {
-      return;
-    }
-    loadedScreen = screen;
-    if (sessionRequested) {
-      void load(liveContext).then(() => {
-        afterLoad(screen);
-      });
-      return;
-    }
-    sessionRequested = true;
-    void loadSession(liveContext)
-      .then(() => load(liveContext))
-      .then(() => {
-        afterLoad(screen);
-      });
-  };
-
-  /**
    * Opens the live stream once the inbox has something to update, and follows a
-   * conversation named in the URL.
-   *
-   * Not on boot, and not for the other screens: a workspace that never opens
-   * the Inbox holds no socket, and one that opens it holds exactly one.
+   * conversation named in the URL. A workspace that never opens the Inbox holds
+   * no socket, and one that opens it holds exactly one.
    */
-  const afterLoad = (screen: string): void => {
-    if (screen !== 'inbox') {
+  const afterLoad = (screen: ScreenId, loadedWith: LiveContext): void => {
+    // The session this load belonged to has ended; its answers go nowhere.
+    if (screen !== 'inbox' || loadedWith !== liveContext || !workspaceOpen(state)) {
       return;
     }
     const deepLinked = state.route.conversationId;
     if (deepLinked !== null && state.live.openConversationId !== deepLinked) {
-      // A shared link lands on the thread rather than on an empty pane.
       void openConversation(liveContext, deepLinked);
     }
     startRealtime(liveContext, {
@@ -664,35 +780,27 @@ export function mount(options: MountOptions): AppHandle {
   };
 
   /**
-   * Applies a route and draws it.
-   *
-   * A route identical to the one on screen is *not* redrawn. Every URL sync
-   * fires the router's own listener, so without this a language toggle rendered
-   * twice: once for the change and once for the hash it wrote. The second
-   * render replaced every node for nothing, which is wasted work and, for
-   * anything holding a reference to a node, a surprise.
+   * Applies a route and draws it. A route identical to the one on screen is not
+   * redrawn: every URL sync fires the router's own listener.
    */
   const handleRoute = (route: Route): void => {
-    // `drawn` is what makes the first call unconditional: on boot the URL
-    // legitimately matches the default route, and skipping that render would
-    // leave the page on its loading placeholder forever.
     if (drawn && sameRoute(state.route, route)) {
       return;
     }
+    const firstDraw = !drawn;
     drawn = true;
+    const previousScreen = state.route.screen;
     applyRoute(state, route);
-    if (!state.openTabs.includes(state.route.screen)) {
-      state.openTabs = [...state.openTabs, state.route.screen];
+    if (!firstDraw && route.screen === 'analytics' && previousScreen === 'analytics') {
+      // Back and forward through filter changes re-read the report they name.
+      loadedScreen = null;
     }
-    // The inbox no longer picks a conversation for the operator: there is no
-    // local dataset to pick from, and opening somebody's conversation because a
-    // URL had no id is a request nobody made.
     syncUrl();
-    render();
-    ensureLiveSession();
+    refresh();
   };
 
   root.addEventListener('click', onClick);
+  root.addEventListener('submit', onSubmit);
   root.addEventListener('input', onInput);
   root.addEventListener('change', onInput);
   root.addEventListener('keydown', onKeyDown);
@@ -700,17 +808,21 @@ export function mount(options: MountOptions): AppHandle {
   const stopRouter = onRouteChange(host, handleRoute);
 
   handleRoute(readRoute(host));
+  // The session is asked for once, at boot, before anything protected exists.
+  // Until it answers the gate shows a loading screen and nothing else.
+  void loadSession(liveContext);
 
   return {
     state,
     render,
     dispatch,
     destroy: () => {
-      // The socket goes with the workspace. A destroyed app that kept a stream
-      // open would keep answering for a screen nobody is looking at.
+      destroyed = true;
       stopRealtime(liveContext);
+      cancelPoll?.();
       stopRouter();
       root.removeEventListener('click', onClick);
+      root.removeEventListener('submit', onSubmit);
       root.removeEventListener('input', onInput);
       root.removeEventListener('change', onInput);
       root.removeEventListener('keydown', onKeyDown);

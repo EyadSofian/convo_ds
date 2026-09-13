@@ -1,236 +1,621 @@
 /* ==========================================================================
    Layer 3 — shell
 
-   The application frame: viewport ownership, navigation rail, top bar, and the
-   inbox column grid with its drawer/overlay behaviour.
+   The frame around every screen: the sign-in gate, the navigation, the header,
+   the screen area, the inbox column grid with its drawers, and the layers that
+   float above everything (menus, toasts).
 
    Geometry contract (asserted by tests/e2e/layout.spec.ts):
-     shell            exactly 100dvh, no page-level scrolling
-     rail             56px          (range 56–60)
-     topbar           48px          (range 48–52)
-     thread minimum   640px         never squeezed below this by a side zone
-     list             300–380px     resizable, default 332px
+     navigation   64px collapsed, 232px expanded, overlay drawer below 960px
+     header       56px
+     queue list   300–400px, 336px by default, resizable
+     thread       never squeezed below 560px by a side column
 
-   A side zone is promoted from overlay to an inline column only when the
-   viewport can seat the whole combination that is currently open. Those
-   thresholds are arithmetic, not taste:
-     rail 56 + list 332 + thread 640                       = 1028
-     ... + views 232                                       = 1260
-     ... + panel 336 (no views)                            = 1364
-     ... + views 232 + panel 336                           = 1596
+   The inbox decides its columns from the width of the screen area rather than
+   the viewport, with a container query: the navigation can be 64px or 232px
+   wide, and a viewport breakpoint cannot know which.
+     list inline          336 + 560         = 896px of screen
+     customer panel inline 336 + 560 + 304  = 1200px of screen
    ========================================================================== */
 
 @layer shell {
-  /* ---------------------------------------------------------------- root -- */
-
   #app,
   .app-root {
     block-size: 100dvh;
-    /* dvh is the contract; vh is the pre-dvh fallback, not a second opinion. */
     max-block-size: 100dvh;
     overflow: hidden;
   }
 
-  .shell {
+  /* ---------------------------------------------------------------- gate -- */
+
+  .gate {
     display: grid;
-    grid-template-columns: var(--rail-width) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
     block-size: 100dvh;
-    overflow: hidden;
-    background: var(--surface-app);
+    overflow-y: auto;
+    background: var(--canvas);
   }
 
-  .shell__main {
+  .gate--loading {
+    grid-template-rows: 1fr;
+    place-items: center;
+  }
+
+  .gate__loading {
     display: grid;
-    grid-template-rows: var(--topbar-height) minmax(0, 1fr);
-    min-inline-size: 0;
-    min-block-size: 0;
-    overflow: hidden;
+    justify-items: center;
+    gap: var(--space-4);
   }
 
-  .shell__screen {
-    min-block-size: 0;
-    min-inline-size: 0;
-    overflow: hidden;
-    position: relative;
+  .gate__status {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
   }
 
-  /* ---------------------------------------------------------------- rail --
-     One of the two surfaces allowed a glass treatment (task §3, visual
-     direction). It is chrome, never a reading surface.
-     -------------------------------------------------------------------- */
-
-  .rail {
+  .gate__top {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-2);
-    padding-block: var(--space-4);
-    inline-size: var(--rail-width);
-    background: var(--rail-surface);
-    color: var(--rail-text);
-    overflow: visible;
-    z-index: 30;
+    justify-content: flex-end;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
   }
 
-  .rail__brand {
+  .gate__main {
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-4) var(--space-12);
+  }
+
+  .gate__main:focus-visible {
+    outline: none;
+  }
+
+  .gate__foot {
+    max-inline-size: 400px;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    text-align: center;
+  }
+
+  .auth-card {
+    display: grid;
+    gap: var(--space-5);
+    inline-size: min(400px, 100%);
+    padding: var(--space-8);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-md);
+  }
+
+  .auth-card__intro {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .auth-card__title {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-tight);
+  }
+
+  .auth-card__lede {
+    color: var(--text-muted);
+  }
+
+  .auth-form {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .auth-form__submit {
+    inline-size: 100%;
+    block-size: 40px;
+    font-size: var(--text-sm);
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .brand__name {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+  }
+
+  .logomark {
     display: grid;
     place-items: center;
     inline-size: 32px;
     block-size: 32px;
-    margin-block-end: var(--space-4);
-    border-radius: var(--radius-lg);
+    border-radius: 9px;
     background: var(--accent);
     color: var(--on-accent);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    letter-spacing: 0.04em;
+    flex: none;
   }
 
-  .rail__item {
-    position: relative;
-    display: grid;
-    place-items: center;
+  .logomark--lg {
     inline-size: 40px;
     block-size: 40px;
+    border-radius: 11px;
+  }
+
+  /* ---------------------------------------------------------------- frame -- */
+
+  .app {
+    --nav-w: var(--nav-width-collapsed);
+    display: grid;
+    grid-template-columns: var(--nav-w) minmax(0, 1fr);
+    block-size: 100dvh;
+    overflow: hidden;
+    background: var(--canvas);
+  }
+
+  .app[data-nav='expanded'] {
+    --nav-w: var(--nav-width-expanded);
+  }
+
+  .app__main {
+    display: grid;
+    grid-template-rows: var(--header-height) minmax(0, 1fr);
+    min-inline-size: 0;
+    min-block-size: 0;
+    overflow: hidden;
+  }
+
+  .app__screen {
+    container: screen / inline-size;
+    position: relative;
+    min-block-size: 0;
+    min-inline-size: 0;
+    overflow: hidden;
+  }
+
+  .app__screen:focus-visible {
+    outline-offset: -2px;
+  }
+
+  .skip-link {
+    position: fixed;
+    inset-block-start: var(--space-2);
+    inset-inline-start: var(--space-2);
+    z-index: 100;
+    padding: var(--space-2) var(--space-3);
     border: 0;
-    border-radius: var(--radius-lg);
-    background: transparent;
-    color: var(--rail-text);
-    transition: background var(--motion-fast) var(--ease-out),
-      color var(--motion-fast) var(--ease-out);
-  }
-
-  .rail__item:hover {
-    background: var(--rail-hover);
-    color: var(--rail-active);
-  }
-
-  .rail__item[aria-current='page'] {
+    border-radius: var(--radius-md);
     background: var(--accent);
     color: var(--on-accent);
+    font-weight: var(--weight-medium);
+    translate: 0 -200%;
   }
 
-  .rail__item:focus-visible {
-    outline-color: var(--rail-active);
+  .skip-link:focus-visible {
+    translate: 0 0;
+  }
+
+  /* ----------------------------------------------------------- navigation --
+     One of the few surfaces allowed a translucent layer: chrome, never a
+     reading surface.
+     -------------------------------------------------------------------- */
+
+  .nav {
+    position: relative;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-block-size: 0;
+    padding: var(--space-3) var(--space-3);
+    background: var(--nav-surface);
+    border-inline-end: 1px solid var(--border);
+    backdrop-filter: blur(var(--blur-glass));
+  }
+
+  .nav__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    block-size: 40px;
+    padding-inline: var(--space-1);
+    margin-block-end: var(--space-3);
+  }
+
+  .nav__wordmark {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+  }
+
+  .nav__close {
+    margin-inline-start: auto;
+  }
+
+  .nav__list {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .nav__item,
+  .nav__toggle {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    inline-size: 100%;
+    block-size: 40px;
+    padding-inline: 11px;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+  }
+
+  .nav__item:hover,
+  .nav__toggle:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  .nav__item[aria-current='page'] {
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+
+  .nav__item[aria-current='page'] svg {
+    color: var(--accent-text);
+  }
+
+  .nav__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .nav__badge {
+    display: inline-grid;
+    place-items: center;
+    min-inline-size: 20px;
+    block-size: 20px;
+    padding-inline: var(--space-1);
+    margin-inline-start: auto;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+  }
+
+  .nav__foot {
+    margin-block-start: auto;
+    padding-block-start: var(--space-2);
+    border-block-start: 1px solid var(--border-subtle);
+  }
+
+  .app[data-nav='collapsed'] .nav__wordmark,
+  .app[data-nav='collapsed'] .nav__label {
+    display: none;
+  }
+
+  .app[data-nav='collapsed'] .nav__head {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .app[data-nav='collapsed'] .nav__badge {
+    position: absolute;
+    inset-block-start: 3px;
+    inset-inline-end: 3px;
+    min-inline-size: 16px;
+    block-size: 16px;
+    font-size: 11px;
+  }
+
+  .app[data-nav='expanded'] .nav__toggle svg {
+    scale: -1 1;
+  }
+
+  [dir='rtl'] .app[data-nav='collapsed'] .nav__toggle svg {
+    scale: -1 1;
+  }
+
+  [dir='rtl'] .app[data-nav='expanded'] .nav__toggle svg {
+    scale: 1 1;
   }
 
   /*
-   * Collapsed label. The rail carries no text at 56px, so the accessible name
-   * lives on `aria-label` and this is its visible echo on hover/focus. It is
-   * `pointer-events: none` so it can never intercept the click it describes.
+   * The collapsed rail's visible name for each item, echoed on hover and focus.
+   * The accessible name is on the element itself; this never intercepts a click.
    */
-  .rail__item::after {
+  .app[data-nav='collapsed'] .nav__item::after,
+  .app[data-nav='collapsed'] .nav__toggle::after {
     content: attr(data-label);
     position: absolute;
     inset-inline-start: calc(100% + var(--space-3));
     inset-block-start: 50%;
     translate: 0 -50%;
-    padding: var(--space-2) var(--space-4);
-    border-radius: var(--radius-md);
-    background: var(--rail-surface);
-    color: var(--rail-active);
-    box-shadow: var(--shadow-overlay);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--text);
+    color: var(--canvas);
     font-size: var(--text-xs);
     white-space: nowrap;
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
     transition: opacity var(--motion-fast) var(--ease-out);
-    z-index: 40;
+    z-index: 60;
   }
 
-  .rail__item:hover::after,
-  .rail__item:focus-visible::after {
+  .app[data-nav='collapsed'] .nav__item:hover::after,
+  .app[data-nav='collapsed'] .nav__item:focus-visible::after,
+  .app[data-nav='collapsed'] .nav__toggle:hover::after,
+  .app[data-nav='collapsed'] .nav__toggle:focus-visible::after {
     opacity: 1;
     visibility: visible;
   }
 
-  .rail__badge {
-    position: absolute;
-    inset-block-start: 4px;
-    inset-inline-end: 4px;
-    min-inline-size: 16px;
-    block-size: 16px;
-    padding-inline: 4px;
-    border-radius: var(--radius-full);
-    background: var(--danger);
-    color: #ffffff;
-    font-size: 11px;
-    line-height: 16px;
-    font-weight: var(--weight-semibold);
-    text-align: center;
+  .nav-scrim {
+    display: none;
   }
 
-  .rail__spacer {
-    flex: 1 1 auto;
-  }
+  /* --------------------------------------------------------------- header -- */
 
-  .rail__avatar {
-    display: grid;
-    place-items: center;
-    inline-size: 32px;
-    block-size: 32px;
-    border-radius: var(--radius-full);
-    background: var(--rail-hover);
-    color: var(--rail-active);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-medium);
-  }
-
-  /* -------------------------------------------------------------- topbar -- */
-
-  .topbar {
+  .header {
     display: flex;
     align-items: center;
-    gap: var(--space-5);
-    block-size: var(--topbar-height);
+    gap: var(--space-3);
+    min-inline-size: 0;
     padding-inline: var(--space-5);
-    border-block-end: 1px solid var(--border-subtle);
-    background: var(--glass-tint);
-    backdrop-filter: blur(12px);
-    z-index: 20;
+    border-block-end: 1px solid var(--border);
+    background: var(--canvas);
   }
 
-  .topbar__title {
-    font-size: var(--text-md);
+  .header__menu {
+    display: none;
+  }
+
+  .header__titles {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+
+  .header__title {
+    font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
     line-height: var(--leading-tight);
     white-space: nowrap;
   }
 
-  .topbar__sub {
-    display: flex;
+  .header__tenant {
+    display: inline-flex;
+    align-items: center;
     gap: var(--space-2);
+    min-inline-size: 0;
+    padding-inline-start: var(--space-3);
+    border: 0;
+    border-inline-start: 1px solid var(--border);
+    background: transparent;
     color: var(--text-muted);
     font-size: var(--text-xs);
     white-space: nowrap;
+  }
+
+  .header__tenant span {
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .topbar__spacer {
-    flex: 1 1 auto;
+  .header__tenant--switch {
+    block-size: 30px;
+    border-radius: 0;
   }
 
-  .topbar__tools {
+  .header__tenant--switch:hover {
+    color: var(--text);
+  }
+
+  .header__tools {
     display: flex;
     align-items: center;
-    gap: var(--space-4);
+    gap: var(--space-1);
+    margin-inline-start: auto;
   }
 
-  /* --------------------------------------------------------- inbox grid -- */
+  .user-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    block-size: 36px;
+    padding-block: 3px;
+    padding-inline: 3px var(--space-2);
+    margin-inline-start: var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    background: var(--surface-1);
+    color: var(--text-secondary);
+  }
+
+  .user-button:hover,
+  .user-button[aria-expanded='true'] {
+    background: var(--surface-hover);
+  }
+
+  /* ------------------------------------------------------ floating layers -- */
+
+  .menu-anchor {
+    position: relative;
+  }
+
+  .menu,
+  .popover {
+    position: absolute;
+    inset-block-start: calc(100% + 6px);
+    inset-inline-end: 0;
+    z-index: 70;
+    min-inline-size: 240px;
+    padding: var(--space-1);
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(var(--blur-glass));
+  }
+
+  .menu--start {
+    inset-inline-start: 0;
+    inset-inline-end: auto;
+  }
+
+  .popover {
+    display: grid;
+    gap: var(--space-3);
+    inline-size: 280px;
+    padding: var(--space-3);
+  }
+
+  .menu__header {
+    display: grid;
+    gap: var(--space-half);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .menu__email {
+    font-weight: var(--weight-medium);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .menu__role {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+  }
+
+  .menu__separator {
+    block-size: 1px;
+    margin-block: var(--space-1);
+    background: var(--border);
+  }
+
+  .menu__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    inline-size: 100%;
+    min-block-size: 36px;
+    padding-inline: var(--space-3);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text);
+    font-size: var(--text-sm);
+    text-align: start;
+  }
+
+  .menu__item:hover,
+  .menu__item:focus-visible {
+    background: var(--surface-hover);
+  }
+
+  .menu__item--danger {
+    color: var(--danger);
+  }
+
+  .menu__label {
+    flex: 1;
+  }
+
+  .menu__hint {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+  }
+
+  .menu__check {
+    display: inline-grid;
+    inline-size: 14px;
+    visibility: hidden;
+    color: var(--accent-text);
+  }
+
+  .menu__item[aria-checked='true'] .menu__check {
+    visibility: visible;
+  }
+
+  .toasts {
+    position: fixed;
+    inset-block-end: var(--space-5);
+    inset-inline-end: var(--space-5);
+    z-index: 90;
+    display: grid;
+    gap: var(--space-2);
+    inline-size: min(380px, calc(100vw - 32px));
+  }
+
+  .toast {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(var(--blur-glass));
+  }
+
+  .toast > svg {
+    margin-block-start: 2px;
+    color: var(--success);
+  }
+
+  .toast--warning > svg {
+    color: var(--warning);
+  }
+
+  .toast--danger > svg {
+    color: var(--danger);
+  }
+
+  .toast__text {
+    flex: 1;
+  }
+
+  .toast__close {
+    display: grid;
+    place-items: center;
+    inline-size: 24px;
+    block-size: 24px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+  }
+
+  .toast__close:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  /* ---------------------------------------------------------- inbox grid -- */
 
   .inbox {
+    position: relative;
     display: grid;
-    /*
-     * Narrowest desktop arrangement, and the base every wider rule overrides:
-     * queue list plus timeline. Both side zones are overlays here.
-     */
-    grid-template-columns: var(--list-width) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     block-size: 100%;
     min-block-size: 0;
     overflow: hidden;
-    position: relative;
+    background: var(--surface-1);
   }
 
   .zone {
@@ -239,27 +624,23 @@
     min-inline-size: 0;
     min-block-size: 0;
     overflow: hidden;
-    background: var(--surface-panel);
-  }
-
-  .zone + .zone {
-    border-inline-start: 1px solid var(--border-subtle);
+    background: var(--surface-1);
   }
 
   .zone__header {
     display: flex;
     align-items: center;
-    gap: var(--space-4);
-    block-size: 40px;
+    justify-content: space-between;
+    gap: var(--space-2);
+    block-size: 52px;
     flex: none;
-    padding-inline: var(--space-5);
-    border-block-end: 1px solid var(--border-subtle);
+    padding-inline: var(--space-4) var(--space-2);
+    border-block-end: 1px solid var(--border);
   }
 
   .zone__title {
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
-    line-height: var(--leading-tight);
   }
 
   .zone__body {
@@ -269,80 +650,123 @@
     overscroll-behavior: contain;
   }
 
-  .zone--list {
-    inline-size: var(--list-width);
-    position: relative;
-  }
-
   .zone--thread {
-    background: var(--surface-sunken);
+    background: var(--surface-2);
   }
 
-  .zone--panel {
-    inline-size: var(--panel-width);
-  }
-
-  /* ------------------------------------------------------------ overlays --
-     The queue list and the customer panel are drawers over the work area with a
-     scrim, until the viewport can seat them as columns without pushing the
-     timeline under 640px. Nothing here uses physical left/right.
-
-     Two zones, not four: the saved-view sidebar and focus mode went with the
-     demo inbox. A rule for a zone that no longer exists is a rule nobody can
-     check.
-     -------------------------------------------------------------------- */
-
-  .inbox > .zone--panel {
+  /* Narrow screen area: the queue is a drawer from the inline start. */
+  .zone--list {
     position: absolute;
     inset-block: 0;
-    inset-inline-end: 0;
-    inline-size: min(320px, 86vw);
-    z-index: 25;
-    box-shadow: var(--shadow-overlay);
-    border-inline-start: 1px solid var(--border-subtle);
+    inset-inline-start: 0;
+    z-index: 30;
+    inline-size: min(360px, 92%);
+    border-inline-end: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .inbox[data-list='closed'] > .zone--list {
+    display: none;
   }
 
   .zone-scrim {
     position: absolute;
     inset: 0;
-    z-index: 24;
-    border: 0;
+    z-index: 25;
+    display: none;
     padding: 0;
+    border: 0;
     background: var(--scrim);
     cursor: pointer;
   }
 
-  /* -- promote: panel inline (rail 56 + list 332 + thread 640 + panel 336) -- */
-  @media (min-width: 1364px) {
-    .inbox[data-panel='open'] {
-      grid-template-columns:
-        var(--list-width) minmax(var(--thread-min-width), 1fr)
-        var(--panel-width);
+  .inbox[data-list='open'] > .zone-scrim--list,
+  .inbox[data-panel-drawer='open'] > .zone-scrim--panel {
+    display: block;
+  }
+
+  /* Narrow screen area: the customer panel is a drawer from the inline end. */
+  .zone--panel {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    z-index: 30;
+    display: none;
+    inline-size: min(340px, 92%);
+    border-inline-start: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .inbox[data-panel-drawer='open'] > .zone--panel {
+    display: flex;
+  }
+
+  .thread__paneltoggle--inline,
+  .list-resizer {
+    display: none;
+  }
+
+  @container screen (min-width: 896px) {
+    .inbox {
+      grid-template-columns: var(--list-width) minmax(0, 1fr);
     }
 
-    .inbox[data-panel='open'] > .zone--panel {
-      position: static;
-      inline-size: var(--panel-width);
+    .inbox > .zone--list,
+    .inbox[data-list='closed'] > .zone--list {
+      position: relative;
+      display: flex;
+      inline-size: auto;
       box-shadow: none;
-      border-inline-start: 1px solid var(--border-subtle);
+    }
+
+    .inbox > .zone-scrim--list,
+    .thread__listtoggle,
+    .listhead__close {
+      display: none;
+    }
+
+    .list-resizer {
+      display: block;
     }
   }
 
-  /* ------------------------------------------------------- list resizer --
-     Drags `--list-width` between 300px and 380px. A real separator with an
-     accessible name and keyboard support, not a bare div.
-     -------------------------------------------------------------------- */
+  @container screen (min-width: 1200px) {
+    .inbox[data-panel='open'] {
+      grid-template-columns: var(--list-width) minmax(var(--thread-min-width), 1fr) var(--panel-width);
+    }
+
+    .inbox[data-panel='open'] > .zone--panel {
+      position: relative;
+      display: flex;
+      inline-size: auto;
+      box-shadow: none;
+    }
+
+    .inbox[data-panel='closed'] > .zone--panel,
+    .inbox > .zone-scrim--panel,
+    .thread__paneltoggle--drawer {
+      display: none;
+    }
+
+    .inbox[data-panel-drawer='open'] > .zone-scrim--panel {
+      display: none;
+    }
+
+    .thread__paneltoggle--inline {
+      display: inline-flex;
+    }
+  }
 
   .list-resizer {
     position: absolute;
     inset-block: 0;
-    inset-inline-end: -3px;
-    inline-size: 7px;
+    inset-inline-end: -4px;
+    z-index: 15;
+    inline-size: 8px;
     padding: 0;
     border: 0;
     background: transparent;
     cursor: col-resize;
-    z-index: 15;
     touch-action: none;
   }
 
@@ -351,7 +775,7 @@
     position: absolute;
     inset-block: 0;
     inset-inline-start: 3px;
-    inline-size: 1px;
+    inline-size: 2px;
     background: transparent;
     transition: background var(--motion-fast) var(--ease-out);
   }
@@ -361,66 +785,81 @@
     background: var(--accent);
   }
 
-  /* ----------------------------------------------------------- narrower --
-     Below 1028px the queue list and a 640px timeline cannot coexist, so the
-     list becomes a drawer and the thread takes the full width. `data-list`
-     drives it; `.inbox` stops being a two-column grid.
+  /* ------------------------------------------------------------ narrow app --
+     Below 960px the navigation leaves the grid and becomes a drawer, so the
+     screen keeps the whole width.
      -------------------------------------------------------------------- */
 
-  @media (max-width: 1027px) {
-    .inbox {
+  @media (max-width: 959px) {
+    .app,
+    .app[data-nav='expanded'] {
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .inbox > .zone--list {
-      position: absolute;
+    .nav {
+      position: fixed;
       inset-block: 0;
       inset-inline-start: 0;
-      inline-size: min(360px, 88vw);
-      z-index: 26;
-      box-shadow: var(--shadow-overlay);
+      z-index: 85;
+      inline-size: min(var(--nav-width-expanded), 86vw);
+      visibility: hidden;
+      translate: -105% 0;
+      box-shadow: var(--shadow-lg);
+      background: var(--surface-1);
+      transition: translate var(--motion-base) var(--ease-out), visibility var(--motion-base);
     }
 
-    .inbox[data-list='closed'] > .zone--list,
-    .inbox[data-list='closed'] > .zone-scrim--list {
+    [dir='rtl'] .nav {
+      translate: 105% 0;
+    }
+
+    .app[data-drawer='open'] .nav {
+      visibility: visible;
+      translate: 0 0;
+    }
+
+    .app[data-nav] .nav__wordmark,
+    .app[data-nav] .nav__label {
+      display: inline;
+    }
+
+    .app[data-nav] .nav__head {
+      justify-content: flex-start;
+      padding-inline: var(--space-1);
+    }
+
+    .app[data-nav] .nav__badge {
+      position: static;
+    }
+
+    .app[data-nav] .nav__item::after,
+    .nav__foot {
       display: none;
     }
 
-    .zone + .zone {
-      border-inline-start: 0;
+    .app[data-drawer='open'] .nav-scrim {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: block;
+      padding: 0;
+      border: 0;
+      background: var(--scrim);
     }
 
-    .list-resizer {
+    .header {
+      padding-inline: var(--space-2) var(--space-3);
+      gap: var(--space-2);
+    }
+
+    .header__menu {
+      display: inline-flex;
+    }
+  }
+
+  @media (max-width: 599px) {
+    .header__tenant {
       display: none;
     }
-  }
-
-  /*
-   * Phone. One primary view at a time with an explicit back-to-list control,
-   * rather than four columns crushed onto 390px.
-   */
-  @media (max-width: 719px) {
-    .inbox > .zone--list {
-      inline-size: 100%;
-      box-shadow: none;
-    }
-
-    .inbox > .zone--panel {
-      inline-size: 100%;
-    }
-  }
-
-  /* --------------------------------------------------------------- toast -- */
-
-  .toasts {
-    position: fixed;
-    inset-block-end: var(--space-7);
-    inset-inline-start: 50%;
-    translate: -50% 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-    z-index: 60;
-    pointer-events: none;
   }
 }

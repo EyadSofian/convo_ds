@@ -6,7 +6,7 @@ import type { RoutingAbility } from '../live/ability.js';
 import { currentMembership } from '../live/ability.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
-import { button, isolated, pill, selectControl, stateBox } from './parts.js';
+import { badge, button, emptyState, errorState, isolated, selectControl, skeleton } from './parts.js';
 import type { Tone } from './parts.js';
 
 /**
@@ -50,8 +50,8 @@ export function priorityLabel(state: AppState, priority: string): string {
   return entry === undefined ? priority : t(state, entry.ar, entry.en);
 }
 
-export function priorityPill(state: AppState, priority: string): HTMLElement {
-  return pill(priorityLabel(state, priority), PRIORITY_TONE[priority] ?? 'neutral');
+export function priorityBadge(state: AppState, priority: string): HTMLElement {
+  return badge(priorityLabel(state, priority), PRIORITY_TONE[priority] ?? 'neutral', { icon: 'flag' });
 }
 
 /* ------------------------------------------------------------- the panel -- */
@@ -65,8 +65,8 @@ export function routingSection(
   if (!ability.mayAssign && !ability.mayAsk) {
     return null;
   }
-  return h('section', { class: 'routing', 'aria-label': t(state, 'توجيه العمل', 'Work routing') }, [
-    h('h3', { class: 'contact__heading' }, [t(state, 'توجيه العمل', 'Work routing')]),
+  return h('section', { class: 'routing panel-section', 'aria-labelledby': 'routing-heading' }, [
+    h('h3', { class: 'panel-section__title', id: 'routing-heading' }, [t(state, 'الإسناد', 'Assignment')]),
     assigneeLine(state, live, conversation, ability),
     pendingOffer(state, live, conversation),
     routingForm(state, live, conversation, ability),
@@ -88,10 +88,10 @@ function assigneeLine(
         ? // Said in words, not left blank: "unassigned" is a state somebody has
           // to act on, and an empty field reads as a loading failure.
           h('span', { class: 'routing__nobody' }, [t(state, 'لا أحد بعد', 'Nobody yet')])
-        : isolated(assigneeLabel(live, conversation.assigneeMembershipId)),
+        : isolated(assigneeLabel(state, live, conversation.assigneeMembershipId)),
     ]),
     h('div', { class: 'routing__actions' }, [
-      priorityPill(state, conversation.priority),
+      priorityBadge(state, conversation.priority),
       ability.mayAssign
         ? button({
             label: t(state, 'إسناد', 'Assign'),
@@ -127,8 +127,17 @@ function assigneeLine(
   ]);
 }
 
-/** The label the directory gave for a membership, or the id if it has not loaded. */
-function assigneeLabel(live: LiveState, membershipId: string): string {
+/**
+ * Who holds the conversation, in words.
+ *
+ * The directory is only loaded when a picker opens, so the name may not be
+ * known yet. A membership id is never shown instead: it means nothing to an
+ * operator, and "a colleague" is the honest thing to say until the name loads.
+ */
+function assigneeLabel(state: AppState, live: LiveState, membershipId: string): string {
+  if (currentMembership(live)?.id === membershipId) {
+    return t(state, 'أنت', 'You');
+  }
   if (live.assignees.status === 'ready') {
     const match = live.assignees.value.find((entry) => entry.membershipId === membershipId);
     if (match !== undefined) {
@@ -141,7 +150,7 @@ function assigneeLabel(live: LiveState, membershipId: string): string {
       return match.label;
     }
   }
-  return membershipId;
+  return t(state, 'زميل في الفريق', 'A colleague');
 }
 
 /* -------------------------------------------------------- pending offer -- */
@@ -334,33 +343,20 @@ function priorityChoices(
 function peoplePicker(state: AppState, live: LiveState, panel: 'assign' | 'handoff'): Child {
   const resource = live.assignees;
   if (resource.status === 'idle' || resource.status === 'loading') {
-    return h('div', { class: 'skeleton', 'aria-busy': 'true' }, [
-      h('div', { class: 'skeletonrow' }, [h('div', { class: 'skeletonrow__lines' })]),
-      h('span', { class: 'visually-hidden' }, [t(state, 'جارٍ التحميل', 'Loading')]),
-    ]);
+    return skeleton(state, 1);
   }
   if (resource.status === 'error') {
-    return stateBox({
-      kind: 'offline',
-      iconName: 'refresh',
-      title: t(state, 'تعذّر تحميل الزملاء', 'The list of colleagues could not be loaded'),
-      body: resource.error.message,
-      actionLabel: t(state, 'إعادة المحاولة', 'Try again'),
-      act: 'live-routing-open',
-      arg: panel,
-    });
+    return h('div', {}, [
+      errorState(state, resource.error),
+      button({ label: t(state, 'إعادة المحاولة', 'Try again'), act: 'live-routing-open', arg: panel, small: true }),
+    ]);
   }
   const options = resource.value.filter((entry) => !entry.assigned);
   if (options.length === 0) {
-    return stateBox({
-      kind: 'empty',
-      iconName: 'users',
-      title: t(state, 'لا أحد متاح', 'Nobody available'),
-      body: t(
-        state,
-        'لا يوجد زميل آخر يملك صلاحية العمل على هذه المحادثة.',
-        'No other colleague has the access to work this conversation.',
-      ),
+    return emptyState({
+      icon: 'users',
+      title: t(state, 'لا يوجد زميل متاح', 'Nobody available'),
+      body: t(state, 'لا يملك زميل آخر صلاحية العمل على هذه المحادثة.', 'No other colleague has access to work this conversation.'),
     });
   }
   return h('label', { class: 'field' }, [
@@ -453,7 +449,7 @@ function collaboratorRow(
     entry.participated
       ? // Not a decoration: it changes what removing them does, and the tooltip
         // says which half survives.
-        pill(t(state, 'شارك بالفعل', 'Has taken part'), 'success')
+        badge(t(state, 'شارك بالفعل', 'Has taken part'), 'success')
       : null,
     ability.mayAssign
       ? button({
@@ -486,17 +482,12 @@ function collaboratorRow(
  * on screen from cache — another agent's timeline is not this agent's to keep.
  */
 export function movedAway(state: AppState): HTMLElement {
-  return stateBox({
-    kind: 'denied',
-    iconName: 'lock',
+  return emptyState({
+    icon: 'lock',
+    tone: 'denied',
     title: t(state, 'انتقلت هذه المحادثة', 'This conversation moved'),
-    body: t(
-      state,
-      'لم تعد لديك صلاحية قراءتها. اختر محادثة أخرى من القائمة.',
-      'You no longer have access to it. Pick another conversation from the list.',
-    ),
-    actionLabel: t(state, 'تحديث القائمة', 'Refresh the list'),
-    act: 'live-inbox-reload',
+    body: t(state, 'لم تعد لديك صلاحية قراءتها. اختر محادثة أخرى من القائمة.', 'You no longer have access to it. Pick another conversation from the list.'),
+    action: { label: t(state, 'تحديث القائمة', 'Refresh the list'), act: 'live-inbox-reload' },
   });
 }
 

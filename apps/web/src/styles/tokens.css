@@ -1,213 +1,217 @@
 /* ==========================================================================
    Layer 1 — tokens
 
-   The ONLY place a raw colour, size or duration is written. Every later layer
-   consumes `var(--token)`. There is exactly one `:root` colour block per theme;
-   the previous stylesheet had three stacked token blocks overriding each other,
-   which is what made the palette impossible to reason about.
+   The ONLY place a raw colour, size, radius, shadow or duration is written.
+   Every later layer consumes `var(--token)`.
 
-   Colour values are mirrored in `src/theme.ts` and enforced by `theme.test.ts`:
-   that test fails if this file and the module disagree, and re-checks every
-   WCAG pair on both themes. Do not edit a colour here without editing there.
-   The `@tokens` marker comments below are the anchors that test parses.
+   Exactly two colour blocks: the light palette on `:root` (which also carries
+   every theme-independent scale token), and the dark palette on
+   `:root[data-theme='dark']`. There is no media-query copy of the dark palette:
+   index.html stamps `data-theme` before the first paint, so a third block would
+   only be a place for the two to drift.
+
+   `theme.test.ts` reads the `#rrggbb` values between the `@tokens` markers,
+   requires both themes to declare the same set, and re-checks every WCAG pair
+   listed in `src/theme.ts` against what is written here.
    ========================================================================== */
 
 @layer tokens {
   /* @tokens light */
   :root {
-    --surface-app: #eef1f5;
-    --surface-panel: #ffffff;
-    --surface-sunken: #f4f6f9;
-    --surface-hover: #f1f4f8;
-    --surface-active: #e6edfb;
-    --border-subtle: #dfe4ec;
-    --border-strong: #7d879a;
-    --text-primary: #101828;
-    --text-secondary: #4a5567;
-    --text-muted: #5e6980;
-    --text-disabled: #98a1b2;
-    --accent: #1d4ed8;
-    --accent-strong: #1a43ba;
-    --accent-soft: #e6edfb;
-    --on-accent: #ffffff;
-    --success: #04693e;
-    --success-soft: #e2f4ea;
-    --warning: #8a5100;
-    --warning-soft: #fbf0dd;
-    --danger: #b3261e;
-    --danger-soft: #fceceb;
-    --unknown: #5b45c9;
-    --unknown-soft: #eeeaff;
-    --focus-ring: #1d4ed8;
-    --rail-surface: #101828;
-    --rail-text: #a8b3c7;
-    --rail-active: #ffffff;
+    /* Surfaces: a warm off-white ground with white-ish layers above it. */
+    --canvas: #f4f3f0;
+    --surface-1: #fcfbf9;
+    --surface-2: #f7f6f3;
+    --surface-3: #efeee9;
+    --surface-hover: #f0efea;
+    --surface-selected: #ecebf9;
 
-    /* Derived, theme-specific, not contrast-bearing. */
-    --rail-hover: #1e2942;
-    --scrim: rgba(16, 24, 40, 0.44);
-    --shadow-panel: 0 1px 2px rgba(16, 24, 40, 0.06);
-    --shadow-raised: 0 2px 6px rgba(16, 24, 40, 0.08);
-    --shadow-overlay: 0 12px 32px rgba(16, 24, 40, 0.18);
-    --glass-tint: rgba(255, 255, 255, 0.72);
+    /* Text. */
+    --text: #17191f;
+    --text-secondary: #3f4450;
+    --text-muted: #5f6674;
+    --text-disabled: #a3a7b0;
+
+    /* One restrained violet accent. */
+    --accent: #6558d9;
+    --accent-hover: #5548c8;
+    --accent-text: #5346c9;
+    --accent-soft: #ecebf9;
+    --on-accent: #ffffff;
+
+    /* Semantic status, each with a quiet tint for badges and notices. */
+    --success: #1d6b43;
+    --success-soft: #e3f1e8;
+    --warning: #8a5a00;
+    --warning-soft: #f8efdc;
+    --danger: #b42f27;
+    --danger-soft: #f9e6e3;
+    --unknown: #2f6690;
+    --unknown-soft: #e4eef5;
+
+    /* Boundaries that identify a control (WCAG 1.4.11), and focus. */
+    --border-strong: #858a95;
+    --focus-ring: #6558d9;
+
+    /* Provider colour, confined to the small tile behind a channel glyph. */
+    --brand-whatsapp: #1fa855;
+    --brand-messenger: #0a6cff;
+    --brand-instagram: #c7306f;
+    --brand-telegram: #1f8fcb;
+    --brand-web-chat: #6558d9;
+    --brand-custom: #4c5260;
+    --on-brand: #ffffff;
+
+    /* Not contrast-bearing: hairlines, layers and elevation. */
+    --border: rgba(20, 24, 32, 0.1);
+    --border-subtle: rgba(20, 24, 32, 0.06);
+    --scrim: rgba(23, 25, 31, 0.32);
+    --glass: rgba(252, 251, 249, 0.86);
+    --glass-border: rgba(20, 24, 32, 0.08);
+    --nav-surface: rgba(250, 249, 246, 0.96);
+    --shadow-xs: 0 1px 1px rgba(20, 24, 32, 0.04);
+    --shadow-sm: 0 1px 2px rgba(20, 24, 32, 0.06), 0 1px 1px rgba(20, 24, 32, 0.03);
+    --shadow-md: 0 6px 16px rgba(20, 24, 32, 0.08), 0 1px 3px rgba(20, 24, 32, 0.05);
+    --shadow-lg: 0 18px 48px rgba(20, 24, 32, 0.16), 0 2px 8px rgba(20, 24, 32, 0.06);
     --bubble-in: #ffffff;
-    --bubble-out: #e6edfb;
-    --bubble-note: #fbf0dd;
+    --bubble-out: #ecebf9;
+    --note-surface: #fbf4e4;
+    --note-edge: rgba(138, 90, 0, 0.35);
+    --chart-bar: rgba(95, 102, 116, 0.28);
+    --skeleton: rgba(20, 24, 32, 0.07);
 
     color-scheme: light;
-  }
 
-  /* @tokens dark */
-  :root[data-theme='dark'] {
-    --surface-app: #0a0f1a;
-    --surface-panel: #141c2b;
-    --surface-sunken: #0f1624;
-    --surface-hover: #1c2536;
-    --surface-active: #1e2c4a;
-    --border-subtle: #263144;
-    --border-strong: #5f6e8f;
-    --text-primary: #e9eef7;
-    --text-secondary: #b6c2d6;
-    --text-muted: #93a0b6;
-    --text-disabled: #6d7a8f;
-    --accent: #7aa5ff;
-    --accent-strong: #9bbaff;
-    --accent-soft: #1e2c4a;
-    --on-accent: #08111f;
-    --success: #5cd0a0;
-    --success-soft: #102a22;
-    --warning: #e8b35c;
-    --warning-soft: #2c2317;
-    --danger: #ff8f85;
-    --danger-soft: #33191a;
-    --unknown: #b3a2ff;
-    --unknown-soft: #221e3d;
-    --focus-ring: #8fb4ff;
-    --rail-surface: #0f1624;
-    --rail-text: #9aa7bd;
-    --rail-active: #ffffff;
+    /* @tokens scale — theme-independent. No colours below this line. */
 
-    --rail-hover: #1c2536;
-    --scrim: rgba(3, 6, 12, 0.62);
-    --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.45);
-    --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.55);
-    --glass-tint: rgba(20, 28, 43, 0.76);
-    --bubble-in: #1a2333;
-    --bubble-out: #1e2c4a;
-    --bubble-note: #2c2317;
-
-    color-scheme: dark;
-  }
-
-  /*
-   * Pre-boot safety net only. `app.ts` always stamps an explicit `data-theme`,
-   * so this matters for the first paint before the script runs. Guarded with
-   * `:not([data-theme='light'])` so an explicit light choice still wins.
-   */
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme='light']) {
-      --surface-app: #0a0f1a;
-      --surface-panel: #141c2b;
-      --surface-sunken: #0f1624;
-      --surface-hover: #1c2536;
-      --surface-active: #1e2c4a;
-      --border-subtle: #263144;
-      --border-strong: #5f6e8f;
-      --text-primary: #e9eef7;
-      --text-secondary: #b6c2d6;
-      --text-muted: #93a0b6;
-      --text-disabled: #6d7a8f;
-      --accent: #7aa5ff;
-      --accent-strong: #9bbaff;
-      --accent-soft: #1e2c4a;
-      --on-accent: #08111f;
-      --success: #5cd0a0;
-      --success-soft: #102a22;
-      --warning: #e8b35c;
-      --warning-soft: #2c2317;
-      --danger: #ff8f85;
-      --danger-soft: #33191a;
-      --unknown: #b3a2ff;
-      --unknown-soft: #221e3d;
-      --focus-ring: #8fb4ff;
-      --rail-surface: #0f1624;
-      --rail-text: #9aa7bd;
-      --rail-active: #ffffff;
-
-      --rail-hover: #1c2536;
-      --scrim: rgba(3, 6, 12, 0.62);
-      --glass-tint: rgba(20, 28, 43, 0.76);
-      --bubble-in: #1a2333;
-      --bubble-out: #1e2c4a;
-      --bubble-note: #2c2317;
-
-      color-scheme: dark;
-    }
-  }
-
-  /* @tokens scale — theme-independent. No colours below this line. */
-  :root {
     /*
-     * One family, Arabic-first, self-hosted (see base.css `@font-face`). The
-     * previous Alexandria / IBM Plex Sans Arabic / Manrope mixture is gone:
-     * Readex Pro carries both scripts, so Arabic and Latin share one metric.
+     * IBM Plex Sans Arabic, self-hosted (base.css). Chosen over Readex Pro and
+     * Alexandria after rendering all three at 13–15px: both geometric faces
+     * read a size larger and markedly heavier at the same px, which made a
+     * dense screen loud. Plex keeps Arabic calm at 14px and carries a matching
+     * Latin with clear tabular figures, so one family serves both scripts.
      */
-    --font-sans: 'Readex Pro', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+    --font-sans: 'IBM Plex Sans Arabic', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
     --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', monospace;
 
-    /* Body 14–15px, conversation copy 14–16px, no UI label under 12px. */
-    --text-xs: 12px;
-    --text-sm: 13px;
-    --text-base: 14px;
+    /* Primary copy never below 13px; body 14px; conversation 15px. */
+    --text-2xs: 12px;
+    --text-xs: 13px;
+    --text-sm: 14px;
     --text-md: 15px;
-    --text-lg: 16px;
-    --text-xl: 18px;
+    --text-lg: 17px;
+    --text-xl: 20px;
+    --text-2xl: 24px;
 
     --weight-regular: 400;
     --weight-medium: 500;
     --weight-semibold: 600;
 
     /* Arabic needs more leading than Latin at the same size. */
-    --leading-tight: 1.4;
-    --leading-normal: 1.6;
+    --leading-tight: 1.35;
+    --leading-normal: 1.55;
     --leading-relaxed: 1.7;
 
-    --space-1: 2px;
-    --space-2: 4px;
-    --space-3: 6px;
-    --space-4: 8px;
-    --space-5: 12px;
-    --space-6: 16px;
-    --space-7: 20px;
-    --space-8: 24px;
-    --space-9: 32px;
+    /* A 4px scale. */
+    --space-half: 2px;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
 
-    --radius-sm: 4px;
-    --radius-md: 6px;
-    --radius-lg: 8px;
-    --radius-xl: 12px;
-    --radius-full: 9999px;
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 10px;
+    --radius-xl: 14px;
+    --radius-full: 999px;
 
-    /* Shell geometry. The acceptance ranges live in
-       docs/execution/CLAUDE-LIVE-MVP-TASK.md §3 and are asserted by
-       tests/e2e/layout.spec.ts against a real browser. */
-    --rail-width: 56px;
-    --topbar-height: 48px;
-    --list-width: 332px;
+    /* Shell geometry, asserted by tests/e2e/layout.spec.ts. */
+    --nav-width-collapsed: 64px;
+    --nav-width-expanded: 232px;
+    --header-height: 56px;
+    --list-width: 336px;
     --list-width-min: 300px;
-    --list-width-max: 380px;
-    --panel-width: 336px;
-    --thread-min-width: 640px;
-    --row-height: 68px;
-    --thread-header-height: 64px;
-    --control-height: 30px;
-    --control-height-lg: 34px;
+    --list-width-max: 400px;
+    --panel-width: 304px;
+    --thread-min-width: 560px;
+    --row-height: 64px;
+    --thread-header-height: 56px;
+    --control-height: 34px;
+    --control-height-sm: 30px;
     --composer-min-height: 44px;
-    --composer-max-height: 88px;
+    --composer-max-height: 120px;
+    --page-max-width: 1360px;
 
-    --motion-fast: 110ms;
-    --motion-base: 170ms;
+    --motion-fast: 120ms;
+    --motion-base: 180ms;
     --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --blur-glass: 14px;
+  }
+
+  /* @tokens dark */
+  :root[data-theme='dark'] {
+    /* Deep graphite, never pure black. */
+    --canvas: #0b0d12;
+    --surface-1: #11141b;
+    --surface-2: #171b24;
+    --surface-3: #1d2230;
+    --surface-hover: #1a1e28;
+    --surface-selected: #221f3f;
+
+    --text: #f4f5f8;
+    --text-secondary: #c3c8d2;
+    --text-muted: #959eae;
+    --text-disabled: #5c6372;
+
+    --accent: #6554e6;
+    --accent-hover: #5747d6;
+    --accent-text: #a59bff;
+    --accent-soft: #221f3f;
+    --on-accent: #ffffff;
+
+    --success: #5ccf94;
+    --success-soft: #12261c;
+    --warning: #e3b35a;
+    --warning-soft: #2a2214;
+    --danger: #ff8a80;
+    --danger-soft: #2e1718;
+    --unknown: #8ec5ec;
+    --unknown-soft: #152632;
+
+    --border-strong: #6a7282;
+    --focus-ring: #a59bff;
+
+    --brand-whatsapp: #1fa855;
+    --brand-messenger: #0a6cff;
+    --brand-instagram: #c7306f;
+    --brand-telegram: #1f8fcb;
+    --brand-web-chat: #6554e6;
+    --brand-custom: #4c5260;
+    --on-brand: #ffffff;
+
+    --border: rgba(255, 255, 255, 0.08);
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --scrim: rgba(3, 4, 8, 0.62);
+    --glass: rgba(17, 20, 27, 0.78);
+    --glass-border: rgba(255, 255, 255, 0.07);
+    --nav-surface: rgba(17, 20, 27, 0.72);
+    --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.3);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+    --bubble-in: #1a1e28;
+    --bubble-out: #25224a;
+    --note-surface: #251f13;
+    --note-edge: rgba(227, 179, 90, 0.38);
+    --chart-bar: rgba(149, 158, 174, 0.3);
+    --skeleton: rgba(255, 255, 255, 0.06);
+
+    color-scheme: dark;
   }
 }

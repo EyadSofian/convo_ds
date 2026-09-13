@@ -36,13 +36,24 @@ export async function loadCampaignsScreen(context: LiveContext): Promise<void> {
   context.refresh();
 }
 
+/**
+ * Reads the report for the scope chosen on screen.
+ *
+ * The campaigns offered in the campaign filter are remembered from the last
+ * report that was not already narrowed to one campaign, so choosing a campaign
+ * does not shrink the list of campaigns that could have been chosen.
+ */
 export async function loadCampaignReport(context: LiveContext): Promise<void> {
   const tenantId = currentTenantId(context.live);
   if (tenantId === null) return;
+  const filters = context.state.analyticsFilters;
   context.live.campaignReport = LOADING;
   context.refresh();
-  const result = await context.live.campaignsApi.report(tenantId);
+  const result = await context.live.campaignsApi.report(tenantId, filters);
   context.live.campaignReport = fromResult(result, context.now());
+  if (result.ok && (filters.campaignId === '' || context.live.reportCampaigns.length === 0)) {
+    context.live.reportCampaigns = result.data.campaigns.map((campaign) => ({ id: campaign.id, name: campaign.name }));
+  }
   context.refresh();
 }
 
@@ -52,7 +63,9 @@ export async function createCampaignReportExport(context: LiveContext): Promise<
   context.live.busy = 'campaign-report-export';
   context.live.error = null;
   context.refresh();
-  const result = await context.live.campaignsApi.createReportExport(tenantId, null, context.newKey());
+  // The export endpoint scopes by campaign only; the screen says so beside the button.
+  const campaignId = context.state.analyticsFilters.campaignId;
+  const result = await context.live.campaignsApi.createReportExport(tenantId, campaignId === '' ? null : campaignId, context.newKey());
   context.live.busy = null;
   context.live.revision += 1;
   if (!result.ok) {
@@ -101,10 +114,12 @@ export function approveCampaign(context: LiveContext, id: string): Promise<boole
     () => t(context, 'اعتُمدت هذه النسخة', 'This revision was approved'));
 }
 
-export function launchCampaign(context: LiveContext, id: string): Promise<boolean> {
+export function launchCampaign(context: LiveContext, id: string, scheduledFor: string | null = null): Promise<boolean> {
   return mutate(context, `campaign-launch:${id}`,
-    (tenantId) => context.live.campaignsApi.launch(tenantId, id, context.newKey()),
-    () => t(context, 'بدأ تنفيذ الحملة', 'Campaign execution started'));
+    (tenantId) => context.live.campaignsApi.launch(tenantId, id, context.newKey(), scheduledFor),
+    () => scheduledFor === null
+      ? t(context, 'بدأ تنفيذ الحملة', 'Campaign execution started')
+      : t(context, 'جُدولت الحملة', 'Campaign scheduled'));
 }
 
 export function controlCampaign(context: LiveContext, id: string, action: 'pause' | 'resume' | 'cancel'): Promise<boolean> {

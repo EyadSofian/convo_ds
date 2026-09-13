@@ -62,6 +62,15 @@ export interface ApiClientOptions {
    * a mutation being written without it.
    */
   readonly readCsrfToken: () => string | null;
+  /**
+   * Told whenever a request is refused for want of a session.
+   *
+   * One hook at the transport rather than a check in every screen: a session
+   * that expires mid-work has to close the whole workspace, and the first
+   * request to notice is whichever one happened to run next. The sign-in call
+   * is excluded because its 401 means "those credentials", not "your session".
+   */
+  readonly onUnauthenticated?: ((path: string) => void) | undefined;
 }
 
 /**
@@ -72,6 +81,9 @@ export interface ApiClientOptions {
 export const API_BASE_URL = '/api/v1';
 
 const CSRF_COOKIE = 'convo_csrf';
+
+/** The one request whose 401 is about credentials rather than a session. */
+export const LOGIN_PATH = '/auth/login';
 
 /** Reads the CSRF cookie from a `document.cookie` string. */
 export function csrfFromCookie(cookie: string): string | null {
@@ -174,6 +186,9 @@ export class ApiClient {
     const payload: unknown = await response.json().catch(() => null);
 
     if (!response.ok) {
+      if (response.status === 401 && path !== LOGIN_PATH) {
+        this.options.onUnauthenticated?.(path);
+      }
       return { ok: false, error: parseError(payload, response.status) };
     }
     return { ok: true, data: payload };

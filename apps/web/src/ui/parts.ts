@@ -1,9 +1,16 @@
+import type { ApiError } from '../api/client';
 import type { Attrs, Child } from '../dom';
-import { append, bdi, h } from '../dom';
+import { bdi, h } from '../dom';
 import type { IconName } from '../icons';
 import { icon } from '../icons';
+import type { AppState } from '../state';
+import { describeError, t } from './copy';
 
-/** Shared presentational atoms. Every one is exercised by ui/parts.test.ts. */
+/**
+ * Shared presentational atoms. Every screen is built from these, so the product
+ * has one button, one badge, one empty state and one error — and every one is
+ * exercised by ui/parts.test.ts.
+ */
 
 export type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'unknown';
 
@@ -17,8 +24,13 @@ export interface ButtonOptions {
   readonly pressed?: boolean | undefined;
   readonly expanded?: boolean | undefined;
   readonly disabled?: boolean | undefined;
+  /** Shows progress on the control that started the work, and refuses a second press. */
+  readonly busy?: boolean | undefined;
   readonly title?: string | undefined;
   readonly extraClass?: string | undefined;
+  readonly type?: 'button' | 'submit' | undefined;
+  readonly controls?: string | undefined;
+  readonly haspopup?: string | undefined;
 }
 
 export function button(options: ButtonOptions): HTMLButtonElement {
@@ -30,59 +42,74 @@ export function button(options: ButtonOptions): HTMLButtonElement {
   if (options.small === true) classes.push('btn--sm');
   if (iconOnly) classes.push('btn--icon');
   if (options.extraClass !== undefined) classes.push(options.extraClass);
+  const busy = options.busy === true;
   const attrs: Attrs = {
-    type: 'button',
+    type: options.type ?? 'button',
     class: classes.join(' '),
     'data-act': options.act,
     'data-arg': options.arg,
-    disabled: options.disabled,
+    disabled: options.disabled === true || busy,
     title: options.title,
     'aria-label': iconOnly ? options.title : undefined,
     'aria-pressed': options.pressed === undefined ? undefined : String(options.pressed),
     'aria-expanded': options.expanded === undefined ? undefined : String(options.expanded),
+    'aria-controls': options.controls,
+    'aria-haspopup': options.haspopup,
+    'aria-busy': busy ? 'true' : undefined,
   };
   return h('button', attrs, [
-    options.icon === undefined ? null : icon(options.icon, options.small === true ? 13 : 15),
-    options.label,
+    busy
+      ? h('span', { class: 'spinner', 'aria-hidden': 'true' })
+      : options.icon === undefined
+        ? null
+        : icon(options.icon, options.small === true ? 14 : 16),
+    options.label === undefined ? null : h('span', { class: 'btn__label' }, [options.label]),
   ]);
 }
 
-export function pill(label: string, tone: Tone = 'neutral', name?: IconName): HTMLElement {
-  return h('span', { class: `pill pill--${tone}` }, [
-    name === undefined ? null : icon(name, 11),
+export interface BadgeOptions {
+  readonly icon?: IconName | undefined;
+  /** A leading dot, for states that are ongoing rather than labels. */
+  readonly dot?: boolean | undefined;
+}
+
+export function badge(label: string, tone: Tone = 'neutral', options: BadgeOptions = {}): HTMLElement {
+  return h('span', { class: `badge badge--${tone}` }, [
+    options.dot === true ? h('span', { class: 'badge__dot', 'aria-hidden': 'true' }) : null,
+    options.icon === undefined ? null : icon(options.icon, 12),
     label,
   ]);
 }
 
-export function countBadge(value: number, accent = false): HTMLElement {
-  return h('span', { class: accent ? 'count count--accent' : 'count' }, [String(value)]);
+export function countBadge(value: number, label: string): HTMLElement {
+  return h('span', { class: 'count', 'aria-label': label }, [String(value)]);
 }
 
 export interface AvatarOptions {
+  /** Empty for somebody the caller may not identify, such as a masked queue card. */
   readonly initials: string;
   readonly size?: 'sm' | 'md' | 'lg' | undefined;
-  readonly channel?: IconName | undefined;
-  readonly title?: string | undefined;
+  /** The channel kind, shown as a small provider-coloured mark. */
+  readonly channel?: string | undefined;
 }
 
 export function avatar(options: AvatarOptions): HTMLElement {
   const size = options.size ?? 'md';
-  const classes = size === 'md' ? 'avatar' : `avatar avatar--${size}`;
-  return h('span', { class: classes, title: options.title, 'aria-hidden': 'true' }, [
-    options.initials,
+  return h('span', { class: `avatar avatar--${size}`, 'aria-hidden': 'true' }, [
+    options.initials === '' ? icon('user', 16) : options.initials,
     options.channel === undefined
       ? null
-      : h('span', { class: 'avatar__channel' }, [icon(options.channel, 9)]),
+      : h('span', { class: `avatar__channel channel-tile--${options.channel}` }, [icon(channelIcon(options.channel), 9)]),
   ]);
 }
 
 export interface SegmentItem {
   readonly value: string;
   readonly label: string;
-  readonly count?: number;
+  readonly count?: number | undefined;
 }
 
-export function segment(
+export function segmented(
   items: readonly SegmentItem[],
   current: string,
   act: string,
@@ -90,123 +117,112 @@ export function segment(
 ): HTMLElement {
   return h(
     'div',
-    { class: 'segment', role: 'group', 'aria-label': ariaLabel },
+    { class: 'segmented', role: 'group', 'aria-label': ariaLabel },
     items.map((item) =>
       h(
         'button',
         {
           type: 'button',
-          class: 'segment__item',
+          class: 'segmented__item',
           'data-act': act,
           'data-arg': item.value,
           'aria-pressed': String(item.value === current),
         },
         [
           item.label,
-          item.count === undefined
-            ? null
-            : h('span', { class: 'segment__count' }, [String(item.count)]),
+          item.count === undefined ? null : h('span', { class: 'segmented__count' }, [String(item.count)]),
         ],
       ),
     ),
   );
 }
 
-export interface StateBoxOptions {
-  readonly kind: 'empty' | 'denied' | 'offline' | 'info';
-  readonly iconName: IconName;
+export interface EmptyStateOptions {
+  readonly icon: IconName;
   readonly title: string;
   readonly body: string;
-  readonly actionLabel?: string | undefined;
-  readonly act?: string | undefined;
-  readonly arg?: string | undefined;
+  readonly action?: { readonly label: string; readonly act: string; readonly arg?: string; readonly primary?: boolean } | undefined;
+  readonly tone?: 'neutral' | 'denied' | undefined;
 }
 
-export function stateBox(options: StateBoxOptions): HTMLElement {
-  return h('div', { class: `statebox statebox--${options.kind}`, role: 'status' }, [
-    h('span', { class: 'statebox__icon' }, [icon(options.iconName, 20)]),
-    h('p', { class: 'statebox__title' }, [options.title]),
-    h('p', { class: 'statebox__body' }, [options.body]),
-    options.actionLabel === undefined || options.act === undefined
+/**
+ * A compact "nothing here yet" that names the next valid step.
+ *
+ * Compact on purpose: an empty list is information, and a panel-sized
+ * illustration around one sentence pushes everything useful off the screen.
+ */
+export function emptyState(options: EmptyStateOptions): HTMLElement {
+  return h('div', { class: `empty empty--${options.tone ?? 'neutral'}`, role: 'status' }, [
+    h('span', { class: 'empty__icon', 'aria-hidden': 'true' }, [icon(options.icon, 18)]),
+    h('div', { class: 'empty__text' }, [
+      h('p', { class: 'empty__title' }, [options.title]),
+      h('p', { class: 'empty__body' }, [options.body]),
+    ]),
+    options.action === undefined
       ? null
       : button({
-          label: options.actionLabel,
-          act: options.act,
-          arg: options.arg,
-          variant: 'default',
+          label: options.action.label,
+          act: options.action.act,
+          arg: options.action.arg,
           small: true,
+          variant: options.action.primary === true ? 'primary' : 'default',
         }),
   ]);
 }
 
-export function banner(
-  tone: 'info' | 'warning' | 'danger',
-  iconName: IconName,
-  text: string,
-  action?: { readonly label: string; readonly act: string; readonly arg?: string },
-): HTMLElement {
-  return h('div', { class: `banner banner--${tone}`, role: 'status' }, [
-    icon(iconName, 14),
-    h('span', {}, [text]),
-    h('span', { class: 'banner__spacer' }),
-    action === undefined
+/** The request id, quoted so a support conversation can find the log line. */
+export function requestIdLine(state: AppState, requestId: string | null): HTMLElement | null {
+  if (requestId === null) return null;
+  return h('p', { class: 'request-id' }, [t(state, 'رقم الطلب: ', 'Request ID: '), bdi(requestId, { class: 'mono' })]);
+}
+
+/**
+ * A failed read, in the operator's terms, with the request id and a retry.
+ *
+ * Denials use the quieter tone: a missing permission is a fact about access,
+ * not a fault to alarm anybody with.
+ */
+export function errorState(state: AppState, error: ApiError, retryAct?: string): HTMLElement {
+  const copy = describeError(state, error);
+  const denied = error.status === 403 || error.status === 404;
+  return h('div', { class: `errorstate${denied ? ' errorstate--denied' : ''}`, role: 'alert' }, [
+    h('span', { class: 'errorstate__icon', 'aria-hidden': 'true' }, [
+      icon(error.code === 'network' ? 'wifiOff' : denied ? 'lock' : 'alert', 18),
+    ]),
+    h('div', { class: 'errorstate__text' }, [
+      h('p', { class: 'errorstate__title' }, [copy.title]),
+      h('p', { class: 'errorstate__body' }, [copy.body]),
+      requestIdLine(state, copy.requestId),
+    ]),
+    retryAct === undefined || denied
       ? null
-      : button({ label: action.label, act: action.act, arg: action.arg, variant: 'ghost', small: true }),
+      : button({ label: t(state, 'إعادة المحاولة', 'Try again'), icon: 'refresh', act: retryAct, small: true }),
+  ]);
+}
+
+/** The last mutation's refusal, beside the form that caused it. */
+export function inlineError(state: AppState, error: ApiError | null): HTMLElement | null {
+  if (error === null) return null;
+  const copy = describeError(state, error);
+  return h('div', { class: 'inline-error', role: 'alert' }, [
+    icon('alert', 16),
+    h('div', {}, [
+      h('p', { class: 'inline-error__title' }, [copy.title]),
+      h('p', { class: 'inline-error__body' }, [copy.body]),
+      requestIdLine(state, copy.requestId),
+    ]),
   ]);
 }
 
 export function notice(
-  tone: 'plain' | 'info' | 'warning',
+  tone: 'plain' | 'info' | 'warning' | 'danger',
   iconName: IconName,
   ...children: readonly Child[]
 ): HTMLElement {
-  const classes = tone === 'plain' ? 'notice' : `notice notice--${tone}`;
-  return h('div', { class: classes }, [
-    h('span', { class: 'notice__icon' }, [icon(iconName, 14)]),
-    h('span', {}, children),
+  return h('div', { class: `notice notice--${tone}` }, [
+    h('span', { class: 'notice__icon', 'aria-hidden': 'true' }, [icon(iconName, 16)]),
+    h('div', { class: 'notice__text' }, children),
   ]);
-}
-
-export interface PopoverOption {
-  readonly label: string;
-  readonly value: string;
-  readonly checked: boolean;
-  readonly hint?: string | undefined;
-}
-
-export function popover(
-  title: string,
-  options: readonly PopoverOption[],
-  act: string,
-  footer?: Child,
-  alignEnd = false,
-): HTMLElement {
-  return h('div', { class: alignEnd ? 'popover popover--end' : 'popover', role: 'group' }, [
-    h('p', { class: 'popover__title' }, [title]),
-    ...options.map((option) =>
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'popover__option',
-          role: 'checkbox',
-          'aria-checked': String(option.checked),
-          'data-act': act,
-          'data-arg': option.value,
-        },
-        [
-          h('span', { class: 'popover__check' }, [icon('check', 11)]),
-          h('span', { class: 'popover__label' }, [option.label]),
-          option.hint === undefined ? null : h('span', { class: 'popover__hint' }, [option.hint]),
-        ],
-      ),
-    ),
-    footer === undefined ? null : h('div', { class: 'popover__footer' }, [footer]),
-  ]);
-}
-
-export function anchored(children: readonly Child[]): HTMLElement {
-  return h('span', { class: 'anchor' }, children);
 }
 
 export function field(label: string, control: Child, hint?: string): HTMLElement {
@@ -217,13 +233,33 @@ export function field(label: string, control: Child, hint?: string): HTMLElement
   ]);
 }
 
-export function textInput(name: string, value: string, placeholder: string): HTMLInputElement {
+export interface InputOptions {
+  readonly type?: string | undefined;
+  readonly act?: string | undefined;
+  readonly ariaLabel?: string | undefined;
+  readonly id?: string | undefined;
+  readonly autocomplete?: string | undefined;
+  readonly inputmode?: string | undefined;
+  readonly required?: boolean | undefined;
+}
+
+export function textInput(
+  name: string,
+  value: string,
+  placeholder: string,
+  options: InputOptions = {},
+): HTMLInputElement {
   return h('input', {
     class: 'input',
-    type: 'text',
+    type: options.type ?? 'text',
+    id: options.id,
     value,
     placeholder,
-    'data-act': 'form',
+    autocomplete: options.autocomplete,
+    inputmode: options.inputmode,
+    required: options.required,
+    'aria-label': options.ariaLabel,
+    'data-act': options.act ?? 'form',
     'data-form': name,
   });
 }
@@ -236,9 +272,9 @@ export interface SelectOptions {
   /** Form key, only meaningful for `act: 'form'`. */
   readonly form?: string | undefined;
   readonly ariaLabel?: string | undefined;
-  readonly style?: string | undefined;
   /** Disabled while the change it would start is already in flight. */
   readonly disabled?: boolean | undefined;
+  readonly id?: string | undefined;
 }
 
 /**
@@ -252,10 +288,10 @@ export function selectControl(config: SelectOptions): HTMLSelectElement {
     'select',
     {
       class: 'select',
+      id: config.id,
       'data-act': config.act ?? 'form',
       'data-form': config.form,
       'aria-label': config.ariaLabel,
-      style: config.style,
       disabled: config.disabled,
     },
     config.options.map((option) =>
@@ -266,114 +302,144 @@ export function selectControl(config: SelectOptions): HTMLSelectElement {
   return element;
 }
 
-export function selectInput(
-  name: string,
-  value: string,
-  options: readonly { readonly value: string; readonly label: string }[],
-): HTMLSelectElement {
-  return selectControl({ value, options, form: name });
-}
-
-export function switchControl(label: string, checked: boolean, act: string, arg: string): HTMLElement {
-  return h('span', { class: 'switch' }, [
-    h('button', {
-      type: 'button',
-      class: 'switch__track',
-      role: 'switch',
-      'aria-checked': String(checked),
-      'aria-label': label,
-      'data-act': act,
-      'data-arg': arg,
-    }),
-    h('span', {}, [label]),
-  ]);
-}
-
 /** Mixed-script safe: phones, IDs, emails and handles never reorder. */
 export function isolated(value: string, mono = false): HTMLElement {
   return bdi(value, mono ? { class: 'mono' } : {});
 }
 
-export function skeletonList(rows: number): HTMLElement {
-  const items: HTMLElement[] = [];
+/** Placeholder rows while a list loads. Announced once, not per row. */
+export function skeleton(state: AppState, rows = 3): HTMLElement {
+  const lines: HTMLElement[] = [];
   for (let index = 0; index < rows; index += 1) {
-    items.push(
-      h('div', { class: 'skeletonrow' }, [
-        h('span', { class: 'skeleton', style: 'width:32px;height:32px;border-radius:9999px' }),
-        h('span', { class: 'skeletonrow__lines' }, [
-          h('span', { class: 'skeleton', style: 'width:58%;height:10px' }),
-          h('span', { class: 'skeleton', style: 'width:84%;height:9px' }),
-          h('span', { class: 'skeleton', style: 'width:40%;height:9px' }),
+    lines.push(
+      h('div', { class: 'skeleton__row' }, [
+        h('span', { class: 'skeleton__block skeleton__block--round' }),
+        h('span', { class: 'skeleton__lines' }, [
+          h('span', { class: 'skeleton__block skeleton__block--wide' }),
+          h('span', { class: 'skeleton__block' }),
         ]),
       ]),
     );
   }
-  return append(h('div', { class: 'convlist', 'aria-busy': 'true', 'aria-live': 'polite' }), items);
+  return h('div', { class: 'skeleton', 'aria-busy': 'true' }, [
+    ...lines,
+    h('span', { class: 'visually-hidden' }, [t(state, 'جارٍ التحميل', 'Loading')]),
+  ]);
 }
 
+export interface DialogOptions {
+  readonly size?: 'md' | 'lg' | undefined;
+  readonly description?: string | undefined;
+}
+
+/**
+ * A modal layer. `data-trap` is what the composition root keeps focus inside,
+ * and Escape and the scrim both close it.
+ */
 export function dialogShell(
+  state: AppState,
   title: string,
   body: readonly Child[],
   footer: readonly Child[],
+  options: DialogOptions = {},
 ): HTMLElement {
   return h('div', { class: 'scrim', 'data-act': 'close-dialog', 'data-scrim': 'true' }, [
     h(
       'div',
-      { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+      {
+        class: `dialog dialog--${options.size ?? 'md'}`,
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-labelledby': 'dialog-title',
+        'data-trap': 'dialog',
+      },
       [
-        h('div', { class: 'dialog__header' }, [
-          h('h2', { class: 'dialog__title' }, [title]),
-          h('span', { class: 'card__spacer' }),
-          button({ icon: 'close', act: 'close-dialog', variant: 'ghost', small: true, title }),
+        h('header', { class: 'dialog__header' }, [
+          h('div', { class: 'dialog__titles' }, [
+            h('h2', { class: 'dialog__title', id: 'dialog-title' }, [title]),
+            options.description === undefined ? null : h('p', { class: 'dialog__description' }, [options.description]),
+          ]),
+          button({ icon: 'close', act: 'close-dialog', variant: 'ghost', small: true, title: t(state, 'إغلاق', 'Close') }),
         ]),
         h('div', { class: 'dialog__body' }, body),
-        h('div', { class: 'dialog__footer' }, footer),
+        h('footer', { class: 'dialog__footer' }, footer),
       ],
     ),
   ]);
 }
 
-export function card(title: string, headerExtra: readonly Child[], body: readonly Child[]): HTMLElement {
-  return h('section', { class: 'card' }, [
-    h('div', { class: 'card__header' }, [
-      h('h3', { class: 'card__title' }, [title]),
-      h('span', { class: 'card__spacer' }),
-      ...headerExtra,
+export interface PanelOptions {
+  readonly description?: string | undefined;
+  readonly actions?: readonly Child[] | undefined;
+  readonly extraClass?: string | undefined;
+  readonly flush?: boolean | undefined;
+}
+
+/** A titled section of a page. The title is an h2: the page title is the header's h1. */
+export function panel(title: string, body: readonly Child[], options: PanelOptions = {}): HTMLElement {
+  return h('section', { class: `panel${options.extraClass === undefined ? '' : ` ${options.extraClass}`}`, 'aria-label': title }, [
+    h('header', { class: 'panel__header' }, [
+      h('div', { class: 'panel__titles' }, [
+        h('h2', { class: 'panel__title' }, [title]),
+        options.description === undefined ? null : h('p', { class: 'panel__description' }, [options.description]),
+      ]),
+      options.actions === undefined || options.actions.length === 0
+        ? null
+        : h('div', { class: 'panel__actions' }, options.actions),
     ]),
-    h('div', { class: 'card__body' }, body),
+    h('div', { class: options.flush === true ? 'panel__body panel__body--flush' : 'panel__body' }, body),
   ]);
 }
 
-export function metric(label: string, value: string, foot: string): HTMLElement {
-  return h('div', { class: 'metric' }, [
-    h('span', { class: 'metric__label' }, [label]),
-    h('span', { class: 'metric__value' }, [isolated(value)]),
-    h('span', { class: 'metric__foot' }, [foot]),
+/** One page of a workspace screen: an optional toolbar row, then its sections. */
+export function page(name: string, toolbar: HTMLElement | null, children: readonly Child[]): HTMLElement {
+  return h('div', { class: `page page--${name}`, 'data-scroll': 'screen', tabindex: '-1' }, [
+    h('div', { class: 'page__inner' }, [toolbar, ...children]),
   ]);
 }
 
-export function barRow(label: string, ratio: number, value: string, warm = false): HTMLElement {
-  const width = `${Math.round(Math.min(Math.max(ratio, 0), 1) * 100)}%`;
-  return h('div', { class: 'bars__row' }, [
-    h('span', {}, [label]),
-    h('span', { class: 'bars__track' }, [
-      h('span', { class: warm ? 'bars__fill bars__fill--warm' : 'bars__fill', style: `width:${width}` }),
-    ]),
-    h('span', { class: 'bars__value' }, [isolated(value)]),
+export function toolbar(lede: string | null, actions: readonly Child[]): HTMLElement {
+  return h('div', { class: 'pagebar' }, [
+    lede === null ? null : h('p', { class: 'pagebar__lede' }, [lede]),
+    h('div', { class: 'pagebar__actions' }, actions),
   ]);
 }
 
-export function checkItem(label: string, done: boolean): HTMLElement {
-  return h('li', {}, [
-    h('span', { class: `checklist__mark checklist__mark--${done ? 'yes' : 'no'}` }, [
-      icon(done ? 'check' : 'close', 10),
-    ]),
-    h('span', {}, [label]),
+export interface KpiOptions {
+  readonly foot?: string | undefined;
+  readonly tone?: Tone | undefined;
+  readonly unavailable?: boolean | undefined;
+}
+
+export function kpi(label: string, value: string, options: KpiOptions = {}): HTMLElement {
+  return h('div', { class: `kpi${options.unavailable === true ? ' kpi--unavailable' : ''}${options.tone === undefined ? '' : ` kpi--${options.tone}`}` }, [
+    h('span', { class: 'kpi__label' }, [label]),
+    h('span', { class: 'kpi__value' }, [isolated(value)]),
+    options.foot === undefined ? null : h('span', { class: 'kpi__foot' }, [options.foot]),
   ]);
 }
 
-export const CHANNEL_ICON: Readonly<Record<'whatsapp' | 'instagram' | 'messenger', IconName>> = {
+/** A bar with its value in words for assistive technology. */
+export function progress(ratio: number, label: string, tone: Tone = 'accent'): HTMLElement {
+  const percent = Math.round(Math.min(Math.max(ratio, 0), 1) * 1000) / 10;
+  return h('span', {
+    class: `progress progress--${tone}`,
+    role: 'img',
+    'aria-label': label,
+    style: `--progress:${String(percent)}%`,
+  }, [h('span', { class: 'progress__fill' })]);
+}
+
+export const CHANNEL_ICON: Readonly<Record<string, IconName>> = {
   whatsapp: 'whatsapp',
   instagram: 'instagram',
   messenger: 'messenger',
+  web_chat: 'chat',
+  custom: 'code',
+  telegram: 'plane',
 };
+
+/** The channel's glyph. A kind this build does not know gets a neutral globe. */
+export function channelIcon(kind: string): IconName {
+  return CHANNEL_ICON[kind] ?? 'globe';
+}

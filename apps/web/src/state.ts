@@ -1,7 +1,4 @@
-import type { Dataset, RoleId } from './data';
-import { CURRENT_MEMBER_ID, buildDataset } from './data';
 import type { Lang } from './format';
-import type { Actor } from './permissions';
 import {
   disconnectedApi,
   disconnectedChannelsApi,
@@ -13,22 +10,14 @@ import { createLiveState } from './live/store';
 import type { Route, ScreenId } from './router';
 import { DEFAULT_ROUTE } from './router';
 
-/** The four demonstrable non-happy states, plus `ready`. */
-export const VIEWABLE_ROLES: readonly RoleId[] = [
-  'supervisor',
-  'agent',
-  'admin',
-  'campaign_manager',
-];
-
 /**
- * Queue-list resize bounds. Narrower than 300px and the one-line preview stops
- * being readable; wider than 380px and the timeline loses room it needs more.
- * Mirrored by `--list-width-min` / `--list-width-max` in styles/tokens.css.
+ * Queue-list resize bounds. Narrower than 300px and the row cues start to wrap;
+ * wider than 400px and the conversation loses room it needs more. Mirrored by
+ * `--list-width-min` / `--list-width-max` in styles/tokens.css.
  */
 export const LIST_WIDTH_MIN = 300;
-export const LIST_WIDTH_MAX = 380;
-export const LIST_WIDTH_DEFAULT = 332;
+export const LIST_WIDTH_MAX = 400;
+export const LIST_WIDTH_DEFAULT = 336;
 
 /** Clamps a proposed queue-list width into the supported range. */
 export function clampListWidth(value: number): number {
@@ -50,26 +39,54 @@ export interface DialogState {
   readonly arg: string;
 }
 
+/** The Analytics scope as the operator chose it. Empty means "not narrowed". */
+export interface AnalyticsFilters {
+  readonly from: string;
+  readonly to: string;
+  readonly channel: string;
+  readonly campaignId: string;
+}
+
+export const NO_ANALYTICS_FILTERS: AnalyticsFilters = { from: '', to: '', channel: '', campaignId: '' };
+
 export interface AppState {
   lang: Lang;
   theme: Theme;
-  openTabs: ScreenId[];
   route: Route;
-  role: RoleId;
-  dataset: Dataset;
   openMenu: string | null;
   dialog: DialogState | null;
   dialogForm: Record<string, string>;
-  /**
-   * Both side zones start closed (task §3): the operator opens Views from the
-   * one "Views / القوائم" control and customer details from the thread header.
-   * `focusMode` closes both and keeps them closed until it is turned off.
-   */
+  /** Field-level problems found before a request was sent, keyed like `dialogForm`. */
+  formErrors: Record<string, string>;
+  /** Whether the sign-in password is shown in clear. Reset with the form. */
+  passwordVisible: boolean;
+  /** Desktop navigation width. A visual preference, persisted locally. */
+  navCollapsed: boolean;
+  /** The navigation drawer at narrow widths. Never persisted. */
+  navOpen: boolean;
+  /** The conversation queue drawer at widths where it cannot sit inline. */
   listOpen: boolean;
   /** Queue-list width in px, clamped to LIST_WIDTH_MIN..LIST_WIDTH_MAX. */
   listWidth: number;
+  /** Whether the customer panel is shown beside an open conversation, where it fits inline. */
+  panelOpen: boolean;
+  /** Whether the customer panel is open as a drawer, where it cannot fit inline. */
+  panelDrawer: boolean;
+  /**
+   * A control to move focus to after the next render, as a selector. Cleared
+   * once applied. Used when an action sends the operator somewhere else on the
+   * page, so a keyboard user arrives there too.
+   */
+  focusTarget: string | null;
   /** Which half of the live inbox is showing: the queue, or this agent's work. */
   inboxQueue: 'unassigned' | 'mine';
+  /** Which surface the composer writes to. A note never reaches a customer. */
+  composerTab: ComposerTab;
+  /** The channel kind whose connections the Channels screen is narrowed to. */
+  channelKind: string;
+  /** The connection whose management details are expanded. */
+  expandedConnection: string | null;
+  analyticsFilters: AnalyticsFilters;
   /**
    * The moment the screen was last drawn.
    *
@@ -81,11 +98,7 @@ export interface AppState {
   clock: Date;
   toasts: Toast[];
   sequence: number;
-  /**
-   * Server-backed state for the People screen. Kept separate from the demo
-   * dataset above so there is never a doubt about which parts of the workspace
-   * are talking to the API and which are still seeded locally.
-   */
+  /** Everything the server said. Roles and permissions come only from here. */
   live: LiveState;
 }
 
@@ -93,9 +106,9 @@ export interface AppState {
  * Builds the workspace state.
  *
  * `live` defaults to a state whose API has no transport, because that is the
- * truthful default for a page with no server behind it: the demo screens still
- * work, and anything that asks the API reports a network failure rather than
- * inventing a success. `mount` always passes the real one.
+ * truthful default for a page with no server behind it: every request reports a
+ * network failure rather than inventing a success. `mount` always passes the
+ * real one.
  */
 export function createState(
   now: Date,
@@ -106,54 +119,32 @@ export function createState(
     disconnectedContactsApi(),
   ),
 ): AppState {
-  const dataset = buildDataset(now);
   return {
     lang: 'ar',
     theme: 'light',
-    openTabs: ['inbox'],
     route: DEFAULT_ROUTE,
-    role: 'supervisor',
-    dataset,
     openMenu: null,
     dialog: null,
     dialogForm: {},
+    formErrors: {},
+    passwordVisible: false,
+    navCollapsed: true,
+    navOpen: false,
     listOpen: false,
     listWidth: LIST_WIDTH_DEFAULT,
+    panelOpen: true,
+    panelDrawer: false,
+    focusTarget: null,
     inboxQueue: 'unassigned',
+    composerTab: 'reply',
+    channelKind: '',
+    expandedConnection: null,
+    analyticsFilters: NO_ANALYTICS_FILTERS,
     clock: now,
     toasts: [],
     sequence: 0,
     live,
   };
-}
-
-/**
- * The signed-in operator, re-roled by the "view as" control. The identity stays
- * the same person — only the effective role changes — so "Mine" keeps meaning
- * across a role switch and the projection rules are visible on real data.
- */
-export function currentActor(state: AppState): Actor {
-  // The seeded dataset always contains this member — `buildDataset` writes it —
-  // so there is no "member not found" case to invent a placeholder for. If the
-  // seed ever stopped including them, the type error would say so here rather
-  // than a fallback quietly rendering a workspace belonging to nobody.
-  const member = requireMember(state.dataset.members);
-  return {
-    memberId: CURRENT_MEMBER_ID,
-    name: member.name,
-    nameEn: member.nameEn,
-    role: state.role,
-    inboxIds: member.inboxIds,
-    teamIds: member.teamIds,
-  };
-}
-
-function requireMember(members: Dataset['members']): Dataset['members'][number] {
-  const member = members.find((entry) => entry.id === CURRENT_MEMBER_ID);
-  if (member === undefined) {
-    throw new Error(`the seeded dataset has no member ${CURRENT_MEMBER_ID}`);
-  }
-  return member;
 }
 
 export function nextId(state: AppState, prefix: string): string {
@@ -168,22 +159,22 @@ export function pushToast(state: AppState, text: string, tone: Toast['tone'] = '
 
 /* ---------------------------------------------------------------------------
  * URL <-> state. Only the parts an operator would want to share are encoded.
+ * Nothing about identity or authority is ever read from the URL: a role in a
+ * link would be a role anybody could type.
  * ------------------------------------------------------------------------- */
-
-function pick<T extends string>(
-  values: readonly T[],
-  candidate: string | undefined,
-  fallback: T,
-): T {
-  return values.includes(candidate as T) ? (candidate as T) : fallback;
-}
 
 export function routeParamsFor(state: AppState): Record<string, string> {
   const params: Record<string, string> = {};
   if (state.lang !== 'ar') params.lang = state.lang;
-  if (state.role !== 'supervisor') params.as = state.role;
   if (state.route.screen === 'inbox' && state.inboxQueue !== 'unassigned') {
     params.queue = state.inboxQueue;
+  }
+  if (state.route.screen === 'analytics') {
+    const filters = state.analyticsFilters;
+    if (filters.from !== '') params.from = filters.from;
+    if (filters.to !== '') params.to = filters.to;
+    if (filters.channel !== '') params.channel = filters.channel;
+    if (filters.campaignId !== '') params.campaign = filters.campaignId;
   }
   return params;
 }
@@ -192,11 +183,18 @@ export function applyRoute(state: AppState, route: Route): void {
   const params = route.params;
   state.route = route;
   state.lang = params.lang === 'en' ? 'en' : 'ar';
-  state.role = pick(VIEWABLE_ROLES, params.as, 'supervisor');
   if (route.screen === 'inbox') {
     // Which half of the inbox is showing is worth sharing in a link; nothing
     // else about it is local state any more.
     state.inboxQueue = params.queue === 'mine' ? 'mine' : 'unassigned';
+  }
+  if (route.screen === 'analytics') {
+    state.analyticsFilters = {
+      from: params.from ?? '',
+      to: params.to ?? '',
+      channel: params.channel ?? '',
+      campaignId: params.campaign ?? '',
+    };
   }
 }
 
@@ -205,8 +203,8 @@ export function screenTitle(screen: ScreenId, lang: Lang): string {
     inbox: { ar: 'صندوق الوارد', en: 'Inbox' },
     contacts: { ar: 'جهات الاتصال', en: 'Contacts' },
     channels: { ar: 'القنوات', en: 'Channels' },
-    people: { ar: 'الأفراد والأدوار', en: 'People & roles' },
-    broadcasts: { ar: 'الحملات', en: 'Broadcasts' },
+    people: { ar: 'الفريق والأدوار', en: 'People & roles' },
+    broadcasts: { ar: 'الحملات', en: 'Campaigns' },
     analytics: { ar: 'التقارير', en: 'Analytics' },
     settings: { ar: 'الإعدادات', en: 'Settings' },
   };

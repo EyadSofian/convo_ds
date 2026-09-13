@@ -25,6 +25,7 @@ import type {
   Permission,
   Person,
   Role,
+  SessionSummary,
   Team,
 } from '../api/people.js';
 
@@ -59,13 +60,30 @@ export function failed<T>(error: ApiError): Resource<T> {
 }
 
 /** Folds a result into a resource, so no caller writes the same branch twice. */
+/**
+ * The state a list takes while it is read again.
+ *
+ * A list already on screen stays there while a change is confirmed, so a click
+ * does not blank the page into placeholders; one that never loaded shows them.
+ */
+export function reloading<T>(resource: Resource<T>, keep: boolean): Resource<T> {
+  return keep && resource.status === 'ready' ? resource : LOADING;
+}
+
 export function fromResult<T>(result: ApiResult<T>, now: number): Resource<T> {
   return result.ok ? ready(result.data, now) : failed(result.error);
 }
 
 export type SessionState =
   | { readonly status: 'unknown' }
-  | { readonly status: 'signed_out'; readonly error: ApiError | null }
+  | {
+      readonly status: 'signed_out';
+      readonly error: ApiError | null;
+      /** True when a session that was open stopped being accepted by the server. */
+      readonly expired?: boolean;
+      /** The session probe itself failed, so nobody knows yet whether there is one. */
+      readonly probeError?: ApiError;
+    }
   | {
       readonly status: 'signed_in';
       readonly email: string;
@@ -175,9 +193,13 @@ export interface LiveState {
   selectedContact: Resource<Contact>;
   labels: Resource<readonly Label[]>;
   customFields: Resource<readonly CustomField[]>;
+  /** This user's active sessions, for the Settings screen. */
+  sessions: Resource<readonly SessionSummary[]>;
   campaigns: Resource<readonly Campaign[]>;
   campaignRecipients: Resource<readonly CampaignRecipient[]>;
   campaignReport: Resource<CampaignReport>;
+  /** The campaigns the Analytics campaign filter can offer. */
+  reportCampaigns: readonly { readonly id: string; readonly name: string }[];
   campaignReportExport: Resource<CampaignReportExport>;
   selectedCampaignId: string | null;
   inboxFilters: { unread: string; priority: string; channel: string; labelId: string };
@@ -252,9 +274,11 @@ export function createLiveState(
     selectedContact: IDLE,
     labels: IDLE,
     customFields: IDLE,
+    sessions: IDLE,
     campaigns: IDLE,
     campaignRecipients: IDLE,
     campaignReport: IDLE,
+    reportCampaigns: [],
     campaignReportExport: IDLE,
     selectedCampaignId: null,
     inboxFilters: { unread: '', priority: '', channel: '', labelId: '' },
@@ -267,6 +291,24 @@ export function createLiveState(
     error: null,
     revision: 0,
   };
+}
+
+/**
+ * A fresh state over the same transport.
+ *
+ * Used when a session ends. A new object rather than a reset of the old one:
+ * a request still in flight holds the old object, so whatever it brings back
+ * lands somewhere nothing renders instead of in the next person's workspace.
+ */
+export function renewLiveState(previous: LiveState): LiveState {
+  return createLiveState(
+    previous.api,
+    previous.channels,
+    previous.conversationsApi,
+    previous.contactsApi,
+    previous.metadataApi,
+    previous.campaignsApi,
+  );
 }
 
 /** The tenant the screens are working in, or `null` when not signed in. */
@@ -293,23 +335,17 @@ export async function forTenant<T>(
 }
 
 /**
- * True when the failure means "you are not allowed", which the screens render
- * as a permission state rather than as an error. A 404 is included: the API
- * conceals a non-membership as "not found", so from the browser's side the two
- * are the same fact.
+ * True when the failure means "not for you" rather than "went wrong". A 404 is
+ * included: the API conceals a non-membership as "not found", so from the
+ * browser's side access to it has gone either way.
  */
 export function isDenial(error: ApiError): boolean {
-  return (
-    error.code === 'permission_denied' ||
-    error.code === 'resource_not_found' ||
-    error.status === 403 ||
-    error.status === 404
-  );
+  return error.status === 403 || error.status === 404;
 }
 
-/** True when the caller has no session, so the screen offers a sign-in. */
-export function isUnauthenticated(error: ApiError): boolean {
-  return error.status === 401;
+/** The session of an open workspace. Only screens drawn inside the shell ask, and the shell requires one. */
+export function openSession(live: LiveState): Extract<SessionState, { readonly status: 'signed_in' }> {
+  return live.session as Extract<SessionState, { readonly status: 'signed_in' }>;
 }
 
 /**

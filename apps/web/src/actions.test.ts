@@ -1,18 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { nextTabAfterClose, runAction, selectedId } from './actions';
+import type { ChannelConnection } from './api/channels';
+import { ACTIONS, runAction, selectedId } from './actions';
 import type { ActionContext } from './actions';
 import type { ScreenId } from './router';
-import { createState, LIST_WIDTH_MAX, LIST_WIDTH_MIN } from './state';
+import { createState, LIST_WIDTH_MAX, LIST_WIDTH_MIN, NO_ANALYTICS_FILTERS, pushToast } from './state';
 import type { AppState } from './state';
 
 /**
- * The workspace shell's action table.
- *
- * What used to live here — opening conversations, filtering a queue, composing
- * a reply — is gone with the demo inbox. The Inbox is served by `live-*`
- * actions that reach the API, and those are tested against a real server in
- * `live/live.test.ts`. What remains is the shell: tabs, theme, language, the
- * list drawer, dialogs and the three screens that are still seeded demos.
+ * The view-choice half of the action table: navigation, theme, language,
+ * drawers, dialogs and the local selections the screens remember. None of these
+ * reach the server — the server-backed actions are exercised against a scripted
+ * API in `live/*.test.ts`.
  */
 
 const NOW = new Date('2026-09-09T09:30:00.000Z');
@@ -21,7 +19,7 @@ interface Harness {
   state: AppState;
   context: ActionContext;
   navigations: { screen: ScreenId; conversationId: string | null }[];
-  renders: number;
+  readonly renders: number;
 }
 
 function harness(): Harness {
@@ -45,7 +43,11 @@ function harness(): Harness {
     get renders() {
       return renders;
     },
-  } as Harness;
+  };
+}
+
+function connection(id: string, kind: ChannelConnection['kind'], disconnected = false): ChannelConnection {
+  return { id, kind, disconnected_at: disconnected ? NOW.toISOString() : null } as ChannelConnection;
 }
 
 let app: Harness;
@@ -59,10 +61,16 @@ describe('runAction', () => {
     expect(runAction('no-such-action', app.context, '')).toBe(false);
     expect(runAction('theme', app.context, '')).toBe(true);
   });
+
+  it('has no role switch, demo action or seeded campaign action left in it', () => {
+    for (const removed of ['role', 'demo', 'campaign', 'close-tab']) {
+      expect(ACTIONS[removed]).toBeUndefined();
+    }
+  });
 });
 
 describe('navigation', () => {
-  it('moves between screens and drops the conversation off the inbox', () => {
+  it('moves between screens and drops the conversation off every other screen', () => {
     runAction('nav', app.context, 'analytics');
     expect(app.navigations).toEqual([{ screen: 'analytics', conversationId: null }]);
   });
@@ -72,112 +80,134 @@ describe('navigation', () => {
     expect(app.navigations).toEqual([]);
   });
 
-  it('opens a tab for each screen and keeps the inbox tab pinned', () => {
+  it('closes the navigation drawer, any menu and the queue drawer on the way', () => {
+    app.state.navOpen = true;
+    app.state.openMenu = 'user';
+    app.state.listOpen = true;
     runAction('nav', app.context, 'people');
-    runAction('nav', app.context, 'channels');
-    expect(app.state.openTabs).toEqual(['inbox', 'people', 'channels']);
+    expect(app.state.navOpen).toBe(false);
+    expect(app.state.openMenu).toBeNull();
+    expect(app.state.listOpen).toBe(false);
   });
 
-  it('closes a background tab without leaving the current screen', () => {
-    runAction('nav', app.context, 'people');
-    runAction('nav', app.context, 'channels');
-    runAction('close-tab', app.context, 'people');
-    expect(app.state.openTabs).toEqual(['inbox', 'channels']);
-    expect(app.state.route.screen).toBe('channels');
-  });
-
-  it('falls back to the neighbouring tab when closing the active one', () => {
-    runAction('nav', app.context, 'people');
-    runAction('nav', app.context, 'channels');
-    runAction('close-tab', app.context, 'channels');
-    expect(app.state.route.screen).toBe('people');
-  });
-
-  it('returns to the inbox — with its conversation — when the first tab closes', () => {
-    runAction('nav', app.context, 'people');
-    app.state.route = { ...app.state.route, conversationId: 'cv-1' };
-    runAction('close-tab', app.context, 'people');
-    expect(app.navigations.at(-1)).toEqual({ screen: 'inbox', conversationId: 'cv-1' });
-  });
-
-  it('refuses to close the last tab, an unknown screen or an unopened tab', () => {
-    runAction('close-tab', app.context, 'inbox');
-    expect(app.state.openTabs).toEqual(['inbox']);
-    runAction('nav', app.context, 'people');
-    runAction('close-tab', app.context, 'nowhere');
-    runAction('close-tab', app.context, 'analytics');
-    expect(app.state.openTabs).toEqual(['inbox', 'people']);
-  });
-
-  it('names the landing tab for every shape of the remaining list', () => {
-    expect(nextTabAfterClose(['inbox', 'people'], 1)).toBe('inbox');
-    expect(nextTabAfterClose(['people'], 0)).toBe('people');
-    // Unreachable through the UI — the last tab cannot be closed — and still
-    // defined, because a function that indexes an array should say what it does
-    // when there is nothing there.
-    expect(nextTabAfterClose([], 0)).toBe('inbox');
-  });
-
-  it('names the conversation the inbox is showing when returning to it', () => {
+  it('keeps the conversation the inbox is showing when returning to it', () => {
     app.state.route = { ...app.state.route, conversationId: 'cv-1' };
     runAction('nav', app.context, 'inbox');
-    // Navigating to the inbox carries whatever conversation the route already
-    // names, so a reload or a back button lands on the same thread.
     expect(app.navigations.at(-1)).toEqual({ screen: 'inbox', conversationId: 'cv-1' });
     expect(selectedId(app.state)).toBe('cv-1');
+  });
+
+  it('collapses and expands the navigation, and sets it explicitly', () => {
+    runAction('nav-collapse', app.context, '');
+    expect(app.state.navCollapsed).toBe(false);
+    runAction('nav-collapse', app.context, '');
+    expect(app.state.navCollapsed).toBe(true);
+    runAction('nav-set', app.context, 'expanded');
+    expect(app.state.navCollapsed).toBe(false);
+    runAction('nav-set', app.context, 'collapsed');
+    expect(app.state.navCollapsed).toBe(true);
+    const before = app.renders;
+    runAction('nav-set', app.context, 'sideways');
+    expect(app.renders).toBe(before);
+  });
+
+  it('opens the navigation drawer over any menu, and closes it', () => {
+    app.state.openMenu = 'user';
+    runAction('nav-drawer', app.context, '');
+    expect(app.state.navOpen).toBe(true);
+    expect(app.state.openMenu).toBeNull();
+    runAction('nav-drawer-close', app.context, '');
+    expect(app.state.navOpen).toBe(false);
   });
 });
 
 describe('chrome', () => {
-  it('toggles the theme both ways', () => {
+  it('toggles the theme both ways, and sets it explicitly', () => {
     runAction('theme', app.context, '');
     expect(app.state.theme).toBe('dark');
     runAction('theme', app.context, '');
     expect(app.state.theme).toBe('light');
+    runAction('theme-set', app.context, 'dark');
+    expect(app.state.theme).toBe('dark');
+    runAction('theme-set', app.context, 'sepia');
+    expect(app.state.theme).toBe('dark');
   });
 
-  it('switches language and role, and refuses an unknown role', () => {
+  it('switches language and closes the menu it was chosen from', () => {
+    app.state.openMenu = 'user';
     runAction('lang', app.context, 'en');
     expect(app.state.lang).toBe('en');
-    runAction('lang', app.context, 'ar');
+    expect(app.state.openMenu).toBeNull();
+    runAction('lang', app.context, 'fr');
     expect(app.state.lang).toBe('ar');
-
-    runAction('role', app.context, 'agent');
-    expect(app.state.role).toBe('agent');
-    runAction('role', app.context, 'wizard');
-    expect(app.state.role).toBe('agent');
   });
 
-  it('opens and closes a menu, and closes it when a role is picked', () => {
-    runAction('menu', app.context, 'sort');
-    expect(app.state.openMenu).toBe('sort');
-    runAction('menu', app.context, 'sort');
+  it('opens and closes a menu', () => {
+    runAction('menu', app.context, 'user');
+    expect(app.state.openMenu).toBe('user');
+    runAction('menu', app.context, 'user');
     expect(app.state.openMenu).toBeNull();
-
-    runAction('menu', app.context, 'role');
-    runAction('role', app.context, 'agent');
-    expect(app.state.openMenu).toBeNull();
-
-    runAction('menu', app.context, 'sort');
+    runAction('menu', app.context, 'tenant');
     runAction('close-menu', app.context, '');
     expect(app.state.openMenu).toBeNull();
   });
 
-  it('opens the list drawer and closes it from the scrim', () => {
+  it('dismisses a toast', () => {
+    pushToast(app.state, 'Saved');
+    const toast = app.state.toasts[0];
+    runAction('toast', app.context, toast?.id ?? '');
+    expect(app.state.toasts).toEqual([]);
+  });
+
+  it('shows and hides the sign-in password', () => {
+    runAction('password-visibility', app.context, '');
+    expect(app.state.passwordVisible).toBe(true);
+    runAction('password-visibility', app.context, '');
+    expect(app.state.passwordVisible).toBe(false);
+  });
+});
+
+describe('inbox zones', () => {
+  it('opens the list drawer and closes it from the scrim or Escape', () => {
     runAction('list', app.context, '');
     expect(app.state.listOpen).toBe(true);
     runAction('close-overlays', app.context, 'list');
     expect(app.state.listOpen).toBe(false);
-
     runAction('list', app.context, '');
     runAction('close-overlays', app.context, '');
     expect(app.state.listOpen).toBe(false);
   });
 
-  it('closes the list drawer when navigating away', () => {
-    runAction('list', app.context, '');
-    runAction('nav', app.context, 'people');
-    expect(app.state.listOpen).toBe(false);
+  it('keeps the inline panel preference apart from the panel drawer', () => {
+    runAction('panel', app.context, '');
+    expect(app.state.panelOpen).toBe(false);
+    runAction('panel', app.context, '');
+    expect(app.state.panelOpen).toBe(true);
+
+    runAction('panel-drawer', app.context, '');
+    expect(app.state.panelDrawer).toBe(true);
+    runAction('close-overlays', app.context, 'panel-drawer');
+    expect(app.state.panelDrawer).toBe(false);
+    expect(app.state.panelOpen).toBe(true);
+
+    runAction('panel-drawer', app.context, '');
+    runAction('close-overlays', app.context, '');
+    expect(app.state.panelDrawer).toBe(false);
+
+    // The panel's own close button hides it in both arrangements.
+    runAction('panel-drawer', app.context, '');
+    runAction('close-overlays', app.context, 'panel');
+    expect(app.state.panelOpen).toBe(false);
+    expect(app.state.panelDrawer).toBe(false);
+  });
+
+  it('switches the composer between a reply and a private note', () => {
+    runAction('composer-tab', app.context, 'note');
+    expect(app.state.composerTab).toBe('note');
+    runAction('composer-tab', app.context, 'reply');
+    expect(app.state.composerTab).toBe('reply');
+    runAction('composer-tab', app.context, 'sms');
+    expect(app.state.composerTab).toBe('reply');
   });
 
   it('resizes the list column and clamps at both ends', () => {
@@ -187,7 +217,6 @@ describe('chrome', () => {
     expect(app.state.listWidth).toBe(LIST_WIDTH_MAX);
     runAction('resize-list', app.context, '1');
     expect(app.state.listWidth).toBe(LIST_WIDTH_MIN);
-    // A width that would not move it is not a change, so nothing re-renders.
     const before = app.renders;
     runAction('resize-list', app.context, '1');
     runAction('resize-list', app.context, 'not-a-number');
@@ -202,124 +231,99 @@ describe('chrome', () => {
     expect(app.state.listWidth).toBe(start);
     runAction('resize-list-step', app.context, 'sideways');
     expect(app.state.listWidth).toBe(start);
-
     app.state.listWidth = LIST_WIDTH_MAX;
     runAction('resize-list-step', app.context, 'inc');
     expect(app.state.listWidth).toBe(LIST_WIDTH_MAX);
   });
-
-  it('dismisses a toast', () => {
-    runAction('campaign', app.context, `launch:${app.state.dataset.campaigns[0]?.id ?? ''}`);
-    const toast = app.state.toasts[0];
-    expect(toast).toBeDefined();
-    runAction('toast', app.context, toast?.id ?? '');
-    expect(app.state.toasts).toEqual([]);
-  });
-
-  it('says so out loud when a control is still a demo', () => {
-    const fresh = harness();
-    runAction('demo', fresh.context, '');
-    // A demo control that did nothing silently would be indistinguishable from
-    // one that is broken. It says which it is.
-    expect(fresh.state.toasts[0]).toMatchObject({ tone: 'warning', text: 'إجراء تجريبي' });
-    runAction('demo', fresh.context, 'Not wired yet');
-    expect(fresh.state.toasts[1]?.text).toBe('Not wired yet');
-  });
 });
 
-describe('dialogs', () => {
-  it('opens with a kind and an argument, and clears the form each time', () => {
-    runAction('dialog', app.context, 'member:m-1');
-    expect(app.state.dialog).toEqual({ kind: 'member', arg: 'm-1' });
-    runAction('form', app.context, 'name:Sara');
-    expect(app.state.dialogForm.name).toBe('Sara');
-
+describe('dialogs and forms', () => {
+  it('opens with a kind and an argument, and clears the form and the last refusal', () => {
+    app.state.live.error = { code: 'x', message: 'x', requestId: null, status: 400, details: [] };
+    runAction('dialog', app.context, 'connect-channel:whatsapp');
+    expect(app.state.dialog).toEqual({ kind: 'connect-channel', arg: 'whatsapp' });
+    expect(app.state.live.error).toBeNull();
+    runAction('form', app.context, 'channelName:Admissions');
+    expect(app.state.dialogForm['channelName']).toBe('Admissions');
     runAction('dialog', app.context, 'invite');
     expect(app.state.dialog).toEqual({ kind: 'invite', arg: '' });
-    // A new dialog starts empty: carrying the last one's fields over is how a
-    // value ends up submitted to a form nobody typed it into.
     expect(app.state.dialogForm).toEqual({});
   });
 
   it('closes and forgets what was typed', () => {
     runAction('dialog', app.context, 'invite');
-    runAction('form', app.context, 'email:someone@example.test');
+    runAction('form', app.context, 'inviteEmail:someone@example.test');
+    app.state.live.error = { code: 'x', message: 'x', requestId: null, status: 400, details: [] };
     runAction('close-dialog', app.context, '');
     expect(app.state.dialog).toBeNull();
     expect(app.state.dialogForm).toEqual({});
+    expect(app.state.live.error).toBeNull();
   });
 
   it('ignores a form value with no field name', () => {
-    runAction('dialog', app.context, 'invite');
     runAction('form', app.context, 'no-separator');
     expect(app.state.dialogForm).toEqual({});
   });
 
-  it('re-renders for a toggle but not for ordinary typing', () => {
-    runAction('dialog', app.context, 'invite');
+  it('re-renders for a gating field but not for ordinary typing', () => {
     const before = app.renders;
     runAction('form', app.context, 'email:a');
-    // Redrawing on every keystroke moves the caret.
     expect(app.renders).toBe(before);
-    runAction('form-toggle', app.context, 'notify:on');
+    runAction('form-toggle', app.context, 'channelToken_c:abc');
     expect(app.renders).toBeGreaterThan(before);
   });
 });
 
-describe('campaign actions', () => {
-  it('refuses to launch a campaign that is ready but not approved', () => {
-    const campaign = app.state.dataset.campaigns.find((entry) => !entry.approved);
-    expect(campaign).toBeDefined();
-    runAction('campaign', app.context, `launch:${campaign?.id ?? ''}`);
-    // "Ready" is not "approved": approval is a separate, revision-bound record.
-    expect(app.state.toasts[0]?.tone).toBe('danger');
+describe('channels', () => {
+  it('narrows the connected list to a kind and collapses what was open', () => {
+    app.state.expandedConnection = 'c-1';
+    runAction('channel-kind', app.context, 'instagram');
+    expect(app.state.channelKind).toBe('instagram');
+    expect(app.state.expandedConnection).toBeNull();
   });
 
-  it('refuses to edit a campaign that has already launched', () => {
-    const campaign = app.state.dataset.campaigns.find(
-      (entry) => entry.state !== 'draft' && entry.state !== 'ready',
-    );
-    expect(campaign).toBeDefined();
-    runAction('campaign', app.context, `edit:${campaign?.id ?? ''}`);
-    expect(app.state.toasts[0]?.tone).toBe('danger');
+  it('expands and collapses one connection', () => {
+    runAction('connection-toggle', app.context, 'c-1');
+    expect(app.state.expandedConnection).toBe('c-1');
+    runAction('connection-toggle', app.context, 'c-1');
+    expect(app.state.expandedConnection).toBeNull();
   });
 
-  it('ignores a campaign that does not exist', () => {
-    runAction('campaign', app.context, 'launch:cp-nope');
-    expect(app.state.toasts).toEqual([]);
-    // A verb with no id at all is the same non-answer.
-    runAction('campaign', app.context, 'launch');
-    expect(app.state.toasts).toEqual([]);
+  it('manages a named connection, the first live one of a kind, or none', () => {
+    app.state.live.connections = {
+      status: 'ready',
+      loadedAt: 1,
+      value: [connection('gone', 'whatsapp', true), connection('wa-1', 'whatsapp'), connection('ig-1', 'instagram')],
+    };
+    runAction('channel-manage', app.context, 'instagram:ig-1');
+    expect(app.state).toMatchObject({ channelKind: 'instagram', expandedConnection: 'ig-1' });
+    expect(app.state.focusTarget).toBe('[data-connection="ig-1"] [data-act="connection-toggle"]');
+
+    runAction('channel-manage', app.context, 'whatsapp:');
+    expect(app.state.expandedConnection).toBe('wa-1');
+
+    runAction('channel-manage', app.context, 'messenger');
+    expect(app.state).toMatchObject({ channelKind: 'messenger', expandedConnection: null, focusTarget: null });
+
+    app.state.live.connections = { status: 'loading' };
+    runAction('channel-manage', app.context, 'whatsapp:');
+    expect(app.state.expandedConnection).toBeNull();
+  });
+});
+
+describe('campaigns and reports', () => {
+  it('opens a campaign’s report narrowed to that campaign', () => {
+    app.state.analyticsFilters = { from: '2026-01-01', to: '', channel: 'whatsapp', campaignId: '' };
+    runAction('campaign-report', app.context, 'c-7');
+    expect(app.state.analyticsFilters).toEqual({ ...NO_ANALYTICS_FILTERS, campaignId: 'c-7' });
+    expect(app.navigations.at(-1)).toEqual({ screen: 'analytics', conversationId: null });
   });
 
-  it('says a permitted action is a demo rather than pretending it ran', () => {
-    const campaign = app.state.dataset.campaigns.find((entry) => entry.approved);
-    expect(campaign).toBeDefined();
-    runAction('campaign', app.context, `launch:${campaign?.id ?? ''}`);
-    expect(app.state.toasts[0]).toMatchObject({ tone: 'warning' });
-    expect(app.state.toasts[0]?.text).toContain('لا يُرسل شيء إلى أي مزوّد');
-  });
-
-  it('writes every campaign answer in English too', () => {
-    app.state.lang = 'en';
-    const unapproved = app.state.dataset.campaigns.find((entry) => !entry.approved);
-    const launched = app.state.dataset.campaigns.find(
-      (entry) => entry.state !== 'draft' && entry.state !== 'ready',
-    );
-    const approved = app.state.dataset.campaigns.find((entry) => entry.approved);
-    runAction('campaign', app.context, `launch:${unapproved?.id ?? ''}`);
-    runAction('campaign', app.context, `edit:${launched?.id ?? ''}`);
-    runAction('campaign', app.context, `launch:${approved?.id ?? ''}`);
-    expect(app.state.toasts.map((toast) => toast.text)).toEqual([
-      'Launch rejected — “ready” is not “approved”. Approval is a separate revision-bound record.',
-      'Edits are rejected after launch — clone to a new campaign ID',
-      'Demo action — nothing is sent to any provider',
-    ]);
-  });
-
-  it('names a demo control in English too', () => {
-    app.state.lang = 'en';
-    runAction('demo', app.context, '');
-    expect(app.state.toasts[0]?.text).toBe('Demo action');
+  it('opens a report row’s campaign, selected, with its recipients not yet asked for', () => {
+    app.state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: [] };
+    runAction('campaign-open', app.context, 'c-7');
+    expect(app.state.live.selectedCampaignId).toBe('c-7');
+    expect(app.state.live.campaignRecipients).toEqual({ status: 'idle' });
+    expect(app.navigations.at(-1)).toEqual({ screen: 'broadcasts', conversationId: null });
   });
 });

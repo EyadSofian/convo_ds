@@ -2,165 +2,208 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest';
-import type { AppState } from '../state';
+import type { Campaign } from '../api/campaigns';
+import type { ChannelConnection } from '../api/channels';
 import { createState } from '../state';
+import type { AppState } from '../state';
 import { renderDialog } from './dialogs';
 
-const NOW = new Date('2026-09-08T12:00:00.000Z');
+const NOW = new Date('2026-09-09T09:30:00.000Z');
 
-function open(kind: string, arg = '', lang: 'ar' | 'en' = 'ar'): { state: AppState; element: HTMLElement } {
+function base(): AppState {
   const state = createState(NOW);
-  state.lang = lang;
-  state.route = { screen: 'inbox', conversationId: 'cv-4821', params: {} };
-  state.dialog = { kind, arg };
-  const element = renderDialog(state);
-  if (element === null) throw new Error('expected a dialog');
-  return { state, element };
+  state.lang = 'en';
+  state.live.session = { status: 'signed_in', email: 'a@b.c', memberships: [], tenantId: 't' };
+  return state;
 }
 
-function text(element: HTMLElement): string {
-  return element.textContent ?? '';
+function open(state: AppState, kind: string, arg = ''): HTMLElement {
+  state.dialog = { kind, arg };
+  return renderDialog(state) as HTMLElement;
+}
+
+const CAMPAIGN: Campaign = {
+  id: 'c-1', name: 'Autumn intake', objective: 'Enrolment', connection_id: 'cn-1', state: 'ready', version: 3,
+  revision_id: 'rev', revision: 1, revision_hash: 'a'.repeat(64), content: { text: 'Hello {{display_name}}' },
+  variables: {}, audience_filter: { search: 'student' }, timezone: 'UTC', expires_at: null, budget_amount_minor: '0',
+  budget_currency: 'USD', approved: true, audience: null, execution: null, created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
+};
+
+function healthy(id = 'cn-1', status: ChannelConnection['status'] = 'healthy'): ChannelConnection {
+  return { id, display_name: `Line ${id}`, status } as ChannelConnection;
 }
 
 describe('renderDialog', () => {
-  it('renders nothing when no dialog is open', () => {
-    expect(renderDialog(createState(NOW))).toBeNull();
+  it('draws nothing when no dialog is open, and says so for an unknown kind', () => {
+    const state = base();
+    expect(renderDialog(state)).toBeNull();
+    expect(open(state, 'nonsense').textContent).toContain('There is nothing to show here.');
+  });
+});
+
+describe('connecting a channel', () => {
+  it('asks a Meta channel for the configured app, the asset, a name and the token', () => {
+    const state = base();
+    const dialog = open(state, 'connect-channel', 'whatsapp');
+    expect(dialog.querySelector('.dialog__title')?.textContent).toBe('Connect WhatsApp Business');
+    expect(dialog.querySelector('label[for="channel-app"]')?.textContent).toBe('Meta App ID');
+    expect(dialog.querySelector('label[for="channel-asset"]')?.textContent).toBe('Phone Number ID');
+    expect(dialog.querySelector('#channel-token')?.getAttribute('type')).toBe('password');
+    expect(dialog.querySelector('form')?.getAttribute('data-submit')).toBe('live-connect-channel');
+    expect(open(state, 'connect-channel', 'messenger').querySelector('label[for="channel-asset"]')?.textContent).toBe('Page ID');
+    expect(open(state, 'connect-channel', 'instagram').querySelector('label[for="channel-asset"]')?.textContent).toBe('Instagram Account ID');
   });
 
-  it('renders the connect-channel dialog without promising a connection', () => {
-    const { element } = open('connect-channel');
-    expect((element.querySelector('[data-form="provider"]') as HTMLSelectElement).value).toBe('whatsapp');
-    expect(text(element)).toContain('تفويض OAuth حقيقي');
+  it('asks a first-party channel for a signing key and no Meta app', () => {
+    const state = base();
+    const dialog = open(state, 'connect-channel', 'web_chat');
+    expect(dialog.querySelector('#channel-app')).toBeNull();
+    expect(dialog.querySelector('label[for="channel-token"]')?.textContent).toBe('Signing key');
+    expect(open(state, 'connect-channel', 'custom').querySelector('label[for="channel-asset"]')?.textContent).toBe('Channel ID');
   });
 
-  it('renders the invite dialog with the delegation ceiling stated', () => {
-    const { element } = open('invite');
-    expect(element.querySelector('[data-form="email"]')).not.toBeNull();
-    expect(text(element)).toContain('سقف تفويضك');
-    expect(text(element)).toContain('لا توجد كلمة مرور افتراضية');
+  it('shows field problems, the server’s refusal and the attempt in flight', () => {
+    const state = base();
+    state.dialog = { kind: 'connect-channel', arg: 'whatsapp' };
+    state.formErrors = { channelProviderApp: 'Enter the Meta App ID.', channelAsset: 'Enter the asset ID.', channelName: 'Enter a display name.', channelToken: 'Enter at least 8 characters.' };
+    state.live.error = { code: 'provider_app_not_configured', message: 'That Meta app is not configured.', requestId: 'r-3', status: 422, details: [] };
+    state.live.busy = 'connect-channel';
+    const dialog = renderDialog(state) as HTMLElement;
+    expect(dialog.querySelectorAll('.field__error')).toHaveLength(4);
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('r-3');
+    expect((dialog.querySelector('.dialog__footer [data-act="live-connect-channel"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('renders a member dialog, and says so when the member is gone', () => {
-    const found = open('member', 'm-tarek');
-    expect(text(found.element)).toContain('طارق منير');
-    expect(text(found.element)).toContain('آخر مالك');
-    const missing = open('member', 'm-ghost');
-    expect(text(missing.element)).toContain('العضو غير موجود');
-  });
-
-  it('renders the team and campaign dialogs', () => {
-    const team = open('team');
-    expect((team.element.querySelector('[data-form="teamInbox"]') as HTMLSelectElement).value).toBe('ib-wa-cairo');
-    const campaign = open('campaign');
-    expect(text(campaign.element)).toContain('اربط قناة سليمة أولًا');
-    expect(campaign.element.querySelector('[data-act="live-campaign-create"]')).not.toBeNull();
-  });
-
-  it('offers healthy server channels in the campaign form and disables it while saving', () => {
-    const ready = open('campaign', '', 'en');
-    ready.state.live.connections = { status: 'ready', loadedAt: NOW.getTime(), value: [{
-      id: 'channel-1', kind: 'whatsapp', provider: 'meta', display_name: 'Admissions WhatsApp',
-      external_asset_id: 'phone-1', provider_app_id: 'app-1', status: 'healthy',
-      capabilities: {
-        kind: 'whatsapp', version: 'v21.0', host: 'graph.facebook.com', inboundEvents: ['messages'],
-        outboundTypes: ['text', 'template'], attachmentTypes: ['image'], textLimit: { characters: 4096, bytes: 4096 },
-        windowHours: 24, businessInitiated: true, templates: true, deliveryReceipts: true, readReceipts: true,
-      },
-      evidence: [], missing_evidence: [], last_error_code: null, last_error_at: null,
-      created_at: NOW.toISOString(), disconnected_at: null, credential_held: true, credential_fingerprint: 'f'.repeat(64),
-    }] };
-    ready.state.dialogForm = { campaignMessage: 'Welcome' };
-    const enabled = renderDialog(ready.state) as HTMLElement;
-    expect((enabled.querySelector('[data-form="campaignConnection"]') as HTMLSelectElement).value).toBe('channel-1');
-    expect(text(enabled)).toContain('After creating the draft');
-    expect((enabled.querySelector('[data-act="live-campaign-create"]') as HTMLButtonElement).disabled).toBe(false);
-
-    ready.state.live.busy = 'campaign-create';
-    const busy = renderDialog(ready.state) as HTMLElement;
-    expect((busy.querySelector('[data-act="live-campaign-create"]') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('prefills an editable server campaign and handles a campaign removed underneath', () => {
-    const ready = open('campaign-edit', 'campaign-1', 'en');
-    ready.state.live.connections = { status: 'ready', loadedAt: 1, value: [{
-      id: 'channel-1', kind: 'whatsapp', provider: 'meta', display_name: 'Admissions', external_asset_id: 'phone-1',
-      provider_app_id: 'app-1', status: 'healthy', capabilities: { kind: 'whatsapp', version: 'v21.0', host: 'graph.facebook.com', inboundEvents: [], outboundTypes: ['text'], attachmentTypes: [], textLimit: { characters: 4096, bytes: 4096 }, windowHours: 24, businessInitiated: true, templates: true, deliveryReceipts: true, readReceipts: true },
-      evidence: [], missing_evidence: [], last_error_code: null, last_error_at: null, created_at: NOW.toISOString(), disconnected_at: null, credential_held: true, credential_fingerprint: 'f'.repeat(64),
-    }] };
-    ready.state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{
-      id: 'campaign-1', name: 'September', objective: 'Enrolment', connection_id: 'channel-1', state: 'ready', version: 3,
-      revision_id: 'revision-1', revision: 1, revision_hash: 'a'.repeat(64), content: { text: 'Welcome student' },
-      variables: { display_name: 'display_name' }, audience_filter: { search: 'Mona' }, timezone: 'Africa/Cairo',
-      expires_at: null, budget_amount_minor: '0.000000', budget_currency: 'USD', approved: true,
-      audience: { total: 2, eligible: 1, excluded: 1 }, execution: null, created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
-    }] };
-    const form = renderDialog(ready.state) as HTMLElement;
-    expect((form.querySelector('[data-form="campaignName"]') as HTMLInputElement).value).toBe('September');
-    expect((form.querySelector('[data-form="campaignMessage"]') as HTMLTextAreaElement).value).toBe('Welcome student');
-    expect((form.querySelector('[data-form="campaignSearch"]') as HTMLInputElement).value).toBe('Mona');
-    expect(form.querySelector('[data-act="live-campaign-update"][data-arg="campaign-1"]')).not.toBeNull();
-    expect(text(form)).toContain('must be frozen and approved again');
-
-    const current = ready.state.live.connections.value[0];
-    if (current !== undefined) {
-      ready.state.live.connections = { status: 'ready', loadedAt: 2, value: [{ ...current, status: 'authorization_needed' }] };
+  it('refuses to offer Telegram or a kind the product does not list', () => {
+    const state = base();
+    for (const kind of ['telegram', 'pigeon']) {
+      const dialog = open(state, 'connect-channel', kind);
+      expect(dialog.querySelector('form')).toBeNull();
+      expect(dialog.textContent).toContain('not supported in this version');
     }
-    expect((renderDialog(ready.state) as HTMLElement).querySelector('[data-form="campaignConnection"]')).not.toBeNull();
+  });
+});
 
-    ready.state.live.campaigns = { status: 'ready', loadedAt: 2, value: [] };
-    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('no longer exists');
+describe('inviting a member', () => {
+  it('offers the server’s roles and the errors from the last attempt', () => {
+    const state = base();
+    state.live.roles = { status: 'ready', loadedAt: 1, value: [{ id: 'r-1', key: 'agent', name: 'Agent', is_builtin: true, grants: [] }] };
+    state.formErrors = { inviteEmail: 'Enter a valid email address.', inviteRole: 'Choose a role.' };
+    state.live.busy = 'invite';
+    const dialog = open(state, 'invite');
+    expect(Array.from(dialog.querySelectorAll('#invite-role option')).map((option) => option.textContent)).toEqual(['Choose a role', 'Agent']);
+    expect(dialog.querySelectorAll('.field__error')).toHaveLength(2);
+    expect((dialog.querySelector('.dialog__footer [data-act="live-invite"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('offering ownership', () => {
+  it('confirms in plain words before sending the offer', () => {
+    const state = base();
+    state.live.people = { status: 'ready', loadedAt: 1, value: [{ membership_id: 'm-2', email: 'sara@school.example', status: 'active', role: { id: 'r', key: 'admin', name: 'Admin' }, scopes: [] }] };
+    const dialog = open(state, 'ownership-offer', 'm-2');
+    expect(dialog.textContent).toContain('sara@school.example');
+    expect(dialog.textContent).toContain('they become the Owner');
+    expect(dialog.querySelector('[data-act="live-offer-ownership"]')?.getAttribute('data-arg')).toBe('m-2');
+    expect(open(state, 'ownership-offer', 'm-gone').textContent).toContain('no longer exists');
+  });
+});
+
+describe('campaign dialogs', () => {
+  it('says so when the campaign has gone, for every campaign dialog', () => {
+    const state = base();
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [] };
+    for (const kind of ['campaign-test-send', 'campaign-schedule', 'campaign-edit']) {
+      expect(open(state, kind, 'c-gone').textContent).toContain('no longer exists');
+    }
   });
 
-  it('offers only authorized recipients in the campaign test-send dialog', () => {
-    const ready = open('campaign-test-send', 'campaign-1', 'en');
-    ready.state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{
-      id: 'campaign-1', name: 'September', objective: null, connection_id: 'channel-1', state: 'draft', version: 1,
-      revision_id: 'revision-1', revision: 1, revision_hash: 'a'.repeat(64), content: { text: 'Welcome' },
-      variables: {}, audience_filter: {}, timezone: 'UTC', expires_at: null, budget_amount_minor: '0.000000',
-      budget_currency: 'USD', approved: false, audience: null, execution: null,
-      created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
-    }] };
-    ready.state.live.testRecipients = { status: 'ready', loadedAt: 1, value: [
-      { id: 'recipient-1', connection_id: 'channel-1', identity_id: 'identity-1', peer_identity: '201000000000', display_name: 'Owner', label: 'Owner phone', authorized_at: NOW.toISOString() },
-      { id: 'recipient-2', connection_id: 'channel-2', identity_id: 'identity-2', peer_identity: '201000000001', display_name: 'Other', label: 'Other line', authorized_at: NOW.toISOString() },
+  it('creates a draft only against a healthy channel', () => {
+    const state = base();
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [healthy('cn-1'), healthy('cn-2', 'degraded')] };
+    const dialog = open(state, 'campaign');
+    expect(dialog.querySelector('.dialog__title')?.textContent).toBe('New campaign');
+    expect(Array.from(dialog.querySelectorAll('#campaign-channel option')).map((option) => option.getAttribute('value'))).toEqual(['cn-1']);
+    expect((dialog.querySelector('.dialog__footer [data-act="live-campaign-create"]') as HTMLButtonElement).disabled).toBe(false);
+
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [] };
+    const blocked = renderDialog(state) as HTMLElement;
+    expect(blocked.textContent).toContain('Connect a healthy channel');
+    expect((blocked.querySelector('.dialog__footer [data-act="live-campaign-create"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('edits from the saved revision, keeping its own channel even if it is not healthy now', () => {
+    const state = base();
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [CAMPAIGN] };
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [healthy('cn-1', 'degraded')] };
+    state.formErrors = { campaignName: 'Enter a campaign name.', campaignMessage: 'Write the message.' };
+    state.live.busy = 'campaign-update:c-1';
+    const dialog = open(state, 'campaign-edit', 'c-1');
+    expect(dialog.querySelector('.dialog__title')?.textContent).toBe('Edit campaign');
+    expect((dialog.querySelector('#campaign-name') as HTMLInputElement).value).toBe('Autumn intake');
+    expect(dialog.querySelector('#campaign-message')?.textContent).toBe('Hello {{display_name}}');
+    expect((dialog.querySelector('#campaign-search') as HTMLInputElement).value).toBe('student');
+    expect(dialog.querySelector('form')?.getAttribute('data-arg')).toBe('c-1');
+    expect((dialog.querySelector('.dialog__footer [data-act="live-campaign-update"]') as HTMLButtonElement).disabled).toBe(true);
+
+    state.formErrors = {};
+    state.dialogForm = { campaignName: 'Renamed', campaignMessage: 'New text', campaignObjective: '', campaignSearch: '' };
+    const typed = renderDialog(state) as HTMLElement;
+    expect((typed.querySelector('#campaign-name') as HTMLInputElement).value).toBe('Renamed');
+    expect(typed.querySelector('#campaign-message')?.textContent).toBe('New text');
+  });
+
+  it('edits a campaign whose saved content has no text or search', () => {
+    const state = base();
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{ ...CAMPAIGN, content: { template: 'x' }, audience_filter: {}, objective: null }] };
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [healthy()] };
+    const dialog = open(state, 'campaign-edit', 'c-1');
+    expect(dialog.querySelector('#campaign-message')?.textContent).toBe('');
+    expect((dialog.querySelector('#campaign-search') as HTMLInputElement).value).toBe('');
+    expect((dialog.querySelector('#campaign-objective') as HTMLInputElement).value).toBe('');
+  });
+
+  it('sends a test only to a recipient authorized on the campaign’s own channel', () => {
+    const state = base();
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [CAMPAIGN] };
+    state.live.testRecipients = { status: 'loading' };
+    expect(open(state, 'campaign-test-send', 'c-1').textContent).toContain('Loading authorized recipients');
+    state.live.testRecipients = { status: 'idle' };
+    expect(renderDialog(state)?.textContent).toContain('Loading authorized recipients');
+    state.live.testRecipients = { status: 'error', error: { code: 'x', message: 'Denied.', requestId: 'r', status: 403, details: [] } };
+    expect(renderDialog(state)?.querySelector('[role="alert"]')).not.toBeNull();
+    state.live.testRecipients = { status: 'ready', loadedAt: 1, value: [
+      { id: 'tr-other', connection_id: 'cn-9', identity_id: 'i', peer_identity: '1', display_name: 'X', label: 'Elsewhere', authorized_at: '' },
     ] };
-    const dialog = renderDialog(ready.state) as HTMLElement;
-    expect((dialog.querySelector('[data-form="campaignTestRecipient"]') as HTMLSelectElement).options).toHaveLength(1);
-    expect(text(dialog)).toContain('same channel, window and adapter checks');
-    expect((dialog.querySelector('[data-act="live-campaign-test-send"]') as HTMLButtonElement).disabled).toBe(false);
+    const none = renderDialog(state) as HTMLElement;
+    expect(none.textContent).toContain('No test recipient is authorized on this channel');
+    expect((none.querySelector('[data-act="live-campaign-test-send"]') as HTMLButtonElement).disabled).toBe(true);
 
-    ready.state.live.testRecipients = { status: 'ready', loadedAt: 2, value: [] };
-    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('Owner or Admin');
-    ready.state.live.testRecipients = { status: 'loading' };
-    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('Loading authorized');
-    ready.state.live.testRecipients = { status: 'error', error: { code: 'down', message: 'Recipients unavailable', requestId: null, status: 503, details: [] } };
-    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('Recipients unavailable');
-    ready.state.live.error = { code: 'refused', message: 'Test refused', requestId: 'request-42', status: 409, details: [] };
-    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('request-42');
-    ready.state.live.error = { code: 'refused', message: 'Test refused without id', requestId: null, status: 409, details: [] };
-    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('Test refused without id');
-    ready.state.live.campaigns = { status: 'ready', loadedAt: 2, value: [] };
-    expect(text(renderDialog(ready.state) as HTMLElement)).toContain('no longer exists');
+    state.live.testRecipients = { status: 'ready', loadedAt: 1, value: [
+      { id: 'tr-1', connection_id: 'cn-1', identity_id: 'i', peer_identity: '201000000000', display_name: 'Owner', label: 'Owner phone', authorized_at: '' },
+    ] };
+    const ready = renderDialog(state) as HTMLElement;
+    expect((ready.querySelector('select') as HTMLSelectElement).value).toBe('tr-1');
+    expect((ready.querySelector('[data-act="live-campaign-test-send"]') as HTMLButtonElement).disabled).toBe(false);
+    state.dialogForm = { campaignTestRecipient: 'tr-1' };
+    state.live.error = { code: 'x', message: 'Window closed.', requestId: 'r-5', status: 409, details: [] };
+    expect(renderDialog(state)?.textContent).toContain('r-5');
   });
 
-  it('survives a workspace with no inboxes', () => {
-    const state = createState(NOW);
-    state.dataset = { ...state.dataset, inboxes: [] };
-    state.dialog = { kind: 'team', arg: '' };
-    const element = renderDialog(state) as HTMLElement;
-    expect((element.querySelector('[data-form="teamInbox"]') as HTMLSelectElement).value).toBe('');
-  });
-
-  it('falls back for an unknown dialog kind', () => {
-    const { element } = open('nonsense');
-    expect(text(element)).toContain('لا يوجد محتوى لهذا الحوار');
-  });
-
-  it('renders every dialog in English too', () => {
-    for (const kind of ['save-view', 'resolve', 'snooze', 'connect-channel', 'invite', 'team', 'campaign', 'nonsense']) {
-      expect(text(open(kind, 'm-tarek', 'en').element).length).toBeGreaterThan(10);
-    }
-    expect(text(open('member', 'm-tarek', 'en').element)).toContain('Tarek Mounir');
-    expect(text(open('member', 'm-ghost', 'en').element)).toContain('Member not found');
+  it('schedules for a time typed in the operator’s own zone', () => {
+    const state = base();
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [CAMPAIGN] };
+    state.formErrors = { campaignScheduleAt: 'Choose a time in the future.' };
+    state.dialogForm = { campaignScheduleAt: '2026-09-10T09:00' };
+    const filled = open(state, 'campaign-schedule', 'c-1');
+    expect(filled.querySelector('#campaign-schedule')?.getAttribute('type')).toBe('datetime-local');
+    expect((filled.querySelector('#campaign-schedule') as HTMLInputElement).value).toBe('2026-09-10T09:00');
+    expect(filled.querySelector('.field__error')?.textContent).toBe('Choose a time in the future.');
+    expect(filled.querySelector('[data-act="live-campaign-schedule"]')?.getAttribute('data-arg')).toBe('c-1');
+    state.dialogForm = {};
+    state.formErrors = {};
+    const blank = open(state, 'campaign-schedule', 'c-1');
+    expect((blank.querySelector('#campaign-schedule') as HTMLInputElement).value).toBe('');
+    expect(blank.querySelector('.field__error')).toBeNull();
   });
 });

@@ -1,119 +1,16 @@
 /**
- * Theme tokens — the single source of truth for colour.
+ * Colour contrast — the checks behind "AA in both themes".
  *
- * `styles/tokens.css` is the file the browser actually reads; this module holds
- * the same values as data so the palette can be *tested* rather than asserted.
- * `theme.test.ts` parses the stylesheet and fails when the two drift, and
- * re-checks every contrast requirement below on both themes.
- *
- * Provenance (ADR-0016): these are `original` / `a11y-override` values. They are
- * not measured Figma nodes — see docs/design/design-reference.md §1. The earlier
- * palette in that document is superseded here because it had no dark theme and
- * its light greys failed AA on the grey application ground.
+ * `styles/tokens.css` is the single source of truth for every colour. This
+ * module holds no palette of its own: it reads the two theme blocks out of that
+ * stylesheet and states which foreground/background pairs the interface
+ * actually paints, so `theme.test.ts` can measure the stylesheet the browser
+ * receives rather than a copy of it that might have drifted.
  */
 
 export type ThemeName = 'light' | 'dark';
 
-/**
- * Colour tokens, without the `--` prefix. Non-colour tokens (space, radius,
- * type) stay in CSS only: they carry no contrast obligation and no test value.
- */
-export type ColorToken =
-  | 'surface-app'
-  | 'surface-panel'
-  | 'surface-sunken'
-  | 'surface-hover'
-  | 'surface-active'
-  | 'border-subtle'
-  | 'border-strong'
-  | 'text-primary'
-  | 'text-secondary'
-  | 'text-muted'
-  | 'text-disabled'
-  | 'accent'
-  | 'accent-strong'
-  | 'accent-soft'
-  | 'on-accent'
-  | 'success'
-  | 'success-soft'
-  | 'warning'
-  | 'warning-soft'
-  | 'danger'
-  | 'danger-soft'
-  | 'unknown'
-  | 'unknown-soft'
-  | 'focus-ring'
-  | 'rail-surface'
-  | 'rail-text'
-  | 'rail-active';
-
-export type Palette = Readonly<Record<ColorToken, string>>;
-
-/** Light: neutral grey ground, white reading surfaces, dark navy text. */
-export const LIGHT: Palette = {
-  'surface-app': '#eef1f5',
-  'surface-panel': '#ffffff',
-  'surface-sunken': '#f4f6f9',
-  'surface-hover': '#f1f4f8',
-  'surface-active': '#e6edfb',
-  'border-subtle': '#dfe4ec',
-  'border-strong': '#7d879a',
-  'text-primary': '#101828',
-  'text-secondary': '#4a5567',
-  'text-muted': '#5e6980',
-  'text-disabled': '#98a1b2',
-  accent: '#1d4ed8',
-  'accent-strong': '#1a43ba',
-  'accent-soft': '#e6edfb',
-  'on-accent': '#ffffff',
-  success: '#04693e',
-  'success-soft': '#e2f4ea',
-  warning: '#8a5100',
-  'warning-soft': '#fbf0dd',
-  danger: '#b3261e',
-  'danger-soft': '#fceceb',
-  unknown: '#5b45c9',
-  'unknown-soft': '#eeeaff',
-  'focus-ring': '#1d4ed8',
-  'rail-surface': '#101828',
-  'rail-text': '#a8b3c7',
-  'rail-active': '#ffffff',
-};
-
-/** Dark: deep neutral navy, minimal glow, body text that is not washed out. */
-export const DARK: Palette = {
-  'surface-app': '#0a0f1a',
-  'surface-panel': '#141c2b',
-  'surface-sunken': '#0f1624',
-  'surface-hover': '#1c2536',
-  'surface-active': '#1e2c4a',
-  'border-subtle': '#263144',
-  'border-strong': '#5f6e8f',
-  'text-primary': '#e9eef7',
-  'text-secondary': '#b6c2d6',
-  'text-muted': '#93a0b6',
-  'text-disabled': '#6d7a8f',
-  accent: '#7aa5ff',
-  'accent-strong': '#9bbaff',
-  'accent-soft': '#1e2c4a',
-  'on-accent': '#08111f',
-  success: '#5cd0a0',
-  'success-soft': '#102a22',
-  warning: '#e8b35c',
-  'warning-soft': '#2c2317',
-  danger: '#ff8f85',
-  'danger-soft': '#33191a',
-  unknown: '#b3a2ff',
-  'unknown-soft': '#221e3d',
-  'focus-ring': '#8fb4ff',
-  'rail-surface': '#0f1624',
-  'rail-text': '#9aa7bd',
-  'rail-active': '#ffffff',
-};
-
-export const PALETTES: Readonly<Record<ThemeName, Palette>> = { light: LIGHT, dark: DARK };
-
-/* ------------------------------------------------------------- contrast -- */
+export type Palette = Readonly<Record<string, string>>;
 
 /** `#rrggbb` to its three 0–255 channels. Throws on anything else. */
 export function parseHex(value: string): readonly [number, number, number] {
@@ -145,42 +42,64 @@ export function contrastRatio(a: string, b: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+/**
+ * The `#rrggbb` custom properties declared in one `@tokens <section>` block of
+ * the stylesheet, without their `--` prefix.
+ *
+ * Anchored on the marker comments so a reordered file cannot silently match the
+ * wrong block. Non-hex values (hairlines, shadows) carry no contrast obligation
+ * and are not returned.
+ */
+export function paletteFromCss(css: string, section: ThemeName): Palette {
+  const start = css.indexOf(`/* @tokens ${section} */`);
+  if (start === -1) throw new Error(`no "@tokens ${section}" marker`);
+  const after = css.indexOf('/* @tokens ', start + 1);
+  const body = css.slice(start, after === -1 ? undefined : after);
+  const found: Record<string, string> = {};
+  for (const match of body.matchAll(/--([a-z0-9-]+):\s*(#[0-9a-f]{6})\s*;/gi)) {
+    found[match[1] as string] = (match[2] as string).toLowerCase();
+  }
+  return found;
+}
+
 export interface ContrastRequirement {
-  readonly fg: ColorToken;
-  readonly bg: ColorToken;
-  /** 4.5 for body text (1.4.3), 3 for UI component boundaries (1.4.11). */
+  readonly fg: string;
+  readonly bg: string;
+  /** 4.5 for text (1.4.3), 3 for UI boundaries and focus indicators (1.4.11). */
   readonly min: number;
   readonly note: string;
 }
 
+const READING_SURFACES = ['canvas', 'surface-1', 'surface-2', 'surface-3', 'surface-hover', 'surface-selected'] as const;
+
 /**
- * Every pair the interface actually paints. `text-disabled` is absent on
- * purpose: WCAG 1.4.3 exempts inactive controls, and the design rule in
- * design-reference.md §4.1 is that a disabled tone never carries meaning alone.
+ * Every pair the interface paints. `text-disabled` is absent on purpose: WCAG
+ * 1.4.3 exempts inactive controls, and a disabled tone never carries meaning
+ * alone.
  */
 export const CONTRAST_REQUIREMENTS: readonly ContrastRequirement[] = [
-  ...(['surface-app', 'surface-panel', 'surface-sunken', 'surface-hover', 'surface-active'] as const)
-    .flatMap((bg) =>
-      (['text-primary', 'text-secondary', 'text-muted'] as const).map((fg) => ({
-        fg,
-        bg,
-        min: 4.5,
-        note: 'body text on a reading surface',
-      })),
-    ),
-  ...(['accent', 'success', 'warning', 'danger', 'unknown'] as const).flatMap((fg) => [
-    { fg, bg: `${fg}-soft` as ColorToken, min: 4.5, note: 'status text on its own soft chip' },
-    { fg, bg: 'surface-panel' as ColorToken, min: 4.5, note: 'status text on a panel' },
-    { fg, bg: 'surface-app' as ColorToken, min: 4.5, note: 'status text on the application ground' },
+  ...READING_SURFACES.flatMap((bg) =>
+    (['text', 'text-secondary', 'text-muted', 'accent-text'] as const).map((fg) => ({
+      fg,
+      bg,
+      min: 4.5,
+      note: 'text on a reading surface',
+    })),
+  ),
+  ...(['success', 'warning', 'danger', 'unknown'] as const).flatMap((fg) => [
+    { fg, bg: `${fg}-soft`, min: 4.5, note: 'status text on its own tint' },
+    { fg, bg: 'surface-1', min: 4.5, note: 'status text on a panel' },
+    { fg, bg: 'canvas', min: 4.5, note: 'status text on the ground' },
   ]),
+  { fg: 'accent-text', bg: 'accent-soft', min: 4.5, note: 'accent text on the accent tint' },
   { fg: 'on-accent', bg: 'accent', min: 4.5, note: 'label inside a filled primary control' },
-  { fg: 'rail-text', bg: 'rail-surface', min: 4.5, note: 'idle rail glyph' },
-  { fg: 'rail-active', bg: 'rail-surface', min: 4.5, note: 'current rail glyph' },
-  { fg: 'border-strong', bg: 'surface-panel', min: 3, note: 'input boundary (1.4.11)' },
-  { fg: 'border-strong', bg: 'surface-app', min: 3, note: 'input boundary on the ground (1.4.11)' },
-  { fg: 'focus-ring', bg: 'surface-panel', min: 3, note: 'focus indicator (1.4.11)' },
-  { fg: 'focus-ring', bg: 'surface-app', min: 3, note: 'focus indicator on the ground (1.4.11)' },
-  { fg: 'focus-ring', bg: 'surface-active', min: 3, note: 'focus indicator on a selected row' },
+  { fg: 'on-accent', bg: 'accent-hover', min: 4.5, note: 'label inside a hovered primary control' },
+  { fg: 'border-strong', bg: 'surface-1', min: 3, note: 'input boundary on a panel (1.4.11)' },
+  { fg: 'border-strong', bg: 'canvas', min: 3, note: 'input boundary on the ground (1.4.11)' },
+  { fg: 'focus-ring', bg: 'surface-1', min: 3, note: 'focus indicator on a panel (1.4.11)' },
+  { fg: 'focus-ring', bg: 'canvas', min: 3, note: 'focus indicator on the ground (1.4.11)' },
+  { fg: 'focus-ring', bg: 'surface-selected', min: 3, note: 'focus indicator on a selected row' },
+  { fg: 'accent', bg: 'surface-1', min: 3, note: 'chart line and selected indicator (1.4.11)' },
 ];
 
 export interface ContrastFailure extends ContrastRequirement {
@@ -189,19 +108,16 @@ export interface ContrastFailure extends ContrastRequirement {
 }
 
 /**
- * Returns every requirement the given palette fails. Empty means it passes.
- *
- * `palette` is injectable so the same checker can validate a candidate palette
- * — a tenant brand colour, or a proposed token change — before it ships, and so
- * the failure path itself is exercised by a test rather than assumed.
+ * Returns every requirement the palette fails. Empty means it passes. A token a
+ * requirement names but the palette lacks is a failure too, reported with a
+ * ratio of 0 — a missing colour is not a passing one.
  */
-export function contrastFailures(
-  theme: ThemeName,
-  palette: Palette = PALETTES[theme],
-): readonly ContrastFailure[] {
+export function contrastFailures(theme: ThemeName, palette: Palette): readonly ContrastFailure[] {
   const failures: ContrastFailure[] = [];
   for (const requirement of CONTRAST_REQUIREMENTS) {
-    const actual = contrastRatio(palette[requirement.fg], palette[requirement.bg]);
+    const fg = palette[requirement.fg];
+    const bg = palette[requirement.bg];
+    const actual = fg === undefined || bg === undefined ? 0 : contrastRatio(fg, bg);
     // Round the way a reporting tool does, so a 4.4996 is not sold as a pass.
     if (Math.round(actual * 100) / 100 < requirement.min) {
       failures.push({ ...requirement, theme, actual });

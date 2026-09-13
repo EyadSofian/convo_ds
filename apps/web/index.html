@@ -3,38 +3,46 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#eef1f5" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0a0f1a" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f3f0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
-    <meta
-      name="description"
-      content="CONVO — مساحة عمل موحّدة لخدمة العملاء: صندوق وارد، قنوات، فرق، حملات وتقارير"
-    />
-    <title>CONVO — Customer Operations</title>
+    <meta name="description" content="CONVO — صندوق وارد وقنوات وحملات لفرق خدمة العملاء" />
+    <title>CONVO</title>
     <!--
-      Readex Pro is self-hosted from /fonts (SIL OFL 1.1, licence beside the
-      files). No third-party font host is contacted: a self-hosted install must
-      open with no outbound call, and the inbox must not wait on fonts.gstatic.
+      The theme is decided before the first paint, from the stored visual
+      preference or the system setting, so a dark-theme user never sees a light
+      flash. Only the theme is read here: nothing about the session is stored in
+      the browser and nothing about it is known until the server answers.
     -->
-    <link
-      rel="preload"
-      href="/fonts/readex-pro-arabic.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="/fonts/readex-pro-latin.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
+    <script>
+      (function () {
+        var theme = null;
+        try {
+          theme = window.localStorage.getItem('convo.theme');
+        } catch (error) {
+          theme = null;
+        }
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
+    <!--
+      IBM Plex Sans Arabic is self-hosted from /fonts (SIL OFL 1.1, licence beside
+      the files). No third-party font host is contacted.
+    -->
+    <link rel="preload" href="/fonts/ibm-plex-sans-arabic-400-arabic.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/ibm-plex-sans-arabic-400-latin.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
+    <!--
+      The same branded wait the app draws while the session is checked, so the
+      hand-over from this placeholder to the first render does not flash. No
+      navigation, tenant or screen exists until the server confirms a session.
+    -->
     <div id="app" class="app-boot" role="status" aria-live="polite">
-      <span class="app-boot__dot"></span>
-      <span>جارٍ تحميل مساحة العمل…</span>
+      <span>CONVO</span>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -4,8 +4,9 @@ import { h } from '../dom.js';
 import { futureTime, relativeTime } from '../format.js';
 import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
-import { button, isolated, pill, stateBox } from './parts.js';
+import { badge, button, errorState, isolated } from './parts.js';
 import type { Tone } from './parts.js';
+import type { IconName } from '../icons.js';
 
 /**
  * The lifecycle controls, the private notes and the reporting episodes.
@@ -100,17 +101,25 @@ const NEEDS_INPUT: Readonly<Record<LifecycleCommandName, boolean>> = {
   archive: false,
 };
 
+const COMMAND_ICON: Readonly<Record<LifecycleCommandName, IconName>> = {
+  wait: 'clock',
+  snooze: 'snooze',
+  resolve: 'resolve',
+  reopen: 'history',
+  archive: 'bookmark',
+};
+
 const COMMAND_LABEL: Readonly<Record<LifecycleCommandName, { ar: string; en: string }>> = {
-  wait: { ar: 'بانتظار العميل', en: 'Waiting on customer' },
+  wait: { ar: 'بانتظار العميل', en: 'Wait on customer' },
   snooze: { ar: 'تأجيل', en: 'Snooze' },
   resolve: { ar: 'إغلاق', en: 'Resolve' },
   reopen: { ar: 'إعادة فتح', en: 'Reopen' },
   archive: { ar: 'أرشفة', en: 'Archive' },
 };
 
-export function statusPill(state: AppState, status: string): HTMLElement {
+export function statusBadge(state: AppState, status: string): HTMLElement {
   const view = viewOf(status);
-  return pill(t(state, view.ar, view.en), view.tone);
+  return badge(t(state, view.ar, view.en), view.tone, { dot: true });
 }
 
 /* -------------------------------------------------------------- controls -- */
@@ -140,10 +149,13 @@ export function lifecycleControls(
       const opens = NEEDS_INPUT[command];
       return button({
         label: t(state, label.ar, label.en),
+        icon: COMMAND_ICON[command],
         act: opens ? 'live-lifecycle-open' : 'live-lifecycle-do',
         arg: command,
         small: true,
-        variant: command === 'archive' ? 'ghost' : 'default',
+        variant: command === 'resolve' ? 'primary' : command === 'archive' ? 'ghost' : 'default',
+        // Narrow threads show these as icons, so the name is also a tooltip.
+        title: t(state, label.ar, label.en),
         disabled: busy,
         ...(opens ? { expanded: live.lifecyclePanel === command } : {}),
       });
@@ -343,37 +355,12 @@ export function lifecycleNotice(state: AppState, conversation: Conversation): Ch
  * places is how "customer is being difficult" reaches the customer.
  */
 export function notesSection(state: AppState, live: LiveState): HTMLElement {
-  const id = live.openConversationId;
-  const busy = id !== null && live.busy === `note:${id}`;
-  return h('section', { class: 'notes', 'aria-label': t(state, 'ملاحظات داخلية', 'Internal notes') }, [
-    h('h3', { class: 'contact__heading' }, [t(state, 'ملاحظات داخلية', 'Internal notes')]),
+  return h('section', { class: 'notes panel-section', 'aria-labelledby': 'notes-heading' }, [
+    h('h3', { class: 'panel-section__title', id: 'notes-heading' }, [t(state, 'ملاحظات داخلية', 'Private notes')]),
     h('p', { class: 'field__hint' }, [
-      t(
-        state,
-        'لا يراها العميل ولا تُرسل إلى أي قناة.',
-        'The customer never sees these, and they are never sent to any channel.',
-      ),
+      t(state, 'لا يراها العميل ولا تُرسل إلى أي قناة. اكتب ملاحظة جديدة من تبويب «ملاحظة داخلية».', 'Never sent to the customer or any channel. Write one from the Private note tab.'),
     ]),
     notesBody(state, live),
-    h('div', { class: 'notes__composer' }, [
-      // The text is a child, not a `value` attribute: a textarea ignores the
-      // attribute, so the draft would be wiped by every re-render — and a
-      // realtime event arriving mid-sentence would delete what was being typed.
-      h('textarea', {
-        class: 'input notes__field',
-        rows: '2',
-        maxlength: '4000',
-        'data-act': 'live-note-draft',
-        'aria-label': t(state, 'ملاحظة داخلية جديدة', 'A new internal note'),
-        placeholder: t(state, 'ملاحظة لزملائك…', 'A note for your colleagues…'),
-      }, [live.noteDraft]),
-      button({
-        label: t(state, 'أضف ملاحظة', 'Add note'),
-        act: 'live-note-add',
-        small: true,
-        disabled: busy || live.noteDraft.trim() === '',
-      }),
-    ]),
   ]);
 }
 
@@ -386,14 +373,7 @@ function notesBody(state: AppState, live: LiveState): Child {
     ]);
   }
   if (notes.status === 'error') {
-    return stateBox({
-      kind: 'offline',
-      iconName: 'refresh',
-      title: t(state, 'تعذّر تحميل الملاحظات', 'The notes could not be loaded'),
-      body: notes.error.message,
-      actionLabel: t(state, 'إعادة المحاولة', 'Try again'),
-      act: 'live-notes-reload',
-    });
+    return errorState(state, notes.error, 'live-notes-reload');
   }
   if (notes.value.length === 0) {
     return h('p', { class: 'field__hint' }, [
@@ -495,8 +475,8 @@ export function episodesSection(state: AppState, live: LiveState): Child {
     // nothing.
     return null;
   }
-  return h('section', { class: 'episodes', 'aria-label': t(state, 'حلقات المتابعة', 'Reporting episodes') }, [
-    h('h3', { class: 'contact__heading' }, [t(state, 'حلقات المتابعة', 'Reporting episodes')]),
+  return h('section', { class: 'episodes panel-section', 'aria-labelledby': 'episodes-heading' }, [
+    h('h3', { class: 'panel-section__title', id: 'episodes-heading' }, [t(state, 'مراحل المتابعة', 'Episodes')]),
     h(
       'ol',
       { class: 'episodes__list' },
@@ -515,8 +495,8 @@ function episodeRow(
     h('div', { class: 'episodes__top' }, [
       h('span', { class: 'episodes__seq' }, [`#${String(episode.seq)}`]),
       episode.closedAt === null
-        ? pill(t(state, 'جارية', 'Open'), isCurrent ? 'accent' : 'neutral')
-        : pill(t(state, 'مُغلقة', 'Closed'), 'success'),
+        ? badge(t(state, 'جارية', 'Open'), isCurrent ? 'accent' : 'neutral')
+        : badge(t(state, 'مُغلقة', 'Closed'), 'success'),
       h('span', { class: 'episodes__when' }, [
         relativeTime(episode.openedAt, state.clock, state.lang),
       ]),

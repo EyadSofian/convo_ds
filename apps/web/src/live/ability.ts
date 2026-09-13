@@ -1,4 +1,8 @@
+import type { MembershipSummary } from '../api/people.js';
+import type { ScreenId } from '../router.js';
+import { SCREENS } from '../router.js';
 import type { LiveState } from './store.js';
+import { openSession } from './store.js';
 
 /**
  * What the signed-in person may do to a conversation's routing, for drawing the
@@ -80,6 +84,63 @@ export function currentMembership(
           LEGACY_ROUTING_PERMISSIONS[membership.role.key] ??
           [],
       };
+}
+
+/**
+ * The membership an open workspace is using, whole, or `null` when the server
+ * no longer lists it. Only asked inside the shell, which requires a session.
+ */
+export function activeMembership(live: LiveState): MembershipSummary | null {
+  const { memberships, tenantId } = openSession(live);
+  return memberships.find((entry) => entry.tenant.id === tenantId) ?? null;
+}
+
+/**
+ * Whether the server granted this key to the current membership.
+ *
+ * Only for deciding what to *offer*. The endpoint behind every control checks
+ * the same key again, with scope, against the database — this never widens
+ * anything, and a missing key simply means the control is not drawn.
+ */
+export function hasPermission(live: LiveState, key: string): boolean {
+  return currentMembership(live)?.permissions.includes(key) ?? false;
+}
+
+/**
+ * The keys that make each screen worth opening. Any one is enough.
+ *
+ * Settings has none because it is about this person's own sessions and view
+ * preferences, which every signed-in member has.
+ */
+export const SCREEN_KEYS: Readonly<Record<ScreenId, readonly string[]>> = {
+  inbox: ['conversation.read', 'conversation.unassigned.preview'],
+  contacts: ['contact.read'],
+  channels: ['channel.manage'],
+  people: ['member.manage', 'role.manage'],
+  broadcasts: ['campaign.read', 'campaign.draft'],
+  analytics: ['report.read'],
+  settings: [],
+};
+
+/** The screens offered in the navigation, in their navigation order. */
+export function allowedScreens(live: LiveState): readonly ScreenId[] {
+  return SCREENS.filter((screen) => {
+    const keys = SCREEN_KEYS[screen];
+    return keys.length === 0 || keys.some((key) => hasPermission(live, key));
+  });
+}
+
+/**
+ * Where a membership lands when the screen it asked for is not one it can open.
+ *
+ * Settings is last and always available, so it is where a membership with no
+ * other grant ends up.
+ */
+export function landingScreen(live: LiveState): ScreenId {
+  for (const screen of allowedScreens(live)) {
+    if (screen !== 'settings') return screen;
+  }
+  return 'settings';
 }
 
 /**

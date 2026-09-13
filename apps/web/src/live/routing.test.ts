@@ -236,7 +236,9 @@ function routingApi(
 
 function permissionsFor(roleKey: string): readonly string[] {
   const ability = ROUTING_GRANTS[roleKey];
+  // Every role here reads its own conversations; the routing keys are what vary.
   return [
+    'conversation.read',
     ...(ability?.mayAssign === true ? ['conversation.assign'] : []),
     ...(ability?.mayAsk === true ? ['conversation.handoff.request'] : []),
   ];
@@ -488,7 +490,7 @@ describe('assigning a conversation', () => {
     click(root, control('live-routing-open', 'assign'));
     await settle();
     // A staffing fact somebody needs to see, not an empty control.
-    expect(text(root.querySelector('.routing__form') as HTMLElement)).toContain('لا أحد متاح');
+    expect(text(root.querySelector('.routing__form') as HTMLElement)).toContain('لا يوجد زميل متاح');
   });
 
   it('offers a retry when the colleagues could not be read', async () => {
@@ -508,7 +510,7 @@ describe('assigning a conversation', () => {
     const { root } = await open(api);
     click(root, control('live-routing-open', 'assign'));
     await settle();
-    expect(text(root.querySelector('.routing__form') as HTMLElement)).toContain('تعذّر تحميل الزملاء');
+    expect(root.querySelector('.routing__form .errorstate')).not.toBeNull();
     click(root, `.routing__form ${control('live-routing-open', 'assign')}`);
     await settle();
     expect(root.querySelector('[data-act="live-routing-choice"]')).not.toBeNull();
@@ -574,7 +576,7 @@ describe('asking a colleague', () => {
     expect(text(banner)).toContain('لديك خبرة بهذه الحالة');
     // The whole point: it is still this person's conversation.
     expect(text(banner)).toContain('تبقى المحادثة مع صاحبها');
-    expect(text(root.querySelector('.routing__assignee') as HTMLElement)).toContain(ME);
+    expect(text(root.querySelector('.routing__assignee') as HTMLElement)).toContain('أنت');
   });
 
   it('offers accept and decline only to the person who was asked', async () => {
@@ -775,11 +777,13 @@ describe('the edges of the routing surface', () => {
     expect(text(root.querySelector('.routing__assignee') as HTMLElement)).toContain('ليلى');
   });
 
-  it('falls back to the identifier when nothing has named them', async () => {
+  it('says "a colleague" when nothing has named them yet', async () => {
     const { root } = await open(routingApi('supervisor', conversation({ assigneeMembershipId: OMAR })));
-    // Honest rather than blank: an id is not a name, and pretending otherwise
-    // would hide that the directory has not answered.
-    expect(text(root.querySelector('.routing__assignee') as HTMLElement)).toContain(OMAR);
+    // Honest rather than blank, and never a raw membership id: an id means
+    // nothing to an operator.
+    const assignee = text(root.querySelector('.routing__assignee') as HTMLElement);
+    expect(assignee).toContain('زميل في الفريق');
+    expect(assignee).not.toContain(OMAR);
   });
 
   it('shows an offer with no note, and one on a conversation nobody holds', async () => {
@@ -966,7 +970,7 @@ describe('the edges of the routing surface', () => {
 
   it('uses the actual grants of a custom role', async () => {
     const { root } = await open(
-      routingApi('queue_coordinator', conversation(), ['conversation.assign']),
+      routingApi('queue_coordinator', conversation(), ['conversation.read', 'conversation.assign']),
     );
     expect(root.querySelector(control('live-routing-open', 'assign'))).not.toBeNull();
     expect(root.querySelector(control('live-routing-open', 'priority'))).not.toBeNull();
@@ -1081,6 +1085,28 @@ describe('when the conversation stops being yours', () => {
     expect(text(root)).toContain('انتقلت هذه المحادثة');
     expect(app.state.live.composer).toBe('');
     expect(root.querySelector('.msg')).toBeNull();
+  });
+
+  it('reads a concealed conversation after a handoff the same way', async () => {
+    let moved = false;
+    const settledOffer = offer({ toMembershipId: LAYLA, fromMembershipId: ME });
+    const api = routingApi('agent')
+      .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}/handoffs`, page([settledOffer]))
+      .on(`POST /tenants/${TENANT}/handoffs/${OFFER}/cancel`, () => {
+        moved = true;
+        return { status: 200, body: { data: { ...settledOffer, state: 'cancelled' } } };
+      })
+      .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}`, () =>
+        moved
+          ? { status: 404, body: { error: { code: 'resource_not_found', message: 'no', request_id: 'r' } } }
+          : { status: 200, body: { data: conversation() } },
+      );
+    const { root } = await open(api);
+    click(root, control('live-handoff-settle', `${OFFER}:cancel`));
+    await settle();
+    // The API hides a conversation outside your scope as "not found"; after a
+    // handoff that is the same fact as a refusal.
+    expect(text(root)).toContain('انتقلت هذه المحادثة');
   });
 
   it('still says plainly "not permitted" for a conversation that was never theirs', async () => {

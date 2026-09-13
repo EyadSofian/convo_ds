@@ -1,0 +1,476 @@
+import type { CampaignReport, CampaignReportExport, CampaignReportTrendDay } from '../api/campaigns.js';
+import type { Child } from '../dom.js';
+import { h } from '../dom.js';
+import { dateFormat, formatNumber, numberFormat } from '../format.js';
+import { icon } from '../icons.js';
+import type { AppState } from '../state.js';
+import { campaignStateBadge } from './campaigns-screen.js';
+import { CHANNEL_NAMES, ERROR_CODES, phrase, RECIPIENT_STATES, t } from './copy.js';
+import {
+  badge,
+  button,
+  emptyState,
+  errorState,
+  inlineError,
+  isolated,
+  kpi,
+  notice,
+  page,
+  panel,
+  progress,
+  selectControl,
+  skeleton,
+} from './parts.js';
+import type { Tone } from './parts.js';
+
+/**
+ * Campaign analytics, read from the server's report.
+ *
+ * Every percentage names its denominator — the recipients in the executions
+ * the filters selected — and the report says how fresh it is. Nothing is
+ * computed from a count the API did not send: replies are not measured by the
+ * report, so they are labelled as such rather than shown as zero.
+ */
+
+function percent(state: AppState, value: number, denominator: number): string {
+  return denominator === 0
+    ? '—'
+    : numberFormat(state.lang, { style: 'percent', maximumFractionDigits: 1 }).format(value / denominator);
+}
+
+function stamp(state: AppState, iso: string): string {
+  return dateFormat(state.lang, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(iso));
+}
+
+export function renderAnalytics(state: AppState): HTMLElement {
+  const resource = state.live.campaignReport;
+  const report = resource.status === 'ready' ? resource.value : null;
+  return page('analytics', filterBar(state, report), [
+    resource.status === 'idle' || resource.status === 'loading'
+      ? skeleton(state, 4)
+      : resource.status === 'error'
+        ? errorState(state, resource.error, 'live-report-reload')
+        : null,
+    ...(report === null ? [] : reportBody(state, report)),
+  ]);
+}
+
+/* ---------------------------------------------------------------- filters -- */
+
+function filterBar(state: AppState, report: CampaignReport | null): HTMLElement {
+  const live = state.live;
+  const filters = state.analyticsFilters;
+  const narrowed = filters.from !== '' || filters.to !== '' || filters.channel !== '' || filters.campaignId !== '';
+  const busy = live.campaignReport.status === 'loading';
+  const channels = report === null ? [] : report.channels.map((channel) => channel.kind);
+  const channelOptions = [...new Set([...channels, ...(filters.channel === '' ? [] : [filters.channel])])];
+  return h('div', { class: 'filterbar', role: 'search', 'aria-label': t(state, 'نطاق التقرير', 'Report scope') }, [
+    h('div', { class: 'filterbar__fields' }, [
+      h('label', { class: 'field field--compact' }, [
+        h('span', { class: 'field__label' }, [t(state, 'من', 'From')]),
+        h('input', { class: 'input', type: 'date', value: filters.from, max: filters.to === '' ? undefined : filters.to, 'data-act': 'live-report-filter', 'data-form': 'from', disabled: busy }),
+      ]),
+      h('label', { class: 'field field--compact' }, [
+        h('span', { class: 'field__label' }, [t(state, 'إلى', 'To')]),
+        h('input', { class: 'input', type: 'date', value: filters.to, min: filters.from === '' ? undefined : filters.from, 'data-act': 'live-report-filter', 'data-form': 'to', disabled: busy }),
+      ]),
+      h('label', { class: 'field field--compact' }, [
+        h('span', { class: 'field__label' }, [t(state, 'القناة', 'Channel')]),
+        selectControl({
+          value: filters.channel,
+          act: 'live-report-filter',
+          form: 'channel',
+          disabled: busy,
+          options: [
+            { value: '', label: t(state, 'كل القنوات', 'All channels') },
+            ...channelOptions.map((kind) => ({ value: kind, label: phrase(state, CHANNEL_NAMES, kind) })),
+          ],
+        }),
+      ]),
+      h('label', { class: 'field field--compact' }, [
+        h('span', { class: 'field__label' }, [t(state, 'الحملة', 'Campaign')]),
+        selectControl({
+          value: filters.campaignId,
+          act: 'live-report-filter',
+          form: 'campaignId',
+          disabled: busy,
+          options: [
+            { value: '', label: t(state, 'كل الحملات', 'All campaigns') },
+            ...live.reportCampaigns.map((campaign) => ({ value: campaign.id, label: campaign.name })),
+          ],
+        }),
+      ]),
+    ]),
+    h('div', { class: 'filterbar__actions' }, [
+      narrowed ? button({ label: t(state, 'مسح التصفية', 'Clear filters'), act: 'live-report-filter-clear', small: true, variant: 'ghost' }) : null,
+      button({ label: t(state, 'تحديث', 'Refresh'), icon: 'refresh', act: 'live-report-reload', small: true, busy }),
+      button({
+        label: t(state, 'تصدير CSV', 'Export CSV'),
+        icon: 'download',
+        act: 'live-report-export',
+        small: true,
+        variant: 'primary',
+        busy: live.busy === 'campaign-report-export',
+        disabled: report === null,
+      }),
+    ]),
+  ]);
+}
+
+/* ----------------------------------------------------------------- report -- */
+
+function reportBody(state: AppState, report: CampaignReport): readonly Child[] {
+  const recipients = report.milestones.denominator;
+  return [
+    h('p', { class: 'freshness', 'data-report-ready': 'true' }, [
+      icon('clock', 14),
+      t(state, `البيانات حتى ${stamp(state, report.fresh_through)} (UTC) · النسب من ${formatNumber(recipients, state.lang)} مستلم`, `Data through ${stamp(state, report.fresh_through)} UTC · percentages of ${formatNumber(recipients, state.lang)} recipients`),
+    ]),
+    exportStatus(state),
+    kpiStrip(state, report),
+    recipients === 0
+      ? panel(t(state, 'مسار التسليم', 'Delivery funnel'), [
+          emptyState({
+            icon: 'funnel',
+            title: t(state, 'لا يوجد مستلمون في هذا النطاق', 'No recipients in this scope'),
+            body: t(state, 'وسّع الفترة أو امسح التصفية، أو أطلق حملة لتظهر نتائجها هنا.', 'Widen the period or clear filters, or launch a campaign to see results here.'),
+          }),
+        ])
+      : h('div', { class: 'report-grid' }, [funnel(state, report), trend(state, report.trend)]),
+    h('div', { class: 'report-grid report-grid--3' }, [channelBreakdown(state, report), errorBreakdown(state, report), currentStates(state, report)]),
+    campaignTable(state, report),
+    costs(state, report),
+  ];
+}
+
+function kpiStrip(state: AppState, report: CampaignReport): HTMLElement {
+  const m = report.milestones;
+  const of = (value: number): string => t(state, `${percent(state, value, m.denominator)} من المستلمين`, `${percent(state, value, m.denominator)} of recipients`);
+  return h('section', { class: 'kpis kpis--7', 'aria-label': t(state, 'المؤشرات الرئيسية', 'Key figures') }, [
+    kpi(t(state, 'الجمهور', 'Audience'), formatNumber(report.audience.denominator, state.lang), {
+      foot: t(state, `${formatNumber(report.audience.excluded, state.lang)} مستبعد`, `${formatNumber(report.audience.excluded, state.lang)} excluded`),
+    }),
+    kpi(t(state, 'المستلمون', 'Recipients'), formatNumber(m.denominator, state.lang), {
+      foot: t(state, `${formatNumber(report.definitions.executions, state.lang)} تنفيذ`, `${formatNumber(report.definitions.executions, state.lang)} executions`),
+    }),
+    kpi(t(state, 'أُرسلت', 'Sent'), formatNumber(m.accepted, state.lang), { foot: of(m.accepted) }),
+    kpi(t(state, 'سُلّمت', 'Delivered'), formatNumber(m.delivered, state.lang), { foot: of(m.delivered) }),
+    kpi(t(state, 'قُرئت', 'Read'), formatNumber(m.read, state.lang), { foot: of(m.read) }),
+    kpi(t(state, 'فشلت', 'Failed'), formatNumber(report.current.failed, state.lang), { foot: of(report.current.failed), tone: report.current.failed > 0 ? 'danger' : undefined }),
+    kpi(t(state, 'الردود', 'Replies'), t(state, 'غير مقاسة', 'Not measured'), {
+      foot: t(state, 'لا يقيسها التقرير بعد', 'Not measured by the report yet'),
+      unavailable: true,
+    }),
+  ]);
+}
+
+/** Accepted → Delivered → Read, each against the same published denominator. */
+function funnel(state: AppState, report: CampaignReport): HTMLElement {
+  const m = report.milestones;
+  const stages: readonly { readonly label: string; readonly value: number | null; readonly previous: number }[] = [
+    { label: t(state, 'المستلمون', 'Recipients'), value: m.denominator, previous: m.denominator },
+    { label: t(state, 'أُرسلت (قبلها المزوّد)', 'Sent (accepted by provider)'), value: m.accepted, previous: m.denominator },
+    { label: t(state, 'سُلّمت', 'Delivered'), value: m.delivered, previous: m.accepted },
+    { label: t(state, 'قُرئت', 'Read'), value: m.read, previous: m.delivered },
+    { label: t(state, 'ردّ العميل', 'Replied'), value: null, previous: m.read },
+  ];
+  const missingReceipts = report.channels.filter((channel) => !channel.read_receipts);
+  return panel(t(state, 'مسار التسليم', 'Delivery funnel'), [
+    h('ol', { class: 'funnel' }, stages.map((stage, index) =>
+      h('li', { class: stage.value === null ? 'funnel__stage funnel__stage--unavailable' : 'funnel__stage' }, [
+        h('div', { class: 'funnel__head' }, [
+          h('span', { class: 'funnel__label' }, [stage.label]),
+          h('span', { class: 'funnel__value' }, [
+            stage.value === null ? t(state, 'غير مقاس', 'Not measured') : isolated(formatNumber(stage.value, state.lang)),
+          ]),
+        ]),
+        stage.value === null
+          ? h('div', { class: 'funnel__track funnel__track--empty' })
+          : progress(stage.value / Math.max(m.denominator, 1), t(state, `${stage.label}: ${percent(state, stage.value, m.denominator)} من المستلمين`, `${stage.label}: ${percent(state, stage.value, m.denominator)} of recipients`)),
+        h('div', { class: 'funnel__foot' }, [
+          stage.value === null
+            ? t(state, 'لا تتوفر بيانات ردود في التقرير.', 'The report has no reply data.')
+            : index === 0
+              ? t(state, 'المقام لكل النسب', 'Denominator for every percentage')
+              : t(state, `${percent(state, stage.value, m.denominator)} من المستلمين · ${percent(state, stage.value, stage.previous)} من المرحلة السابقة`, `${percent(state, stage.value, m.denominator)} of recipients · ${percent(state, stage.value, stage.previous)} of previous step`),
+        ]),
+      ]),
+    )),
+    missingReceipts.length === 0
+      ? null
+      : notice('info', 'info', t(
+          state,
+          `${missingReceipts.map((channel) => phrase(state, CHANNEL_NAMES, channel.kind)).join('، ')} لا ترسل إيصالات قراءة، فتظهر نسبة القراءة أقل من الحقيقة لهذه القنوات.`,
+          `${missingReceipts.map((channel) => phrase(state, CHANNEL_NAMES, channel.kind)).join(', ')} do not report reads, so read rates understate those channels.`,
+        )),
+  ], { description: t(state, 'كل مرحلة من نفس المقام المنشور.', 'Every stage uses the same published denominator.') });
+}
+
+/**
+ * Volume per launch day, with the delivery rate drawn over it.
+ *
+ * The SVG is presentational; the table under it carries the same numbers for
+ * anybody not reading the picture. Time runs left to right in both languages:
+ * a chart is not text, and mirroring it would reverse the axis.
+ */
+function trend(state: AppState, days: readonly CampaignReportTrendDay[]): HTMLElement {
+  const title = t(state, 'الحجم عبر الوقت', 'Volume over time');
+  if (days.length === 0) {
+    return panel(title, [emptyState({ icon: 'sparkline', title: t(state, 'لا توجد أيام في النطاق', 'No days in this scope'), body: t(state, 'تظهر الأيام هنا بعد إطلاق حملة.', 'Days appear here once a campaign launches.') })]);
+  }
+  const width = 560;
+  const height = 180;
+  const padding = { top: 12, bottom: 28, left: 36, right: 12 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const max = Math.max(...days.map((day) => day.recipients), 1);
+  const step = plotWidth / days.length;
+  const barWidth = Math.max(Math.min(step * 0.6, 36), 4);
+  const dayFormat = dateFormat(state.lang, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const label = (day: string): string => dayFormat.format(new Date(`${day}T00:00:00Z`));
+  const bars = days.map((day, index) => {
+    const x = padding.left + index * step + (step - barWidth) / 2;
+    const barHeight = (day.recipients / max) * plotHeight;
+    return `<rect class="chart__bar" x="${x.toFixed(1)}" y="${(padding.top + plotHeight - barHeight).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="3"/>`;
+  });
+  const points = days.map((day, index) => {
+    const x = padding.left + index * step + step / 2;
+    const rate = day.recipients === 0 ? 0 : day.delivered / day.recipients;
+    return `${x.toFixed(1)},${(padding.top + plotHeight - rate * plotHeight).toFixed(1)}`;
+  });
+  const every = Math.max(1, Math.ceil(days.length / 6));
+  const ticks = days
+    .map((day, index) => index % every === 0
+      ? `<text class="chart__tick" x="${(padding.left + index * step + step / 2).toFixed(1)}" y="${String(height - 8)}" text-anchor="middle">${label(day.day)}</text>`
+      : '')
+    .join('');
+  const markup = [
+    `<line class="chart__axis" x1="${String(padding.left)}" y1="${String(padding.top + plotHeight)}" x2="${String(width - padding.right)}" y2="${String(padding.top + plotHeight)}"/>`,
+    `<text class="chart__tick" x="${String(padding.left - 6)}" y="${String(padding.top + 4)}" text-anchor="end">${formatNumber(max, state.lang)}</text>`,
+    `<text class="chart__tick" x="${String(padding.left - 6)}" y="${String(padding.top + plotHeight)}" text-anchor="end">0</text>`,
+    ...bars,
+    days.length > 1 ? `<polyline class="chart__line" points="${points.join(' ')}"/>` : '',
+    ...points.map((point) => `<circle class="chart__point" cx="${point.split(',')[0] as string}" cy="${point.split(',')[1] as string}" r="3"/>`),
+    ticks,
+  ].join('');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${String(width)} ${String(height)}`);
+  svg.setAttribute('class', 'chart');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.innerHTML = markup;
+  return panel(title, [
+    h('div', { class: 'chart-legend', 'aria-hidden': 'true' }, [
+      h('span', { class: 'chart-legend__item chart-legend__item--bar' }, [t(state, 'المستلمون حسب يوم الإطلاق', 'Recipients by launch day')]),
+      h('span', { class: 'chart-legend__item chart-legend__item--line' }, [t(state, 'نسبة التسليم', 'Delivery rate')]),
+    ]),
+    h('figure', { class: 'chart-figure', dir: 'ltr' }, [
+      svg,
+      h('figcaption', { class: 'visually-hidden' }, [title]),
+    ]),
+    h('div', { class: 'tablewrap' }, [
+      h('table', { class: 'table table--compact visually-hidden-table' }, [
+        h('caption', { class: 'visually-hidden' }, [t(state, 'بيانات الحجم اليومي', 'Daily volume data')]),
+        h('thead', {}, [h('tr', {}, [
+          h('th', { scope: 'col' }, [t(state, 'اليوم', 'Day')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'المستلمون', 'Recipients')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'سُلّمت', 'Delivered')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'نسبة التسليم', 'Delivery rate')]),
+        ])]),
+        h('tbody', {}, days.map((day) => h('tr', {}, [
+          h('td', {}, [label(day.day)]),
+          h('td', { class: 'num' }, [formatNumber(day.recipients, state.lang)]),
+          h('td', { class: 'num' }, [formatNumber(day.delivered, state.lang)]),
+          h('td', { class: 'num' }, [percent(state, day.delivered, day.recipients)]),
+        ]))),
+      ]),
+    ]),
+  ], { description: t(state, 'حسب يوم إطلاق التنفيذ بتوقيت UTC.', 'By execution launch day, UTC.') });
+}
+
+function channelBreakdown(state: AppState, report: CampaignReport): HTMLElement {
+  const title = t(state, 'حسب القناة', 'By channel');
+  if (report.channels.length === 0) {
+    return panel(title, [emptyState({ icon: 'channels', title: t(state, 'لا توجد بيانات قنوات', 'No channel data'), body: t(state, 'تظهر القنوات بعد أول تنفيذ.', 'Channels appear after the first execution.') })]);
+  }
+  return panel(title, [
+    h('div', { class: 'tablewrap' }, [
+      h('table', { class: 'table table--compact' }, [
+        h('thead', {}, [h('tr', {}, [
+          h('th', { scope: 'col' }, [t(state, 'القناة', 'Channel')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'المستلمون', 'Recipients')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'سُلّمت', 'Delivered')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'قُرئت', 'Read')]),
+        ])]),
+        h('tbody', {}, report.channels.map((channel) => h('tr', {}, [
+          h('td', {}, [phrase(state, CHANNEL_NAMES, channel.kind)]),
+          h('td', { class: 'num' }, [formatNumber(channel.denominator, state.lang)]),
+          h('td', { class: 'num' }, [channel.delivery_receipts ? percent(state, channel.delivered, channel.denominator) : h('span', { class: 'muted' }, [t(state, 'غير متاح', 'Not reported')])]),
+          h('td', { class: 'num' }, [channel.read_receipts ? percent(state, channel.read, channel.denominator) : h('span', { class: 'muted' }, [t(state, 'غير متاح', 'Not reported')])]),
+        ]))),
+      ]),
+    ]),
+  ], { flush: true });
+}
+
+function errorBreakdown(state: AppState, report: CampaignReport): HTMLElement {
+  const title = t(state, 'أسباب الفشل', 'Failure reasons');
+  const total = report.errors.reduce((sum, error) => sum + error.count, 0);
+  if (total === 0) {
+    return panel(title, [emptyState({ icon: 'check', title: t(state, 'لا توجد أخطاء مسجلة', 'No failures recorded'), body: t(state, 'لم يفشل أو يُتخطَّ أي مستلم في هذا النطاق.', 'No recipient failed or was skipped in this scope.') })]);
+  }
+  return panel(title, [
+    h('ul', { class: 'barlist' }, report.errors.map((error) =>
+      h('li', { class: 'barlist__row' }, [
+        h('div', { class: 'barlist__head' }, [
+          h('span', { class: 'barlist__label' }, [phrase(state, ERROR_CODES, error.code)]),
+          h('span', { class: 'barlist__value' }, [formatNumber(error.count, state.lang)]),
+        ]),
+        progress(error.count / total, t(state, `${phrase(state, ERROR_CODES, error.code)}: ${percent(state, error.count, total)} من الإخفاقات`, `${phrase(state, ERROR_CODES, error.code)}: ${percent(state, error.count, total)} of failures`), 'danger'),
+      ]),
+    )),
+  ], { description: t(state, `من ${formatNumber(total, state.lang)} مستلم فشل أو تم تخطيه أو بنتيجة غير معروفة`, `Of ${formatNumber(total, state.lang)} failed, skipped or unknown recipients`) });
+}
+
+const CURRENT_KEYS = ['planned', 'queued', 'in_flight', 'accepted', 'delivered', 'read', 'failed', 'skipped', 'cancelled', 'outcome_unknown'] as const;
+
+const CURRENT_TONE: Readonly<Record<(typeof CURRENT_KEYS)[number], Tone>> = {
+  planned: 'neutral', queued: 'neutral', in_flight: 'accent', accepted: 'accent', delivered: 'success',
+  read: 'success', failed: 'danger', skipped: 'warning', cancelled: 'neutral', outcome_unknown: 'unknown',
+};
+
+/** Where every recipient is right now. The states are disjoint and sum to the denominator. */
+function currentStates(state: AppState, report: CampaignReport): HTMLElement {
+  const current = report.current;
+  const present = CURRENT_KEYS.filter((key) => current[key] > 0);
+  return panel(t(state, 'الحالة الحالية', 'Current state'), [
+    present.length === 0
+      ? emptyState({ icon: 'users', title: t(state, 'لا يوجد مستلمون', 'No recipients'), body: t(state, 'لا توجد حالات لعرضها في هذا النطاق.', 'There is nothing to show in this scope.') })
+      : h('ul', { class: 'barlist' }, present.map((key) =>
+          h('li', { class: 'barlist__row' }, [
+            h('div', { class: 'barlist__head' }, [
+              h('span', { class: 'barlist__label' }, [phrase(state, RECIPIENT_STATES, key)]),
+              h('span', { class: 'barlist__value' }, [`${formatNumber(current[key], state.lang)} · ${percent(state, current[key], current.denominator)}`]),
+            ]),
+            progress(current[key] / Math.max(current.denominator, 1), `${phrase(state, RECIPIENT_STATES, key)}: ${percent(state, current[key], current.denominator)}`, CURRENT_TONE[key]),
+          ]),
+        )),
+  ], { description: t(state, 'حالات منفصلة مجموعها عدد المستلمين. النتيجة غير المعروفة لا تُعاد تلقائيًا.', 'Disjoint states that sum to recipients. Unknown outcomes are never retried automatically.') });
+}
+
+function campaignTable(state: AppState, report: CampaignReport): HTMLElement {
+  const title = t(state, 'الحملات', 'Campaigns');
+  if (report.campaigns.length === 0) {
+    return panel(title, [emptyState({ icon: 'broadcasts', title: t(state, 'لا توجد حملات في هذا النطاق', 'No campaigns in this scope'), body: t(state, 'غيّر التصفية لعرض حملات أخرى.', 'Change the filters to see other campaigns.') })]);
+  }
+  return panel(title, [
+    h('div', { class: 'tablewrap' }, [
+      h('table', { class: 'table' }, [
+        h('thead', {}, [h('tr', {}, [
+          h('th', { scope: 'col' }, [t(state, 'الحملة', 'Campaign')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'مشمول / مستبعد', 'Included / excluded')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'أُرسلت', 'Sent')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'سُلّمت', 'Delivered')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'قُرئت', 'Read')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'فشلت', 'Failed')]),
+          h('th', { scope: 'col' }, [t(state, 'التقدم', 'Progress')]),
+          h('th', { scope: 'col' }, [t(state, 'آخر تحديث', 'Last update')]),
+          h('th', { scope: 'col' }, [h('span', { class: 'visually-hidden' }, [t(state, 'إجراء', 'Action')])]),
+        ])]),
+        h('tbody', {}, report.campaigns.map((campaign) => {
+          const processed = campaign.denominator - campaign.pending;
+          return h('tr', { 'data-report-campaign': campaign.id }, [
+            h('td', {}, [h('span', { class: 'table__primary' }, [campaign.name]), campaignStateBadge(state, campaign.state)]),
+            h('td', { class: 'num' }, [
+              // Both come from the same snapshot, so they are null together.
+              campaign.included === null ? '—' : `${formatNumber(campaign.included, state.lang)} / ${formatNumber(campaign.excluded as number, state.lang)}`,
+            ]),
+            h('td', { class: 'num' }, [formatNumber(campaign.accepted, state.lang)]),
+            h('td', { class: 'num' }, [formatNumber(campaign.delivered, state.lang)]),
+            h('td', { class: 'num' }, [formatNumber(campaign.read, state.lang)]),
+            h('td', { class: 'num' }, [campaign.failed > 0 ? badge(formatNumber(campaign.failed, state.lang), 'danger') : '0']),
+            h('td', {}, [
+              campaign.denominator === 0
+                ? h('span', { class: 'muted' }, [t(state, 'لم يبدأ', 'Not started')])
+                : h('div', { class: 'progress-cell' }, [
+                    progress(processed / campaign.denominator, t(state, `اكتمل ${percent(state, processed, campaign.denominator)}`, `${percent(state, processed, campaign.denominator)} processed`)),
+                    h('span', { class: 'progress-cell__value' }, [percent(state, processed, campaign.denominator)]),
+                  ]),
+            ]),
+            h('td', {}, [stamp(state, campaign.fresh_through)]),
+            h('td', {}, [button({ label: t(state, 'فتح', 'Open'), act: 'campaign-open', arg: campaign.id, small: true, variant: 'ghost', title: t(state, `فتح ${campaign.name}`, `Open ${campaign.name}`) })]),
+          ]);
+        })),
+      ]),
+    ]),
+  ], { flush: true });
+}
+
+function costs(state: AppState, report: CampaignReport): HTMLElement | null {
+  if (report.costs.length === 0) return null;
+  return panel(t(state, 'التكلفة', 'Cost'), [
+    h('div', { class: 'tablewrap' }, [
+      h('table', { class: 'table table--compact' }, [
+        h('thead', {}, [h('tr', {}, [
+          h('th', { scope: 'col' }, [t(state, 'العملة', 'Currency')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'مقدّرة', 'Estimated')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'محجوزة', 'Committed')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'مطابقة مع المزوّد', 'Reconciled')]),
+        ])]),
+        h('tbody', {}, report.costs.map((cost) => h('tr', {}, [
+          h('td', {}, [isolated(cost.currency)]),
+          h('td', { class: 'num' }, [isolated(cost.estimated_amount_minor, true)]),
+          h('td', { class: 'num' }, [isolated(cost.committed_amount_minor, true)]),
+          h('td', { class: 'num' }, [isolated(cost.reconciled_amount_minor, true)]),
+        ]))),
+      ]),
+    ]),
+  ], { flush: true, description: t(state, 'المقدّر والمحجوز والمطابق أرقام منفصلة ولا تُجمع.', 'Estimated, committed and reconciled are separate figures and are not added together.') });
+}
+
+/* ----------------------------------------------------------------- export -- */
+
+type ExportView = 'queued' | 'running' | 'completed' | 'failed' | 'expired';
+
+export function exportView(job: CampaignReportExport, now: Date): ExportView {
+  if (job.state === 'completed' && job.expires_at !== null && new Date(job.expires_at).getTime() <= now.getTime()) {
+    return 'expired';
+  }
+  return job.state;
+}
+
+function exportStatus(state: AppState): Child {
+  const resource = state.live.campaignReportExport;
+  if (resource.status === 'idle' || resource.status === 'loading') return null;
+  if (resource.status === 'error') return inlineError(state, resource.error);
+  const job = resource.value;
+  const view = exportView(job, state.clock);
+  const scope = job.campaign_id === null
+    ? t(state, 'كل الحملات', 'all campaigns')
+    : state.live.reportCampaigns.find((campaign) => campaign.id === job.campaign_id)?.name ?? t(state, 'حملة واحدة', 'one campaign');
+  const text: Readonly<Record<ExportView, string>> = {
+    queued: t(state, `ملف CSV في الطابور (${scope}).`, `CSV export queued (${scope}).`),
+    running: t(state, `جارٍ تجهيز ملف CSV (${scope})…`, `Preparing the CSV export (${scope})…`),
+    completed: t(state, `ملف CSV جاهز: ${formatNumber(job.row_count ?? 0, state.lang)} صف (${scope}).`, `CSV ready: ${formatNumber(job.row_count ?? 0, state.lang)} rows (${scope}).`),
+    failed: t(state, 'تعذّر تجهيز الملف. أنشئ تصديرًا جديدًا.', 'The export failed. Start a new export.'),
+    expired: t(state, 'انتهت صلاحية رابط التنزيل. أنشئ تصديرًا جديدًا.', 'The download link expired. Start a new export.'),
+  };
+  const tone: Readonly<Record<ExportView, 'info' | 'warning' | 'plain'>> = {
+    queued: 'plain', running: 'plain', completed: 'info', failed: 'warning', expired: 'warning',
+  };
+  return h('div', { class: `export export--${view}`, 'data-export': view, role: 'status', 'aria-live': 'polite' }, [
+    notice(
+      tone[view],
+      view === 'completed' ? 'check' : view === 'failed' || view === 'expired' ? 'alert' : 'clock',
+      h('span', {}, [text[view]]),
+      view === 'queued' || view === 'running' ? h('span', { class: 'spinner', 'aria-hidden': 'true' }) : null,
+      view === 'completed' && job.download_url !== null
+        ? h('a', { class: 'btn btn--sm btn--primary', href: job.download_url, download: '', 'data-export-ready': 'true' }, [icon('download', 14), t(state, 'تنزيل', 'Download')])
+        : null,
+      view === 'completed' ? h('span', { class: 'export__hint' }, [t(state, 'يتاح الرابط 24 ساعة.', 'The link is available for 24 hours.')]) : null,
+      state.analyticsFilters.from !== '' || state.analyticsFilters.to !== '' || state.analyticsFilters.channel !== ''
+        ? h('span', { class: 'export__hint' }, [t(state, 'يشمل الملف الحملة المختارة فقط؛ لا تُطبَّق الفترة والقناة عليه.', 'The file follows the campaign filter only; period and channel are not applied to it.')])
+        : null,
+    ),
+  ]);
+}

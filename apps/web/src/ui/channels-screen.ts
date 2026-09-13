@@ -2,37 +2,150 @@ import type {
   CapabilityMatrix,
   ChannelCatalogueEntry,
   ChannelConnection,
-  ChannelKind,
-  ChannelReadiness,
+  ChannelTestRecipient,
 } from '../api/channels.js';
 import type { ApiError } from '../api/client.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
+import { dateFormat, formatNumber, relativeTime } from '../format.js';
+import { icon } from '../icons.js';
 import { channelTestIdentityField, channelTestLabelField, channelTokenField } from '../live/dispatch.js';
-import { isDenial, isUnauthenticated, rowsOf, type LiveState, type Resource } from '../live/store.js';
+import { rowsOf } from '../live/store.js';
+import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
-import { button, checkItem, isolated, pill, selectControl, stateBox } from './parts.js';
+import { channelTile } from './brand.js';
+import { CHANNEL_NAMES, EVIDENCE, phrase, READINESS, t } from './copy.js';
+import type { Phrase } from './copy.js';
+import {
+  badge,
+  button,
+  emptyState,
+  errorState,
+  inlineError,
+  isolated,
+  page,
+  panel,
+  segmented,
+  skeleton,
+  textInput,
+  toolbar,
+} from './parts.js';
 import type { Tone } from './parts.js';
 
 /**
- * Channels, backed entirely by the API.
+ * Channels, as an integration catalogue backed entirely by the API.
  *
- * The screen exists to tell one truth clearly: **a channel is not connected
- * because somebody pasted a token**. Each connection shows the five separate
- * pieces of evidence behind its state and which of them are still missing, so
- * "webhook_pending" reads as "waiting for the provider to deliver something"
- * rather than as a vague amber light.
- *
- * Nothing here talks to Meta. Every control calls a CONVO endpoint, and the
- * absence of a provider transport shows up as `provider_not_connected` on the
- * connection — a real state from the server, not a message this screen invents.
+ * The catalogue is the product's list of integrations; what each one can do,
+ * and whether this build can serve it at all, comes from the server. The
+ * connected integrations beneath it are the company's own records. A channel is
+ * never shown as connected because a token was pasted: "Connected" means the
+ * server holds healthy evidence for it.
  */
 
-function t(state: AppState, ar: string, en: string): string {
-  return state.lang === 'ar' ? ar : en;
+export interface CatalogueItem {
+  readonly kind: string;
+  readonly name: Phrase;
+  readonly description: Phrase;
+  /** The provider-side identifier this kind is connected by. */
+  readonly asset: Phrase;
+  /** Whether the connection is made through a Meta app configured on the server. */
+  readonly meta: boolean;
 }
 
-const READINESS_TONE: Readonly<Record<ChannelReadiness, Tone>> = {
+export const CATALOGUE: readonly CatalogueItem[] = [
+  {
+    kind: 'whatsapp',
+    name: { ar: 'واتساب للأعمال', en: 'WhatsApp Business' },
+    description: { ar: 'رد على العملاء وأرسل القوالب المعتمدة من رقم واتساب للأعمال.', en: 'Reply to customers and send approved templates from your business number.' },
+    asset: { ar: 'Phone Number ID', en: 'Phone Number ID' },
+    meta: true,
+  },
+  {
+    kind: 'messenger',
+    name: { ar: 'فيسبوك ماسنجر', en: 'Facebook Messenger' },
+    description: { ar: 'استقبل رسائل صفحة فيسبوك وأجب عنها من صندوق الوارد.', en: 'Answer messages sent to your Facebook Page from the inbox.' },
+    asset: { ar: 'Page ID', en: 'Page ID' },
+    meta: true,
+  },
+  {
+    kind: 'instagram',
+    name: { ar: 'رسائل إنستغرام', en: 'Instagram Direct' },
+    description: { ar: 'تعامل مع الرسائل المباشرة لحساب إنستغرام الاحترافي.', en: 'Handle direct messages to your Instagram professional account.' },
+    asset: { ar: 'Instagram Account ID', en: 'Instagram Account ID' },
+    meta: true,
+  },
+  {
+    kind: 'web_chat',
+    name: { ar: 'دردشة الموقع', en: 'Website Chat' },
+    description: { ar: 'تحدث مع زوار موقعك عبر نافذة دردشة موقّعة من خادمك.', en: 'Chat with site visitors through a widget your installation signs.' },
+    asset: { ar: 'معرّف النافذة', en: 'Widget ID' },
+    meta: false,
+  },
+  {
+    kind: 'telegram',
+    name: { ar: 'تيليجرام', en: 'Telegram' },
+    description: { ar: 'محادثات عبر بوت تيليجرام.', en: 'Conversations through a Telegram bot.' },
+    asset: { ar: 'اسم البوت', en: 'Bot username' },
+    meta: false,
+  },
+  {
+    kind: 'custom',
+    name: { ar: 'قناة API مخصّصة', en: 'Custom API Channel' },
+    description: { ar: 'اربط نظامك الخاص عبر تسليمات webhook موقّعة.', en: 'Connect your own system through signed webhook deliveries.' },
+    asset: { ar: 'معرّف القناة', en: 'Channel ID' },
+    meta: false,
+  },
+];
+
+export function catalogueItem(kind: string): CatalogueItem | undefined {
+  return CATALOGUE.find((item) => item.kind === kind);
+}
+
+export type IntegrationStatus = 'connected' | 'attention' | 'disconnected' | 'not_connected' | 'unavailable';
+
+export interface IntegrationSummary {
+  readonly status: IntegrationStatus;
+  readonly active: readonly ChannelConnection[];
+  /** The newest instant a provider accepted a credential for this kind. */
+  readonly lastVerified: string | null;
+}
+
+/**
+ * One kind's standing, from the connections the server returned.
+ *
+ * Attention wins over connected: one healthy WhatsApp number does not make a
+ * second, broken one somebody else's problem.
+ */
+export function summarize(kind: string, implemented: boolean, connections: readonly ChannelConnection[]): IntegrationSummary {
+  const ofKind = connections.filter((connection) => connection.kind === kind);
+  const active = ofKind.filter((connection) => connection.disconnected_at === null);
+  const lastVerified = ofKind
+    .flatMap((connection) => connection.evidence)
+    .filter((evidence) => evidence.kind === 'credential_verified' && evidence.satisfied && evidence.observed_at !== null)
+    .map((evidence) => evidence.observed_at as string)
+    .sort()
+    .at(-1) ?? null;
+  const status: IntegrationStatus = !implemented
+    ? 'unavailable'
+    : active.some((connection) => connection.status !== 'healthy')
+      ? 'attention'
+      : active.length > 0
+        ? 'connected'
+        : ofKind.length > 0
+          ? 'disconnected'
+          : 'not_connected';
+  return { status, active, lastVerified };
+}
+
+const STATUS_VIEW: Readonly<Record<IntegrationStatus, { readonly label: Phrase; readonly tone: Tone }>> = {
+  connected: { label: { ar: 'متصلة', en: 'Connected' }, tone: 'success' },
+  attention: { label: { ar: 'تحتاج إكمال الإعداد', en: 'Attention needed' }, tone: 'warning' },
+  disconnected: { label: { ar: 'مفصولة', en: 'Disconnected' }, tone: 'neutral' },
+  not_connected: { label: { ar: 'غير متصلة', en: 'Not connected' }, tone: 'neutral' },
+  unavailable: { label: { ar: 'غير متاح حاليًا', en: 'Coming soon' }, tone: 'neutral' },
+};
+
+const READINESS_TONE: Readonly<Record<string, Tone>> = {
   not_configured: 'neutral',
   authorization_needed: 'warning',
   webhook_pending: 'accent',
@@ -41,529 +154,318 @@ const READINESS_TONE: Readonly<Record<ChannelReadiness, Tone>> = {
   disconnected: 'neutral',
 };
 
-function readinessLabel(state: AppState, readiness: ChannelReadiness): string {
-  const labels: Record<ChannelReadiness, { ar: string; en: string }> = {
-    not_configured: { ar: 'غير مهيّأة', en: 'Not configured' },
-    authorization_needed: { ar: 'تحتاج تفويضًا', en: 'Authorization needed' },
-    webhook_pending: { ar: 'بانتظار أول حدث', en: 'Waiting for the first event' },
-    healthy: { ar: 'سليمة', en: 'Healthy' },
-    degraded: { ar: 'متدهورة', en: 'Degraded' },
-    disconnected: { ar: 'مفصولة', en: 'Disconnected' },
-  };
-  return t(state, labels[readiness].ar, labels[readiness].en);
-}
-
-function evidenceLabel(state: AppState, kind: string): string {
-  const labels: Record<string, { ar: string; en: string }> = {
-    asset_verified: { ar: 'الأصل مسجَّل', en: 'Asset registered' },
-    credential_verified: { ar: 'المزوّد قبل الاعتماد', en: 'Provider accepted the credential' },
-    webhook_subscribed: { ar: 'الاشتراك في الأحداث', en: 'Webhook subscribed' },
-    first_inbound: { ar: 'وصلت رسالة واردة', en: 'An inbound message arrived' },
-    first_outbound: { ar: 'قُبلت رسالة صادرة', en: 'An outbound message was accepted' },
-  };
-  const label = labels[kind];
-  // An evidence kind this build does not recognise is shown by its own name
-  // rather than hidden: a newer server naming one is information, not noise.
-  return label === undefined ? kind : t(state, label.ar, label.en);
-}
-
-function kindLabel(state: AppState, kind: string): string {
-  const labels: Record<string, { ar: string; en: string }> = {
-    whatsapp: { ar: 'واتساب', en: 'WhatsApp' },
-    messenger: { ar: 'ماسنجر', en: 'Messenger' },
-    instagram: { ar: 'إنستغرام', en: 'Instagram' },
-    web_chat: { ar: 'محادثة الموقع', en: 'Website chat' },
-    custom: { ar: 'قناة مخصّصة', en: 'Custom channel' },
-  };
-  const label = labels[kind];
-  return label === undefined ? kind : t(state, label.ar, label.en);
-}
-
 export function renderChannels(state: AppState): HTMLElement {
   const live = state.live;
-
-  if (live.session.status === 'unknown') {
-    return frame(state, null, [busyNotice(state)]);
-  }
-  if (live.session.status === 'signed_out') {
-    return frame(state, null, [
-      stateBox({
-        kind: 'denied',
-        iconName: 'lock',
-        title: t(state, 'تحتاج جلسة', 'You need a session'),
-        body: t(
-          state,
-          'شاشة القنوات تتصل بالخادم. افتح شاشة الأفراد لتسجيل الدخول.',
-          'The Channels screen talks to the server. Open the People screen to sign in.',
-        ),
-        actionLabel: t(state, 'إعادة المحاولة', 'Try again'),
-        act: 'live-channels-reload',
-      }),
-    ]);
-  }
-  if (live.session.tenantId === null) {
-    return frame(state, live.session.email, [
-      stateBox({
-        kind: 'info',
-        iconName: 'users',
-        title: t(state, 'لا توجد عضوية نشطة', 'No active membership'),
-        body: t(
-          state,
-          'حسابك لا ينتمي إلى شركة نشطة، فلا توجد قنوات لعرضها.',
-          'Your account does not belong to an active company, so there are no channels to show.',
-        ),
-      }),
-    ]);
-  }
-
-  return frame(state, live.session.email, [
-    connectCard(state, live),
-    section(state, t(state, 'القنوات المتصلة', 'Connections'), connectionsBody(state, live)),
-    section(state, t(state, 'ما يدعمه هذا الإصدار', 'What this build supports'), catalogueBody(state, live)),
-  ]);
+  return page('channels', toolbar(
+    t(state, 'اربط القنوات التي يتواصل عبرها عملاؤك. تظهر القناة «متصلة» فقط بعد أن يؤكد الخادم جاهزيتها.', 'Connect the channels your customers use. A channel shows as connected only after the server confirms it is healthy.'),
+    [button({
+      label: t(state, 'تحديث', 'Refresh'),
+      icon: 'refresh',
+      act: 'live-channels-reload',
+      small: true,
+      busy: live.connections.status === 'loading',
+    })],
+  ), catalogueBody(state, live));
 }
 
-/* ------------------------------------------------------------------ shell -- */
-
-function frame(state: AppState, email: string | null, children: readonly Child[]): HTMLElement {
-  const live = state.live;
-  return h('div', { class: 'workspace', tabindex: '0', 'data-scroll': 'screen' }, [
-    h('div', { class: 'workspace__intro' }, [
-      h('div', { class: 'workspace__introtext' }, [
-        h('h1', { class: 'workspace__heading' }, [t(state, 'القنوات', 'Channels')]),
-        h('p', { class: 'workspace__lede' }, [
-          t(
-            state,
-            'كل أصل لدى المزوّد له اتصال مستقل، وحالة «سليمة» تتطلب أدلة منفصلة يرصدها من شاهدها فعلًا. لصق رمز لا يثبت شيئًا.',
-            'Every provider asset has its own connection, and “healthy” requires separate pieces of evidence recorded by whatever actually observed them. Pasting a token proves nothing.',
-          ),
-        ]),
-      ]),
-      email === null
-        ? null
-        : h('div', { class: 'workspace__actions' }, [
-            h('span', { class: 'pill' }, [isolated(email)]),
-            button({
-              label: t(state, 'تحديث', 'Reload'),
-              icon: 'refresh',
-              act: 'live-channels-reload',
-              small: true,
-              disabled: live.busy !== null,
-            }),
-          ]),
+function catalogueBody(state: AppState, live: LiveState): readonly Child[] {
+  // Without the company's connections every card would read "Not connected",
+  // which would be a claim rather than an absence of data.
+  if (live.catalogue.status === 'error' || live.connections.status === 'error') {
+    const error = live.catalogue.status === 'error' ? live.catalogue.error : (live.connections as { readonly error: ApiError }).error;
+    return [errorState(state, error, 'live-channels-reload')];
+  }
+  if (live.catalogue.status !== 'ready' || live.connections.status === 'idle' || live.connections.status === 'loading') {
+    return [h('div', { class: 'integration-grid' }, CATALOGUE.map(() => h('div', { class: 'integration integration--loading' }, [skeleton(state, 2)])))];
+  }
+  const server = live.catalogue.value;
+  const connections = rowsOf(live.connections);
+  return [
+    h('section', { class: 'integrations', 'aria-labelledby': 'catalogue-title' }, [
+      h('h2', { class: 'section-title', id: 'catalogue-title' }, [t(state, 'التكاملات المتاحة', 'Integrations')]),
+      h('div', { class: 'integration-grid' }, CATALOGUE.map((item) => integrationCard(state, item, server.find((entry) => entry.kind === item.kind), connections))),
     ]),
-    ...children,
-  ]);
+    connectedSection(state, live, connections),
+  ];
 }
 
-function section(state: AppState, title: string, body: Child): HTMLElement {
-  return h('section', { class: 'card', 'aria-label': title }, [
-    h('div', { class: 'card__header' }, [h('h2', { class: 'card__title' }, [title])]),
-    body,
-  ]);
-}
-
-function busyNotice(state: AppState): HTMLElement {
-  return h('div', { class: 'skeleton', 'aria-busy': 'true' }, [
-    h('div', { class: 'skeletonrow' }, [h('div', { class: 'skeletonrow__lines' })]),
-    h('div', { class: 'skeletonrow' }, [h('div', { class: 'skeletonrow__lines' })]),
-    h('span', { class: 'visually-hidden' }, [t(state, 'جارٍ التحميل', 'Loading')]),
-  ]);
-}
-
-function resourceView<T>(
+function integrationCard(
   state: AppState,
-  resource: Resource<readonly T[]>,
-  empty: { title: string; body: string },
-  render: (rows: readonly T[]) => Child,
-): Child {
-  if (resource.status === 'idle' || resource.status === 'loading') {
-    return busyNotice(state);
-  }
-  if (resource.status === 'error') {
-    return errorView(state, resource.error);
-  }
-  if (resource.value.length === 0) {
-    return stateBox({ kind: 'empty', iconName: 'channels', title: empty.title, body: empty.body });
-  }
-  return render(resource.value);
-}
-
-function errorView(state: AppState, error: ApiError): Child {
-  if (isUnauthenticated(error)) {
-    return stateBox({
-      kind: 'denied',
-      iconName: 'lock',
-      title: t(state, 'انتهت الجلسة', 'Your session ended'),
-      body: t(state, 'سجّل الدخول من جديد للمتابعة.', 'Sign in again to continue.'),
-    });
-  }
-  if (isDenial(error)) {
-    return stateBox({
-      kind: 'denied',
-      iconName: 'lock',
-      title: t(state, 'لا تملك صلاحية إدارة القنوات', 'You do not have permission to manage channels'),
-      body: t(
-        state,
-        'الخادم رفض الطلب بمفتاح channel.manage. إخفاء الزر ليس ضابط تفويض — الرفض يحدث على الخادم.',
-        'The server refused this by the channel.manage key. Hiding the control is not an authorization control; the refusal happens on the server.',
-      ),
-    });
-  }
-  return stateBox({
-    kind: 'offline',
-    iconName: error.code === 'network' ? 'wifiOff' : 'alert',
-    title:
-      error.code === 'network'
-        ? t(state, 'تعذّر الوصول إلى الخادم', 'Could not reach the server')
-        : t(state, 'رفض الخادم الطلب', 'The server rejected the request'),
-    body: `${error.message}${error.requestId === null ? '' : ` · ${error.requestId}`}`,
-    actionLabel: t(state, 'إعادة المحاولة', 'Try again'),
-    act: 'live-channels-reload',
-  });
-}
-
-function mutationError(state: AppState, live: LiveState): Child {
-  if (live.error === null) {
-    return null;
-  }
-  const detail = live.error.details.map((entry) => `${entry.field}: ${entry.message}`).join(' · ');
-  return h('div', { class: 'banner banner--danger', role: 'alert' }, [
-    h('span', {}, [live.error.message]),
-    detail === '' ? null : h('span', { class: 'banner__spacer' }),
-    detail === '' ? null : h('span', {}, [detail]),
-  ]);
-}
-
-/* ---------------------------------------------------------------- connect -- */
-
-/**
- * The connect form.
- *
- * The three inputs dispatch `form-toggle` rather than `form`: their values gate
- * the button, and a control whose disabled state is one keystroke behind is a
- * control that looks broken. The renderer preserves focus and caret across the
- * re-render, which is what makes that affordable.
- */
-function connectCard(state: AppState, live: LiveState): HTMLElement {
-  const connecting = live.busy === 'connect-channel';
-  const rawKind = state.dialogForm['channelKind'] ?? 'whatsapp';
-  const kind = (['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom'] as const).find((value) => value === rawKind) ?? 'whatsapp';
-  const meta = kind === 'whatsapp' || kind === 'messenger' || kind === 'instagram';
-  const providerApp = state.dialogForm['channelProviderApp'] ?? '';
-  const asset = state.dialogForm['channelAsset'] ?? '';
-  const name = state.dialogForm['channelName'] ?? '';
-  const token = state.dialogForm['channelToken'] ?? '';
-  return h('section', { class: 'card', 'aria-label': t(state, 'ربط قناة', 'Connect a channel') }, [
-    h('div', { class: 'card__header' }, [
-      h('h2', { class: 'card__title' }, [t(state, 'ربط قناة', 'Connect a channel')]),
-    ]),
-    h('div', { class: 'card__body' }, [
-      h('p', { class: 'field__hint' }, [
-        t(
-          state,
-          'الربط يطالب بالأصل لدى هذا التنصيب كله، ويخزّن الاعتماد مشفَّرًا. لا يجعل القناة تعمل — الحالة تبدأ عند «تحتاج تفويضًا».',
-          'Connecting claims the asset across this whole installation and stores the credential encrypted. It does not make the channel work: the state starts at “Authorization needed”.',
-        ),
+  item: CatalogueItem,
+  entry: ChannelCatalogueEntry | undefined,
+  connections: readonly ChannelConnection[],
+): HTMLElement {
+  const summary = summarize(item.kind, entry?.implemented === true, connections);
+  const view = STATUS_VIEW[summary.status];
+  const count = summary.active.length;
+  const attention = summary.active.find((connection) => connection.status !== 'healthy');
+  return h('article', { class: `integration integration--${summary.status}`, 'data-channel-kind': item.kind, 'aria-labelledby': `integration-${item.kind}` }, [
+    h('header', { class: 'integration__head' }, [
+      channelTile(item.kind, 'lg'),
+      h('div', { class: 'integration__titles' }, [
+        h('h3', { class: 'integration__name', id: `integration-${item.kind}` }, [t(state, item.name.ar, item.name.en)]),
+        badge(t(state, view.label.ar, view.label.en), view.tone, { dot: summary.status !== 'unavailable' }),
       ]),
-      h('div', { class: 'filterbar' }, [
-        selectControl({
-          value: kind,
-          act: 'form-toggle',
-          form: 'channelKind',
-          ariaLabel: t(state, 'نوع القناة', 'Channel kind'),
-          options: [
-            { value: 'whatsapp', label: kindLabel(state, 'whatsapp') },
-            { value: 'messenger', label: kindLabel(state, 'messenger') },
-            { value: 'instagram', label: kindLabel(state, 'instagram') },
-            { value: 'web_chat', label: kindLabel(state, 'web_chat') },
-            { value: 'custom', label: kindLabel(state, 'custom') },
-          ],
-        }),
-        meta
-          ? h('span', { class: 'searchbox', style: 'flex:1 1 11rem' }, [
-              h('input', {
-                class: 'input',
-                inputmode: 'numeric',
-                placeholder: t(state, 'Meta App ID', 'Meta App ID'),
-                'aria-label': t(state, 'معرّف تطبيق ميتا المهيّأ على الخادم', 'Meta App ID configured on the server'),
-                value: providerApp,
-                'data-act': 'form-toggle',
-                'data-form': 'channelProviderApp',
-              }),
-            ])
-          : null,
-        h('span', { class: 'searchbox', style: 'flex:1 1 12rem' }, [
-          h('input', {
-            class: 'input',
-            placeholder: assetPlaceholder(state, kind),
-            'aria-label': t(state, 'معرّف الأصل', 'Provider asset id'),
-            value: asset,
-            'data-act': 'form-toggle',
-            'data-form': 'channelAsset',
-          }),
-        ]),
-        h('span', { class: 'searchbox', style: 'flex:1 1 10rem' }, [
-          h('input', {
-            class: 'input',
-            placeholder: t(state, 'اسم للعرض', 'Display name'),
-            'aria-label': t(state, 'اسم القناة', 'Channel name'),
-            value: name,
-            'data-act': 'form-toggle',
-            'data-form': 'channelName',
-          }),
-        ]),
-        h('span', { class: 'searchbox', style: 'flex:1 1 12rem' }, [
-          h('input', {
-            class: 'input',
-            type: 'password',
-            autocomplete: 'off',
-            placeholder: meta
-              ? t(state, 'رمز وصول المزوّد', 'Provider access token')
-              : t(state, 'مفتاح توقيع قوي', 'Strong signing key'),
-            'aria-label': t(state, 'رمز الوصول', 'Access token'),
-            value: token,
-            'data-act': 'form-toggle',
-            'data-form': 'channelToken',
-          }),
-        ]),
-        button({
-          label: connecting
-            ? t(state, 'جارٍ الربط…', 'Connecting…')
-            : t(state, 'ربط القناة', 'Connect channel'),
-          icon: 'plus',
-          act: 'live-connect-channel',
-          variant: 'primary',
-          small: true,
-          disabled: connecting || (meta && providerApp === '') || asset === '' || name === '' || token === '',
-        }),
-      ]),
-      mutationError(state, live),
     ]),
+    h('p', { class: 'integration__description' }, [t(state, item.description.ar, item.description.en)]),
+    entry === undefined || !entry.implemented
+      ? h('p', { class: 'integration__note' }, [t(state, 'غير مدعومة في هذا الإصدار بعد.', 'Not supported in this version yet.')])
+      : h('ul', { class: 'integration__capabilities', 'aria-label': t(state, 'الإمكانات', 'Capabilities') }, capabilities(state, entry.capabilities)),
+    h('dl', { class: 'integration__facts' }, [
+      h('div', {}, [
+        h('dt', {}, [t(state, 'الاتصالات', 'Connections')]),
+        h('dd', {}, [formatNumber(count, state.lang)]),
+      ]),
+      h('div', {}, [
+        h('dt', {}, [t(state, 'آخر تحقق ناجح', 'Last verified')]),
+        h('dd', {}, [summary.lastVerified === null ? '—' : relativeTime(summary.lastVerified, state.clock, state.lang)]),
+      ]),
+    ]),
+    h('footer', { class: 'integration__actions' }, [primaryAction(state, item, summary.status, attention)]),
   ]);
 }
 
-/* ------------------------------------------------------------ connections -- */
-
-function connectionsBody(state: AppState, live: LiveState): Child {
-  return h('div', { class: 'card__body' }, [
-    resourceView(
-      state,
-      live.connections,
-      {
-        title: t(state, 'لا قنوات بعد', 'No channels yet'),
-        body: t(
-          state,
-          'اربط أصلًا من المزوّد لتبدأ استقبال الرسائل.',
-          'Connect a provider asset to start receiving messages.',
-        ),
-      },
-      (rows) => h('div', { class: 'grid2' }, rows.map((row) => connectionCard(state, live, row))),
-    ),
-  ]);
+function primaryAction(
+  state: AppState,
+  item: CatalogueItem,
+  status: IntegrationStatus,
+  attention: ChannelConnection | undefined,
+): HTMLElement {
+  const name = t(state, item.name.ar, item.name.en);
+  if (status === 'unavailable') {
+    return button({ label: t(state, 'غير متاح حاليًا', 'Coming soon'), act: 'noop', small: true, disabled: true, title: t(state, `${name} غير متاح في هذا الإصدار`, `${name} is not available in this version`) });
+  }
+  // Another account can be added whatever state the first one is in: one
+  // number waiting for verification is no reason to block a second.
+  const another = button({ label: t(state, 'إضافة', 'Add'), icon: 'plus', act: 'dialog', arg: `connect-channel:${item.kind}`, small: true, variant: 'ghost', title: t(state, `ربط حساب ${name} آخر`, `Connect another ${name} account`) });
+  if (status === 'attention') {
+    return h('div', { class: 'integration__buttons' }, [
+      button({ label: t(state, 'إكمال الإعداد', 'Complete setup'), icon: 'arrowOut', act: 'channel-manage', arg: `${item.kind}:${(attention as ChannelConnection).id}`, small: true, variant: 'primary', title: t(state, `إكمال إعداد ${name}`, `Complete ${name} setup`) }),
+      another,
+    ]);
+  }
+  if (status === 'connected') {
+    return h('div', { class: 'integration__buttons' }, [
+      button({ label: t(state, 'إدارة', 'Manage'), act: 'channel-manage', arg: `${item.kind}:`, small: true, title: t(state, `إدارة ${name}`, `Manage ${name}`) }),
+      another,
+    ]);
+  }
+  return button({ label: t(state, 'ربط', 'Connect'), icon: 'plug', act: 'dialog', arg: `connect-channel:${item.kind}`, small: true, variant: 'primary', title: t(state, `ربط ${name}`, `Connect ${name}`) });
 }
 
-function connectionCard(state: AppState, live: LiveState, connection: ChannelConnection): HTMLElement {
+/** Only what the server says the adapter supports. An unsupported capability is simply absent. */
+function capabilities(state: AppState, matrix: CapabilityMatrix): readonly HTMLElement[] {
+  const items: HTMLElement[] = [];
+  const add = (supported: boolean, iconName: Parameters<typeof icon>[0], label: string): void => {
+    if (supported) items.push(h('li', { class: 'capability' }, [icon(iconName, 14), label]));
+  };
+  add(matrix.outboundTypes.includes('text'), 'chat', t(state, 'رسائل', 'Messages'));
+  add(matrix.templates, 'template', t(state, 'قوالب', 'Templates'));
+  add(matrix.attachmentTypes.length > 0, 'image', t(state, 'وسائط', 'Media'));
+  add(matrix.deliveryReceipts || matrix.readReceipts, 'checkDouble', t(state, 'إيصالات', 'Receipts'));
+  add(matrix.inboundEvents.length > 0, 'webhook', t(state, 'Webhooks', 'Webhooks'));
+  return items;
+}
+
+/* ------------------------------------------------------- connected section -- */
+
+function connectedSection(state: AppState, live: LiveState, connections: readonly ChannelConnection[]): HTMLElement {
+  const kinds = [...new Set(connections.map((connection) => connection.kind))];
+  const shown = state.channelKind === '' ? connections : connections.filter((connection) => connection.kind === state.channelKind);
+  return panel(
+    t(state, 'القنوات المتصلة', 'Connected integrations'),
+    [
+      state.dialog === null ? inlineError(state, live.error) : null,
+      connections.length === 0
+        ? emptyState({
+            icon: 'plug',
+            title: t(state, 'لا توجد قنوات متصلة بعد', 'No channels connected yet'),
+            body: t(state, 'ابدأ بربط رقم واتساب للأعمال لاستقبال رسائل العملاء.', 'Start by connecting a WhatsApp Business number to receive customer messages.'),
+            action: { label: t(state, 'ربط واتساب', 'Connect WhatsApp'), act: 'dialog', arg: 'connect-channel:whatsapp', primary: true },
+          })
+        : h('ul', { class: 'connection-list' }, shown.map((connection) => connectionRow(state, live, connection))),
+    ],
+    {
+      extraClass: 'connections',
+      flush: connections.length > 0,
+      actions: kinds.length < 2 ? [] : [segmented(
+        [{ value: '', label: t(state, 'الكل', 'All') }, ...kinds.map((kind) => ({ value: kind, label: phrase(state, CHANNEL_NAMES, kind) }))],
+        state.channelKind,
+        'channel-kind',
+        t(state, 'تصفية حسب القناة', 'Filter by channel'),
+      )],
+    },
+  );
+}
+
+function connectionRow(state: AppState, live: LiveState, connection: ChannelConnection): HTMLElement {
+  const expanded = state.expandedConnection === connection.id;
   const gone = connection.disconnected_at !== null;
-  const testing = live.busy === `test-channel:${connection.id}`;
+  const detailsId = `connection-details-${connection.id}`;
+  const satisfied = connection.evidence.filter((item) => item.satisfied).length;
+  return h('li', { class: `connection${expanded ? ' connection--expanded' : ''}`, 'data-connection': connection.id }, [
+    h('div', { class: 'connection__row' }, [
+      channelTile(connection.kind),
+      h('div', { class: 'connection__identity' }, [
+        h('p', { class: 'connection__name' }, [isolated(connection.display_name)]),
+        h('p', { class: 'connection__meta' }, [
+          phrase(state, CHANNEL_NAMES, connection.kind),
+          ' · ',
+          isolated(connection.external_asset_id, true),
+        ]),
+      ]),
+      h('div', { class: 'connection__status' }, [
+        badge(gone ? phrase(state, READINESS, 'disconnected') : phrase(state, READINESS, connection.status), gone ? 'neutral' : (READINESS_TONE[connection.status] ?? 'neutral'), { dot: true }),
+        h('span', { class: 'connection__evidence' }, [
+          t(state, `${String(satisfied)} من ${String(connection.evidence.length)} أدلة`, `${String(satisfied)} of ${String(connection.evidence.length)} checks`),
+        ]),
+      ]),
+      button({
+        label: expanded ? t(state, 'إخفاء', 'Hide') : t(state, 'التفاصيل', 'Details'),
+        icon: expanded ? 'chevronDown' : 'chevronEnd',
+        act: 'connection-toggle',
+        arg: connection.id,
+        small: true,
+        variant: 'ghost',
+        expanded,
+        controls: detailsId,
+      }),
+    ]),
+    expanded ? connectionDetails(state, live, connection, detailsId) : null,
+  ]);
+}
+
+function connectionDetails(state: AppState, live: LiveState, connection: ChannelConnection, id: string): HTMLElement {
+  const gone = connection.disconnected_at !== null;
   const tokenField = channelTokenField(connection.id);
   const token = state.dialogForm[tokenField] ?? '';
-  const testIdentityField = channelTestIdentityField(connection.id);
-  const testLabelField = channelTestLabelField(connection.id);
-  const testIdentity = state.dialogForm[testIdentityField] ?? '';
-  const testLabel = state.dialogForm[testLabelField] ?? '';
-  const testRecipients = rowsOf(live.testRecipients).filter((recipient) => recipient.connection_id === connection.id);
-  return h('div', { class: 'card', 'data-connection': connection.id }, [
-    h('div', { class: 'card__header' }, [
-      h('span', { class: 'card__title' }, [connection.display_name]),
-      h('span', { class: 'card__spacer' }),
-      pill(readinessLabel(state, connection.status), READINESS_TONE[connection.status], 'shield'),
-    ]),
-    h('dl', { class: 'attrgrid' }, [
-      h('dt', {}, [t(state, 'النوع', 'Kind')]),
-      h('dd', {}, [kindLabel(state, connection.kind)]),
-      h('dt', {}, [t(state, 'الأصل', 'Asset')]),
-      h('dd', {}, [isolated(connection.external_asset_id, true)]),
-      connection.provider_app_id === null
-        ? null
-        : h('dt', {}, [t(state, 'تطبيق ميتا', 'Meta app')]),
-      connection.provider_app_id === null
-        ? null
-        : h('dd', {}, [isolated(connection.provider_app_id, true)]),
-      h('dt', {}, [t(state, 'معرّف الاتصال', 'Connection id')]),
-      h('dd', {}, [isolated(connection.id, true)]),
-      h('dt', {}, [t(state, 'نافذة الرد', 'Reply window')]),
-      h('dd', {}, [windowLabel(state, connection.capabilities)]),
-    ]),
-    h('div', { class: 'field' }, [
-      h('span', { class: 'field__label' }, [t(state, 'الأدلة', 'Evidence')]),
-      h(
-        'ul',
-        { class: 'checklist' },
-        connection.evidence.map((item) => checkItem(evidenceLabel(state, item.kind), item.satisfied)),
-      ),
-    ]),
-    connection.last_error_code === null
-      ? null
-      : h('div', { class: 'banner banner--danger', role: 'status' }, [
-          h('span', {}, [
-            `${t(state, 'آخر خطأ من الخادم', 'Last error from the server')}: `,
-            isolated(connection.last_error_code, true),
+  return h('div', { class: 'connection__details', id }, [
+    h('div', { class: 'connection__columns' }, [
+      h('section', { class: 'connection__block', 'aria-labelledby': `${id}-evidence` }, [
+        h('h3', { class: 'connection__blocktitle', id: `${id}-evidence` }, [t(state, 'التحقق من الجاهزية', 'Readiness checks')]),
+        h('ul', { class: 'checklist' }, connection.evidence.map((item) =>
+          h('li', { class: item.satisfied ? 'checklist__item checklist__item--done' : 'checklist__item' }, [
+            h('span', { class: 'checklist__mark', 'aria-hidden': 'true' }, [icon(item.satisfied ? 'check' : 'clock', 12)]),
+            h('span', { class: 'checklist__label' }, [phrase(state, EVIDENCE, item.kind)]),
+            h('span', { class: 'checklist__when' }, [
+              item.observed_at === null
+                ? t(state, 'لم يتحقق', 'Pending')
+                : dateFormat(state.lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.observed_at)),
+            ]),
           ]),
+        )),
+        connection.last_error_code === null
+          ? null
+          : h('p', { class: 'connection__error', role: 'status' }, [
+              icon('alert', 14),
+              t(state, 'آخر خطأ: ', 'Last error: '),
+              isolated(connection.last_error_code, true),
+            ]),
+      ]),
+      h('section', { class: 'connection__block', 'aria-labelledby': `${id}-facts` }, [
+        h('h3', { class: 'connection__blocktitle', id: `${id}-facts` }, [t(state, 'بيانات الاتصال', 'Connection')]),
+        h('dl', { class: 'attrgrid' }, [
+          h('dt', {}, [t(state, 'المعرّف لدى المزوّد', 'Provider asset')]),
+          h('dd', {}, [isolated(connection.external_asset_id, true)]),
+          connection.provider_app_id === null ? null : h('dt', {}, [t(state, 'تطبيق Meta', 'Meta app')]),
+          connection.provider_app_id === null ? null : h('dd', {}, [isolated(connection.provider_app_id, true)]),
+          h('dt', {}, [t(state, 'بيانات الاعتماد', 'Credential')]),
+          h('dd', {}, [connection.credential_held ? t(state, 'محفوظة مشفّرة', 'Stored encrypted') : t(state, 'غير محفوظة', 'Not stored')]),
+          h('dt', {}, [t(state, 'نافذة الرد', 'Reply window')]),
+          h('dd', {}, [connection.capabilities.windowHours === null ? t(state, 'بلا نافذة', 'None') : t(state, `${String(connection.capabilities.windowHours)} ساعة`, `${String(connection.capabilities.windowHours)} hours`)]),
+          h('dt', {}, [t(state, 'تاريخ الربط', 'Connected on')]),
+          h('dd', {}, [dateFormat(state.lang, { dateStyle: 'medium' }).format(new Date(connection.created_at))]),
         ]),
+      ]),
+    ]),
     gone
-      ? h('p', { class: 'field__hint' }, [
-          t(
-            state,
-            'مفصولة. سجلّها محفوظ، ويمكن ربط الأصل من جديد.',
-            'Disconnected. Its history is kept, and the asset can be connected again.',
-          ),
-        ])
-      : h('div', { class: 'filterbar' }, [
-          button({
-            label: testing
-              ? t(state, 'جارٍ الاختبار…', 'Testing…')
-              : t(state, 'اختبار الاعتماد', 'Test credential'),
-            icon: 'refresh',
-            act: 'live-test-channel',
-            arg: connection.id,
-            small: true,
-            disabled: testing,
-          }),
-          h('span', { class: 'searchbox', style: 'flex:1 1 10rem' }, [
-            h('input', {
-              class: 'input',
-              type: 'password',
-              autocomplete: 'off',
-              placeholder: t(state, 'اعتماد جديد', 'New credential'),
-              'aria-label': t(state, `اعتماد جديد لـ ${connection.display_name}`, `New credential for ${connection.display_name}`),
-              value: token,
-              'data-act': 'form-toggle',
-              'data-form': tokenField,
+      ? h('p', { class: 'field__hint' }, [t(state, 'هذا الاتصال مفصول. سجله محفوظ، ويمكن ربط الأصل من جديد.', 'This connection is disconnected. Its history is kept and the asset can be connected again.')])
+      : h('div', { class: 'connection__manage' }, [
+          h('div', { class: 'connection__actions' }, [
+            button({
+              label: t(state, 'التحقق من الاتصال', 'Verify connection'),
+              icon: 'shield',
+              act: 'live-test-channel',
+              arg: connection.id,
+              small: true,
+              busy: live.busy === `test-channel:${connection.id}`,
+            }),
+            // Confirmed first: disconnecting revokes the stored credential, and
+            // reconnecting needs a new one from the provider.
+            button({
+              label: t(state, 'فصل القناة…', 'Disconnect…'),
+              act: 'dialog',
+              arg: `disconnect-channel:${connection.id}`,
+              small: true,
+              variant: 'danger',
             }),
           ]),
-          button({
-            label: t(state, 'تدوير', 'Rotate'),
-            act: 'live-rotate-channel',
-            arg: connection.id,
-            small: true,
-            disabled: live.busy === `rotate-channel:${connection.id}` || token === '',
-          }),
-          button({
-            label: t(state, 'فصل', 'Disconnect'),
-            act: 'live-disconnect-channel',
-            arg: connection.id,
-            small: true,
-            variant: 'danger',
-            disabled: live.busy === `disconnect-channel:${connection.id}`,
-          }),
+          h('form', { class: 'inline-form', 'data-submit': 'live-rotate-channel', 'data-arg': connection.id }, [
+            h('label', { class: 'field' }, [
+              h('span', { class: 'field__label' }, [t(state, 'استبدال بيانات الاعتماد', 'Replace credential')]),
+              h('input', {
+                class: 'input',
+                type: 'password',
+                autocomplete: 'off',
+                dir: 'ltr',
+                placeholder: t(state, 'رمز وصول جديد', 'New access token'),
+                value: token,
+                'data-act': 'form-toggle',
+                'data-form': tokenField,
+              }),
+            ]),
+            button({
+              label: t(state, 'حفظ', 'Save'),
+              act: 'live-rotate-channel',
+              arg: connection.id,
+              small: true,
+              busy: live.busy === `rotate-channel:${connection.id}`,
+              disabled: token === '',
+            }),
+          ]),
+          testRecipients(state, live, connection),
         ]),
-    gone ? null : h('div', { class: 'field' }, [
-      h('span', { class: 'field__label' }, [t(state, 'مستلمو الاختبار المصرح لهم', 'Authorized test recipients')]),
-      h('p', { class: 'field__hint' }, [t(state,
-        'اكتب هوية موجودة بالفعل على هذه القناة. هذا التصريح وحده يسمح لحملات الاختبار بالوصول إليها، ويمكن إلغاؤه فورًا.',
-        'Use an identity that already exists on this channel. This authorization alone permits campaign tests to reach it, and it can be revoked immediately.')]),
-      h('div', { class: 'filterbar' }, [
-        h('span', { class: 'searchbox', style: 'flex:1 1 11rem' }, [h('input', {
-          class: 'input', value: testIdentity, placeholder: t(state, 'رقم أو هوية المزوّد', 'Provider recipient identity'),
-          'aria-label': t(state, 'هوية مستلم الاختبار', 'Test recipient identity'),
-          'data-act': 'form-toggle', 'data-form': testIdentityField,
-        })]),
-        h('span', { class: 'searchbox', style: 'flex:1 1 9rem' }, [h('input', {
-          class: 'input', value: testLabel, placeholder: t(state, 'مثال: هاتف المدير', 'e.g. Owner phone'),
-          'aria-label': t(state, 'اسم مستلم الاختبار', 'Test recipient label'),
-          'data-act': 'form-toggle', 'data-form': testLabelField,
-        })]),
-        button({
-          label: t(state, 'تصريح', 'Authorize'), icon: 'check', act: 'live-authorize-test-recipient',
-          arg: connection.id, small: true, variant: 'primary',
-          disabled: live.busy === `authorize-test-recipient:${connection.id}` || testIdentity === '' || testLabel === '',
-        }),
-      ]),
-      testRecipients.length === 0
-        ? h('p', { class: 'field__hint' }, [t(state, 'لا يوجد مستلم اختبار مصرح حاليًا.', 'No test recipient is currently authorized.')])
-        : h('div', { class: 'labelset' }, testRecipients.map((recipient) => h('span', { class: 'pill' }, [
-            `${recipient.label} · `, isolated(recipient.peer_identity, true),
-            button({ label: t(state, 'إلغاء', 'Revoke'), act: 'live-revoke-test-recipient',
-              arg: `${connection.id}:${recipient.id}`, small: true, variant: 'danger',
-              disabled: live.busy === `revoke-test-recipient:${recipient.id}` }),
-          ]))),
+  ]);
+}
+
+function testRecipients(state: AppState, live: LiveState, connection: ChannelConnection): HTMLElement {
+  const identityField = channelTestIdentityField(connection.id);
+  const labelField = channelTestLabelField(connection.id);
+  const identity = state.dialogForm[identityField] ?? '';
+  const label = state.dialogForm[labelField] ?? '';
+  const recipients = rowsOf(live.testRecipients).filter((recipient) => recipient.connection_id === connection.id);
+  return h('section', { class: 'connection__block', 'aria-labelledby': `test-recipients-${connection.id}` }, [
+    h('h3', { class: 'connection__blocktitle', id: `test-recipients-${connection.id}` }, [t(state, 'مستلمو الاختبار', 'Test recipients')]),
+    h('p', { class: 'field__hint' }, [t(state, 'الحملات التجريبية تصل فقط إلى هوية موجودة على هذه القناة وتم التصريح لها هنا.', 'Campaign tests reach only an existing identity on this channel that is authorized here.')]),
+    recipients.length === 0
+      ? null
+      : h('ul', { class: 'recipient-list' }, recipients.map((recipient) => recipientRow(state, live, connection, recipient))),
+    h('div', { class: 'inline-form' }, [
+      textInput(identityField, identity, t(state, 'الرقم أو معرّف المزوّد', 'Number or provider ID'), { act: 'form-toggle', ariaLabel: t(state, 'هوية مستلم الاختبار', 'Test recipient identity') }),
+      textInput(labelField, label, t(state, 'اسم للتعريف', 'Label'), { act: 'form-toggle', ariaLabel: t(state, 'اسم مستلم الاختبار', 'Test recipient label') }),
+      button({
+        label: t(state, 'تصريح', 'Authorize'),
+        act: 'live-authorize-test-recipient',
+        arg: connection.id,
+        small: true,
+        busy: live.busy === `authorize-test-recipient:${connection.id}`,
+        disabled: identity === '' || label === '',
+      }),
     ]),
   ]);
 }
 
-function assetPlaceholder(state: AppState, kind: ChannelKind): string {
-  const labels: Record<ChannelKind, { ar: string; en: string }> = {
-    whatsapp: { ar: 'Phone Number ID', en: 'Phone Number ID' },
-    messenger: { ar: 'Page ID', en: 'Page ID' },
-    instagram: { ar: 'Instagram Account ID', en: 'Instagram Account ID' },
-    web_chat: { ar: 'معرّف ويدجت الموقع', en: 'Website widget ID' },
-    custom: { ar: 'معرّف القناة المخصّصة', en: 'Custom channel ID' },
-  };
-  const label = labels[kind];
-  return t(state, label.ar, label.en);
-}
-
-function windowLabel(state: AppState, capabilities: CapabilityMatrix): string {
-  return capabilities.windowHours === null
-    ? t(state, 'بلا نافذة', 'No window')
-    : `${String(capabilities.windowHours)} ${t(state, 'ساعة', 'hours')}`;
-}
-
-/* -------------------------------------------------------------- catalogue -- */
-
-function catalogueBody(state: AppState, live: LiveState): Child {
-  return h('div', { class: 'card__body' }, [
-    h('p', { class: 'field__hint' }, [
-      t(
-        state,
-        'ما يستطيع هذا الإصدار خدمته فعلًا. القناة غير المنفَّذة معروضة ومعطّلة، لا مخفية.',
-        'What this build can actually serve. An unimplemented channel is shown and disabled, not hidden.',
-      ),
-    ]),
-    resourceView(
-      state,
-      live.catalogue,
-      {
-        title: t(state, 'لا قنوات معروفة', 'No channels declared'),
-        body: t(state, 'لم يُبلغ الخادم عن أي قناة.', 'The server declared no channels.'),
-      },
-      (rows) => h('div', { class: 'rolegrid' }, rows.map((row) => catalogueCard(state, row))),
-    ),
-  ]);
-}
-
-function catalogueCard(state: AppState, entry: ChannelCatalogueEntry): HTMLElement {
-  const limit = entry.capabilities.textLimit;
-  return h('div', { class: 'card', 'data-channel-kind': entry.kind }, [
-    h('div', { class: 'card__header' }, [
-      h('span', { class: 'card__title' }, [kindLabel(state, entry.kind)]),
-      h('span', { class: 'card__spacer' }),
-      entry.implemented
-        ? pill(t(state, 'منفَّذة', 'Implemented'), 'success', 'check')
-        : pill(t(state, 'غير منفَّذة بعد', 'Not implemented yet'), 'neutral'),
-    ]),
-    h('div', { class: 'rolegrid__key' }, [
-      `${entry.capabilities.host} · ${entry.capabilities.version}`,
-    ]),
-    h('div', { class: 'labelset' }, [
-      pill(windowLabel(state, entry.capabilities), 'neutral'),
-      // Both units, because a 1000-character limit is 500 Arabic characters
-      // when the real bound is bytes.
-      pill(
-        `${String(limit.characters)} ${t(state, 'حرفًا', 'chars')} / ${String(limit.bytes)} ${t(state, 'بايت', 'bytes')}`,
-        'neutral',
-      ),
-      entry.capabilities.templates
-        ? pill(t(state, 'قوالب', 'Templates'), 'accent')
-        : pill(t(state, 'بلا قوالب', 'No templates'), 'neutral'),
-      entry.capabilities.businessInitiated
-        ? pill(t(state, 'يمكن بدء المحادثة', 'Can start a conversation'), 'neutral')
-        : pill(t(state, 'يبدأها العميل فقط', 'Customer-initiated only'), 'warning'),
-      // Unsupported is `not_available`, never `false` or `0%` (ADR-0009).
-      entry.capabilities.readReceipts
-        ? pill(t(state, 'إشعار القراءة', 'Read receipts'), 'neutral')
-        : pill(t(state, 'إشعار القراءة غير متاح', 'Read receipts not available'), 'neutral'),
-    ]),
+function recipientRow(state: AppState, live: LiveState, connection: ChannelConnection, recipient: ChannelTestRecipient): HTMLElement {
+  return h('li', { class: 'recipient' }, [
+    h('span', { class: 'recipient__label' }, [recipient.label]),
+    isolated(recipient.peer_identity, true),
+    button({
+      label: t(state, 'إلغاء التصريح', 'Revoke'),
+      act: 'live-revoke-test-recipient',
+      arg: `${connection.id}:${recipient.id}`,
+      small: true,
+      variant: 'ghost',
+      busy: live.busy === `revoke-test-recipient:${recipient.id}`,
+    }),
   ]);
 }

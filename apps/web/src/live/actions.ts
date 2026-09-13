@@ -1,10 +1,11 @@
-import type { ConnectChannelInput } from '../api/channels.js';
-import type { ApiResult } from '../api/client.js';
+import type { ChannelTestRecipient, ConnectChannelInput } from '../api/channels.js';
+import type { ApiError, ApiResult } from '../api/client.js';
 import type { Role, ScopeRef } from '../api/people.js';
 import type { AppState } from '../state.js';
-import { pushToast } from '../state.js';
 import type { LiveState } from './store.js';
-import { currentTenantId, failed, fromResult, LOADING } from './store.js';
+import { pushToast } from '../state.js';
+import { ERROR_CODES, phrase } from '../ui/copy.js';
+import { currentTenantId, fromResult, LOADING, reloading } from './store.js';
 
 /**
  * Server-backed actions for the People, Roles and Teams screens.
@@ -29,6 +30,18 @@ export interface LiveContext {
   /** Injected so tests get deterministic idempotency keys and timestamps. */
   now(): number;
   newKey(): string;
+  /**
+   * Closes the workspace after a sign-out.
+   *
+   * The composition root owns it because it owns what has to go with the
+   * session: the live stream, pending timers and every protected list.
+   */
+  endSession(): void;
+  /**
+   * Reopens the workspace on another of this user's companies, with nothing
+   * from the previous one carried over.
+   */
+  switchWorkspace(tenantId: string): void;
 }
 
 function t(state: AppState, ar: string, en: string): string {
@@ -47,21 +60,42 @@ export async function loadSession(context: LiveContext): Promise<void> {
   const { live } = context;
   const session = await live.api.session();
   if (!session.ok) {
-    live.session = { status: 'signed_out', error: session.error.status === 401 ? null : session.error };
+    // A 401 is the ordinary answer for a visitor. Anything else means the
+    // question could not be asked, which the gate says instead of a form.
+    live.session = session.error.status === 401
+      ? { status: 'signed_out', error: null }
+      : { status: 'signed_out', error: null, probeError: session.error };
     context.refresh();
     return;
   }
   const memberships = await live.api.memberships();
+  if (!memberships.ok) {
+    // Without the memberships there is no telling which workspace, if any, this
+    // person may open, so the gate says the question could not be answered
+    // rather than claiming they belong to none.
+    live.session = memberships.error.status === 401
+      ? { status: 'signed_out', error: null }
+      : { status: 'signed_out', error: null, probeError: memberships.error };
+    context.refresh();
+    return;
+  }
   live.session = {
     status: 'signed_in',
     email: session.data.user.email,
-    memberships: memberships.ok ? memberships.data : [],
-    tenantId: memberships.ok ? (memberships.data[0]?.tenant.id ?? null) : null,
+    memberships: memberships.data,
+    tenantId: memberships.data[0]?.tenant.id ?? null,
   };
   context.refresh();
 }
 
-export async function signIn(context: LiveContext, email: string, password: string): Promise<void> {
+/**
+ * Submits credentials.
+ *
+ * Success re-reads the session rather than trusting the login response, so the
+ * workspace opens on exactly the principal and memberships the server resolves
+ * for the new cookie. The screen the operator asked for loads from there.
+ */
+export async function signIn(context: LiveContext, email: string, password: string): Promise<boolean> {
   const { live } = context;
   live.busy = 'sign-in';
   live.error = null;
@@ -74,41 +108,95 @@ export async function signIn(context: LiveContext, email: string, password: stri
     // repeats that answer rather than guessing which one it was.
     live.session = { status: 'signed_out', error: result.error };
     context.refresh();
-    return;
+    return false;
   }
   await loadSession(context);
-  // Signing in lands on the screen the operator was already looking at, so the
-  // lists are fetched here rather than leaving it on a skeleton until it is
-  // reloaded by hand.
-  await loadPeopleScreen(context);
+  return live.session.status === 'signed_in';
 }
 
+/**
+ * Ends this session on the server, then closes the workspace.
+ *
+ * The workspace closes whatever the server answered: an operator who pressed
+ * Sign out must not be left looking at protected data because the network
+ * dropped, and a session the server could not find is already gone.
+ */
 export async function signOut(context: LiveContext): Promise<void> {
   const { live } = context;
   live.busy = 'sign-out';
   context.refresh();
   await live.api.logout();
   live.busy = null;
-  live.session = { status: 'signed_out', error: null };
-  resetResources(live);
+  context.endSession();
+}
+
+/**
+ * Works in another company this user belongs to.
+ *
+ * Only a membership the server listed can be chosen, and the server re-checks
+ * it on every request anyway. The lists of the previous company are dropped so
+ * nothing from it is drawn under the new name.
+ */
+export function switchTenant(context: LiveContext, tenantId: string): boolean {
+  const { live } = context;
+  if (live.session.status !== 'signed_in' || live.session.tenantId === tenantId) {
+    return false;
+  }
+  if (!live.session.memberships.some((membership) => membership.tenant.id === tenantId)) {
+    return false;
+  }
+  context.switchWorkspace(tenantId);
+  return true;
+}
+
+/* -------------------------------------------------------------- settings -- */
+
+/** The sessions this user holds, newest activity first as the server orders them. */
+export async function loadSettingsScreen(context: LiveContext): Promise<void> {
+  const { live } = context;
+  if (live.session.status !== 'signed_in') {
+    return;
+  }
+  live.sessions = LOADING;
   context.refresh();
+  const result = await live.api.sessions();
+  live.sessions = fromResult(result, context.now());
+  context.refresh();
+}
+
+/** Revokes one of this user's other sessions. The current one signs out instead. */
+export async function revokeSession(context: LiveContext, sessionId: string): Promise<boolean> {
+  const { live, state } = context;
+  live.busy = `revoke-session:${sessionId}`;
+  live.error = null;
+  context.refresh();
+  const result = await live.api.revokeSession(sessionId);
+  live.busy = null;
+  if (!result.ok) {
+    live.error = result.error;
+    context.refresh();
+    return false;
+  }
+  pushToast(state, t(state, 'أُنهيت الجلسة', 'Session ended'));
+  await loadSettingsScreen(context);
+  return true;
 }
 
 /* ----------------------------------------------------------------- loads -- */
 
 /** Loads everything the People screen shows, in parallel. */
-export async function loadPeopleScreen(context: LiveContext): Promise<void> {
+export async function loadPeopleScreen(context: LiveContext, keep = false): Promise<void> {
   const { live } = context;
   const tenantId = currentTenantId(live);
   if (tenantId === null) {
     return;
   }
-  live.people = LOADING;
-  live.roles = LOADING;
-  live.teams = LOADING;
-  live.invitations = LOADING;
-  live.permissions = LOADING;
-  live.transfers = LOADING;
+  live.people = reloading(live.people, keep);
+  live.roles = reloading(live.roles, keep);
+  live.teams = reloading(live.teams, keep);
+  live.invitations = reloading(live.invitations, keep);
+  live.permissions = reloading(live.permissions, keep);
+  live.transfers = reloading(live.transfers, keep);
   context.refresh();
 
   const [people, roles, teams, invitations, permissions, transfers] = await Promise.all([
@@ -142,15 +230,15 @@ export async function loadPeopleScreen(context: LiveContext): Promise<void> {
  * has actually connected. A screen that showed only the second would make an
  * unimplemented channel look like a missing one.
  */
-export async function loadChannelsScreen(context: LiveContext): Promise<void> {
+export async function loadChannelsScreen(context: LiveContext, keep = false): Promise<void> {
   const { live } = context;
   const tenantId = currentTenantId(live);
   if (tenantId === null) {
     return;
   }
-  live.connections = LOADING;
-  live.catalogue = LOADING;
-  live.testRecipients = LOADING;
+  live.connections = reloading(live.connections, keep);
+  live.catalogue = reloading(live.catalogue, keep);
+  live.testRecipients = reloading(live.testRecipients, keep);
   context.refresh();
 
   const [connections, catalogue] = await Promise.all([
@@ -164,30 +252,45 @@ export async function loadChannelsScreen(context: LiveContext): Promise<void> {
     live.testRecipients = { status: 'error', error: connections.error };
   } else {
     const results = await Promise.all(connections.data.map((connection) => live.channels.testRecipients(tenantId, connection.id)));
-    const refusal = results.find((result) => !result.ok);
-    live.testRecipients = refusal !== undefined && !refusal.ok
-      ? { status: 'error', error: refusal.error }
-      : { status: 'ready', value: results.flatMap((result) => result.ok ? result.data : []), loadedAt: now };
+    // One allowlist that could not be read makes the whole list unknown: a
+    // partial list would read as "nobody is authorized" on that connection.
+    const rows: ChannelTestRecipient[] = [];
+    let refusal: ApiError | null = null;
+    for (const result of results) {
+      if (result.ok) rows.push(...result.data);
+      else refusal = result.error;
+    }
+    live.testRecipients = refusal === null ? { status: 'ready', value: rows, loadedAt: now } : { status: 'error', error: refusal };
   }
   context.refresh();
 }
 
-export function connectChannel(
+/**
+ * Connects an asset and answers with the new connection's id, or `null`.
+ *
+ * The id is what lets the screen open the connection it just created, which
+ * starts unverified; the toast says so rather than implying it works.
+ */
+export async function connectChannel(
   context: LiveContext,
   input: ConnectChannelInput,
-): Promise<boolean> {
+): Promise<string | null> {
   const key = context.newKey();
-  return mutateChannels(
+  let created: string | null = null;
+  await mutateChannels(
     context,
     'connect-channel',
     (tenantId) => context.live.channels.connect(tenantId, input, key),
-    (connection) =>
-      t(
+    (connection) => {
+      created = connection.id;
+      return t(
         context.state,
-        `أُضيفت القناة ${connection.display_name} — لم تُثبت جاهزيتها بعد`,
-        `Added ${connection.display_name} — it is not working yet`,
-      ),
+        `أُضيفت ${connection.display_name}. تحقّق من الاتصال لإكمال الإعداد.`,
+        `${connection.display_name} added. Verify the connection to finish setup.`,
+      );
+    },
   );
+  return created;
 }
 
 export function testChannel(context: LiveContext, connectionId: string): Promise<boolean> {
@@ -200,8 +303,8 @@ export function testChannel(context: LiveContext, connectionId: string): Promise
         ? t(context.state, 'قبل المزوّد بيانات الاعتماد', 'The provider accepted the credential')
         : t(
             context.state,
-            `رفض المزوّد: ${connection.last_error_code}`,
-            `The provider refused: ${connection.last_error_code}`,
+            `رفض المزوّد: ${phrase(context.state, ERROR_CODES, connection.last_error_code)}`,
+            `The provider refused: ${phrase(context.state, ERROR_CODES, connection.last_error_code)}`,
           ),
   );
 }
@@ -290,7 +393,7 @@ async function mutate<T>(
   }
   // The toast is here, after the server committed — never on the click.
   pushToast(state, onOk(result.data));
-  await loadPeopleScreen(context);
+  await loadPeopleScreen(context, true);
   return true;
 }
 
@@ -320,7 +423,7 @@ async function mutateChannels<T>(
     return false;
   }
   pushToast(state, onOk(result.data));
-  await loadChannelsScreen(context);
+  await loadChannelsScreen(context, true);
   return true;
 }
 
@@ -369,6 +472,12 @@ export function changeRole(
   );
 }
 
+const MEMBER_STATUS_WORDS: Readonly<Record<string, { readonly ar: string; readonly en: string }>> = {
+  active: { ar: 'نشط', en: 'Active' },
+  suspended: { ar: 'موقوف', en: 'Suspended' },
+  revoked: { ar: 'ملغى', en: 'Revoked' },
+};
+
 export function changeStatus(
   context: LiveContext,
   membershipId: string,
@@ -378,7 +487,12 @@ export function changeStatus(
     context,
     `status:${membershipId}`,
     (tenantId) => context.live.api.updateMembership(tenantId, membershipId, { status }),
-    (person) => t(context.state, `الحالة الآن ${person.status}`, `Status is now ${person.status}`),
+    (person) => {
+      const word = MEMBER_STATUS_WORDS[person.status];
+      return word === undefined
+        ? t(context.state, `الحالة الآن ${person.status}`, `Status is now ${person.status}`)
+        : t(context.state, `الحالة الآن: ${word.ar}`, `Status is now ${word.en}`);
+    },
   );
 }
 
@@ -527,21 +641,3 @@ export function settleOwnership(
   );
 }
 
-function resetResources(live: LiveState): void {
-  const gone = failed<never>({
-    code: 'signed_out',
-    message: 'Sign in to see this.',
-    requestId: null,
-    status: 401,
-    details: [],
-  });
-  live.people = gone;
-  live.roles = gone;
-  live.teams = gone;
-  live.invitations = gone;
-  live.permissions = gone;
-  live.transfers = gone;
-  live.connections = gone;
-  live.catalogue = gone;
-  live.testRecipients = gone;
-}
