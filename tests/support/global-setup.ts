@@ -13,6 +13,7 @@ import { NAMES, startCluster } from './cluster.js';
  * because Vitest's global setup runs in its own process.
  */
 export default async function setup(): Promise<() => Promise<void>> {
+  keepFailureExitCode();
   const cluster = await startCluster();
 
   await bootstrapCluster(cluster.credentials, NAMES);
@@ -42,4 +43,19 @@ export default async function setup(): Promise<() => Promise<void>> {
   return async () => {
     await cluster.stop();
   };
+}
+
+/**
+ * Keeps a failed run failing.
+ *
+ * `embedded-postgres` registers `async-exit-hook`, which answers the natural
+ * end of the process (`beforeExit`) with an explicit `process.exit(0)`. Vitest
+ * reports failed tests and missed coverage thresholds by setting
+ * `process.exitCode` and letting the process end, so without this every run
+ * that loaded the integration project exited 0 whatever it found.
+ */
+function keepFailureExitCode(): void {
+  const exit = process.exit.bind(process);
+  process.exit = ((code?: string | number | null) =>
+    exit(code === 0 || code === undefined || code === null ? (process.exitCode ?? code) : code)) as typeof process.exit;
 }
