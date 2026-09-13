@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, Headers, Inject, Param, Patch, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Inject, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { pageEnvelope } from '../pagination.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignExport, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignExport, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseReportFilters, parseTestRecipient } from './campaign-request.js';
 import { CampaignReportExportService } from './report-export.service.js';
 import { CampaignService } from './campaign.service.js';
 import { CampaignReportingService } from './reporting.service.js';
@@ -24,9 +24,10 @@ export class CampaignController {
   }
 
   @Get('tenants/:tenantId/reports/campaigns')
-  async report(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
+  async report(@Param('tenantId') tenantId: string, @Query() query: unknown, @Req() request: FastifyRequest) {
     const session = await this.auth.authenticate(request.headers.cookie);
-    return { data: await this.reporting.report(session, tenantId), request_id: request.id };
+    const filters = parseReportFilters(query);
+    return { data: await this.reporting.report(session, tenantId, filters), request_id: request.id };
   }
 
   @Post('tenants/:tenantId/reports/campaigns/exports')

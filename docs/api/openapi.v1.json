@@ -6033,6 +6033,43 @@
           },
           {
             "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "First included UTC day of execution launch.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Last included UTC day of execution launch. Must not be before from.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ChannelKind"
+            }
+          },
+          {
+            "name": "campaignId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -6061,7 +6098,8 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Every figure is computed over one scope. With no query the scope is every campaign the caller may report on. `from` and `to` are inclusive UTC calendar days compared against each execution launch instant; `channel` and `campaignId` select campaigns. The applied scope is echoed in `filters`."
       }
     },
     "/tenants/{tenantId}/campaigns/{campaignId}/retry": {
@@ -11342,11 +11380,14 @@
           "name",
           "state",
           "denominator",
+          "pending",
           "accepted",
           "delivered",
           "read",
           "failed",
           "outcome_unknown",
+          "included",
+          "excluded",
           "fresh_through"
         ],
         "properties": {
@@ -11363,6 +11404,11 @@
           "denominator": {
             "type": "integer",
             "minimum": 0
+          },
+          "pending": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Recipients still planned, queued or in flight."
           },
           "accepted": {
             "type": "integer",
@@ -11384,9 +11430,63 @@
             "type": "integer",
             "minimum": 0
           },
+          "included": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Eligible members of the execution audience snapshot; null before launch."
+          },
+          "excluded": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Excluded members of the execution audience snapshot; null before launch."
+          },
           "fresh_through": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "CampaignReportTrendDay": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "day",
+          "recipients",
+          "accepted",
+          "delivered",
+          "read",
+          "failed"
+        ],
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date"
+          },
+          "recipients": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "accepted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "delivered": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -11397,6 +11497,7 @@
           "generated_at",
           "fresh_through",
           "timezone",
+          "filters",
           "definitions",
           "audience",
           "current",
@@ -11404,6 +11505,7 @@
           "costs",
           "channels",
           "errors",
+          "trend",
           "campaigns"
         ],
         "properties": {
@@ -11414,6 +11516,50 @@
           "fresh_through": {
             "type": "string",
             "format": "date-time"
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from",
+              "to",
+              "channel",
+              "campaign_id"
+            ],
+            "description": "The scope the report was computed over, as requested.",
+            "properties": {
+              "from": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "to": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "channel": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ChannelKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "campaign_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              }
+            }
           },
           "definitions": {
             "type": "object",
@@ -11503,6 +11649,13 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CampaignReportError"
+            }
+          },
+          "trend": {
+            "type": "array",
+            "description": "Recipients grouped by the UTC day their execution launched, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/CampaignReportTrendDay"
             }
           },
           "campaigns": {

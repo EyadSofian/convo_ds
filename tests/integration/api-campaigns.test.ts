@@ -5,7 +5,9 @@ import type { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import { CampaignPlannerService } from '../../apps/api/src/campaigns/campaign-planner.service.js';
+import { parseReportFilters } from '../../apps/api/src/campaigns/campaign-request.js';
 import { CampaignReportExportService } from '../../apps/api/src/campaigns/report-export.service.js';
+import { reportQuery } from '../../apps/api/src/campaigns/reporting.service.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ChannelCredentialService } from '../../apps/api/src/channels/credential.service.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
@@ -473,6 +475,57 @@ describe('campaign API', () => {
       estimated_amount_minor: expect.any(String), committed_amount_minor: expect.any(String), reconciled_amount_minor: expect.any(String),
     });
     expect((await send(api, 'GET', `/../${randomUUID()}/reports/campaigns`)).statusCode).toBe(404);
+
+    // The same aggregate over a narrower scope. Every figure is recomputed from
+    // the scoped recipients, so the KPI, the trend and the campaign row agree.
+    type Scoped = {
+      filters: Record<string, string | null>;
+      definitions: { campaigns: number; executions: number };
+      audience: { denominator: number };
+      current: { denominator: number };
+      milestones: { denominator: number; accepted: number };
+      trend: readonly { day: string; recipients: number; accepted: number; delivered: number; read: number; failed: number }[];
+      campaigns: readonly { id: string; denominator: number; pending: number; accepted: number; included: number | null; excluded: number | null }[];
+    };
+    const scoped = async (query: string): Promise<Scoped> => {
+      const response = await send(api, 'GET', `/reports/campaigns?${query}`);
+      expect(response.statusCode, `${query}: ${response.body}`).toBe(200);
+      return (response.json() as { data: Scoped }).data;
+    };
+    const launchDay = await withTenant(api.pool, api.tenantId, async (sql) => (await sql.query<{ day: string }>(
+      `SELECT to_char(launched_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS day FROM campaign_executions WHERE campaign_id=$1`, [id],
+    )).rows[0]!.day);
+    const one = await scoped(`campaignId=${id}`);
+    expect(one.filters).toEqual({ from: null, to: null, channel: null, campaign_id: id });
+    expect(one.definitions).toEqual({ campaigns: 1, executions: 1 });
+    expect(one.campaigns.map((row) => row.id)).toEqual([id]);
+    const row = one.campaigns[0]!;
+    expect(one.current.denominator).toBe(row.denominator);
+    expect(one.milestones.accepted).toBe(row.accepted);
+    expect(row.included).toEqual(expect.any(Number));
+    expect(row.excluded).toEqual(expect.any(Number));
+    expect(row.pending).toBeGreaterThanOrEqual(0);
+    expect(one.trend).toEqual([expect.objectContaining({ day: launchDay, recipients: row.denominator, accepted: row.accepted })]);
+
+    const onLaunchDay = await scoped(`from=${launchDay}&to=${launchDay}&channel=whatsapp`);
+    expect(onLaunchDay.filters).toMatchObject({ from: launchDay, to: launchDay, channel: 'whatsapp' });
+    expect(onLaunchDay.campaigns.map((entry) => entry.id)).toContain(id);
+    expect(onLaunchDay.current.denominator).toBe(onLaunchDay.trend.reduce((sum, day) => sum + day.recipients, 0));
+
+    const otherChannel = await scoped('channel=messenger');
+    expect(otherChannel).toMatchObject({ current: { denominator: 0 }, audience: { denominator: 0 }, trend: [], campaigns: [] });
+    // Knowing another company's campaign id widens nothing: the scoped query
+    // runs under that tenant's RLS and the campaign is simply not there.
+    const foreign = await withTenant(api.pool, randomUUID(), async (sql) =>
+      (await reportQuery(sql, parseReportFilters({ campaignId: id }))).rows[0]!.report);
+    expect(foreign).toMatchObject({ definitions: { campaigns: 0, executions: 0 }, current: { denominator: 0 }, campaigns: [], trend: [] });
+    const longAgo = await scoped('from=2000-01-01&to=2000-01-31');
+    expect(longAgo).toMatchObject({ definitions: { campaigns: 0, executions: 0 }, current: { denominator: 0 }, trend: [], campaigns: [] });
+    for (const query of ['from=yesterday', 'from=2026-09-02&to=2026-09-01', 'channel=telegram', 'campaignId=nope', 'period=week']) {
+      const refused = await send(api, 'GET', `/reports/campaigns?${query}`);
+      expect(refused.statusCode, query).toBe(400);
+      expect(refused.json()).toMatchObject({ error: { code: 'validation_failed' } });
+    }
 
     await withTenant(api.pool, api.tenantId, (sql) => sql.query(`UPDATE campaigns SET name='=Formula-safe' WHERE id=$1`, [id]));
     const queued = await send(

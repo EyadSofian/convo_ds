@@ -139,6 +139,68 @@ export function parseCampaignExport(body: unknown): CampaignExportInput {
   return { format: 'csv', campaignId };
 }
 
+export interface CampaignReportFilters {
+  /** The first included UTC calendar day, as the caller wrote it. */
+  readonly from: string | null;
+  /** The last included UTC calendar day, as the caller wrote it. */
+  readonly to: string | null;
+  readonly channel: string | null;
+  readonly campaignId: string | null;
+  /** `from` as the inclusive instant the query compares launches against. */
+  readonly fromAt: string | null;
+  /** The instant after the whole `to` day, so the day itself is included. */
+  readonly toExclusiveAt: string | null;
+}
+
+const REPORT_FILTER_KEYS = new Set(['from', 'to', 'channel', 'campaignId']);
+const REPORT_CHANNELS = new Set(['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom']);
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Report scope from the query string.
+ *
+ * Days rather than instants: a report period is a calendar question, and the
+ * report publishes UTC, so a day here is a UTC day. An unknown key is refused
+ * rather than ignored — a misspelt filter that silently widened the report
+ * would be read as the narrowed one.
+ */
+export function parseReportFilters(query: unknown): CampaignReportFilters {
+  const value = record(query);
+  if (Object.keys(value).some((key) => !REPORT_FILTER_KEYS.has(key))) {
+    throw invalid('Filter the report by from, to, channel or campaignId only.');
+  }
+  const from = reportDay(value['from']);
+  const to = reportDay(value['to']);
+  const channel = value['channel'] === undefined ? null : value['channel'];
+  const campaignId = value['campaignId'] === undefined ? null : value['campaignId'];
+  if (from === undefined || to === undefined) {
+    throw invalid('from and to must be calendar days written as YYYY-MM-DD.');
+  }
+  if (from !== null && to !== null && from > to) {
+    throw invalid('from must not be after to.');
+  }
+  if (channel !== null && (typeof channel !== 'string' || !REPORT_CHANNELS.has(channel))) {
+    throw invalid('channel must be one of whatsapp, messenger, instagram, web_chat or custom.');
+  }
+  if (campaignId !== null && (typeof campaignId !== 'string' || !UUID.test(campaignId))) {
+    throw invalid('campaignId must identify a campaign in this company.');
+  }
+  return {
+    from, to, channel, campaignId,
+    fromAt: from === null ? null : `${from}T00:00:00.000Z`,
+    toExclusiveAt: to === null ? null : new Date(Date.parse(`${to}T00:00:00.000Z`) + 86_400_000).toISOString(),
+  };
+}
+
+/** undefined means malformed; null means absent. */
+function reportDay(value: unknown): string | null | undefined {
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || !DAY.test(value)) return undefined;
+  const instant = new Date(`${value}T00:00:00.000Z`);
+  // `Date` rolls 2026-02-31 into March; a day that does not round-trip is not a day.
+  return !Number.isNaN(instant.getTime()) && instant.toISOString().slice(0, 10) === value ? value : undefined;
+}
+
 function record(value: unknown): Record<string, unknown> {
   return recordOrNull(value) ?? {};
 }

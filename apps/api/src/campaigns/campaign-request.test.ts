@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../http-error.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignExport, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseTestRecipient } from './campaign-request.js';
+import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignExport, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseReportFilters, parseTestRecipient } from './campaign-request.js';
 
 const CONNECTION = '11111111-1111-4111-8111-111111111111';
 
@@ -73,6 +73,34 @@ describe('campaign request parsing', () => {
     });
     for (const body of [null, {}, { format: 'json' }, { format: 'csv', campaignId: 'bad' }, { format: 'csv', extra: true }]) {
       expect(() => parseCampaignExport(body)).toThrow(ApiHttpError);
+    }
+  });
+
+  it('parses report filters as whole UTC days, one channel and one campaign', () => {
+    expect(parseReportFilters({})).toEqual({
+      from: null, to: null, channel: null, campaignId: null, fromAt: null, toExclusiveAt: null,
+    });
+    expect(parseReportFilters(undefined)).toMatchObject({ from: null, to: null });
+    expect(parseReportFilters({ from: '2026-09-01', to: '2026-09-01' })).toMatchObject({
+      fromAt: '2026-09-01T00:00:00.000Z', toExclusiveAt: '2026-09-02T00:00:00.000Z',
+    });
+    expect(parseReportFilters({ to: '2026-12-31', channel: 'web_chat', campaignId: CONNECTION })).toEqual({
+      from: null, to: '2026-12-31', channel: 'web_chat', campaignId: CONNECTION,
+      fromAt: null, toExclusiveAt: '2027-01-01T00:00:00.000Z',
+    });
+    for (const query of [
+      { period: 'week' },
+      { from: '2026-9-1' },
+      { from: ['2026-09-01', '2026-09-02'] },
+      { to: '2026-13-01' },
+      { to: '2026-02-31' },
+      { from: '2026-09-02', to: '2026-09-01' },
+      { channel: 'telegram' },
+      { channel: ['whatsapp'] },
+      { campaignId: 'bad' },
+      { campaignId: 7 },
+    ]) {
+      expect(() => parseReportFilters(query), JSON.stringify(query)).toThrow(ApiHttpError);
     }
   });
 
