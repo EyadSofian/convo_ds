@@ -1,97 +1,160 @@
-div.workspace
-  div.workspace__intro
-    div.workspace__introtext
-      h1.workspace__heading
-      p.workspace__lede
-  section.card
-    div.card__header
-      h2.card__title
-    div.formrow
-      input.input [form]
-      button.btn [live-contacts-search]
-    div.contactfilters
-      select.select [live-contact-filter]
-        option
-      select.select [live-contact-filter]
-        option
-    p.field__hint
-  section.card.metadata-catalog
-    div.card__header
-      div
-        h2.card__title
-        p.field__hint
-    div.cataloggrid
-      div.cataloggrid__form
-        label.field
-          span.field__label
-          input.input [form]
-        input.input.input--color [form]
-        button.btn.btn--sm [live-label-create]
-      div.cataloggrid__form
-        label.field
-          span.field__label
-          input.input [form]
-        label.field
-          span.field__label
-          input.input [form]
-        select.select [form]
-          option
-          option
-        select.select [form]
-          option
-          option
-          option
-          option
-          option
-          option
-        input.input [form]
-        button.btn.btn--sm [live-field-create]
-  div.contacts
-    section.card
-      ul.contactlist
-        li
-          button.contactrow [live-contact-open]
-            span.contactrow__name
-              bdi
-            span.contactrow__channels
-              span.pill.pill--neutral
-        li
-          button.contactrow [live-contact-open]
-            span.contactrow__name
-              bdi
-            span.contactrow__channels
-              span.pill.pill--neutral
-        li
-          button.contactrow [live-contact-open]
-            span.contactrow__name
-              bdi
-            span.contactrow__channels
-              span.pill.pill--neutral
-        li
-          button.contactrow [live-contact-open]
-            span.contactrow__name
-              bdi
-            span.contactrow__channels
-              span.pill.pill--neutral
-        li
-          button.contactrow [live-contact-open]
-            span.contactrow__name
-              bdi
-            span.contactrow__channels
-              span.pill.pill--neutral
-        li
-          button.contactrow [live-contact-open]
-            span.contactrow__name
-              bdi
-            span.contactrow__channels
-              span.pill.pill--neutral
-    section.card
-      div.statebox.statebox--empty
-        span.statebox__icon
-          svg
-            circle
-            path
-            path
-            path
-        p.statebox__title
-        p.statebox__body
+main.app__screen
+  div.page.page--contacts
+    div.page__inner
+      div.pagebar
+        p.pagebar__lede
+        div.pagebar__actions
+          button.btn.btn--sm [live-contacts-reload]
+            svg
+              path
+              path
+              path
+            span.btn__label
+      div.split.split--contacts
+        section.panel.split__list
+          div.panel__header.panel__header--stack
+            form.searchbar
+              svg
+                circle
+                path
+              input.input [form]
+              button.btn.btn--sm [live-contacts-search]
+                span.btn__label
+            div.contactfilters
+              select.select [live-contact-filter]
+                option
+                option
+                option
+              select.select [live-contact-filter]
+                option
+          div.panel__body.panel__body--flush
+            ul.contactlist
+              li
+                button.contactrow [live-contact-open]
+                  span.avatar.avatar--sm
+                  span.contactrow__main
+                    span.contactrow__name
+                      bdi
+                    span.contactrow__meta
+                  span.contactrow__channels
+                    svg
+                      path
+                      path
+                  span.contactrow__labels
+                    span.metadata__label
+                      span.metadata__swatch
+              li
+                button.contactrow [live-contact-open]
+                  span.avatar.avatar--sm
+                  span.contactrow__main
+                    span.contactrow__name
+                      bdi
+                    span.contactrow__meta
+                  span.contactrow__channels
+                    svg
+                      path
+                      path
+              li
+                button.contactrow [live-contact-open]
+                  span.avatar.avatar--sm
+                  span.contactrow__main
+                    span.contactrow__name
+                      bdi
+                    span.contactrow__meta
+                  span.contactrow__channels
+                    svg
+                      rect
+                      circle
+                      circle
+              li
+                button.contactrow [live-contact-open]
+                  span.avatar.avatar--sm
+                  span.contactrow__main
+                    span.contactrow__name
+                      bdi
+                    span.contactrow__meta
+                  span.contactrow__channels
+                    svg
+                      path
+                      path
+                  span.contactrow__labels
+                    span.metadata__label
+                      span.metadata__swatch
+              li
+                button.contactrow [live-contact-open]
+                  span.avatar.avatar--sm
+                  span.contactrow__main
+                    span.contactrow__name
+                      bdi
+                    span.contactrow__meta
+                  span.contactrow__channels
+                    svg
+                      path
+                      path
+              li
+                button.contactrow [live-contact-open]
+                  span.avatar.avatar--sm
+                  span.contactrow__main
+                    span.contactrow__name
+                      bdi
+                    span.contactrow__meta
+                  span.contactrow__channels
+                    svg
+                      path
+                      path
+        section.panel.split__detail
+          div.panel__body
+            div.empty.empty--neutral
+              span.empty__icon
+                svg
+                  circle
+                  path
+              div.empty__text
+                p.empty__title
+                p.empty__body
+      section.panel
+        header.panel__header
+          div.panel__titles
+            h2.panel__title
+            p.panel__description
+        div.panel__body
+          div.cataloggrid
+            form.catalog-form
+              h3.subsection-title
+              div.inline-form
+                label.field
+                  span.field__label
+                  input.input [form]
+                label.field
+                  span.field__label
+                  input.input.input--color [form]
+                button.btn.btn--sm [live-label-create]
+                  span.btn__label
+            form.catalog-form
+              h3.subsection-title
+              div.form-grid.form-grid--compact
+                label.field
+                  span.field__label
+                  input.input [form]
+                label.field
+                  span.field__label
+                  input.input [form]
+                label.field
+                  span.field__label
+                  select.select [form]
+                    option
+                    option
+                label.field
+                  span.field__label
+                  select.select [form]
+                    option
+                    option
+                    option
+                    option
+                    option
+                    option
+                label.field
+                  span.field__label
+                  input.input [form]
+              button.btn.btn--sm [live-field-create]
+                span.btn__label

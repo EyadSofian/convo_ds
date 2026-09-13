@@ -1,38 +1,59 @@
 import { expect, test } from '@playwright/test';
+import { CONNECTION, installApi } from './support/api';
 import {
   box,
+  freezeClock,
   fullyVisibleCount,
   MATRIX,
   openInbox,
+  openScreen,
+  overflowsHorizontally,
   pageScrolls,
+  READY,
+  SCREENS,
   setDirection,
   setTheme,
 } from './support/workspace';
 
 /**
- * Desktop density and layout acceptance — docs/execution/CLAUDE-LIVE-MVP-TASK.md §3.
+ * Layout acceptance, measured in a real engine.
  *
- * Every number below is quoted from that section. These run at 1440×900 and
- * 1366×768 (the two projects in playwright.config.ts), in Arabic RTL and
- * English LTR, in light and dark.
+ * happy-dom computes no geometry, so the numbers the redesign promises — the
+ * navigation widths, the header height, the queue column, eight rows on a
+ * 900px screen, a thread that is never squeezed — are asserted here. These run
+ * at 1440×900 and 1366×768 (the two projects in playwright.config.ts), in
+ * Arabic RTL and English LTR, in light and dark.
  */
 
-test.describe('shell geometry', () => {
-  test('loads and redraws without an uncaught browser error', async ({ page }) => {
+test.describe('the shell', () => {
+  test('loads every screen and its dialogs without an uncaught browser error', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text());
+    });
 
     await openInbox(page);
     await page.locator('[data-act="live-inbox-queue"][data-arg="mine"]').click();
     await expect(page.locator('.convrow--record').first()).toBeVisible();
-    await page.locator('.topbar [data-act="list"]').click();
-    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'open');
+    for (const screen of SCREENS) {
+      await page.locator(`.nav__item[data-arg="${screen}"]`).click();
+      await expect(page.locator(READY[screen] as string).first()).toBeVisible();
+    }
+    await page.locator('.nav__item[data-arg="channels"]').click();
+    await page.locator('[data-arg="connect-channel:messenger"]').click();
+    await expect(page.locator('.dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.locator('.nav__item[data-arg="people"]').click();
+    await page.locator('[data-arg="invite"]').click();
+    await expect(page.locator('.dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
 
     expect(errors).toEqual([]);
   });
 
   for (const { direction, theme } of MATRIX) {
-    test(`fills exactly 100dvh with no page scrolling — ${direction}/${theme}`, async ({ page }) => {
+    test(`fills the viewport exactly, with a 64px rail and a 56px header — ${direction}/${theme}`, async ({ page }) => {
       await openInbox(page);
       await setDirection(page, direction);
       await setTheme(page, theme);
@@ -40,62 +61,127 @@ test.describe('shell geometry', () => {
       const viewport = page.viewportSize();
       if (viewport === null) throw new Error('no viewport');
 
-      const shell = await box(page.locator('.shell'));
-      expect(shell.height).toBeCloseTo(viewport.height, 0);
+      const app = await box(page.locator('.app'));
+      expect(app.height).toBeCloseTo(viewport.height, 0);
       expect(await pageScrolls(page)).toBe(false);
+      expect(await overflowsHorizontally(page)).toBe(false);
 
-      // The rail and the top bar are chrome; their ranges are what keep the
-      // work area from being eaten a few pixels at a time.
-      const rail = await box(page.locator('.rail'));
-      expect(rail.width).toBeGreaterThanOrEqual(56);
-      expect(rail.width).toBeLessThanOrEqual(60);
-      expect(rail.height).toBeCloseTo(viewport.height, 0);
+      const nav = await box(page.locator('.nav'));
+      expect(nav.width).toBeGreaterThanOrEqual(64);
+      expect(nav.width).toBeLessThanOrEqual(72);
+      expect(nav.height).toBeCloseTo(viewport.height, 0);
 
-      const topbar = await box(page.locator('.topbar'));
-      expect(topbar.height).toBeGreaterThanOrEqual(48);
-      expect(topbar.height).toBeLessThanOrEqual(52);
+      const header = await box(page.locator('.header'));
+      expect(header.height).toBeGreaterThanOrEqual(56);
+      expect(header.height).toBeLessThanOrEqual(60);
     });
   }
 
-  test('conversation header stays within 64px on one compact row', async ({ page }) => {
+  test('expands the navigation to 224–248px, labels it, and remembers the choice', async ({ page }) => {
     await openInbox(page);
-    const header = await box(page.locator('.thread__header'));
-    expect(header.height).toBeLessThanOrEqual(64);
+    const toggle = page.locator('.nav__toggle');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // Collapsed, each destination is still named for assistive technology.
+    await expect(page.locator('.nav__item[data-arg="inbox"]')).toHaveAttribute('aria-label', /.+/);
+    await expect(page.locator('.nav__label').first()).toBeHidden();
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const expanded = await box(page.locator('.nav'));
+    expect(expanded.width).toBeGreaterThanOrEqual(224);
+    expect(expanded.width).toBeLessThanOrEqual(248);
+    await expect(page.locator('.nav__label').first()).toBeVisible();
+    // The screen gives up exactly the width the navigation took, and no more.
+    expect(await overflowsHorizontally(page)).toBe(false);
+
+    // A view preference, kept in this browser — and nothing about the session.
+    const stored = await page.evaluate(() => ({ ...window.localStorage }));
+    expect(stored['convo.nav']).toBe('expanded');
+    expect(JSON.stringify(stored)).not.toMatch(/hana@|password|session|token/i);
+
+    await page.reload();
+    await expect(page.locator('.app')).toHaveAttribute('data-nav', 'expanded');
   });
 
-  test('mirrors the shell without changing the hierarchy', async ({ page }) => {
+  test('mirrors the frame between Arabic and English without changing its widths', async ({ page }) => {
     await openInbox(page);
-    await setDirection(page, 'rtl');
-    const railRtl = await box(page.locator('.rail'));
     const viewport = page.viewportSize();
     if (viewport === null) throw new Error('no viewport');
-    // RTL puts the rail on the right edge, LTR on the left — same widths.
-    expect(railRtl.x).toBeCloseTo(viewport.width - railRtl.width, 0);
+    await setDirection(page, 'rtl');
+    const rtl = await box(page.locator('.nav'));
+    expect(rtl.x + rtl.width).toBeCloseTo(viewport.width, 0);
 
     await setDirection(page, 'ltr');
-    const railLtr = await box(page.locator('.rail'));
-    expect(railLtr.x).toBeCloseTo(0, 0);
-    expect(railLtr.width).toBeCloseTo(railRtl.width, 0);
+    const ltr = await box(page.locator('.nav'));
+    expect(ltr.x).toBeCloseTo(0, 0);
+    expect(ltr.width).toBeCloseTo(rtl.width, 0);
+  });
+
+  test('names the company, never its internal slug', async ({ page }) => {
+    await openInbox(page);
+    await expect(page.locator('.header__tenant')).toHaveText('Digital School');
+    await expect(page.locator('body')).not.toContainText('digital-school');
+    await expect(page.locator('body')).not.toContainText('workspace.');
   });
 });
 
-test.describe('queue list', () => {
-  test('rows are 64–72px and carry no message text', async ({ page }) => {
+test.describe('the navigation drawer below 960px', () => {
+  test('opens over the screen, keeps focus inside, and closes with Escape or the backdrop', async ({ page }) => {
+    await openInbox(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('.nav')).toBeHidden();
+    const opener = page.locator('.header__menu');
+    await expect(opener).toBeVisible();
+
+    await opener.click();
+    await expect(page.locator('.nav')).toBeVisible();
+    await expect(opener).toHaveAttribute('aria-expanded', 'true');
+    expect(await page.evaluate(() => document.querySelector('.nav')?.contains(document.activeElement))).toBe(true);
+    // Tab cycles within the drawer.
+    for (let index = 0; index < 12; index += 1) {
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.querySelector('.nav')?.contains(document.activeElement))).toBe(true);
+    }
+    // Labels are shown in the drawer: it opened because somebody asked where to go.
+    await expect(page.locator('.nav .nav__label').first()).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.nav')).toBeHidden();
+    await expect(opener).toBeFocused();
+
+    await opener.click();
+    // In Arabic the drawer opens from the right, so the backdrop is on the left.
+    await page.locator('.nav-scrim').click({ position: { x: 20, y: 400 } });
+    await expect(page.locator('.nav')).toBeHidden();
+
+    await opener.click();
+    await page.locator('.nav__item[data-arg="settings"]').click();
+    await expect(page.locator('.page--settings')).toBeVisible();
+    await expect(page.locator('.nav')).toBeHidden();
+    expect(await overflowsHorizontally(page)).toBe(false);
+  });
+});
+
+test.describe('the queue', () => {
+  test('rows are compact, carry no message text, and mark the open one', async ({ page }) => {
     await openInbox(page);
     const row = page.locator('.convrow').first();
     const measured = await box(row);
-    expect(measured.height).toBeGreaterThanOrEqual(64);
+    expect(measured.height).toBeGreaterThanOrEqual(56);
     expect(measured.height).toBeLessThanOrEqual(72);
 
-    // The row that used to hold a one-line preview holds none: an unclaimed
-    // conversation is projected on the server, and the browser is never sent a
-    // snippet to render (IAM-11). The masked label is what identifies it.
-    await expect(page.locator('.convrow__snippet')).toHaveCount(0);
+    // An unclaimed conversation is projected on the server: the browser is
+    // never sent a snippet, and the masked label is what identifies it.
     expect(await row.locator('.convrow__name').innerText()).toMatch(/^•{4}/);
+    const queueText = await page.locator('.zone--list').innerText();
+    for (const body of ['سجّلت ابني', 'رقم الطلب 4817']) expect(queueText).not.toContain(body);
+
+    await page.locator('[data-act="live-inbox-queue"][data-arg="mine"]').click();
+    await expect(page.locator('.convrow--record[aria-current="true"]')).toHaveCount(1);
   });
 
   for (const { direction, theme } of MATRIX) {
-    test(`shows at least 8 rows without zoom — ${direction}/${theme}`, async ({ page }) => {
+    test(`shows at least 8 rows without scrolling — ${direction}/${theme}`, async ({ page }) => {
       await openInbox(page);
       await setDirection(page, direction);
       await setTheme(page, theme);
@@ -104,264 +190,333 @@ test.describe('queue list', () => {
     });
   }
 
-  test('is resizable within 300–380px, and clamps at both ends', async ({ page }) => {
+  test('starts at 336px and resizes within 300–400px from the keyboard', async ({ page }) => {
     await openInbox(page);
-    const start = await box(page.locator('.zone--list'));
-    expect(start.width).toBeGreaterThanOrEqual(300);
-    expect(start.width).toBeLessThanOrEqual(380);
+    expect((await box(page.locator('.zone--list'))).width).toBeCloseTo(336, 0);
 
     const resizer = page.locator('.list-resizer');
     await expect(resizer).toHaveAttribute('role', 'separator');
     await resizer.focus();
-
     // Arabic is the default direction, so ArrowLeft widens the column.
-    for (let i = 0; i < 20; i += 1) await page.keyboard.press('ArrowLeft');
-    expect((await box(page.locator('.zone--list'))).width).toBeCloseTo(380, 0);
-
-    for (let i = 0; i < 30; i += 1) await page.keyboard.press('ArrowRight');
+    for (let index = 0; index < 20; index += 1) await page.keyboard.press('ArrowLeft');
+    expect((await box(page.locator('.zone--list'))).width).toBeCloseTo(400, 0);
+    for (let index = 0; index < 30; index += 1) await page.keyboard.press('ArrowRight');
     expect((await box(page.locator('.zone--list'))).width).toBeCloseTo(300, 0);
   });
 });
 
-test.describe('timeline and composer', () => {
-  test('shows at least 7 message groups before scrolling', async ({ page }) => {
-    await openInbox(page);
-    // "Meaningful message/event groups": bubbles and timeline events both
-    // count, day separators do not — a separator carries no content.
-    const visible = await fullyVisibleCount(page, '.thread__body .msg', '.thread__body');
-    expect(visible).toBeGreaterThanOrEqual(7);
-  });
-
-  test('timeline takes every remaining vertical pixel', async ({ page }) => {
+test.describe('the conversation', () => {
+  test('is the widest column, with a compact header and composer', async ({ page }) => {
     await openInbox(page);
     const thread = await box(page.locator('.zone--thread'));
-    const header = await box(page.locator('.thread__header'));
+    const list = await box(page.locator('.zone--list'));
+    const panel = await box(page.locator('.zone--panel'));
+    expect(thread.width).toBeGreaterThan(list.width);
+    expect(thread.width).toBeGreaterThan(panel.width);
+    expect(thread.width).toBeGreaterThanOrEqual(560);
+
+    expect((await box(page.locator('.thread__header'))).height).toBeLessThanOrEqual(60);
+    expect((await box(page.locator('.composer'))).height).toBeLessThanOrEqual(120);
+
+    // The timeline takes what the header and composer leave.
     const body = await box(page.locator('.thread__body'));
-    const composer = await box(page.locator('.composer'));
-    // Nothing between them: header + timeline + composer account for the column.
-    expect(header.height + body.height + composer.height).toBeCloseTo(thread.height, 0);
+    expect(body.height).toBeGreaterThanOrEqual(thread.height - 60 - 136);
+    const visible = await fullyVisibleCount(page, '.thread__body .msg', '.thread__body');
+    expect(visible).toBeGreaterThanOrEqual((page.viewportSize()?.height ?? 0) >= 900 ? 7 : 5);
   });
 
-  test('composer is at most 118px in normal reply mode and grows to 88px', async ({ page }) => {
+  test('grows the reply box to a limit, and switches to a private note that looks different', async ({ page }) => {
     await openInbox(page);
-    const composer = await box(page.locator('.composer'));
-    expect(composer.height).toBeLessThanOrEqual(118);
-
     const input = page.locator('.composer__input');
     const resting = await box(input);
-    expect(resting.height).toBeGreaterThanOrEqual(44);
+    expect(resting.height).toBeGreaterThanOrEqual(40);
     expect(resting.height).toBeLessThanOrEqual(48);
 
-    await input.click();
-    await input.fill(Array.from({ length: 14 }, (_, i) => `سطر رقم ${String(i + 1)}`).join('\n'));
+    await input.fill(Array.from({ length: 14 }, (_, index) => `سطر رقم ${String(index + 1)}`).join('\n'));
     const grown = await box(input);
-    // Only the textarea grows, and only to 88px: the thread keeps its height.
-    expect(grown.height).toBeLessThanOrEqual(88);
-    expect((await box(page.locator('.composer'))).height).toBeLessThanOrEqual(160);
+    expect(grown.height).toBeGreaterThan(resting.height);
+    expect(grown.height).toBeLessThanOrEqual(120);
+    await expect(page.locator('[data-act="live-inbox-send"]')).toBeEnabled();
+
+    await page.locator('[data-act="composer-tab"][data-arg="note"]').click();
+    const note = page.locator('.composer__input--note');
+    await expect(note).toBeVisible();
+    const replyColour = await page.locator('.msg--out .msg__bubble').first().evaluate((element) => getComputedStyle(element).backgroundColor);
+    const noteColour = await page.locator('.composer__box--note').evaluate((element) => getComputedStyle(element).backgroundColor);
+    expect(noteColour).not.toBe(replyColour);
   });
 
-  test('composer stays reachable at the bottom of a scrolled thread', async ({ page }) => {
-    await openInbox(page);
-    await page.locator('.thread__body').evaluate((element) => {
-      element.scrollTop = element.scrollHeight;
-    });
-    const composer = await box(page.locator('.composer'));
-    const thread = await box(page.locator('.zone--thread'));
-    expect(composer.y + composer.height).toBeCloseTo(thread.y + thread.height, 0);
-  });
-});
-
-test.describe('the queue drawer never squeezes the timeline', () => {
-  test('opens as an overlay and closes again', async ({ page }) => {
+  test('collapses the customer panel and gives its width to the thread', async ({ page }) => {
     await openInbox(page);
     const before = await box(page.locator('.zone--thread'));
-
-    await page.locator('.topbar [data-act="list"]').click();
-    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'open');
+    await page.locator('.thread__paneltoggle--inline').click();
+    await expect(page.locator('.inbox')).toHaveAttribute('data-panel', 'closed');
+    await expect(page.locator('.zone--panel')).toBeHidden();
     const after = await box(page.locator('.zone--thread'));
-    // A drawer overlays the work area rather than shrinking it, so the
-    // timeline keeps every pixel it had.
-    expect(after.width).toBeCloseTo(before.width, 0);
-    expect(after.width).toBeGreaterThanOrEqual(640);
-
-    await page.keyboard.press('Escape');
-    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'closed');
-  });
-
-  test('has no saved-view sidebar to squeeze it with', async ({ page }) => {
-    await openInbox(page);
-    // The views column was a demo surface over seeded data. It is gone rather
-    // than present and empty: a saved-view sidebar with no saved views would be
-    // a promise the server cannot keep.
-    await expect(page.locator('.zone--views')).toHaveCount(0);
-    expect((await box(page.locator('.zone--thread'))).width).toBeGreaterThanOrEqual(640);
-  });
-
-  test('keeps the timeline at 640px with the customer panel beside it', async ({ page }) => {
-    await openInbox(page);
-    // The panel is a real column here, reading a real contact. Below 1364px it
-    // is an overlay instead, so the timeline never gives up its width for it.
-    await expect(page.locator('.zone--panel')).toBeVisible();
-    expect((await box(page.locator('.zone--thread'))).width).toBeGreaterThanOrEqual(640);
-    expect(await pageScrolls(page)).toBe(false);
-  });
-});
-
-test.describe('narrow viewports', () => {
-  test('reaches the queue from the top bar on a tablet', async ({ page }) => {
-    await openInbox(page);
-    await page.setViewportSize({ width: 900, height: 800 });
-
-    // The queue is reached from the top bar rather than squeezed in beside the
-    // timeline, so the thread keeps its width.
-    const toggle = page.locator('.topbar [data-act="list"]');
-    await expect(toggle).toBeVisible();
-    expect(await pageScrolls(page)).toBe(false);
-
-    await toggle.click();
-    await expect(page.locator('.zone--list')).toBeVisible();
-    const list = await box(page.locator('.zone--list'));
-    expect(list.width).toBeLessThanOrEqual(900);
-  });
-
-  test('is operable on a phone', async ({ page }) => {
-    await openInbox(page);
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.locator('.zone--thread')).toBeVisible();
-    expect(await pageScrolls(page)).toBe(false);
-    const horizontal = await page.evaluate(
-      () => document.documentElement.scrollWidth > window.innerWidth + 1,
-    );
-    expect(horizontal).toBe(false);
-  });
-
-  test('stays operable at 200% zoom without horizontal page overflow', async ({ page }) => {
-    await openInbox(page);
-    // 200% zoom is equivalent to halving the CSS viewport (WCAG 1.4.4/1.4.10).
-    const viewport = page.viewportSize();
-    if (viewport === null) throw new Error('no viewport');
-    await page.setViewportSize({
-      width: Math.round(viewport.width / 2),
-      height: Math.round(viewport.height / 2),
-    });
-
-    await expect(page.locator('.composer__input')).toBeVisible();
-    const horizontal = await page.evaluate(
-      () => document.documentElement.scrollWidth > window.innerWidth + 1,
-    );
-    expect(horizontal).toBe(false);
-  });
-});
-
-test.describe('typography and digits', () => {
-  test('renders the self-hosted Arabic-first family, not a fallback', async ({ page }) => {
-    await openInbox(page);
-    const loaded = await page.evaluate(() =>
-      Array.from(document.fonts).some((face) => face.family === 'Readex Pro' && face.status === 'loaded'),
-    );
-    expect(loaded).toBe(true);
-
-    const family = await page.locator('body').evaluate((el) => window.getComputedStyle(el).fontFamily);
-    expect(family).toContain('Readex Pro');
-  });
-
-  test('keeps body and conversation copy inside the readable band', async ({ page }) => {
-    await openInbox(page);
-    const bubble = await page.locator('.msg__bubble').first().evaluate((element) => {
-      const style = window.getComputedStyle(element);
-      return {
-        size: Number.parseFloat(style.fontSize),
-        leading: Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize),
-      };
-    });
-    expect(bubble.size).toBeGreaterThanOrEqual(14);
-    expect(bubble.size).toBeLessThanOrEqual(16);
-    expect(bubble.leading).toBeGreaterThanOrEqual(1.5);
-    expect(bubble.leading).toBeLessThanOrEqual(1.75);
-  });
-
-  test('has no primary copy below 12px anywhere on the screen', async ({ page }) => {
-    await openInbox(page);
-    const tooSmall = await page.evaluate(() => {
-      const offenders: string[] = [];
-      for (const element of Array.from(document.querySelectorAll('*'))) {
-        const own = Array.from(element.childNodes).some(
-          (node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim().length > 0,
-        );
-        if (!own) continue;
-        const size = Number.parseFloat(window.getComputedStyle(element).fontSize);
-        if (size < 11) offenders.push(`${element.className || element.tagName}: ${String(size)}px`);
-      }
-      return offenders;
-    });
-    expect(tooSmall).toEqual([]);
+    expect(after.width).toBeGreaterThan(before.width + 250);
   });
 
   test('lets customer content choose its own paragraph direction', async ({ page }) => {
     await openInbox(page);
     await setDirection(page, 'ltr');
     // An Arabic message inside an English UI must still read right-to-left.
-    // Without `unicode-bidi: plaintext` the paragraph takes the UI's base
-    // direction and a mixed Arabic/Latin sentence visually reorders.
     const bubble = await page.locator('.msg__bubble').first().evaluate((element) => {
-      const style = window.getComputedStyle(element);
-      const box = element.getBoundingClientRect();
-      // `unicode-bidi: plaintext` changes the base direction used at layout
-      // time, not the computed `direction` property — so the observable is
-      // where the first strong character actually lands. Under an RTL base
-      // direction it sits in the right half of the bubble.
+      const bounds = element.getBoundingClientRect();
       const node = element.firstChild;
-      let firstCharCentre = Number.NaN;
+      let centre = Number.NaN;
       if (node !== null && node.nodeType === Node.TEXT_NODE) {
         const range = document.createRange();
         range.setStart(node, 0);
         range.setEnd(node, 1);
         const rect = range.getBoundingClientRect();
-        firstCharCentre = rect.left + rect.width / 2;
+        centre = rect.left + rect.width / 2;
       }
-      return {
-        bidi: style.unicodeBidi,
-        text: element.textContent ?? '',
-        firstCharInRightHalf: firstCharCentre > box.left + box.width / 2,
-      };
+      return { bidi: getComputedStyle(element).unicodeBidi, rightHalf: centre > bounds.left + bounds.width / 2 };
     });
     expect(bubble.bidi).toBe('plaintext');
-    expect(bubble.text).toMatch(/[\u0600-\u06ff]/);
-    expect(bubble.firstCharInRightHalf).toBe(true);
+    expect(bubble.rightHalf).toBe(true);
+  });
+});
 
-    // The queue row's label is the server's masked one and carries no customer
-    // text at all, so there is no second place for a direction to be wrong.
-    await expect(page.locator('.convrow__snippet')).toHaveCount(0);
+test.describe('narrow screens', () => {
+  test('keeps the queue beside the thread on a tablet, and makes it a drawer below that', async ({ page }) => {
+    await openInbox(page);
+    await page.setViewportSize({ width: 900, height: 800 });
+    await expect(page.locator('.zone--list')).toBeVisible();
+    expect((await box(page.locator('.zone--thread'))).width).toBeGreaterThanOrEqual(540);
+    expect(await overflowsHorizontally(page)).toBe(false);
+
+    await page.setViewportSize({ width: 683, height: 384 });
+    await expect(page.locator('.zone--list')).toBeHidden();
+    const before = await box(page.locator('.zone--thread'));
+    await page.locator('.thread__listtoggle').click();
+    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'open');
+    await expect(page.locator('.convrow').first()).toBeVisible();
+    // The drawer overlays the thread rather than squeezing it.
+    expect((await box(page.locator('.zone--thread'))).width).toBeCloseTo(before.width, 0);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'closed');
   });
 
-  test('keeps the queue row to its essential cues', async ({ page }) => {
+  test('is operable on a phone', async ({ page }) => {
     await openInbox(page);
-    // Row anatomy is capped so a cue is never sheared mid-word: assignee plus
-    // at most two cues, then a count. Labels live in the customer panel.
-    const counts = await page.locator('.convrow__meta').evaluateAll((elements) =>
-      elements.map((element) => element.children.length),
-    );
-    expect(Math.max(...counts)).toBeLessThanOrEqual(4);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('.composer__input')).toBeVisible();
+    expect(await pageScrolls(page)).toBe(false);
+    expect(await overflowsHorizontally(page)).toBe(false);
   });
 
   for (const direction of ['rtl', 'ltr'] as const) {
-    test(`uses Western digits 0-9 throughout — ${direction}`, async ({ page }) => {
+    test(`every screen fits at 200% zoom and on a phone — ${direction}`, async ({ page }) => {
       await openInbox(page);
       await setDirection(page, direction);
-      // Arabic-Indic and extended Arabic-Indic digit ranges must not appear.
-      const offenders = await page.evaluate(() => {
-        const bad = /[٠-٩۰-۹]/;
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        const found: string[] = [];
-        let node = walker.nextNode();
-        while (node !== null) {
-          const value = node.textContent ?? '';
-          if (bad.test(value)) found.push(value.trim().slice(0, 60));
-          node = walker.nextNode();
+      for (const size of [{ width: 683, height: 384 }, { width: 390, height: 844 }]) {
+        await page.setViewportSize(size);
+        expect(await overflowsHorizontally(page), `inbox at ${String(size.width)}px`).toBe(false);
+        for (const screen of SCREENS) {
+          await page.evaluate((target) => {
+            window.location.hash = `#/${target}`;
+          }, screen);
+          await expect(page.locator(READY[screen] as string).first()).toBeAttached();
+          expect(await overflowsHorizontally(page), `${screen} at ${String(size.width)}px`).toBe(false);
+          expect(await pageScrolls(page), `${screen} scrolls the page at ${String(size.width)}px`).toBe(false);
         }
-        return found;
-      });
-      expect(offenders).toEqual([]);
+        await page.evaluate(() => {
+          window.location.hash = '#/inbox';
+        });
+      }
     });
   }
+});
+
+test.describe('workspace screens at desktop size', () => {
+  for (const screen of SCREENS) {
+    test(`${screen} scrolls inside its own area, never the page`, async ({ page }) => {
+      await openScreen(page, screen);
+      expect(await pageScrolls(page)).toBe(false);
+      expect(await overflowsHorizontally(page)).toBe(false);
+    });
+  }
+});
+
+test.describe('typography and digits', () => {
+  test('renders the self-hosted Arabic-first family, not a fallback', async ({ page }) => {
+    await openInbox(page);
+    const loaded = await page.evaluate(() =>
+      Array.from(document.fonts).filter((face) => face.status === 'loaded').map((face) => face.family),
+    );
+    expect(loaded).toContain('IBM Plex Sans Arabic');
+    const family = await page.locator('body').evaluate((element) => getComputedStyle(element).fontFamily);
+    expect(family.startsWith('"IBM Plex Sans Arabic"')).toBe(true);
+  });
+
+  test('keeps conversation copy inside the readable band', async ({ page }) => {
+    await openInbox(page);
+    const bubble = await page.locator('.msg__bubble').first().evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { size: Number.parseFloat(style.fontSize), leading: Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize) };
+    });
+    expect(bubble.size).toBeGreaterThanOrEqual(14);
+    expect(bubble.size).toBeLessThanOrEqual(15);
+    expect(bubble.leading).toBeGreaterThanOrEqual(1.4);
+    expect(bubble.leading).toBeLessThanOrEqual(1.75);
+  });
+
+  test('sets primary copy at 13px or more, and nothing below 12px', async ({ page }) => {
+    await openInbox(page);
+    const sizes = await page.evaluate(() => {
+      const offenders: string[] = [];
+      const primary: string[] = [];
+      const primarySelector = '.nav__label, .header__title, .convrow__name, .msg__bubble, .btn__label, .thread__name, .field__label, .menu__label, .composer__input';
+      for (const element of Array.from(document.querySelectorAll('*'))) {
+        const style = getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden' || element.closest('.visually-hidden') !== null) continue;
+        const own = Array.from(element.childNodes).some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim().length > 0);
+        if (!own) continue;
+        const size = Number.parseFloat(style.fontSize);
+        if (size < 11.9) offenders.push(`${String(element.className)}: ${String(size)}px`);
+        if (element.matches(primarySelector) && size < 13) primary.push(`${String(element.className)}: ${String(size)}px`);
+      }
+      return { offenders, primary };
+    });
+    expect(sizes.offenders).toEqual([]);
+    expect(sizes.primary).toEqual([]);
+  });
+
+  test('sets figures in tabular numerals where they are compared', async ({ page }) => {
+    await openScreen(page, 'analytics');
+    const variants = await page.locator('.kpi__value, td.num').evaluateAll((elements) =>
+      elements.slice(0, 12).map((element) => getComputedStyle(element).fontVariantNumeric),
+    );
+    expect(variants.length).toBeGreaterThan(0);
+    for (const variant of variants) expect(variant).toContain('tabular-nums');
+  });
+
+  for (const direction of ['rtl', 'ltr'] as const) {
+    test(`uses Western digits 0-9 on every screen — ${direction}`, async ({ page }) => {
+      await openInbox(page);
+      await setDirection(page, direction);
+      const offendersOn = async (): Promise<string[]> =>
+        page.evaluate(() => {
+          const bad = /[٠-٩۰-۹]/;
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          const found: string[] = [];
+          for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+            const value = node.textContent ?? '';
+            if (bad.test(value)) found.push(value.trim().slice(0, 60));
+          }
+          return found;
+        });
+      expect(await offendersOn()).toEqual([]);
+      for (const screen of SCREENS) {
+        await page.locator(`.nav__item[data-arg="${screen}"]`).click();
+        await expect(page.locator(READY[screen] as string).first()).toBeVisible();
+        expect(await offendersOn(), screen).toEqual([]);
+      }
+    });
+  }
+});
+
+test.describe('the Channels catalogue', () => {
+  test('lists six integrations with a truthful state and one next step each', async ({ page }) => {
+    await openScreen(page, 'channels');
+    const cards = page.locator('[data-channel-kind]');
+    await expect(cards).toHaveCount(6);
+    expect(await cards.evaluateAll((elements) => elements.map((element) => element.getAttribute('data-channel-kind')))).toEqual([
+      'whatsapp', 'messenger', 'instagram', 'web_chat', 'telegram', 'custom',
+    ]);
+
+    // Healthy WhatsApp: connected, managed. Instagram waiting on its credential:
+    // attention, complete setup. Messenger with nothing connected: connect.
+    await expect(page.locator('.integration--connected[data-channel-kind="whatsapp"] [data-act="channel-manage"]')).toBeVisible();
+    await expect(page.locator(`.integration--attention[data-channel-kind="instagram"] [data-act="channel-manage"][data-arg="instagram:cn-instagram-01"]`)).toBeVisible();
+    await expect(page.locator('.integration--not_connected[data-channel-kind="messenger"] [data-arg="connect-channel:messenger"]')).toBeVisible();
+
+    // Telegram is not implemented, and says so rather than offering a form.
+    const telegram = page.locator('[data-channel-kind="telegram"]');
+    await expect(telegram).toHaveClass(/integration--unavailable/);
+    await expect(telegram.locator('button')).toBeDisabled();
+    await expect(telegram).toContainText('غير متاح حاليًا');
+
+    // Cards line up in a grid without overflowing the page.
+    expect(await overflowsHorizontally(page)).toBe(false);
+  });
+
+  test('asks a Meta channel for its app and asset, and Website Chat for neither', async ({ page }) => {
+    await openScreen(page, 'channels');
+    await page.locator('[data-arg="connect-channel:messenger"]').click();
+    await expect(page.locator('#channel-app')).toBeVisible();
+    await expect(page.locator('label[for="channel-asset"]')).toHaveText('Page ID');
+    await expect(page.locator('#channel-token')).toHaveAttribute('type', 'password');
+    await page.keyboard.press('Escape');
+
+    await page.locator('[data-arg="connect-channel:web_chat"]').click();
+    await expect(page.locator('#channel-app')).toHaveCount(0);
+  });
+
+  test('opens a connection’s readiness evidence from its card', async ({ page }) => {
+    await openScreen(page, 'channels');
+    await page.locator('[data-act="channel-manage"][data-arg="instagram:cn-instagram-01"]').click();
+    const details = page.locator('[data-connection="cn-instagram-01"] .connection__details');
+    await expect(details).toBeVisible();
+    await expect(details.locator('.checklist__item--done')).toHaveCount(1);
+    await expect(page.locator(`[data-connection="${CONNECTION}"] .connection__details`)).toHaveCount(0);
+  });
+});
+
+test.describe('Analytics', () => {
+  test('draws the funnel against its denominator, and the trend as a chart with a table', async ({ page }) => {
+    await openScreen(page, 'analytics');
+    await expect(page.locator('.kpi')).toHaveCount(7);
+    const funnel = page.locator('.funnel');
+    await expect(funnel).toContainText('618');
+    await expect(funnel).toContainText('%');
+    // The drawing is decorative for assistive technology; the same numbers are
+    // a real table beside it, one row per launch day.
+    await expect(page.locator('.chart-figure svg')).toHaveAttribute('aria-hidden', 'true');
+    await expect(page.locator('.chart-figure figcaption')).not.toBeEmpty();
+    await expect(page.locator('.visually-hidden-table tbody tr')).toHaveCount(5);
+  });
+
+  test('follows an export from queued to a download, and says when the link has expired', async ({ page }) => {
+    await freezeClock(page);
+    await installApi(page);
+    const job = { id: 'x-1', campaign_id: null, format: 'csv', row_count: null, error_code: null, requested_at: '2026-09-09T09:30:00.000Z', completed_at: null, expires_at: null, download_url: null };
+    let state = 'queued';
+    await page.route('**/reports/campaigns/exports', (route) =>
+      route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ data: { ...job, state: 'queued' }, request_id: 'e2e' }) }),
+    );
+    await page.route('**/reports/campaigns/exports/x-1', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: state === 'completed'
+            ? { ...job, state, row_count: 42, completed_at: '2026-09-09T09:31:00.000Z', expires_at: '2026-09-10T09:31:00.000Z', download_url: '/api/v1/tenants/t/reports/campaigns/exports/x-1/download' }
+            : state === 'expired'
+              ? { ...job, state: 'completed', row_count: 42, completed_at: '2026-09-08T09:00:00.000Z', expires_at: '2026-09-09T09:00:00.000Z', download_url: '/d' }
+              : { ...job, state },
+          request_id: 'e2e',
+        }),
+      }),
+    );
+    await page.goto('/#/analytics');
+    await expect(page.locator('[data-report-ready]')).toBeVisible();
+
+    await page.locator('[data-act="live-report-export"]').click();
+    await expect(page.locator('[data-export]')).toHaveAttribute('data-export', 'queued');
+    state = 'running';
+    await page.clock.runFor(3_000);
+    await expect(page.locator('[data-export]')).toHaveAttribute('data-export', 'running');
+    state = 'completed';
+    await page.clock.runFor(3_000);
+    await expect(page.locator('[data-export]')).toHaveAttribute('data-export', 'completed');
+    await expect(page.locator('[data-export-ready]')).toBeVisible();
+
+    state = 'expired';
+    await page.locator('[data-act="live-report-export"]').click();
+    await page.clock.runFor(3_000);
+    await expect(page.locator('[data-export]')).toHaveAttribute('data-export', 'expired');
+    await expect(page.locator('[data-export-ready]')).toHaveCount(0);
+  });
 });

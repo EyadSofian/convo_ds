@@ -1,0 +1,47 @@
+div.gate
+  div.gate__top
+    button.btn.btn--ghost.btn--sm.lang-toggle [lang]
+      svg
+        path
+        path
+        path
+        path
+        path
+        path
+      span.btn__label
+    button.btn.btn--ghost.btn--sm.btn--icon.theme-toggle [theme]
+      svg
+        path
+  main.gate__main
+    section.auth-card
+      span.brand
+        span.logomark.logomark--lg
+          svg
+            path
+            path
+        span.brand__name
+      div.auth-card__intro
+        h1.auth-card__title
+        p.auth-card__lede
+      div.inline-error
+        svg
+          path
+          path
+          circle
+        div
+          p.inline-error__title
+      form.auth-form
+        div.field
+          label.field__label
+          input.input [form]
+        div.field
+          label.field__label
+          div.input-affix
+            input.input [form]
+            button.btn.btn--ghost.btn--sm.btn--icon.input-affix__button [password-visibility]
+              svg
+                path
+                circle
+        button.btn.btn--primary.auth-form__submit [live-signin]
+          span.btn__label
+    p.gate__foot

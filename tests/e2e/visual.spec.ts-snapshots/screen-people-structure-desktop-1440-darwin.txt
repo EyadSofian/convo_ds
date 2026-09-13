@@ -1,139 +1,168 @@
-div.workspace
-  div.workspace__intro
-    div.workspace__introtext
-      h1.workspace__heading
-      p.workspace__lede
-    div.workspace__actions
-      span.pill
-        bdi
-      button.btn.btn--sm [live-reload]
-        svg
-          path
-          path
-          path
-      button.btn.btn--ghost.btn--sm [live-signout]
-  section.card
-    div.card__header
-      h2.card__title
-    div.card__body
-      div.tablewrap
-        table.table
-          thead
-            tr
-              th
-              th
-              th
-              th
-              th
-          tbody
-            tr
-              td
-                bdi.mono
-              td
-                select.select [live-role]
-                  option
-              td
-                select.select [live-status]
-                  option
-                  option
-                  option
-              td
-                span.pill.pill--warning
-              td
-                span.workspace__actions
-                  button.btn.btn--sm [live-scope-tenant]
-                  button.btn.btn--ghost.btn--sm [live-offer-ownership]
-  section.card
-    div.card__header
-      h2.card__title
-    div.card__body
-      div.filterbar
-        span.searchbox
-          input.input [form]
-        select.select [form]
-          option
-          option
-        button.btn.btn--primary.btn--sm [live-invite]
-          svg
-            path
-      div.statebox.statebox--empty
-        span.statebox__icon
-          svg
-            circle
-            path
-            path
-            path
-        p.statebox__title
-        p.statebox__body
-  section.card
-    div.card__header
-      h2.card__title
-    div.card__body
-      p.field__hint
-      div.filterbar
-        span.searchbox
-          input.input [form]
-        select.select [form]
-          option
-          option
-          option
-        select.select [form]
-          option
-          option
-          option
-          option
-        button.btn.btn--primary.btn--sm [live-create-role]
-          svg
-            path
-      div.rolegrid
-        div.card
-          div.card__header
-            span.card__title
-            span.card__spacer
-            span.pill.pill--neutral
+main.app__screen
+  div.page.page--people
+    div.page__inner
+      div.pagebar
+        p.pagebar__lede
+        div.pagebar__actions
+          button.btn.btn--sm [live-reload]
+            svg
+              path
+              path
+              path
+            span.btn__label
+          button.btn.btn--primary.btn--sm [dialog]
+            svg
+              path
+            span.btn__label
+      section.kpis.kpis--4
+        div.kpi
+          span.kpi__label
+          span.kpi__value
+            bdi
+        div.kpi
+          span.kpi__label
+          span.kpi__value
+            bdi
+        div.kpi
+          span.kpi__label
+          span.kpi__value
+            bdi
+        div.kpi
+          span.kpi__label
+          span.kpi__value
+            bdi
+      section.panel
+        header.panel__header
+          div.panel__titles
+            h2.panel__title
+        div.panel__body.panel__body--flush
+          div.tablewrap
+            table.table
+              thead
+                tr
+                  th
+                  th
+                  th
+                  th
+                  th
+                    span.visually-hidden
+              tbody
+                tr
+                  td
+                    div.member
+                      span.avatar.avatar--sm
+                      div
+                        span.table__primary
+                          bdi
+                        span.table__sub
+                  td
+                    select.select [live-role]
+                      option
+                  td
+                    select.select [live-status]
+                      option
+                      option
+                      option
+                  td
+                    span.badge.badge--warning
+                  td
+                    div.row-actions
+                      button.btn.btn--ghost.btn--sm [live-scope-tenant]
+                        span.btn__label
+      section.panel
+        header.panel__header
+          div.panel__titles
+            h2.panel__title
+        div.panel__body
+          div.empty.empty--neutral
+            span.empty__icon
+              svg
+                circle
+                path
+                path
+                path
+            div.empty__text
+              p.empty__title
+              p.empty__body
+      div.report-grid
+        section.panel
+          header.panel__header
+            div.panel__titles
+              h2.panel__title
+          div.panel__body
+            form.inline-form
+              input.input [form]
+              button.btn.btn--sm [live-create-team]
+                svg
+                  path
+                span.btn__label
+            ul.card-list
+              li.mini-card
+                div.mini-card__head
+                  h3.mini-card__title
+                  span.badge.badge--neutral
+                ul.memberlist
+                  li.memberlist__item
+                    bdi
+                    button.btn.btn--ghost.btn--sm.btn--icon [live-remove-member]
+                      svg
+                        path
+                div.inline-form
+                  select.select [form]
+                    option
+                  button.btn.btn--sm [live-team-add]
+                    span.btn__label
+                  button.btn.btn--ghost.btn--sm [live-archive-team]
+                    span.btn__label
+        section.panel
+          header.panel__header
+            div.panel__titles
+              h2.panel__title
+          div.panel__body
+            div.role-form
+              input.input [form]
+              select.select [form-toggle]
+                option
+                option
+                option
+              select.select [form-toggle]
+                option
+                option
+                option
+                option
+              button.btn.btn--sm [live-create-role]
+                svg
+                  path
+                span.btn__label
+            p.field__hint
+            ul.card-list
+              li.mini-card
+                div.mini-card__head
+                  h3.mini-card__title
+                  span.badge.badge--neutral
+                    svg
+                      rect
+                      path
+                  span.badge.badge--neutral
+                p.mini-card__grants
+      section.panel
+        header.panel__header
+          div.panel__titles
+            h2.panel__title
+        div.panel__body
+          div.notice.notice--info
+            span.notice__icon
               svg
                 path
                 path
-          div.rolegrid__key
-          div.labelset
-            span.pill.pill--neutral
-            span.pill.pill--neutral
-  section.card
-    div.card__header
-      h2.card__title
-    div.card__body
-      div.filterbar
-        span.searchbox
-          input.input [form]
-        button.btn.btn--primary.btn--sm [live-create-team]
-          svg
-            path
-      div.grid2
-        div.card
-          div.card__header
-            span.card__title
-            span.card__spacer
-            span.pill.pill--neutral
-          ul.memberlist
-            li.memberlist__item
-              bdi.mono
-              button.btn.btn--ghost.btn--sm [live-remove-member]
-          div.filterbar
-            select.select [form]
-              option
-            button.btn.btn--sm [live-team-add]
-            button.btn.btn--ghost.btn--sm [live-archive-team]
-  section.card
-    div.card__header
-      h2.card__title
-    div.card__body
-      p.field__hint
-      div.statebox.statebox--empty
-        span.statebox__icon
-          svg
-            circle
-            path
-            path
-            path
-        p.statebox__title
-        p.statebox__body
+            div.notice__text
+          div.empty.empty--neutral
+            span.empty__icon
+              svg
+                circle
+                path
+                path
+                path
+            div.empty__text
+              p.empty__title
+              p.empty__body

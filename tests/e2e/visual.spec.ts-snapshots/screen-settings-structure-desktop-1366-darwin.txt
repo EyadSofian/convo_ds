@@ -1,105 +1,83 @@
-div.workspace
-  div.workspace__intro
-    div.workspace__introtext
-      h1.workspace__heading
-      p.workspace__lede
-    div.workspace__actions
-      button.btn.btn--primary [demo]
-        svg
-          path
-  div.grid2
-    section.card
-      div.card__header
-        h3.card__title
-        span.card__spacer
-      div.card__body
-        label.field
-          span.field__label
-          input.input [form]
-        label.field
-          span.field__label
-          select.select [form]
-            option
-            option
-            option
-            option
-        label.field
-          span.field__label
-          select.select [lang]
-            option
-            option
-        div.notice
-          span.notice__icon
-            svg
-              circle
-              path
-          span
-    section.card
-      div.card__header
-        h3.card__title
-        span.card__spacer
-      div.card__body
-        div.field
-          span.switch
-            button.switch__track [form-toggle]
-            span
-        div.field
-          span.switch
-            button.switch__track [form-toggle]
-            span
-        dl.attrgrid
-          dt
-          dd
-            bdi
-          dt
-          dd
-          dt
-          dd
-            bdi
-    section.card
-      div.card__header
-        h3.card__title
-        span.card__spacer
-      div.card__body
-        label.field
-          span.field__label
-          select.select [form]
-            option
-            option
-            option
-        div.notice.notice--warning
-          span.notice__icon
-            svg
-              path
-              path
-          span
-        div.field
-          span.switch
-            button.switch__track [form-toggle]
-            span
-    section.card
-      div.card__header
-        h3.card__title
-        span.card__spacer
-        span.pill.pill--accent
-          svg
-            circle
-            path
-      div.card__body
-        dl.attrgrid
-          dt
-          dd
-          dt
-          dd
-            bdi
-          dt
-          dd
-            bdi
-        div.notice
-          span.notice__icon
-            svg
-              path
-              path
-          span
-        div.workspace__actions
-          button.btn.btn--danger.btn--sm [demo]
+main.app__screen
+  div.page.page--settings
+    div.page__inner
+      div.settings-grid
+        section.panel
+          header.panel__header
+            div.panel__titles
+              h2.panel__title
+          div.panel__body
+            dl.attrgrid
+              dt
+              dd
+                bdi
+              dt
+              dd
+              dt
+              dd
+            button.btn.btn--sm [live-signout]
+              svg
+                path
+                path
+                path
+              span.btn__label
+        section.panel
+          header.panel__header
+            div.panel__titles
+              h2.panel__title
+          div.panel__body
+            div.setting-row
+              div.setting-row__text
+                p.setting-row__title
+                p.setting-row__hint
+              select.select [lang]
+                option
+                option
+            div.setting-row
+              div.setting-row__text
+                p.setting-row__title
+                p.setting-row__hint
+              div.segmented
+                button.segmented__item [theme-set]
+                button.segmented__item [theme-set]
+            div.setting-row
+              div.setting-row__text
+                p.setting-row__title
+                p.setting-row__hint
+              div.segmented
+                button.segmented__item [nav-set]
+                button.segmented__item [nav-set]
+      section.panel
+        header.panel__header
+          div.panel__titles
+            h2.panel__title
+            p.panel__description
+        div.panel__body.panel__body--flush
+          ul.session-list
+            li.session
+              div.session__text
+                p.session__title
+                  span.badge.badge--accent
+                p.session__meta
+            li.session
+              div.session__text
+                p.session__title
+                p.session__meta
+              button.btn.btn--danger.btn--sm [live-revoke-session]
+                span.btn__label
+      section.panel
+        header.panel__header
+          div.panel__titles
+            h2.panel__title
+            p.panel__description
+        div.panel__body
+          ul.unavailable-list
+            li.unavailable-list__item
+              span
+              span.badge.badge--neutral
+            li.unavailable-list__item
+              span
+              span.badge.badge--neutral
+            li.unavailable-list__item
+              span
+              span.badge.badge--neutral

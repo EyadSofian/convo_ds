@@ -1,346 +1,431 @@
-div.inbox.inbox--live
+div.inbox
   section.zone.zone--list
-    div.listtools
-      div.listtools__row
-        button.btn.btn--sm [live-inbox-queue]
-        button.btn.btn--sm [live-inbox-queue]
-        button.btn.btn--sm [live-inbox-reload]
+    header.listhead
+      div.segmented
+        button.segmented__item [live-inbox-queue]
+          span.segmented__count
+        button.segmented__item [live-inbox-queue]
+          span.segmented__count
+      div.listhead__tools
+        div.menu-anchor
+          button.btn.btn--ghost.btn--sm.btn--icon [menu]
+            svg
+              path
+              path
+              path
+        button.btn.btn--ghost.btn--sm.btn--icon [live-inbox-reload]
           svg
             path
             path
             path
-      div.listtools__filters
-        select.select [live-inbox-filter]
-          option
-          option
-          option
-        select.select [live-inbox-filter]
-          option
-          option
-          option
-          option
-          option
-        select.select [live-inbox-filter]
-          option
-          option
-          option
-          option
-          option
-          option
-        select.select [live-inbox-filter]
-          option
-      p.listtools__hint
+        button.btn.btn--ghost.btn--sm.btn--icon.listhead__close [close-overlays]
+          svg
+            path
+    p.realtime.realtime--live
+      span.realtime__dot
     button.list-resizer [resize-list-step]
     div.zone__body
       div.convlist
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  path
-                  path
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--whatsapp
+              svg
+                path
+                path
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  path
-                  path
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--messenger
+              svg
+                path
+                path
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--warning
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+              span.badge.badge--warning
+                svg
+                  path
+                  path
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  rect
-                  circle
-                  circle
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--instagram
+              svg
+                rect
+                circle
+                circle
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--danger
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+              span.badge.badge--danger
+                svg
+                  path
+                  path
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  circle
-                  path
-                  path
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--web_chat
+              svg
+                path
+                path
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  path
-                  path
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--whatsapp
+              svg
+                path
+                path
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  path
-                  path
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--messenger
+              svg
+                path
+                path
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--warning
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+              span.badge.badge--warning
+                svg
+                  path
+                  path
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  rect
-                  circle
-                  circle
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--instagram
+              svg
+                rect
+                circle
+                circle
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--danger
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+              span.badge.badge--danger
+                svg
+                  path
+                  path
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  circle
-                  path
-                  path
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--web_chat
+              svg
+                path
+                path
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  path
-                  path
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--whatsapp
+              svg
+                path
+                path
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  path
-                  path
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--messenger
+              svg
+                path
+                path
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--warning
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+              span.badge.badge--warning
+                svg
+                  path
+                  path
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  rect
-                  circle
-                  circle
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--instagram
+              svg
+                rect
+                circle
+                circle
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--danger
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+              span.badge.badge--danger
+                svg
+                  path
+                  path
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
         article.convrow.convrow--card
-          div.convrow__lead
-            span.avatar
-              span.avatar__channel
-                svg
-                  circle
-                  path
-                  path
-          div.convrow__body
-            div.convrow__top
+          span.avatar.avatar--md
+            svg
+              circle
+              path
+            span.avatar__channel.channel-tile--web_chat
+              svg
+                path
+                path
+          div.convrow__main
+            div.convrow__line
               span.convrow__name
                 bdi
               span.convrow__time
-            div.convrow__meta
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-              span.pill.pill--neutral
-          div.convrow__tail
-            button.btn.btn--sm [live-inbox-claim]
+            div.convrow__line.convrow__meta
+              span.convrow__where
+          button.btn.btn--sm.convrow__claim [live-inbox-claim]
+            span.btn__label
+  button.zone-scrim.zone-scrim--list [close-overlays]
   section.zone.zone--thread.thread
     header.thread__header
-      div.thread__ident
-        span.avatar
-          span.avatar__channel
+      button.btn.btn--ghost.btn--sm.btn--icon.thread__listtoggle [list]
+        svg
+          path
+          path
+      span.avatar.avatar--md
+        span.avatar__channel.channel-tile--whatsapp
+          svg
+            path
+            path
+      div.thread__names
+        h2.thread__name
+          bdi
+        p.thread__sub
+      div.thread__badges
+        span.badge.badge--accent
+          span.badge__dot
+      div.thread__toolbar
+        div.lifecycle__controls
+          button.btn.btn--sm [live-lifecycle-open]
+            svg
+              circle
+              path
+            span.btn__label
+          button.btn.btn--sm [live-lifecycle-open]
+            svg
+              circle
+              path
+              path
+            span.btn__label
+          button.btn.btn--primary.btn--sm [live-lifecycle-open]
+            svg
+              circle
+              path
+            span.btn__label
+        button.btn.btn--ghost.btn--sm.btn--icon.thread__paneltoggle.thread__paneltoggle--inline [panel]
+          svg
+            rect
+            path
+        button.btn.btn--ghost.btn--sm.btn--icon.thread__paneltoggle.thread__paneltoggle--drawer [panel-drawer]
+          svg
+            rect
+            path
+    div.thread__body
+      div.daysep
+        span
+      article.msg.msg--in
+        div.msg__bubble
+        div.msg__meta
+          time
+      article.msg.msg--out
+        div.msg__bubble
+        div.msg__meta
+          time
+          span.msg__state.msg__state--provider_accepted
+          span.msg__delivery.msg__delivery--delivered
             svg
               path
               path
-        div.thread__names
-          h2.thread__name
-            bdi
-          p.thread__sub
-      span.thread__toolspacer
-      div.thread__toolbar
-        span.pill.pill--accent
-        span.pill.pill--neutral
-        div.lifecycle__controls
-          button.btn.btn--sm [live-lifecycle-open]
-          button.btn.btn--sm [live-lifecycle-open]
-          button.btn.btn--sm [live-lifecycle-open]
-    div.thread__body
-      article.msg
+      article.msg.msg--in
         div.msg__bubble
         div.msg__meta
-          span
+          time
       article.msg.msg--out
         div.msg__bubble
         div.msg__meta
-          span
-          span.msg__state
-          span.msg__delivery
-      article.msg
+          time
+          span.msg__state.msg__state--provider_accepted
+          span.msg__delivery.msg__delivery--delivered
+            svg
+              path
+              path
+      article.msg.msg--in
         div.msg__bubble
         div.msg__meta
-          span
+          time
       article.msg.msg--out
         div.msg__bubble
         div.msg__meta
-          span
-          span.msg__state
-          span.msg__delivery
-      article.msg
+          time
+          span.msg__state.msg__state--provider_accepted
+          span.msg__delivery.msg__delivery--read
+            svg
+              path
+              path
+      article.msg.msg--in
         div.msg__bubble
         div.msg__meta
-          span
+          time
       article.msg.msg--out
         div.msg__bubble
         div.msg__meta
-          span
-          span.msg__state
-          span.msg__delivery
-      article.msg
+          time
+          span.msg__state.msg__state--provider_accepted
+          span.msg__delivery.msg__delivery--read
+            svg
+              path
+              path
+      article.msg.msg--in
         div.msg__bubble
         div.msg__meta
-          span
+          time
       article.msg.msg--out
         div.msg__bubble
         div.msg__meta
-          span
-          span.msg__state
-          span.msg__delivery
-      article.msg
-        div.msg__bubble
-        div.msg__meta
-          span
-      article.msg.msg--out
-        div.msg__bubble
-        div.msg__meta
-          span
-          span.msg__state
-          span.msg__delivery
-    div.composer
-      textarea.composer__input [live-composer]
-      div.composer__toolbar
-        span.composer__toolspacer
-        button.btn.btn--primary.btn--sm [live-inbox-send]
+          time
+          span.msg__state.msg__state--provider_accepted
+          span.msg__delivery.msg__delivery--read
+            svg
+              path
+              path
+    div.composer.composer--reply
+      div.composer__panel
+        div.composer__box
+          textarea.composer__input [live-composer]
+          div.composer__toolbar
+            div.composer__tabs
+              button.composer__tab [composer-tab]
+                svg
+                  path
+                  path
+              button.composer__tab [composer-tab]
+                svg
+                  path
+                  path
+                  path
+            span.composer__hint
+            button.btn.btn--primary.btn--sm [live-inbox-send]
+              svg
+                path
+                path
+              span.btn__label
+  button.zone-scrim.zone-scrim--panel [close-overlays]
   aside.zone.zone--panel
+    header.zone__header
+      h2.zone__title
+      button.btn.btn--ghost.btn--sm.btn--icon [close-overlays]
+        svg
+          path
     div.zone__body
       div.contact
-        section.contact__section
-          h3.contact__heading
-          label.field
-            span.field__label
-            input.input [form]
-          p.field__hint
-          button.btn.btn--sm [live-contact-save-panel]
+        section.panel-section.contact__who
+          div.contact__identity-head
+            span.avatar.avatar--lg
+            div
+              p.contact__name
+                bdi
+              p.contact__sub
+          p.consent__suppressed
+          div.inline-form
+            label.field
+              span.field__label
+              input.input [form]
+            button.btn.btn--sm [live-contact-save-panel]
+              span.btn__label
           dl.attrgrid
             dt
             dd
@@ -348,52 +433,75 @@ div.inbox.inbox--live
             dt
             dd
               bdi
-        section.contact__section.metadata
-          div.metadata__heading
-            h3.contact__heading
-            span.pill.pill--neutral
+        section.panel-section.metadata
+          h3.panel-section__title
           div.metadata__labels
-          p.field__hint
-          p.field__hint
-        section.contact__section
-          h3.contact__heading
+            span.metadata__label
+              span.metadata__swatch
+              bdi
+              button.btn.btn--ghost.btn--sm.btn--icon.metadata__remove [live-metadata-label]
+                svg
+                  path
+          label.field
+            span.field__label
+            select.select [live-metadata-label]
+              option
+              option
+        section.panel-section
+          h3.panel-section__title
           ul.contact__identities
             li.contact__identity
-              span.pill.pill--neutral
+              span.contact__identitykind
               span.contact__identityvalue
                 bdi.mono
-              span.pill.pill--success
-        section.contact__section
-          h3.contact__heading
-          p.consent__suppressed
+              span.badge.badge--success
+                span.badge__dot
+        section.panel-section
+          h3.panel-section__title
           ul.consent__list
             li.consent__row
-              span.pill.pill--success
-              span
+              span.badge.badge--success
+              span.consent__what
               span.consent__source
-              span.consent__when
           div.consent__actions
             button.btn.btn--sm [live-consent-panel]
-            button.btn.btn--sm [live-consent-panel]
+              span.btn__label
+            button.btn.btn--ghost.btn--sm [live-consent-panel]
+              span.btn__label
           p.field__hint
-      section.contact__section.metadata
-        div.metadata__heading
-          h3.contact__heading
-          span.pill.pill--neutral
-        div.metadata__labels
+      section.panel-section.metadata
+        h3.panel-section__title
         p.field__hint
-        p.field__hint
-      section.routing
-        h3.contact__heading
+        label.field
+          span.field__label
+          select.select [live-metadata-label]
+            option
+            option
+            option
+      section.routing.panel-section
+        h3.panel-section__title
         div.routing__current
           p.routing__assignee
             span.routing__key
             bdi
           div.routing__actions
-            span.pill.pill--neutral
+            span.badge.badge--neutral
+              svg
+                path
+                path
             button.btn.btn--sm [live-routing-open]
-      section.notes
-        h3.contact__heading
+              span.btn__label
+            button.btn.btn--sm [live-routing-open]
+              span.btn__label
+            button.btn.btn--ghost.btn--sm [live-routing-open]
+              span.btn__label
+        div.routing__collaborators
+          p.routing__key
+          p.field__hint
+          button.btn.btn--ghost.btn--sm [live-routing-open]
+            span.btn__label
+      section.notes.panel-section
+        h3.panel-section__title
         p.field__hint
         ul.notes__list
           li.notes__item
@@ -402,7 +510,9 @@ div.inbox.inbox--live
             div.notes__meta
               span.notes__when
               button.btn.btn--ghost.btn--sm [live-note-edit]
+                span.btn__label
               button.btn.btn--ghost.btn--sm [live-note-delete]
+                span.btn__label
           li.notes__item
             p.notes__body
               bdi
@@ -410,19 +520,18 @@ div.inbox.inbox--live
               span.notes__when
               span.notes__edited
               button.btn.btn--ghost.btn--sm [live-note-edit]
+                span.btn__label
               button.btn.btn--ghost.btn--sm [live-note-delete]
+                span.btn__label
           li.notes__item.notes__item--deleted
             p.notes__body
-        div.notes__composer
-          textarea.input.notes__field [live-note-draft]
-          button.btn.btn--sm [live-note-add]
-      section.episodes
-        h3.contact__heading
+      section.episodes.panel-section
+        h3.panel-section__title
         ol.episodes__list
           li.episodes__item
             div.episodes__top
               span.episodes__seq
-              span.pill.pill--success
+              span.badge.badge--success
               span.episodes__when
             p.episodes__resolution
               bdi
@@ -434,7 +543,7 @@ div.inbox.inbox--live
           li.episodes__item
             div.episodes__top
               span.episodes__seq
-              span.pill.pill--accent
+              span.badge.badge--accent
               span.episodes__when
             dl.attrgrid
               dt

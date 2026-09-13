@@ -122,17 +122,28 @@ function campaignReport(): Record<string, unknown> {
   const fresh = new Date(Date.UTC(2026, 8, 9, 9, 15)).toISOString();
   return {
     generated_at: fresh, fresh_through: fresh, timezone: 'UTC',
+    filters: { from: null, to: null, channel: null, campaign_id: null },
     definitions: { campaigns: 3, executions: 1 },
     audience: { denominator: 1920, eligible: 1764, excluded: 156 },
     current: { denominator: 618, planned: 38, queued: 42, in_flight: 8, accepted: 101, delivered: 214, read: 187, failed: 19, skipped: 7, cancelled: 0, outcome_unknown: 2 },
-    milestones: { denominator: 618, accepted: 504, delivered: 401, read: 187 },
+    milestones: { denominator: 618, accepted: 502, delivered: 401, read: 187 },
+    trend: [
+      { day: '2026-09-05', recipients: 96, accepted: 81, delivered: 66, read: 34, failed: 3 },
+      { day: '2026-09-06', recipients: 140, accepted: 117, delivered: 95, read: 44, failed: 5 },
+      { day: '2026-09-07', recipients: 118, accepted: 96, delivered: 77, read: 36, failed: 4 },
+      { day: '2026-09-08', recipients: 152, accepted: 125, delivered: 101, read: 47, failed: 4 },
+      { day: '2026-09-09', recipients: 112, accepted: 83, delivered: 62, read: 26, failed: 3 },
+    ],
     costs: [{ currency: 'USD', estimated_amount_minor: '30.900000', committed_amount_minor: '25.200000', reconciled_amount_minor: '24.650000' }],
     channels: [
       { kind: 'whatsapp', denominator: 500, accepted: 422, delivered: 358, read: 170, delivery_receipts: true, read_receipts: true },
       { kind: 'instagram', denominator: 118, accepted: 82, delivered: 43, read: 17, delivery_receipts: false, read_receipts: false },
     ],
     errors: [{ code: 'provider_rejected', count: 12 }, { code: 'marketing_consent_missing', count: 7 }, { code: 'attempt_never_completed', count: 2 }],
-    campaigns: [{ id: 'campaign-reminder', name: 'تذكير المحاضرة المباشرة', state: 'running', denominator: 618, accepted: 504, delivered: 401, read: 187, failed: 19, outcome_unknown: 2, fresh_through: fresh }],
+    campaigns: [
+      { id: 'campaign-reminder', name: 'تذكير المحاضرة المباشرة', state: 'running', denominator: 618, pending: 88, accepted: 502, delivered: 401, read: 187, failed: 19, outcome_unknown: 2, included: 618, excluded: 22, fresh_through: fresh },
+      { id: 'campaign-intake', name: 'دفعة الخريف', state: 'ready', denominator: 0, pending: 0, accepted: 0, delivered: 0, read: 0, failed: 0, outcome_unknown: 0, included: null, excluded: null, fresh_through: fresh },
+    ],
   };
 }
 
@@ -148,21 +159,39 @@ function channelCapabilities(kind = 'whatsapp'): Record<string, unknown> {
 
 function channelConnections(): readonly Record<string, unknown>[] {
   const observedAt = new Date(Date.UTC(2026, 8, 9, 8, 0)).toISOString();
-  return [{
-    id: CONNECTION, kind: 'whatsapp', provider: 'meta', display_name: 'Digital School Admissions',
-    external_asset_id: '109876543210', provider_app_id: '123456789012345', status: 'healthy',
-    capabilities: channelCapabilities(),
-    evidence: ['asset', 'credential', 'webhook', 'inbound', 'outbound'].map((kind) => ({
-      kind, satisfied: true, observed_at: observedAt,
-    })),
-    missing_evidence: [], last_error_code: null, last_error_at: null,
-    created_at: observedAt, disconnected_at: null, credential_held: true,
-    credential_fingerprint: 'a'.repeat(64),
-  }];
+  const evidence = (satisfied: number): readonly Record<string, unknown>[] =>
+    ['asset_verified', 'credential_verified', 'webhook_subscribed', 'first_inbound', 'first_outbound'].map((kind, index) => ({
+      kind, satisfied: index < satisfied, observed_at: index < satisfied ? observedAt : null,
+    }));
+  return [
+    {
+      id: CONNECTION, kind: 'whatsapp', provider: 'meta', display_name: 'Digital School Admissions',
+      external_asset_id: '109876543210', provider_app_id: '123456789012345', status: 'healthy',
+      capabilities: channelCapabilities(), evidence: evidence(5),
+      missing_evidence: [], last_error_code: null, last_error_at: null,
+      created_at: observedAt, disconnected_at: null, credential_held: true,
+      credential_fingerprint: 'a'.repeat(64),
+    },
+    {
+      id: 'cn-instagram-01', kind: 'instagram', provider: 'meta', display_name: 'Digital School Instagram',
+      external_asset_id: '17841400000000001', provider_app_id: '123456789012345', status: 'authorization_needed',
+      capabilities: channelCapabilities('instagram'), evidence: evidence(1),
+      missing_evidence: ['credential_verified', 'webhook_subscribed', 'first_inbound', 'first_outbound'],
+      last_error_code: 'provider_not_connected', last_error_at: observedAt,
+      created_at: observedAt, disconnected_at: null, credential_held: true,
+      credential_fingerprint: 'b'.repeat(64),
+    },
+  ];
 }
 
 function channelCatalogue(): readonly Record<string, unknown>[] {
-  return [{ kind: 'whatsapp', provider: 'meta', implemented: true, capabilities: channelCapabilities() }];
+  return [
+    { kind: 'whatsapp', provider: 'meta', implemented: true, capabilities: channelCapabilities() },
+    { kind: 'messenger', provider: 'meta', implemented: true, capabilities: channelCapabilities('messenger') },
+    { kind: 'instagram', provider: 'meta', implemented: true, capabilities: channelCapabilities('instagram') },
+    { kind: 'web_chat', provider: 'web_chat', implemented: true, capabilities: { ...channelCapabilities('web_chat'), templates: false, windowHours: null } },
+    { kind: 'custom', provider: 'custom', implemented: true, capabilities: { ...channelCapabilities('custom'), templates: false, windowHours: null } },
+  ];
 }
 
 function testRecipients(): readonly Record<string, unknown>[] {
@@ -283,6 +312,9 @@ function contacts(): readonly Record<string, unknown>[] {
     id: index === 0 ? CONTACT : `ct-${String(index).padStart(2, '0')}`,
     displayName: name,
     attributes: index === 0 ? { grade: 'الصف السادس', branch: 'المعادي' } : {},
+    version: 1,
+    labels: index % 3 === 0 ? [{ id: `lb-${String(index)}`, name: index === 0 ? 'ولي أمر' : 'مهتم', color: '#6558d9', state: 'active', version: 1 }] : [],
+    customFields: [],
     createdAt: new Date(Date.UTC(2026, 8, 1 + index)).toISOString(),
     identities: [
       {
@@ -310,6 +342,32 @@ function contacts(): readonly Record<string, unknown>[] {
   }));
 }
 
+/** The keys the built-in Admin role holds, as `/me/memberships` returns them. */
+export const ADMIN_PERMISSIONS: readonly string[] = [
+  'conversation.read', 'conversation.unassigned.preview', 'conversation.reply', 'conversation.note',
+  'conversation.claim', 'conversation.assign', 'conversation.handoff.request', 'conversation.close',
+  'contact.read', 'contact.edit', 'consent.read', 'consent.record',
+  'campaign.read', 'campaign.draft', 'campaign.approve', 'campaign.launch', 'campaign.control',
+  'channel.manage', 'member.manage', 'role.manage', 'report.read',
+];
+
+function sessions(): readonly Record<string, unknown>[] {
+  return [
+    {
+      id: 'aaaaaaaa-0000-4000-8000-000000000001', current: true,
+      created_at: new Date(Date.UTC(2026, 8, 9, 8, 0)).toISOString(),
+      last_seen_at: new Date(Date.UTC(2026, 8, 9, 9, 29)).toISOString(),
+      expires_at: new Date(Date.UTC(2026, 8, 23, 8, 0)).toISOString(),
+    },
+    {
+      id: 'aaaaaaaa-0000-4000-8000-000000000002', current: false,
+      created_at: new Date(Date.UTC(2026, 8, 4, 14, 0)).toISOString(),
+      last_seen_at: new Date(Date.UTC(2026, 8, 8, 17, 12)).toISOString(),
+      expires_at: new Date(Date.UTC(2026, 8, 18, 14, 0)).toISOString(),
+    },
+  ];
+}
+
 function json(route: Route, body: unknown, status = 200): Promise<void> {
   return route.fulfill({
     status,
@@ -331,12 +389,45 @@ function paged(rows: readonly unknown[]): unknown {
  * `apps/web/src/live/realtime.test.ts` and against the real server in
  * `tests/integration/api-realtime.test.ts`.
  */
-export async function installApi(page: Page): Promise<void> {
+export interface ApiOptions {
+  /** Whether the browser starts with a session. Sign-in and sign-out change it. */
+  readonly signedIn?: boolean;
+}
+
+/** The one password the scripted sign-in accepts. */
+export const PASSWORD = 'correct horse battery staple';
+export const EMAIL = 'hana@digital-school.example';
+
+const USER = { data: { user: { id: 'u1', email: EMAIL } } };
+const UNAUTHENTICATED = { error: { code: 'unauthenticated', message: 'Sign in to continue.', request_id: 'e2e' } };
+
+export async function installApi(page: Page, options: ApiOptions = {}): Promise<void> {
+  let signedIn = options.signedIn ?? true;
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
 
+    if (path === '/auth/login') {
+      const body = route.request().postDataJSON() as { email?: string; password?: string };
+      if (body.email === EMAIL && body.password === PASSWORD) {
+        signedIn = true;
+        return json(route, USER);
+      }
+      // The same answer for a wrong address and a wrong password, as the API gives.
+      return json(route, { error: { code: 'invalid_credentials', message: 'Email or password is incorrect.', request_id: 'e2e' } }, 401);
+    }
+    if (path === '/auth/logout') {
+      signedIn = false;
+      return route.fulfill({ status: 204 });
+    }
+    // Everything else needs the session, exactly as the API does.
+    if (!signedIn) {
+      return json(route, UNAUTHENTICATED, 401);
+    }
     if (path === '/auth/session') {
-      return json(route, { data: { user: { id: 'u1', email: 'hana@digital-school.example' } } });
+      return json(route, USER);
+    }
+    if (path === '/auth/sessions') {
+      return json(route, paged(sessions()));
     }
     if (path === '/me/memberships') {
       return json(route, {
@@ -344,17 +435,26 @@ export async function installApi(page: Page): Promise<void> {
           {
             id: MEMBERSHIP,
             tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' },
-            role: { id: 'agent-role', key: 'agent', name: 'Agent' },
-            permissions: ['conversation.handoff.request'],
+            role: { id: 'admin-role', key: 'admin', name: 'Admin' },
+            permissions: ADMIN_PERMISSIONS,
           },
         ],
       });
     }
+    if (path.endsWith('/labels')) {
+      return json(route, paged([
+        { id: 'lb-0', name: 'ولي أمر', color: '#6558d9', state: 'active', version: 1 },
+        { id: 'lb-3', name: 'مهتم', color: '#2f7d5b', state: 'active', version: 1 },
+      ]));
+    }
+    if (path.endsWith('/custom-fields')) {
+      return json(route, paged([]));
+    }
     if (path.endsWith('/channels/catalogue')) {
       return json(route, paged(channelCatalogue()));
     }
-    if (path.endsWith(`/channels/${CONNECTION}/test-recipients`)) {
-      return json(route, paged(testRecipients()));
+    if (path.endsWith('/test-recipients')) {
+      return json(route, paged(path.includes(CONNECTION) ? testRecipients() : []));
     }
     if (path.endsWith('/channels')) {
       return json(route, paged(channelConnections()));

@@ -1,45 +1,36 @@
 import { expect, test, type Page } from '@playwright/test';
 import { installApi } from './support/api';
 import {
+  fontsReady,
   freezeClock,
   MATRIX,
   openInbox,
   openScreen,
+  openSignedOut,
+  SCREENS,
   setDirection,
   setTheme,
 } from './support/workspace';
 
 /**
- * Visual regression — task §3, "Add visual-regression screenshots ... for the
- * dimensions and visible-row/message targets above."
+ * Visual regression for the redesigned operator UI.
  *
  * These are baselines, not judgements: they catch a token change or a layout
  * regression that the dimension assertions in layout.spec.ts would not notice,
- * such as a colour drifting or a control losing its border. The first run
- * writes baselines under tests/e2e/visual.spec.ts-snapshots/.
+ * such as a colour drifting or a control losing its border.
  *
- * Time is frozen with Playwright's clock before the bundle boots, because the
- * seeded dataset derives every timestamp from `new Date()` at startup — without
- * that, a baseline taken an hour earlier differs in every clock time and every
- * "4m ago". Animations are disabled by the config. A diff therefore means the
- * design changed, not that the day moved on.
+ * Time is frozen with Playwright's clock before the bundle boots, and
+ * animations are disabled by the config, so a diff means the design changed,
+ * not that the day moved on.
  *
  * **Pixels are only half of it.** A screenshot comparison cannot tell a screen
  * being replaced from Arabic glyphs rasterising a subpixel differently: both
- * land around 2% of the image, and only glyph pixels ever differ enough to
- * count. This file therefore pairs every screen baseline with a **structural**
- * snapshot — a DOM skeleton of tags, classes and the actions each control
- * dispatches, with all text removed. Rasterisation cannot move it, and swapping
- * a screen cannot help but change it.
+ * land around 2% of the image. Every screen baseline is therefore paired with a
+ * **structural** snapshot — a DOM skeleton of tags, classes and the actions
+ * each control dispatches, with all text removed. Rasterisation cannot move it,
+ * and swapping a screen cannot help but change it.
  */
 
-/**
- * A rasterisation-independent fingerprint of what is on screen.
- *
- * Tag, class list and `data-act` per element, indented by depth. No text, so
- * copy edits and seeded timestamps do not churn it; every structural element,
- * so a replaced screen or a lost control is a diff.
- */
 async function structureOf(page: Page, selector: string): Promise<string> {
   return page.locator(selector).evaluate((root) => {
     const lines: string[] = [];
@@ -60,21 +51,41 @@ async function structureOf(page: Page, selector: string): Promise<string> {
   });
 }
 
+test.describe('sign-in baselines', () => {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`sign-in — ${theme}`, async ({ page }) => {
+      await openSignedOut(page);
+      await setTheme(page, theme);
+      await expect(page).toHaveScreenshot(`signin-${theme}.png`);
+    });
+  }
+
+  test('sign-in, refused', async ({ page }) => {
+    await openSignedOut(page);
+    await page.locator('#signin-email').fill('hana@digital-school.example');
+    await page.locator('#signin-password').fill('not the password');
+    await page.locator('.auth-form__submit').click();
+    await expect(page.locator('.auth-card [role="alert"]')).toBeVisible();
+    await expect(page).toHaveScreenshot('signin-refused.png');
+    expect(await structureOf(page, '.gate')).toMatchSnapshot('signin-structure.txt');
+  });
+});
+
 test.describe('inbox baselines', () => {
   for (const { direction, theme } of MATRIX) {
     test(`inbox — ${direction}/${theme}`, async ({ page }) => {
       await openInbox(page);
       await setDirection(page, direction);
       await setTheme(page, theme);
-      await expect(page).toHaveScreenshot(`inbox-${direction}-${theme}.png`, { fullPage: false });
+      await expect(page).toHaveScreenshot(`inbox-${direction}-${theme}.png`);
     });
   }
 
-  test('inbox with the queue drawer open', async ({ page }) => {
+  test('inbox with the navigation expanded', async ({ page }) => {
     await openInbox(page);
-    await page.locator('.topbar [data-act="list"]').click();
-    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'open');
-    await expect(page).toHaveScreenshot('inbox-list-open.png');
+    await page.locator('.nav__toggle').click();
+    await expect(page.locator('.app')).toHaveAttribute('data-nav', 'expanded');
+    await expect(page).toHaveScreenshot('inbox-nav-expanded.png');
   });
 
   test('inbox showing this agent’s own conversations', async ({ page }) => {
@@ -84,16 +95,30 @@ test.describe('inbox baselines', () => {
     await expect(page).toHaveScreenshot('inbox-mine.png');
   });
 
-  /**
-   * The structural half, for the screen the image half cannot cover.
-   *
-   * An element screenshot captures a bounding box, so anything below the fold
-   * of a scrolling zone — the internal notes and the reporting episodes, at the
-   * bottom of the customer panel — can be added, removed or broken without
-   * moving a single pixel of any baseline here. This snapshot is taken over the
-   * whole inbox, so every control in every zone is in it whether it is on
-   * screen or not.
-   */
+  test('inbox writing a private note', async ({ page }) => {
+    await openInbox(page);
+    await page.locator('[data-act="composer-tab"][data-arg="note"]').click();
+    await expect(page.locator('.composer__input--note')).toBeVisible();
+    await expect(page.locator('.composer')).toHaveScreenshot('composer-note.png');
+  });
+
+  test('inbox at 200% zoom with the queue drawer open', async ({ page }) => {
+    await openInbox(page);
+    await page.setViewportSize({ width: 683, height: 384 });
+    await page.locator('.thread__listtoggle').click();
+    await expect(page.locator('.inbox')).toHaveAttribute('data-list', 'open');
+    await expect(page).toHaveScreenshot('inbox-zoom-list-open.png');
+  });
+
+  test('the navigation drawer on a phone', async ({ page }) => {
+    await openInbox(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.header__menu').click();
+    await expect(page.locator('.nav')).toBeVisible();
+    await fontsReady(page);
+    await expect(page).toHaveScreenshot('phone-nav-open.png');
+  });
+
   test('inbox structure, including what scrolls out of view', async ({ page }) => {
     await openInbox(page);
     expect(await structureOf(page, '.inbox')).toMatchSnapshot('inbox-structure.txt');
@@ -101,8 +126,6 @@ test.describe('inbox baselines', () => {
 
   test('the customer panel, with a suppression over a consent', async ({ page }) => {
     await openInbox(page);
-    // The rule this panel exists to make visible: an opt-out sits above the
-    // consent it overrides.
     await expect(page.locator('.consent__suppressed')).toBeVisible();
     await expect(page.locator('.zone--panel')).toHaveScreenshot('contact-panel.png');
   });
@@ -122,54 +145,50 @@ test.describe('state baselines', () => {
   for (const [name, reply] of [
     ['empty', { status: 200, body: { data: [] } }],
     ['denied', { status: 403, body: { error: { code: 'permission_denied', message: 'No.' } } }],
-    ['offline', { status: 503, body: { error: { code: 'unavailable', message: 'Try later.' } } }],
+    ['offline', { status: 503, body: { error: { code: 'unavailable', message: 'Try later.', request_id: 'req-503' } } }],
   ] as const) {
     test(`queue state — ${name}`, async ({ page }) => {
-      // Produced by the server's answer, not by a preview switch: these are the
-      // only ways the shipped screen can reach them.
+      // Produced by the server's answer: the only way the shipped screen can reach them.
       await freezeClock(page);
       await installApi(page);
       await page.route('**/conversations/unassigned', (route) =>
-        route.fulfill({
-          status: reply.status,
-          contentType: 'application/json',
-          body: JSON.stringify(reply.body),
-        }),
+        route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) }),
       );
       await page.goto('/#/inbox');
-      await expect(page.locator('.zone--list .statebox')).toBeVisible();
-      await page.evaluate(() => document.fonts.ready);
-      await expect(page).toHaveScreenshot(`state-${name}.png`);
+      await expect(page.locator('.zone--list .empty, .zone--list .errorstate').first()).toBeVisible();
+      await fontsReady(page);
+      await expect(page.locator('.zone--list')).toHaveScreenshot(`state-${name}.png`);
     });
   }
-
-  test('projected unassigned queue for an agent', async ({ page }) => {
-    // business-rules.md §4.1: no snippet, no PII, claim-first. What is drawn
-    // here is exactly what the server sent, because the projection happens
-    // there.
-    await openInbox(page);
-    await expect(page.locator('.convrow').first()).toBeVisible();
-    await expect(page.locator('.zone--list')).toHaveScreenshot('queue-projection-agent.png');
-  });
 });
 
 test.describe('workspace screen baselines', () => {
-  for (const screen of [
-    'contacts',
-    'channels',
-    'people',
-    'broadcasts',
-    'analytics',
-    'settings',
-  ] as const) {
-    test(`screen — ${screen}`, async ({ page }) => {
-      await openScreen(page, screen, screen === 'broadcasts' ? '?as=campaign_manager' : '');
-      await expect(page).toHaveScreenshot(`screen-${screen}.png`);
-      // The half the pixels cannot do: this fails the moment a screen is
-      // replaced by a different one, however similar the two look.
-      expect(await structureOf(page, '.workspace')).toMatchSnapshot(
-        `screen-${screen}-structure.txt`,
-      );
-    });
+  for (const screen of SCREENS) {
+    for (const theme of ['light', 'dark'] as const) {
+      test(`screen — ${screen} — ${theme}`, async ({ page }) => {
+        await openScreen(page, screen);
+        await setTheme(page, theme);
+        await expect(page).toHaveScreenshot(`screen-${screen}-${theme}.png`);
+        if (theme === 'light') {
+          // The half the pixels cannot do: this fails the moment a screen is
+          // replaced by a different one, however similar the two look.
+          expect(await structureOf(page, '.app__screen')).toMatchSnapshot(`screen-${screen}-structure.txt`);
+        }
+      });
+    }
   }
+
+  test('screen — channels, a connection opened', async ({ page }) => {
+    await openScreen(page, 'channels');
+    await page.locator('[data-act="channel-manage"][data-arg="instagram:cn-instagram-01"]').click();
+    await expect(page.locator('[data-connection="cn-instagram-01"] .connection__details')).toBeVisible();
+    await expect(page.locator('.connections')).toHaveScreenshot('channels-connection-open.png');
+  });
+
+  test('dialog — connect WhatsApp Business', async ({ page }) => {
+    await openScreen(page, 'channels');
+    await page.locator('[data-arg="connect-channel:whatsapp"]').first().click();
+    await expect(page.locator('.dialog')).toBeVisible();
+    await expect(page.locator('[role="dialog"]')).toHaveScreenshot('dialog-connect-whatsapp.png');
+  });
 });
