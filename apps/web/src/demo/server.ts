@@ -239,7 +239,7 @@ function seed(now: number): State {
   const contactFor = (index: number, name: string, phone: string, kind: Kind, course: string, city: string, labels: readonly string[], createdAgo: number): Row => ({
     id: uid('b', index + 1),
     displayName: name,
-    attributes: { 'المدينة': city },
+    attributes: {},
     version: 1,
     labels: labelRows(state, labels),
     customFields: [{ fieldId: FIELD_COURSE, value: course }, { fieldId: FIELD_CITY, value: city }],
@@ -285,7 +285,7 @@ function seed(now: number): State {
     state.handoffs.set(conversationId, []);
     state.collaborators.set(conversationId, index === 5 ? [{ membershipId: MEMBERS[4].id, label: MEMBERS[4].name, addedAt: at(30), participated: false }] : []);
     state.conversations.push({
-      id: conversationId, connectionId: CHANNELS[script.kind].id, peerIdentity: script.phone, teamId: null, assigneeMembershipId: ME,
+      id: conversationId, connectionId: CHANNELS[script.kind].id, peerIdentity: script.name, teamId: null, assigneeMembershipId: ME,
       status: script.status, priority: script.priority, version: 4, waitingSince: script.unread ? String(last.at) : null,
       inboxLabel: CHANNELS[script.kind].inbox, channel: script.kind, participantMembershipIds: [ME], contactId: contact.id,
       pendingReason: script.status === 'pending' ? 'بانتظار عنوان الشحن من العميلة' : null,
@@ -519,7 +519,7 @@ export function createDemoServer(clock: () => number = () => Date.now()): FetchL
           const contact = state.contacts[SCRIPTS.length] as Row;
           const identity = (contact.identities as Row[])[0] as Row;
           conversation = {
-            id, connectionId: CHANNELS[card.channel as Kind].id, peerIdentity: identity.externalId, teamId: null, assigneeMembershipId: ME,
+            id, connectionId: CHANNELS[card.channel as Kind].id, peerIdentity: String(contact.displayName ?? identity.externalId), teamId: null, assigneeMembershipId: ME,
             status: 'open', priority: card.priority, version: 2, waitingSince: card.waitingSinceAt, inboxLabel: card.inboxLabel,
             channel: card.channel, participantMembershipIds: [ME], contactId: contact.id, pendingReason: null, snoozedUntil: null,
             snoozeTimezone: null, resolution: null, resolvedAt: null, lastActivityAt: String(card.waitingSinceAt), ownerState: 'human_active',
@@ -542,7 +542,7 @@ export function createDemoServer(clock: () => number = () => Date.now()): FetchL
       if (conversation === undefined) return notFound();
       if (action === undefined && method === 'GET') return ok(conversation);
       if (action === 'messages' && method === 'GET') {
-        return page([...(state.messages.get(id) ?? [])].sort((a, b) => String(b.at).localeCompare(String(a.at))));
+        return page([...(state.messages.get(id) ?? [])].sort((a, b) => String(a.at).localeCompare(String(b.at))));
       }
       if (action === 'messages' && method === 'POST') {
         const text = typeof body.text === 'string' ? body.text : typeof body.body === 'string' ? body.body : '';
