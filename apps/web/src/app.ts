@@ -1,6 +1,7 @@
 import type { ActionContext } from './actions';
 import { runAction } from './actions';
 import { ApiClient, API_BASE_URL, csrfFromCookie, type FetchLike } from './api/client';
+import { createDemoServer, isDemo, silentEventSource } from './demo/server';
 import { ChannelsApi } from './api/channels';
 import { ContactsApi } from './api/contacts';
 import { ConversationsApi } from './api/conversations';
@@ -290,11 +291,14 @@ export function boot(
   const existing = document_.getElementById('app');
   const root = existing ?? document_.body.appendChild(document_.createElement('div'));
   root.id = 'app';
+  // `?demo=1` opens the sample workspace, answered in the browser; nothing else changes.
+  const demo = isDemo(document_.location.search);
   return mount({
     root,
     host,
-    fetch: (input, init) => globalThis.fetch(input, init),
-    readCsrfToken: () => csrfFromCookie(document_.cookie),
+    fetch: demo ? createDemoServer() : (input, init) => globalThis.fetch(input, init),
+    readCsrfToken: demo ? () => 'demo' : () => csrfFromCookie(document_.cookie),
+    openEventSource: demo ? silentEventSource : undefined,
     preferences: browserStore(host),
     prefersDark: () => host.matchMedia?.('(prefers-color-scheme: dark)').matches === true,
   });
