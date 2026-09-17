@@ -229,7 +229,11 @@ export class InvitationService {
       tenantId,
     ]);
 
-    await this.delivery.deliver({
+    // Inside this transaction, on this executor. The invitation and the record
+    // that says "send this email" commit together or not at all.
+    await this.delivery.deliver(sql, {
+      tenantId,
+      invitationId,
       email: request.email,
       token,
       tenantName: requireRow(tenant.rows, 'the company vanished mid-transaction').name,

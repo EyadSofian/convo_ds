@@ -1,3 +1,5 @@
+import type { SqlExecutor } from '@convo/domain';
+
 /**
  * Where a recovery token goes.
  *
@@ -7,21 +9,29 @@
  * reset this account", which is the whole attack the generic-response rule
  * exists to prevent.
  *
- * The port is injectable so tests can observe what was sent without the product
- * ever gaining a code path that leaks it.
+ * **`deliver` takes the caller's transaction.** The challenge row and the record
+ * that says "send this email" commit together. That is not only durability: a
+ * provider call on this path would make the endpoint's *latency* and its
+ * *failure mode* depend on whether the address has an account, and both of those
+ * are account-existence oracles. Writing a row costs the same either way.
+ *
+ * The port stays injectable so tests can observe what was sent without the
+ * product ever gaining a code path that leaks it.
  */
 export interface RecoveryMessage {
+  /** The challenge's own id. It is the outbox idempotency key. */
+  readonly challengeId: string;
   readonly email: string;
   readonly token: string;
   readonly expiresAt: Date;
 }
 
 export interface RecoveryDeliveryPort {
-  deliver(message: RecoveryMessage): Promise<void>;
+  deliver(sql: SqlExecutor, message: RecoveryMessage): Promise<void>;
 }
 
 /**
- * The default adapter until a real email provider is configured.
+ * The adapter used outside production when no outbox is wanted.
  *
  * It logs that a recovery message *would* be sent, with the address redacted
  * and **without the token**, and returns. It deliberately does not throw: a
@@ -29,12 +39,12 @@ export interface RecoveryDeliveryPort {
  * delivery is configured, or the response itself becomes the oracle.
  *
  * This is not a working email integration and must never be described as one.
- * `docs/execution/current-task.md` records it as an unconfigured port.
+ * The composition root binds `OutboxRecoveryDelivery` instead.
  */
 export class LoggingRecoveryDelivery implements RecoveryDeliveryPort {
   constructor(private readonly log: (line: string) => void = console.info) {}
 
-  async deliver(message: RecoveryMessage): Promise<void> {
+  deliver(_sql: SqlExecutor, message: RecoveryMessage): Promise<void> {
     this.log(
       `convo: password recovery prepared for ${redactEmail(message.email)}; ` +
         `no delivery adapter is configured, so nothing was sent. ` +

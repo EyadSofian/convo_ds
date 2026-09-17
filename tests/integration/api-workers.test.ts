@@ -1,7 +1,7 @@
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createApiApplication, requiresBroker, startApi } from '../../apps/api/src/app.js';
+import { brokerConfigured, createApiApplication, requiresBroker, startApi } from '../../apps/api/src/app.js';
 import type { BrokerPort } from '../../apps/api/src/broker/broker.port.js';
 import { BrokerRelayService } from '../../apps/api/src/broker/relay.service.js';
 import { CampaignPlannerService } from '../../apps/api/src/campaigns/campaign-planner.service.js';
@@ -9,6 +9,8 @@ import { CampaignReportExportService } from '../../apps/api/src/campaigns/report
 import { PROCESS_ROLES, parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
+import { AutomationRunnerService } from '../../apps/api/src/automations/automation-runner.service.js';
+import { EmailOutboxService } from '../../apps/api/src/email/email-outbox.service.js';
 import type { WorkerRole } from '../../apps/api/src/workers/worker-roles.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig } from '../../packages/domain/src/index.js';
@@ -109,6 +111,7 @@ describe('the worker roles', () => {
     'worker-interactive',
     'worker-campaign',
     'worker-integration',
+    'worker-automation',
     'worker-report',
   ])('runs a tick for %s against a real database', async (role) => {
     const tick = tickFor(role, { app: api.app, concurrency: 2 });
@@ -198,13 +201,99 @@ describe('process roles', () => {
     }
   });
 
-  it('names the one role that cannot run without a broker', () => {
-    // The integration worker exists to publish to one, so starting it without
-    // a broker would be a process whose only job is impossible. Everything else
-    // degrades instead: the outbox simply grows, visibly.
-    expect(requiresBroker('worker-integration')).toBe(true);
+  it('fails the integration worker closed only when a broker is configured', () => {
+    // A broker that is configured and unreachable is a failure worth refusing
+    // to start over: the alternative is a process reporting healthy while
+    // events pile up unsent.
+    expect(requiresBroker('worker-integration', true)).toBe(true);
+  });
+
+  it('lets the integration worker run when no broker is configured at all', () => {
+    // This is the regression that kept automation scheduling out of production
+    // for an entire release (ADR-0018). "Nobody configured a broker" is a fact
+    // about the installation, not an outage: the relay skips and its outbox
+    // grows visibly, while email delivery — which needs no broker — carries on.
+    expect(requiresBroker('worker-integration', false)).toBe(false);
+  });
+
+  it('never makes any other role wait on a broker', () => {
     for (const role of PROCESS_ROLES.filter((entry) => entry !== 'worker-integration')) {
-      expect(requiresBroker(role)).toBe(false);
+      expect(requiresBroker(role, true)).toBe(false);
+      expect(requiresBroker(role, false)).toBe(false);
     }
+  });
+
+  it('reads broker configuration from presence, not from reachability', () => {
+    expect(brokerConfigured({})).toBe(false);
+    expect(brokerConfigured({ CONVO_BROKER_URL: '   ' })).toBe(false);
+    expect(brokerConfigured({ CONVO_BROKER_URL: 'amqps://broker.example' })).toBe(true);
+  });
+});
+
+describe('the automation worker', () => {
+  it('materializes a due schedule, and the integration worker does not', async () => {
+    // The whole point of ADR-0018: scheduling used to live in the broker-gated
+    // worker, which could not boot and was therefore never deployed, so no
+    // schedule was ever materialized in production.
+    const runner = api.app.get(AutomationRunnerService);
+    const automationId = await withTenant(api.pool, api.tenantId, async (client) => {
+      const created = await client.query<{ id: string }>(
+        `INSERT INTO automations (tenant_id, name, state, workflow, timezone, activated_at, next_run_at)
+         VALUES ($1, 'Worker drill', 'active', $2::jsonb, 'UTC', now(), now() - interval '1 minute')
+         RETURNING id::text`,
+        [
+          api.tenantId,
+          JSON.stringify({
+            version: 1,
+            trigger: { type: 'schedule', config: {} },
+            target: { type: 'matching_conditions', config: {} },
+            steps: [{ id: 'step_1', type: 'condition', config: {} }],
+            schedule: { kind: 'one_time', at: '2030-01-01T09:00:00.000Z' },
+            safety: { approvalRequired: true, duplicateWindowSeconds: 86_400 },
+          }),
+        ],
+      );
+      const id = created.rows[0]?.id ?? '';
+      await client.query(
+        `INSERT INTO automation_schedule_queue (tenant_id, automation_id, due_at)
+         VALUES ($1, $2, now() - interval '1 minute')`,
+        [api.tenantId, id],
+      );
+      return id;
+    });
+    expect(automationId).not.toBe('');
+    expect(await runner.pendingTenants()).toContain(api.tenantId);
+
+    // The integration worker must leave it alone: it owns email and the relay.
+    const integration = await tickFor('worker-integration', { app: api.app, concurrency: 2 })();
+    expect(integration.handled).toBe(0);
+
+    const automation = await tickFor('worker-automation', { app: api.app, concurrency: 2 })();
+    // One unit materializes the run and one plans it. Both are durable work.
+    expect(automation.handled).toBe(2);
+
+    // And it is exactly once: the idempotency key is the scheduled instant.
+    const again = await tickFor('worker-automation', { app: api.app, concurrency: 2 })();
+    expect(again.handled).toBe(0);
+  });
+});
+
+describe('the integration worker', () => {
+  it('drains the email outbox on its tick', async () => {
+    // Email delivery has a worker for the first time in this release. Without
+    // this, an invitation is queued and nothing ever sends it.
+    const outbox = api.app.get(EmailOutboxService);
+    await outbox.enqueue({
+      kind: 'password_recovery',
+      idempotencyKey: `worker-drill-${String(Date.now())}`,
+      email: 'worker@digital-school.test',
+      locale: 'en',
+      token: 'd'.repeat(43),
+      expiresAt: new Date(Date.now() + 3_600_000),
+    });
+    const result = await tickFor('worker-integration', { app: api.app, concurrency: 2 })();
+    expect(result.handled).toBeGreaterThanOrEqual(1);
+    const backlog = await outbox.backlog();
+    expect(backlog.pending).toBe(0);
   });
 });

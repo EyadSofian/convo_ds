@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ApiError } from '../api/client';
 import { createState } from '../state';
 import type { AppState } from '../state';
-import { loadingScreen, renderGate } from './auth';
+import { loadingScreen, renderGate, renderPublicAuth } from './auth';
 
 /**
  * The gate: everything a visitor can see before the server confirms a session.
@@ -149,5 +149,57 @@ describe('signed in with nowhere to go', () => {
     expectNothingProtected(element);
     state.live.busy = 'sign-out';
     expect((renderGate(state).querySelector('[data-act="live-signout"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('public invitation and recovery flows', () => {
+  const token = 'a'.repeat(43);
+
+  it('renders invitation validation, credential fields and completion without workspace chrome', () => {
+    const state = gate();
+    state.route = { screen: 'accept-invitation', conversationId: null, params: {} };
+    expect(renderPublicAuth(state).textContent).toContain('This link is invalid');
+    state.route = { ...state.route, params: { token } };
+    state.formErrors = { authPassword: 'Use at least 12 characters.' };
+    state.dialogForm = { authPassword: 'secret' };
+    state.live.busy = 'live-accept-invitation';
+    const form = renderPublicAuth(state);
+    expect(form.querySelector('form')?.getAttribute('data-submit')).toBe('live-accept-invitation');
+    expect((form.querySelector('#authPassword') as HTMLInputElement).value).toBe('secret');
+    expect((form.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+    expectNothingProtected(form);
+    state.authFlowComplete = 'invitation';
+    expect(renderPublicAuth(state).textContent).toContain('Invitation accepted');
+  });
+
+  it('renders request, token, errors and both recovery success states', () => {
+    const state = gate('ar');
+    state.route = { screen: 'reset-password', conversationId: null, params: {} };
+    state.live.error = failure(500);
+    state.formErrors = { recoveryEmail: 'bad' };
+    state.dialogForm = { recoveryEmail: 'x' };
+    let page = renderPublicAuth(state);
+    expect(page.querySelector('[role="alert"]')).not.toBeNull();
+    expect(page.querySelector('form')?.getAttribute('data-submit')).toBe('live-request-recovery');
+    expect((page.querySelector('#recovery-email') as HTMLInputElement).value).toBe('x');
+
+    state.route = { ...state.route, params: { token } };
+    state.live.error = { code: 'bad', message: 'bad', requestId: 'req-x', status: 400, details: [{ code: 'invalid_or_expired', message: 'bad', field: 'token' }] };
+    page = renderPublicAuth(state);
+    expect(page.textContent).toContain('انتهت صلاحية الرابط');
+    expect(page.textContent).toContain('req-x');
+    for (const error of [
+      { code: 'bad', message: 'bad', requestId: null, status: 429, details: [] },
+      { code: 'network', message: 'bad', requestId: null, status: null, details: [] },
+      { code: 'bad', message: 'bad', requestId: null, status: 500, details: [] },
+    ]) {
+      state.live.error = error;
+      expect(renderPublicAuth(state).querySelector('[role="alert"]')).not.toBeNull();
+    }
+    state.live.error = null;
+    state.authFlowComplete = 'recovery-request';
+    expect(renderPublicAuth(state).textContent).toContain('تحقق من بريدك');
+    state.authFlowComplete = 'recovery';
+    expect(renderPublicAuth(state).textContent).toContain('تم تغيير كلمة المرور');
   });
 });

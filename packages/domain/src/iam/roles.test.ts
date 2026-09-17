@@ -30,11 +30,11 @@ const ROLE_MIGRATION = readFileSync(
  * Reading only 0007 would let a later migration add a grant this module has
  * never heard of, which is exactly the drift these tests exist to catch.
  */
-const GRANT_MIGRATIONS = ['0007_role_matrix.sql', '0018_work_routing.sql', '0019_metadata_catalogue.sql'].map((name) =>
+const GRANT_MIGRATIONS = ['0007_role_matrix.sql', '0018_work_routing.sql', '0019_metadata_catalogue.sql', '0028_automation_foundation.sql'].map((name) =>
   readFileSync(fileURLToPath(new URL(`../../../database/migrations/${name}`, import.meta.url)), 'utf8'),
 );
 
-const PERMISSION_MIGRATIONS = ['0003_permission_catalogue.sql', '0018_work_routing.sql', '0019_metadata_catalogue.sql'].map((name) =>
+const PERMISSION_MIGRATIONS = ['0003_permission_catalogue.sql', '0018_work_routing.sql', '0019_metadata_catalogue.sql', '0028_automation_foundation.sql'].map((name) =>
   readFileSync(fileURLToPath(new URL(`../../../database/migrations/${name}`, import.meta.url)), 'utf8'),
 );
 

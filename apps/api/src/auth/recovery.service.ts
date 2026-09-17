@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { asExecutor } from '@convo/database';
 import type { Pool } from 'pg';
 import type { ApiConfig } from '../config.js';
 import { ApiHttpError } from '../http-error.js';
@@ -95,21 +96,41 @@ export class RecoveryService {
     // real, and the write cost is the same.
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + CHALLENGE_TTL_SECONDS * 1000);
-    await this.pool.query(
-      `INSERT INTO password_recovery_challenges
-         (id, user_id, target_hash, token_hash, expires_at)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [
-        randomUUID(),
-        userId,
-        this.fingerprint(TARGET_PURPOSE, email),
-        this.fingerprint(TOKEN_PURPOSE, token),
-        expiresAt,
-      ],
-    );
+    const challengeId = randomUUID();
 
-    if (userId !== null) {
-      await this.delivery.deliver({ email, token, expiresAt });
+    // One transaction for the challenge and its queued email.
+    //
+    // The delivery port writes an outbox row rather than calling a provider, so
+    // the two commit together and this endpoint performs the same *kind* of
+    // work — one INSERT, sometimes two — for every address. A provider call
+    // here would make both the latency and the failure mode of this request
+    // depend on whether the account exists, which is the oracle the generic
+    // 202 exists to close.
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const sql = asExecutor(client);
+      await sql.query(
+        `INSERT INTO password_recovery_challenges
+           (id, user_id, target_hash, token_hash, expires_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          challengeId,
+          userId,
+          this.fingerprint(TARGET_PURPOSE, email),
+          this.fingerprint(TOKEN_PURPOSE, token),
+          expiresAt,
+        ],
+      );
+      if (userId !== null) {
+        await this.delivery.deliver(sql, { challengeId, email, token, expiresAt });
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
     }
 
     return { accepted: true };

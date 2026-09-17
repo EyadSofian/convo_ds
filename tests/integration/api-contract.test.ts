@@ -119,6 +119,7 @@ describe('pinned OpenAPI contract', () => {
       "rotateChannelCredential",
       "listOutboundMessages",
       "queueOutboundMessage",
+      "syncWhatsAppTemplates",
       "testChannelConnection",
       "listChannelCatalogue",
       "listContacts",
@@ -210,6 +211,15 @@ describe('pinned OpenAPI contract', () => {
       "createAudience",
       "updateAudience",
       "retireAudience",
+      "ingestAutomationEvent",
+      "listAutomationTemplates",
+      "listApprovedWhatsAppTemplates",
+      "useAutomationTemplate",
+      "listAutomations",
+      "createAutomation",
+      "updateAutomation",
+      "transitionAutomation",
+      "listAutomationRuns",
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);

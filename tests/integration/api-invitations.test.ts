@@ -2,6 +2,7 @@ import argon2 from 'argon2';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
+import type { SqlExecutor } from '../../packages/domain/src/ports/sql.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
@@ -16,6 +17,16 @@ import {
   migrateScratch,
   scratchRuntimePool,
 } from '../support/scratch.js';
+
+/**
+ * The executor a logging adapter is handed.
+ *
+ * It rejects every query, which is the assertion: the adapter that is
+ * supposed to send nothing must also write nothing.
+ */
+const NO_SQL: SqlExecutor = {
+  query: () => Promise.reject(new Error("the logging adapter must not touch the database")),
+};
 
 /**
  * Invitations against a real PostgreSQL (IAM-06).
@@ -33,7 +44,7 @@ const NEW_PASSWORD = 'a brand new member password, long enough';
 class CapturingDelivery {
   readonly sent: InvitationMessage[] = [];
 
-  async deliver(message: InvitationMessage): Promise<void> {
+  async deliver(_sql: SqlExecutor, message: InvitationMessage): Promise<void> {
     this.sent.push(message);
     return Promise.resolve();
   }
@@ -796,7 +807,9 @@ describe('the default invitation delivery adapter', () => {
     const lines: string[] = [];
     const delivery = new LoggingInvitationDelivery((line) => lines.push(line));
     const token = 'DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD';
-    await delivery.deliver({
+    await delivery.deliver(NO_SQL, {
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      invitationId: '00000000-0000-4000-8000-000000000002',
       email: 'tarek@digital-school.example',
       token,
       tenantName: 'Digital School',

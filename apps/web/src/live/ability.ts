@@ -113,11 +113,14 @@ export function hasPermission(live: LiveState, key: string): boolean {
  * preferences, which every signed-in member has.
  */
 export const SCREEN_KEYS: Readonly<Record<ScreenId, readonly string[]>> = {
+  'accept-invitation': [],
+  'reset-password': [],
   inbox: ['conversation.read', 'conversation.unassigned.preview'],
   contacts: ['contact.read'],
   channels: ['channel.manage'],
   people: ['member.manage', 'role.manage'],
   broadcasts: ['campaign.read', 'campaign.draft'],
+  automations: ['automation.read', 'automation.create'],
   analytics: ['report.read'],
   settings: [],
 };
@@ -125,6 +128,7 @@ export const SCREEN_KEYS: Readonly<Record<ScreenId, readonly string[]>> = {
 /** The screens offered in the navigation, in their navigation order. */
 export function allowedScreens(live: LiveState): readonly ScreenId[] {
   return SCREENS.filter((screen) => {
+    if (screen === 'accept-invitation' || screen === 'reset-password') return false;
     const keys = SCREEN_KEYS[screen];
     return keys.length === 0 || keys.some((key) => hasPermission(live, key));
   });

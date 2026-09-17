@@ -4,6 +4,16 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
+## Current slice — advanced automation foundation (2026-09-17)
+
+**Delivered.** Migrations `0028`–`0029` add the permission catalogue, 19 editable product presets, synchronized WhatsApp template records, versioned automation definitions, append-only events/logs, separate run/recipient evidence and a contentless durable schedule queue. The workflow contract supports 24 trigger types, ten ordered step types, six dynamic target types and up to 50 steps. Schedules cover one-time, daily, weekly, monthly, custom recurrence and event-relative offsets.
+
+The API now lists/creates/updates/transitions automations, creates drafts from templates, lists approved WhatsApp templates, ingests idempotent internal/LMS/CRM events and lists runs. Duplicate event keys with changed payload are refused; scheduled materialization creates the run and advances its cursor atomically. The browser has first-class **Templates / My Automations / Runs & Logs** views and a human-readable sequential builder with trigger, audience, ordered actions, schedule and WhatsApp variable mapping.
+
+**Production boundary.** The definition, UI, event intake, schedule materialization and evidence foundation are implemented. The general multi-step executor, recipient planning for every target, delayed-step queue, non-message action handlers, optional approval queue, test runs and recipient/log detail routes are the next slice. Meta template synchronization and live sends remain blocked until authorized Meta assets are supplied; no provider templates, students or courses were fabricated.
+
+---
+
 ## Current slice — requirements audit, shared segments and Digital School brand (2026-09-17)
 
 **Delivered.** The supplied requirements questionnaire has been reconciled against executable code, migrations and routes in [`../PRODUCT_AUDIT.md`](../PRODUCT_AUDIT.md); unknown client facts are isolated in [`../CLIENT_CONFIGURATION_GAPS.md`](../CLIENT_CONFIGURATION_GAPS.md). Migrations 0026 and 0027 add validated email/phone custom fields, saved views and reusable audience definitions under tenant RLS. The API exposes version-fenced create/list/update/retire operations for private, team and workspace saved views and for audiences. A bounded versioned condition AST is shared by the domain vocabulary intended for audiences, routing, label rules and automations.
@@ -24,7 +34,7 @@ The production deployment now has a persistent PostgreSQL service, a private API
 
 The cluster bootstrap completed once and all 25 migrations applied. The installation is bootstrapped in SaaS mode with the first tenant `Digital School`. Live verification through the public origin proved the installation descriptor, owner login, hardened cookies, current session, memberships, channels, campaigns, campaign report, people and inbox endpoints. Every long-running service reported `SUCCESS`; the database bootstrap service exited successfully as designed.
 
-Provider-live delivery remains intentionally blocked until the customer supplies authorized Meta application credentials and channel asset IDs. CRM work remains deferred by scope. The exact production topology and runbook are in `docs/runbooks/railway-production.md`.
+Provider-live delivery remains intentionally blocked until the customer supplies authorized Meta application credentials and channel asset IDs. CRM work remains deferred by scope. The exact production topology and runbook are in `docs/runbooks/RAILWAY_PRODUCTION.md`.
 
 ## Production fix — CSRF cookie path (2026-09-13)
 

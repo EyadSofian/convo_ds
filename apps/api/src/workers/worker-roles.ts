@@ -8,6 +8,8 @@ import { LifecycleService } from '../conversations/lifecycle.service.js';
 import { RoutingService } from '../conversations/routing.service.js';
 import { CampaignPlannerService } from '../campaigns/campaign-planner.service.js';
 import { CampaignReportExportService } from '../campaigns/report-export.service.js';
+import { AutomationRunnerService } from '../automations/automation-runner.service.js';
+import { EmailOutboxService } from '../email/email-outbox.service.js';
 import type { WorkerTick } from './worker-loop.js';
 
 /**
@@ -43,6 +45,9 @@ export function tickFor(role: WorkerRole, context: WorkerContext): () => Promise
   }
   if (role === 'worker-report') {
     return () => reportTick(context);
+  }
+  if (role === 'worker-automation') {
+    return () => automationTick(context);
   }
   return () => integrationTick(context);
 }
@@ -154,15 +159,58 @@ async function outboundTick(
 const ROUND_MULTIPLIER = 4;
 
 /**
- * The relay to the durable broker.
+ * Outbound third-party integration: email, and the broker relay.
  *
- * Its own role because it is the one worker whose health is about a dependency
- * rather than about the database: when the broker is unreachable this is the
- * process whose backlog grows, and seeing that is how an operator learns the
- * broker is down before anybody notices missing events.
+ * These two belong together because they are the same job — getting something
+ * this installation decided out to a system it does not own — and because they
+ * share a failure mode an operator reads the same way: when a third party is
+ * down, this is the process whose backlog grows, and seeing that is how the
+ * outage is noticed before a person reports a missing invitation.
+ *
+ * Email is drained first and unconditionally. It used to have no worker at all;
+ * the invitation and recovery paths called a provider inline, which is why they
+ * were not durable and, for recovery, why they were an account-existence
+ * oracle. It runs even when no broker is configured, which is the whole point
+ * of ADR-0018 — this worker is no longer hostage to a dependency most
+ * installations do not have.
+ *
+ * Automation scheduling is deliberately **not** here any more. It was, and
+ * that is why it never ran: this worker failed closed on a broker nobody had
+ * configured, so it was never deployed, so schedules were never materialized.
+ * It has its own role now.
  */
 async function integrationTick(context: WorkerContext): Promise<WorkerTick> {
+  const email = context.app.get(EmailOutboxService);
+  const delivered = await email.drain(context.concurrency * 5, 'worker-integration');
+
+  // Skipped rather than failed when no broker is configured: the relay's own
+  // outbox grows visibly, which is the correct and observable behaviour for a
+  // transport this installation has not been given (ADR-0004).
   const relay = context.app.get(BrokerRelayService);
-  const result = await relay.drain(context.concurrency * 10);
-  return { handled: result.claimed };
+  const relayed = await relay.drain(context.concurrency * 10);
+
+  return { handled: delivered.claimed + relayed.claimed };
+}
+
+/**
+ * Automation scheduling.
+ *
+ * Its own role, and its own Railway service, because coupling it to the broker
+ * relay is exactly what stopped it running. Nothing here needs a broker, a
+ * provider or any external system: it reads the durable schedule queue, writes
+ * `automation_runs`, and advances each automation's cursor.
+ *
+ * The queue it drains is contentless — company, automation id and a due time —
+ * so discovery needs no tenant context, and the workflow itself is only ever
+ * read inside that company's forced-RLS transaction.
+ */
+async function automationTick(context: WorkerContext): Promise<WorkerTick> {
+  const automations = context.app.get(AutomationRunnerService);
+  const now = new Date();
+  let handled = 0;
+  for (const tenantId of await automations.pendingTenants()) {
+    handled += await automations.enqueueDue(tenantId, now, context.concurrency * 10);
+    handled += await automations.execute(tenantId, context.concurrency * 10);
+  }
+  return { handled };
 }

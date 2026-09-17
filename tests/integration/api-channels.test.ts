@@ -9,6 +9,7 @@ import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
+import type { TemplateFetchResult } from '../../apps/api/src/channels/channel-transport.js';
 import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig } from '../../packages/domain/src/index.js';
@@ -1103,12 +1104,14 @@ describe('with a stubbed provider transport', () => {
   let api: Harness;
   let owner: Browser;
   let answer: ConnectionCheck;
+  let templatesAnswer: TemplateFetchResult = { ok: true, templates: [] };
 
   beforeAll(async () => {
     api = await createHarness({
       channelTransport: {
         name: 'test-stub',
         validateConnection: () => Promise.resolve(answer),
+        fetchTemplates: () => Promise.resolve(templatesAnswer),
         send: () =>
           Promise.resolve({
             status: 'definitely_rejected' as const,
@@ -1168,6 +1171,43 @@ describe('with a stubbed provider transport', () => {
     // telling an operator to keep waiting would be the wrong instruction.
     expect(connection['status']).toBe('degraded');
     expect(connection['last_error_code']).toBe('token_expired');
+  });
+
+  it('synchronizes the remote template catalogue and disables removed entries', async () => {
+    const created = await connect(api, owner, 'phone-stub-templates');
+    const id = (created.json() as { data: { id: string } }).data.id;
+    templatesAnswer = { ok: true, templates: [
+      { providerId: 'provider-template-1', name: 'welcome', language: 'ar', category: 'utility', status: 'approved', components: [{ type: 'BODY', text: 'Hi {{1}}' }], variables: ['{{1}}'] },
+    ] };
+    const first = await send(api, owner, 'POST', `/channels/${id}/templates/sync`);
+    expect(first.statusCode, first.body).toBe(201);
+    expect((first.json() as { data: { imported: number; disabled: number } }).data).toMatchObject({ imported: 1, disabled: 0 });
+    templatesAnswer = { ok: true, templates: [] };
+    const second = await send(api, owner, 'POST', `/channels/${id}/templates/sync`);
+    expect((second.json() as { data: { imported: number; disabled: number } }).data).toMatchObject({ imported: 0, disabled: 1 });
+  });
+
+  it('records typed provider failures and refuses unsupported template connections', async () => {
+    const created = await connect(api, owner, 'phone-stub-template-failure');
+    const id = (created.json() as { data: { id: string } }).data.id;
+    templatesAnswer = { ok: false, code: 'provider_timeout', message: 'Timeout.', retryable: true };
+    expect((await send(api, owner, 'POST', `/channels/${id}/templates/sync`)).statusCode).toBe(503);
+    const listed = await send(api, owner, 'GET', '/channels');
+    const failed = (listed.json() as { data: Array<{ id: string; last_error_code: string | null }> }).data.find((item) => item.id === id);
+    expect(failed?.last_error_code).toBe('provider_timeout');
+    templatesAnswer = { ok: false, code: 'credential_rejected', message: 'Rejected.', retryable: false };
+    expect((await send(api, owner, 'POST', `/channels/${id}/templates/sync`)).statusCode).toBe(422);
+
+    const missing = await connect(api, owner, 'phone-stub-template-missing');
+    const missingId = (missing.json() as { data: { id: string } }).data.id;
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`UPDATE channel_credentials SET status='revoked',revoked_at=now() WHERE connection_id=$1`, [missingId]));
+    expect((await send(api, owner, 'POST', `/channels/${missingId}/templates/sync`)).statusCode).toBe(409);
+
+    const web = await send(api, owner, 'POST', '/channels', {
+      kind: 'web_chat', externalAssetId: 'widget-template-test', displayName: 'Widget', accessToken: 'signing-key-value', settings: { origins: ['https://school.example'] },
+    });
+    const webId = (web.json() as { data: { id: string } }).data.id;
+    expect((await send(api, owner, 'POST', `/channels/${webId}/templates/sync`)).statusCode).toBe(422);
   });
 });
 
@@ -1688,6 +1728,35 @@ describe('the outbound path', () => {
     expect((read.json() as { data: { command_state: string } }).data.command_state).toBe(
       'outcome_unknown',
     );
+  });
+
+  it('bounds orphan recovery and leaves the remainder claimable', async () => {
+    const ids: string[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const to = peer();
+      await openWindow(to);
+      const response = await queue({ text: `orphan-${String(index)}`, peerIdentity: to });
+      const id = (response.json() as { data: { id: string } }).data.id;
+      ids.push(id);
+      await withTenant(api.pool, api.tenantId, (client) =>
+        client.query(
+          `INSERT INTO outbound_attempts (tenant_id, message_id, attempt_no, started_at)
+           VALUES ($1, $2, 1, now() - interval '10 minutes')`,
+          [api.tenantId, id],
+        ),
+      );
+    }
+
+    expect(await dispatcher.recoverOrphanedAttempts(api.tenantId, 0, 1)).toBe(1);
+    const afterFirst = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ pending: string }>(
+        `SELECT count(*)::text AS pending FROM outbound_attempts
+          WHERE message_id = ANY($1::uuid[]) AND outcome IS NULL`,
+        [ids],
+      ),
+    );
+    expect(afterFirst.rows[0]?.pending).toBe('1');
+    expect(await dispatcher.recoverOrphanedAttempts(api.tenantId, 0, 1)).toBe(1);
   });
 
   it('retries a transient rejection with backoff, then gives up', async () => {

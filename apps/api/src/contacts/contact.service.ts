@@ -6,7 +6,7 @@ import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
-import { readMetadata } from '../metadata/metadata.service.js';
+import { readMetadata, readMetadataBatch } from '../metadata/metadata.service.js';
 import type { CustomFieldEntry, Label } from '../metadata/metadata.service.js';
 
 /**
@@ -208,13 +208,22 @@ export class ContactService {
           inboxes,
         ],
       );
-      const identities = await identitiesFor(
-        sql,
-        rows.rows.map((row) => row.id),
+      // Both lookups are batched. Reading metadata per row here was 2 queries
+      // × up to 200 rows — 400 round trips for one request, and the entire cost
+      // the load run attributed to contact search. See `readMetadataBatch`.
+      const ids = rows.rows.map((row) => row.id);
+      const [identities, metadata] = await Promise.all([
+        identitiesFor(sql, ids),
+        readMetadataBatch(sql, 'contact', ids),
+      ]);
+      return rows.rows.map((row) =>
+        summaryOf(
+          row,
+          identities.get(row.id) ?? [],
+          /* c8 ignore next -- readMetadataBatch returns an entry for every id it was given */
+          metadata.get(row.id) ?? { labels: [], customFields: [] },
+        ),
       );
-      return Promise.all(rows.rows.map(async (row) =>
-        summaryOf(row, identities.get(row.id) ?? [], await readMetadata(sql, 'contact', row.id)),
-      ));
     });
   }
 

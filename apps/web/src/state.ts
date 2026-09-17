@@ -60,6 +60,8 @@ export interface AppState {
   formErrors: Record<string, string>;
   /** Whether the sign-in password is shown in clear. Reset with the form. */
   passwordVisible: boolean;
+  /** Completion state for the two public, single-use credential flows. */
+  authFlowComplete: 'invitation' | 'recovery-request' | 'recovery' | null;
   /** Desktop navigation width. A visual preference, persisted locally. */
   navCollapsed: boolean;
   /** The navigation drawer at narrow widths. Never persisted. */
@@ -128,6 +130,7 @@ export function createState(
     dialogForm: {},
     formErrors: {},
     passwordVisible: false,
+    authFlowComplete: null,
     navCollapsed: true,
     navOpen: false,
     listOpen: false,
@@ -200,11 +203,14 @@ export function applyRoute(state: AppState, route: Route): void {
 
 export function screenTitle(screen: ScreenId, lang: Lang): string {
   const titles: Record<ScreenId, Record<Lang, string>> = {
+    'accept-invitation': { ar: 'قبول الدعوة', en: 'Accept invitation' },
+    'reset-password': { ar: 'إعادة تعيين كلمة المرور', en: 'Reset password' },
     inbox: { ar: 'صندوق الوارد', en: 'Inbox' },
     contacts: { ar: 'جهات الاتصال', en: 'Contacts' },
     channels: { ar: 'القنوات', en: 'Channels' },
     people: { ar: 'الفريق والأدوار', en: 'People & roles' },
     broadcasts: { ar: 'الحملات', en: 'Campaigns' },
+    automations: { ar: 'الأتمتة', en: 'Automations' },
     analytics: { ar: 'التقارير', en: 'Analytics' },
     settings: { ar: 'الإعدادات', en: 'Settings' },
   };

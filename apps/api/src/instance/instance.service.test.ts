@@ -22,6 +22,10 @@ const CONFIG = {
     credentialKeys: [],
   },
   channelSecrets: {},
+  email: { provider: 'logging', from: '', resendApiKey: '' },
+  trustedProxyHops: 0,
+  channelTransport: 'none',
+  logLevel: 'info',
   workerConcurrency: 4,
   realtime: {
     pollMs: 500,

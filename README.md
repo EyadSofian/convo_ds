@@ -82,7 +82,7 @@ pnpm start:api
 - `GET /api/v1/me/memberships` و`GET /api/v1/tenants/{tenantId}/permissions` يطبقان العضوية النشطة وفحص `role.manage` داخل RLS.
 - العقد المنفّذ موجود في [`docs/api/openapi.v1.json`](docs/api/openapi.v1.json).
 
-نشر Railway الفعلي، وتوزيع خدمة الويب والـAPI والعمّال وقاعدة البيانات، موثّق في [`docs/runbooks/railway-production.md`](docs/runbooks/railway-production.md).
+نشر Railway الفعلي، وتوزيع خدمة الويب والـAPI والعمّال وقاعدة البيانات، موثّق في [`docs/runbooks/RAILWAY_PRODUCTION.md`](docs/runbooks/RAILWAY_PRODUCTION.md).
 
 ### الواجهة
 
@@ -108,11 +108,14 @@ pnpm test:security
 pnpm test:e2e
 pnpm test:a11y
 pnpm test:visual
+pnpm test:recovery
+pnpm test:load:target
+pnpm test:mutation
 ```
 
-اختبارات integration وcoverage تشغّل PostgreSQL 17.4 مؤقتًا داخل العملية ولا تحتاج Docker. آخر نتيجة مسجلة (2026-09-13): `test:unit` 1552؛ `test:integration` 509؛ `test:coverage` 104 ملفات و**2066 اختبارًا** بتغطية 100% للسطور والعبارات والدوال والفروع؛ `test:contracts` 170 + 121؛ `test:security` 374 مع تدقيق نظيف؛ `test:e2e` 242 على مقاسَي 1440 و1366؛ `test:a11y` 40 بلا أي مخالفة WCAG 2.1 AA؛ `test:visual` 33. كل الأوامر ترجع 0. كان `embedded-postgres` يحوّل نهاية أي تشغيلة Vitest تحمّل مشروع integration إلى `exit 0` حتى مع اختبارات فاشلة؛ أُصلح ذلك في `tests/support/global-setup.ts` وتُحقِّق منه باختبار فاشل عمدًا. عتبات التغطية عند 100 في `vitest.config.ts` ولا يجوز خفضها لتمرير تشغيلة.
+اختبارات integration وcoverage وrecovery وload تشغّل PostgreSQL 17.4 مؤقتًا داخل العملية ولا تحتاج Docker. آخر نتيجة مسجلة (2026-09-17): `test:unit` **1847**؛ `test:integration` **574**؛ `test:property` 5؛ `test:contracts` 170 + 123؛ `test:security` 377 مع تدقيق نظيف؛ `test:coverage` 131 ملفًا و**2426 اختبارًا** بتغطية **100%** للسطور والعبارات والدوال والفروع؛ `test:e2e` 242؛ `test:a11y` 40؛ `test:visual` 33؛ `test:recovery` **13**؛ و`test:load:target` بصفر أخطاء عند 10/25/50/100. `test:mutation` حقيقي ويجتاز الحد بنسبة **83.69%** (564 mutation محسوبة). التفاصيل في [`docs/audit/PRODUCTION_READINESS_REPORT.md`](docs/audit/PRODUCTION_READINESS_REPORT.md).
 
-`test:security` يشغّل مجموعات العزل والتفويض والتحقق من التوقيع، ثم `pnpm audit --audit-level high --prod` — وهو نظيف حاليًا بلا ثغرات معروفة. `test:contracts` يشغّل عقود المحوّلات ومطابقة OpenAPI في الاتجاهين. `test:mutation` و`test:load:target` و`test:recovery` ما زالت ترجع 1 معلنةً `not_run` أو `blocked_env` بصراحة.
+`test:security` يشغّل مجموعات العزل والتفويض والتحقق من التوقيع، ثم `pnpm audit --audit-level high --prod` — وهو نظيف حاليًا. تم أيضًا تنفيذ `pg_dump`/`pg_restore` حقيقي على Railway staging والتحقق من 32 migration، وتفعيل PITR والنسخ اليومية والأسبوعية في production مع نقطة استعادة مسماة. واختبار staging الحقيقي سجّل صفر أخطاء؛ التفاصيل في [`docs/audit/LOAD_TEST_REPORT.md`](docs/audit/LOAD_TEST_REPORT.md).
 
 ## المراجع الملزمة
 

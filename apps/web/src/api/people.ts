@@ -115,6 +115,18 @@ export class PeopleApi {
     return this.client.post<CurrentSession>('/auth/login', { body: { email, password } });
   }
 
+  requestRecovery(email: string): Promise<ApiResult<{ readonly status: string; readonly message: string }>> {
+    return this.client.post('/auth/recovery', { body: { email } });
+  }
+
+  completeRecovery(token: string, password: string): Promise<ApiResult<undefined>> {
+    return this.client.post<undefined>('/auth/recovery/complete', { body: { token, password } });
+  }
+
+  acceptInvitation(token: string, password: string): Promise<ApiResult<{ readonly tenant_id: string; readonly membership_id: string }>> {
+    return this.client.post(`/invitations/${encodeURIComponent(token)}/accept`, { body: { password } });
+  }
+
   logout(): Promise<ApiResult<undefined>> {
     return this.client.post<undefined>('/auth/logout');
   }

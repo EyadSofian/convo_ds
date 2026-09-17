@@ -1,6 +1,7 @@
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
+import type { SqlExecutor } from '../../packages/domain/src/ports/sql.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
@@ -15,6 +16,16 @@ import {
   migrateScratch,
   scratchRuntimePool,
 } from '../support/scratch.js';
+
+/**
+ * The executor a logging adapter is handed.
+ *
+ * It rejects every query, which is the assertion: the adapter that is
+ * supposed to send nothing must also write nothing.
+ */
+const NO_SQL: SqlExecutor = {
+  query: () => Promise.reject(new Error("the logging adapter must not touch the database")),
+};
 
 /**
  * Password recovery against a real PostgreSQL (IAM-03).
@@ -32,7 +43,7 @@ const NEW_PASSWORD = 'a replacement password that is long enough';
 class CapturingDelivery {
   readonly sent: RecoveryMessage[] = [];
 
-  async deliver(message: RecoveryMessage): Promise<void> {
+  async deliver(_sql: SqlExecutor, message: RecoveryMessage): Promise<void> {
     this.sent.push(message);
     return Promise.resolve();
   }
@@ -438,7 +449,8 @@ describe('the default delivery adapter', () => {
     const lines: string[] = [];
     const delivery = new LoggingRecoveryDelivery((line) => lines.push(line));
     const token = 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
-    await delivery.deliver({
+    await delivery.deliver(NO_SQL, {
+      challengeId: '00000000-0000-4000-8000-000000000003',
       email: 'hana@digital-school.example',
       token,
       expiresAt: new Date('2026-09-09T12:00:00.000Z'),

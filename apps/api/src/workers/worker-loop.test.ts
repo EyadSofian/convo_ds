@@ -46,6 +46,11 @@ describe('runWorkerLoop', () => {
       errors: 0,
       offered: 0,
       achieved: 0,
+      // The heartbeat a worker's probe server reports. A `lastTickAt` that
+      // stops advancing is the only outward sign of a wedged loop.
+      lastTickAt: expect.any(String) as unknown as string,
+      lastErrorAt: null,
+      lastErrorMessage: null,
     });
     // Busy ticks do not sleep: backing off while there is work is how a queue
     // stops draining.

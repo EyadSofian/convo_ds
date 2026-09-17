@@ -21,11 +21,14 @@ import { button } from './parts.js';
  */
 
 const NAV_ICONS: Readonly<Record<ScreenId, IconName>> = {
+  'accept-invitation': 'mail',
+  'reset-password': 'lock',
   inbox: 'inbox',
   contacts: 'contacts',
   channels: 'channels',
   people: 'people',
   broadcasts: 'broadcasts',
+  automations: 'macro',
   analytics: 'analytics',
   settings: 'settings',
 };

@@ -191,14 +191,18 @@ Every operation below needs: one `operationId`, request/response/error schemas, 
 | Developer | `DELETE T/webhook-subscriptions/{id}` | `deleteWebhookSubscription` | `integration.manage` | P5 |
 | Developer | `GET T/webhook-deliveries` | `listWebhookDeliveries` | `integration.manage` | P5 |
 | Developer | `POST T/webhook-deliveries/{id}/replay` | `replayWebhookDelivery` | explicit replay grant | P5 |
-| Automation | `GET T/automations` | `listAutomations` | automation manage | P6 |
-| Automation | `POST T/automations` | `createAutomation` | automation manage + action ceiling | P6 |
-| Automation | `GET T/automations/{id}` | `getAutomation` | automation manage | P6 |
-| Automation | `PATCH T/automations/{id}` | `updateAutomation` | automation manage | P6 |
-| Automation | `POST T/automations/{id}/simulate` | `simulateAutomation` | automation manage; **no side effects** | P6 |
-| Automation | `POST T/automations/{id}/publish` | `publishAutomation` | automation manage | P6 |
-| Automation | `POST T/automations/{id}/rollback` | `rollbackAutomation` | automation manage | P6 |
-| Automation | `GET T/automation-runs/{id}` | `getAutomationRun` | automation manage | P6 |
+| Automation | `GET T/automation-templates` | `listAutomationTemplates` | `automation.read` | implemented |
+| Automation | `POST T/automation-templates/{key}/use` | `useAutomationTemplate` | `automation.create` | implemented |
+| Automation | `GET T/whatsapp-templates` | `listApprovedWhatsAppTemplates` | `automation.read` | implemented; provider sync asset-dependent |
+| Automation | `GET T/automations` | `listAutomations` | `automation.read` | implemented |
+| Automation | `POST T/automations` | `createAutomation` | `automation.create` | implemented |
+| Automation | `PATCH T/automations/{id}` | `updateAutomation` | `automation.edit` + version fence | implemented |
+| Automation | `POST T/automations/{id}/{act}` | `transitionAutomation` | activate/pause permission by act | implemented |
+| Automation | `POST T/automation-events` | `ingestAutomationEvent` | `automation.create` + idempotency | implemented |
+| Automation | `GET T/automation-runs` | `listAutomationRuns` | `automation.read` | implemented |
+| Automation | `POST T/automations/{id}/test` | `testAutomation` | `automation.test`; approved recipients only | remaining |
+| Automation | `GET T/automation-runs/{id}/recipients` | `listAutomationRecipients` | `automation.read` | remaining |
+| Automation | `GET T/automation-runs/{id}/logs` | `listAutomationLogs` | `automation.read` | remaining |
 | Ops config | `GET T/business-hours` | `getBusinessHours` | ops settings | P6 |
 | Ops config | `PUT T/business-hours` | `putBusinessHours` | ops settings | P6 |
 | Ops config | `GET T/routing` | `getRouting` | ops settings | P6 |

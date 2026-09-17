@@ -69,6 +69,11 @@ describe('migrate', () => {
       '0025_campaign_report_exports.sql',
       '0026_contact_field_email_phone.sql',
       '0027_views_and_audiences.sql',
+      '0028_automation_foundation.sql',
+      '0029_automation_event_queue.sql',
+      '0030_email_outbox.sql',
+      '0031_invitation_tenant_scope.sql',
+      '0032_automation_execution.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -83,6 +88,15 @@ describe('migrate', () => {
       'audience_snapshots',
       'audiences',
       'auth_rate_limits',
+      'automation_action_executions',
+      'automation_events',
+      'automation_logs',
+      'automation_recipients',
+      'automation_runs',
+      'automation_schedule_queue',
+      'automation_templates',
+      'automation_work_queue',
+      'automations',
       'broker_dead_letters',
       'broker_deliveries',
       'broker_outbox',
@@ -128,6 +142,7 @@ describe('migrate', () => {
       'conversation_wakes',
       'conversations',
       'custom_fields',
+      'email_deliveries',
       'idempotency_records',
       'inbound_events',
       'installations',
@@ -158,6 +173,7 @@ describe('migrate', () => {
       'user_sessions',
       'users',
       'webhook_receipts',
+      'whatsapp_templates',
     ]);
   });
 

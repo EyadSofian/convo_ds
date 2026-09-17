@@ -135,15 +135,21 @@ export class ChannelDispatcherService {
    * Deliberately separate from `dispatch`: recovery is not a retry, and running
    * it must never put anything back on the wire.
    */
-  async recoverOrphanedAttempts(tenantId: string, olderThanSeconds = 300): Promise<number> {
+  async recoverOrphanedAttempts(
+    tenantId: string,
+    olderThanSeconds = 300,
+    limit = 100,
+  ): Promise<number> {
     return withTenant(this.pool, tenantId, async (client) => {
       const sql = asExecutor(client);
       const orphans = await sql.query<{ id: string; message_id: string; campaign_recipient_id: string | null }>(
         `SELECT a.id::text,a.message_id::text,cr.id::text AS campaign_recipient_id
-           FROM outbound_attempts a LEFT JOIN campaign_recipients cr ON cr.command_id=a.message_id
+          FROM outbound_attempts a LEFT JOIN campaign_recipients cr ON cr.command_id=a.message_id
           WHERE a.outcome IS NULL AND a.started_at < now() - make_interval(secs => $1)
+          ORDER BY a.started_at, a.id
+          LIMIT $2
             FOR UPDATE OF a SKIP LOCKED`,
-        [olderThanSeconds],
+        [olderThanSeconds, limit],
       );
       for (const orphan of orphans.rows) {
         await sql.query(

@@ -903,6 +903,29 @@
         }
       }
     },
+    "/tenants/{tenantId}/channels/{connectionId}/templates/sync": {
+      "post": {
+        "operationId": "syncWhatsAppTemplates",
+        "summary": "Synchronize the WhatsApp template catalogue from Meta",
+        "description": "Fetches all pages from the connected WhatsApp Business Account, upserts current templates, and disables templates no longer returned. Requires channel.manage and CSRF.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "responses": {
+          "200": { "description": "Template catalogue synchronized." },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/channels/{connectionId}/test": {
       "post": {
         "operationId": "testChannelConnection",
@@ -6442,6 +6465,31 @@
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["version"], "properties": { "version": { "type": "integer", "minimum": 1 } } } } } },
         "responses": { "200": { "description": "Audience retired" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
       }
+    },
+    "/tenants/{tenantId}/automation-events": {
+      "post": { "operationId": "ingestAutomationEvent", "summary": "Ingest an idempotent internal, CRM or LMS automation event", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["type", "payload", "idempotencyKey", "occurredAt"] } } } }, "responses": { "201": { "description": "Event accepted and matching runs queued" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/tenants/{tenantId}/automation-templates": {
+      "get": { "operationId": "listAutomationTemplates", "summary": "List ready-made editable automation starters", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }], "responses": { "200": { "description": "Active automation templates" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/tenants/{tenantId}/whatsapp-templates": {
+      "get": { "operationId": "listApprovedWhatsAppTemplates", "summary": "List synchronized approved WhatsApp templates for automation", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }], "responses": { "200": { "description": "Approved synchronized WhatsApp templates" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/tenants/{tenantId}/automation-templates/{key}/use": {
+      "post": { "operationId": "useAutomationTemplate", "summary": "Create an editable draft from a product template", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } }, "responses": { "201": { "description": "Draft automation created" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/tenants/{tenantId}/automations": {
+      "get": { "operationId": "listAutomations", "summary": "List tenant automations", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }], "responses": { "200": { "description": "Automations" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } },
+      "post": { "operationId": "createAutomation", "summary": "Create a custom draft automation", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } }, "responses": { "201": { "description": "Draft automation created" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/tenants/{tenantId}/automations/{id}": {
+      "patch": { "operationId": "updateAutomation", "summary": "Update an editable automation with version fencing", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } }, "responses": { "200": { "description": "Automation updated" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/tenants/{tenantId}/automations/{id}/{act}": {
+      "post": { "operationId": "transitionAutomation", "summary": "Activate, pause, resume or archive an automation", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }, { "name": "act", "in": "path", "required": true, "schema": { "type": "string", "enum": ["activate", "pause", "resume", "archive"] } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["version"], "properties": { "version": { "type": "integer", "minimum": 1 } } } } } }, "responses": { "200": { "description": "Automation transitioned" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/tenants/{tenantId}/automation-runs": {
+      "get": { "operationId": "listAutomationRuns", "summary": "List automation production and test runs", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }], "responses": { "200": { "description": "Automation runs" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
     }
   },
   "components": {

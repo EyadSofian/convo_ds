@@ -67,6 +67,18 @@ export class ChannelController {
     await reply.status(200).send({ data: tested, request_id: request.id });
   }
 
+  @Post('tenants/:tenantId/channels/:connectionId/templates/sync')
+  async syncTemplates(
+    @Param('tenantId') tenantId: string,
+    @Param('connectionId') connectionId: string,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return { data: await this.channels.syncTemplates(session, tenantId, connectionId), request_id: request.id };
+  }
+
   @Post('tenants/:tenantId/channels/:connectionId/credential')
   async rotate(
     @Param('tenantId') tenantId: string,

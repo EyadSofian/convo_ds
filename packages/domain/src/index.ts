@@ -266,6 +266,25 @@ export type {
   CampaignTransition,
   CampaignTrigger,
 } from './campaigns/lifecycle.js';
+export {
+  AUTOMATION_SCHEDULE_KINDS,
+  AUTOMATION_STEP_TYPES,
+  AUTOMATION_TARGETS,
+  AUTOMATION_TRIGGERS,
+  validateAutomationWorkflow,
+  validateVariableMapping,
+} from './automations/workflow.js';
+export { nextScheduledAt, validateScheduleDefinition } from './automations/schedule.js';
+export type { ScheduleDefinition, ScheduleIssue, ScheduleKind } from './automations/schedule.js';
+export type {
+  AutomationStep,
+  AutomationStepType,
+  AutomationTargetType,
+  AutomationTrigger,
+  AutomationWorkflow,
+  WorkflowIssue,
+  WorkflowValidation,
+} from './automations/workflow.js';
 export type {
   AssignmentAct,
   HandoffAction,
@@ -278,3 +297,21 @@ export type {
   OwnershipRefusal,
   SendActor,
 } from './conversations/routing.js';
+
+/* ----------------------------------------------------------------- Email -- */
+
+export {
+  INVITATION_PATH,
+  RECOVERY_PATH,
+  escapeHtml,
+  invitationUrl,
+  recoveryUrl,
+  renderInvitationEmail,
+  renderRecoveryEmail,
+} from './email/messages.js';
+export type {
+  EmailLocale,
+  InvitationEmailInput,
+  RecoveryEmailInput,
+  RenderedEmail,
+} from './email/messages.js';

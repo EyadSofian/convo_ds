@@ -417,6 +417,27 @@ describe('workspaceOpen and renderApp', () => {
     state.toasts = [];
     expect(renderApp(state).childNodes).toHaveLength(1);
   });
+
+  it('renders public token routes before probing or opening a workspace', () => {
+    const state = createState(NOW);
+    state.lang = 'en';
+    state.route = { screen: 'accept-invitation', conversationId: null, params: { token: 'a'.repeat(43) } };
+    expect((renderApp(state).firstChild as HTMLElement).textContent).toContain('Accept invitation');
+    state.route = { screen: 'reset-password', conversationId: null, params: {} };
+    expect((renderApp(state).firstChild as HTMLElement).textContent).toContain('Recover access');
+  });
+
+  it('mounts both public routes without loading protected screen data', async () => {
+    const api = new FakeApi().on('GET /auth/session', NO_SESSION);
+    let publicApp = start(`#/accept-invitation?token=${'a'.repeat(43)}`, api);
+    await settle();
+    expect(publicApp.root.textContent).toContain('قبول الدعوة');
+    publicApp.app.destroy(); handle = null;
+    publicApp = start('#/reset-password', api);
+    await settle();
+    expect(publicApp.root.textContent).toContain('استعادة الوصول');
+    expect(api.calls.some((call) => call.path.includes('/tenants/'))).toBe(false);
+  });
 });
 
 /* -------------------------------------------------------------- the shell -- */
@@ -726,6 +747,13 @@ describe('focus restoration across a redraw', () => {
     app.state.route = { screen: 'settings', conversationId: null, params: {} };
     app.render();
     expect(root.querySelector('.page--settings')).not.toBeNull();
+
+    // Automations is the one screen the router reaches through its own branch;
+    // without this the branch is never taken and the screen never rendered by
+    // the app at all.
+    app.state.route = { screen: 'automations', conversationId: null, params: {} };
+    app.render();
+    expect(root.textContent).not.toBe('');
   });
 });
 

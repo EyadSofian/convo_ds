@@ -4,11 +4,14 @@
  */
 
 export const SCREENS = [
+  'accept-invitation',
+  'reset-password',
   'inbox',
   'contacts',
   'channels',
   'people',
   'broadcasts',
+  'automations',
   'analytics',
   'settings',
 ] as const;

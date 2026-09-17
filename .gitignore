@@ -12,10 +12,13 @@ build/
 
 # test + evidence artifacts (generated, not committed raw)
 coverage/
+reports/
+.stryker-tmp/
 playwright-report/
 test-results/
 .tmp/
 tmp/
+output/
 docs/evidence/**/raw/
 
 # local runtime state

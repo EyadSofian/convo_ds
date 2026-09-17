@@ -5,6 +5,10 @@ import {
   type EnvironmentSource,
   type InstallationConfig,
 } from '@convo/domain';
+import { readTrustedProxyHops } from './client-address.js';
+import { readLogLevel, type LogLevel } from './observability/logger.js';
+import { readChannelTransport, type ChannelTransportName } from './channels/transport-config.js';
+import { readEmailConfig, type EmailConfig } from './email/email-config.js';
 
 /**
  * The process roles one artifact can start as (DEP-01).
@@ -22,6 +26,7 @@ export const PROCESS_ROLES = [
   'worker-interactive',
   'worker-campaign',
   'worker-integration',
+  'worker-automation',
   'worker-report',
 ] as const;
 
@@ -73,6 +78,32 @@ export interface ApiConfig extends InstallationConfig {
     /** Backlog beyond which a consumer is told to reload instead of catching up. */
     readonly maxBacklog: number;
   };
+  /**
+   * How invitations and password recovery reach a person.
+   *
+   * Validated at boot and fail-closed in production: a production process with
+   * no configured provider, or one pointed at the logging adapter, does not
+   * start. See email/email-config.ts for why the old silent default was a
+   * production incident waiting to be noticed.
+   */
+  readonly email: EmailConfig;
+  /**
+   * How many reverse proxies sit in front of this process.
+   *
+   * Zero by default. See client-address.ts: with the wrong value here, either
+   * every user shares one rate-limit bucket or every client picks its own.
+   */
+  readonly trustedProxyHops: number;
+  /**
+   * Which provider transport carries outbound channel messages.
+   *
+   * `none` by default, and the default refuses every send with a typed reason
+   * rather than pretending. See channels/transport-config.ts for why this one
+   * does not fail closed the way email does.
+   */
+  readonly channelTransport: ChannelTransportName;
+  /** How much this process logs. `info` unless an operator asked for more. */
+  readonly logLevel: LogLevel;
   readonly host: string;
   readonly port: number;
   readonly database: {
@@ -113,6 +144,10 @@ export function parseApiConfig(env: EnvironmentSource): ApiConfig {
   const idempotencyHash = readSecret(env, 'CONVO_IDEMPOTENCY_HASH_SECRET', issues);
   const credentialKeys = readCredentialKeys(env, issues);
   const channelSecrets = readChannelSecrets(env);
+  const email = readEmailConfig(env, issues);
+  const trustedProxyHops = readTrustedProxyHops(env, issues);
+  const channelTransport = readChannelTransport(env, issues);
+  const logLevel = readLogLevel(env);
   const workerConcurrency = readConcurrency(env, issues);
   const realtime = readRealtime(env, issues);
   const host = optional(env, 'CONVO_API_HOST') ?? '0.0.0.0';
@@ -132,6 +167,10 @@ export function parseApiConfig(env: EnvironmentSource): ApiConfig {
     processRole,
     secrets: Object.freeze({ authHash, bootstrapToken, idempotencyHash, credentialKeys }),
     channelSecrets: Object.freeze(channelSecrets),
+    email,
+    trustedProxyHops,
+    channelTransport,
+    logLevel,
     workerConcurrency,
     realtime,
     host,

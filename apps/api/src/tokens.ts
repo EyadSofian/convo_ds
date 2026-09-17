@@ -27,3 +27,12 @@ export interface PasswordHasher {
   hash(plaintext: string): Promise<string>;
   verify(hash: string, plaintext: string): Promise<boolean>;
 }
+
+/**
+ * How this installation sends email. See email/email-provider.port.ts.
+ *
+ * The default outside production logs and sends nothing; in production
+ * `parseEmailConfig` refuses to boot without a real provider, so there is no
+ * silent fallback to reach.
+ */
+export const EMAIL_PROVIDER = Symbol('EMAIL_PROVIDER');

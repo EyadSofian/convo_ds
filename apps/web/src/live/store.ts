@@ -15,6 +15,8 @@ import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
 import type { Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi } from '../api/campaigns.js';
 import { disconnectedCampaignsApi } from '../api/campaigns.js';
+import type { Automation, AutomationRun, AutomationTemplate, AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
+import { disconnectedAutomationsApi } from '../api/automations.js';
 import { disconnectedMetadataApi } from '../api/people.js';
 import type { RealtimeSubscription } from './realtime.js';
 import type {
@@ -106,6 +108,7 @@ export interface LiveState {
   readonly contactsApi: ContactsApi;
   readonly metadataApi: MetadataApi;
   readonly campaignsApi: CampaignsApi;
+  readonly automationsApi: AutomationsApi;
   session: SessionState;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
@@ -201,6 +204,10 @@ export interface LiveState {
   /** The campaigns the Analytics campaign filter can offer. */
   reportCampaigns: readonly { readonly id: string; readonly name: string }[];
   campaignReportExport: Resource<CampaignReportExport>;
+  automationTemplates: Resource<readonly AutomationTemplate[]>;
+  automations: Resource<readonly Automation[]>;
+  automationRuns: Resource<readonly AutomationRun[]>;
+  whatsappTemplates: Resource<readonly WhatsAppTemplate[]>;
   selectedCampaignId: string | null;
   inboxFilters: { unread: string; priority: string; channel: string; labelId: string };
   contactFilters: { labelId: string; fieldId: string; fieldValue: string };
@@ -231,6 +238,7 @@ export function createLiveState(
   contacts: ContactsApi,
   metadata: MetadataApi = disconnectedMetadataApi(),
   campaignsApi: CampaignsApi = disconnectedCampaignsApi(),
+  automationsApi: AutomationsApi = disconnectedAutomationsApi(),
 ): LiveState {
   return {
     api,
@@ -280,6 +288,10 @@ export function createLiveState(
     campaignReport: IDLE,
     reportCampaigns: [],
     campaignReportExport: IDLE,
+    automationTemplates: IDLE,
+    automations: IDLE,
+    automationRuns: IDLE,
+    whatsappTemplates: IDLE,
     selectedCampaignId: null,
     inboxFilters: { unread: '', priority: '', channel: '', labelId: '' },
     contactFilters: { labelId: '', fieldId: '', fieldValue: '' },
@@ -287,6 +299,7 @@ export function createLiveState(
     contactsApi: contacts,
     metadataApi: metadata,
     campaignsApi,
+    automationsApi,
     busy: null,
     error: null,
     revision: 0,
@@ -308,6 +321,7 @@ export function renewLiveState(previous: LiveState): LiveState {
     previous.contactsApi,
     previous.metadataApi,
     previous.campaignsApi,
+    previous.automationsApi,
   );
 }
 

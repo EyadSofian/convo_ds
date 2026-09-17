@@ -64,6 +64,13 @@ export interface ChannelCatalogueEntry {
   readonly capabilities: CapabilityMatrix;
 }
 
+export interface TemplateSyncSummary {
+  readonly connection_id: string;
+  readonly imported: number;
+  readonly disabled: number;
+  readonly synced_at: string;
+}
+
 interface ConnectionRow {
   readonly id: string;
   readonly kind: ChannelKind;
@@ -301,6 +308,47 @@ export class ChannelService {
       const rows = await readConnections(sql, connectionId);
       return requireRow(rows, 'the connection vanished mid-transaction');
     });
+  }
+
+  async syncTemplates(session: AuthenticatedSession, tenantId: string, connectionId: string): Promise<TemplateSyncSummary> {
+    const outcome = await this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) => {
+      const connection = await requireConnection(sql, connectionId);
+      if (connection.kind !== 'whatsapp' || this.transport.fetchTemplates === undefined) {
+        throw new ApiHttpError(422, 'template_sync_unavailable', 'This connection does not support template synchronization.');
+      }
+      const fetched = await this.credentials.withActive(
+        sql,
+        { tenantId, connectionId, purpose: 'access_token' },
+        (token) => this.transport.fetchTemplates!('whatsapp', token, connection.external_asset_id),
+      );
+      if (fetched === null) throw new ApiHttpError(409, 'credential_missing', 'The connection has no active credential.');
+      if (!fetched.ok) {
+        return { failure: fetched } as const;
+      }
+      const syncedAt = new Date();
+      await sql.query(`UPDATE whatsapp_templates SET status='disabled',last_synced_at=$2 WHERE connection_id=$1`, [connectionId, syncedAt]);
+      for (const template of fetched.templates) {
+        await sql.query(
+          `INSERT INTO whatsapp_templates
+             (tenant_id,connection_id,provider_template_id,template_name,language,category,status,components,variables,last_synced_at)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10)
+           ON CONFLICT(tenant_id,connection_id,provider_template_id) DO UPDATE SET
+             template_name=excluded.template_name,language=excluded.language,category=excluded.category,
+             status=excluded.status,components=excluded.components,variables=excluded.variables,last_synced_at=excluded.last_synced_at`,
+          [tenantId, connectionId, template.providerId, template.name, template.language, template.category,
+            template.status, JSON.stringify(template.components), JSON.stringify(template.variables), syncedAt],
+        );
+      }
+      const disabled = await sql.query<{ count: string }>(`SELECT count(*)::text AS count FROM whatsapp_templates WHERE connection_id=$1 AND status='disabled'`, [connectionId]);
+      await sql.query(`UPDATE channel_connections SET last_error_code=NULL,last_error_at=NULL WHERE id=$1`, [connectionId]);
+      return { summary: { connection_id: connectionId, imported: fetched.templates.length, disabled: Number(disabled.rows[0]!.count), synced_at: syncedAt.toISOString() } } as const;
+    });
+    if ('summary' in outcome) return outcome.summary;
+    await this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) => {
+      await requireConnection(sql, connectionId);
+      await recordError(sql, connectionId, outcome.failure.code);
+    });
+    throw new ApiHttpError(outcome.failure.retryable ? 503 : 422, outcome.failure.code, outcome.failure.message);
   }
 
   /**

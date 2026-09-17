@@ -1,0 +1,297 @@
+{
+  "measured_at": "2026-09-17T17:11:02.266Z",
+  "environment": {
+    "note": "Local developer machine. Client and server share a host, so network latency is zero. Not a production capacity measurement.",
+    "node": "v22.23.2",
+    "platform": "darwin/arm64",
+    "cpus": 15,
+    "postgres": "embedded-postgres 17.4.0-beta.15, local socket"
+  },
+  "volume": {
+    "conversations": 10000,
+    "contacts": 10000,
+    "messagesPerConversation": 5
+  },
+  "runs": [
+    {
+      "concurrency": 10,
+      "durationMs": 10001,
+      "totalRequests": 46437,
+      "totalErrors": 0,
+      "requestsPerSecond": 4643.24,
+      "errorRate": 0,
+      "scenarios": [
+        {
+          "scenario": "conversation-list",
+          "samples": 12394,
+          "errors": 0,
+          "p50": 2.33,
+          "p95": 3.5,
+          "p99": 4.35,
+          "max": 19.95,
+          "mean": 2.42
+        },
+        {
+          "scenario": "conversation-open",
+          "samples": 6872,
+          "errors": 0,
+          "p50": 2.82,
+          "p95": 4.01,
+          "p99": 4.95,
+          "max": 23.62,
+          "mean": 2.91
+        },
+        {
+          "scenario": "message-timeline",
+          "samples": 7021,
+          "errors": 0,
+          "p50": 2.76,
+          "p95": 3.91,
+          "p99": 4.87,
+          "max": 25.38,
+          "mean": 2.85
+        },
+        {
+          "scenario": "contact-search",
+          "samples": 2279,
+          "errors": 0,
+          "p50": 4.27,
+          "p95": 5.52,
+          "p99": 6.78,
+          "max": 27.55,
+          "mean": 4.39
+        },
+        {
+          "scenario": "session-check",
+          "samples": 8462,
+          "errors": 0,
+          "p50": 1.09,
+          "p95": 1.88,
+          "p99": 2.51,
+          "max": 21.76,
+          "mean": 1.18
+        },
+        {
+          "scenario": "readiness",
+          "samples": 9409,
+          "errors": 0,
+          "p50": 1,
+          "p95": 1.55,
+          "p99": 2.11,
+          "max": 20.88,
+          "mean": 1.06
+        }
+      ]
+    },
+    {
+      "concurrency": 25,
+      "durationMs": 10003,
+      "totalRequests": 45126,
+      "totalErrors": 0,
+      "requestsPerSecond": 4511.25,
+      "errorRate": 0,
+      "scenarios": [
+        {
+          "scenario": "conversation-list",
+          "samples": 12526,
+          "errors": 0,
+          "p50": 6.37,
+          "p95": 7.5,
+          "p99": 8.08,
+          "max": 13.32,
+          "mean": 6.39
+        },
+        {
+          "scenario": "conversation-open",
+          "samples": 6595,
+          "errors": 0,
+          "p50": 7.56,
+          "p95": 8.6,
+          "p99": 9.54,
+          "max": 28.9,
+          "mean": 7.58
+        },
+        {
+          "scenario": "message-timeline",
+          "samples": 6932,
+          "errors": 0,
+          "p50": 7.17,
+          "p95": 8.22,
+          "p99": 9.12,
+          "max": 32.26,
+          "mean": 7.21
+        },
+        {
+          "scenario": "contact-search",
+          "samples": 3211,
+          "errors": 0,
+          "p50": 9.28,
+          "p95": 10.46,
+          "p99": 11.78,
+          "max": 35.26,
+          "mean": 9.34
+        },
+        {
+          "scenario": "session-check",
+          "samples": 6801,
+          "errors": 0,
+          "p50": 2.88,
+          "p95": 3.88,
+          "p99": 4.42,
+          "max": 7.87,
+          "mean": 2.94
+        },
+        {
+          "scenario": "readiness",
+          "samples": 9061,
+          "errors": 0,
+          "p50": 2.14,
+          "p95": 3,
+          "p99": 3.46,
+          "max": 6.32,
+          "mean": 2.21
+        }
+      ]
+    },
+    {
+      "concurrency": 50,
+      "durationMs": 10009,
+      "totalRequests": 38777,
+      "totalErrors": 0,
+      "requestsPerSecond": 3874.21,
+      "errorRate": 0,
+      "scenarios": [
+        {
+          "scenario": "conversation-list",
+          "samples": 11963,
+          "errors": 0,
+          "p50": 14.35,
+          "p95": 15.72,
+          "p99": 17.58,
+          "max": 21.08,
+          "mean": 14.22
+        },
+        {
+          "scenario": "conversation-open",
+          "samples": 6347,
+          "errors": 0,
+          "p50": 15.76,
+          "p95": 17.13,
+          "p99": 19.92,
+          "max": 23.3,
+          "mean": 15.76
+        },
+        {
+          "scenario": "message-timeline",
+          "samples": 6550,
+          "errors": 0,
+          "p50": 15.32,
+          "p95": 16.71,
+          "p99": 18.78,
+          "max": 22.24,
+          "mean": 15.28
+        },
+        {
+          "scenario": "contact-search",
+          "samples": 4077,
+          "errors": 0,
+          "p50": 17.08,
+          "p95": 18.92,
+          "p99": 21.19,
+          "max": 23.76,
+          "mean": 17.17
+        },
+        {
+          "scenario": "session-check",
+          "samples": 3842,
+          "errors": 0,
+          "p50": 7.62,
+          "p95": 10.19,
+          "p99": 10.86,
+          "max": 15.23,
+          "mean": 7.81
+        },
+        {
+          "scenario": "readiness",
+          "samples": 5998,
+          "errors": 0,
+          "p50": 4.74,
+          "p95": 7.36,
+          "p99": 8.18,
+          "max": 10.28,
+          "mean": 5
+        }
+      ]
+    },
+    {
+      "concurrency": 100,
+      "durationMs": 10022,
+      "totalRequests": 38484,
+      "totalErrors": 0,
+      "requestsPerSecond": 3839.95,
+      "errorRate": 0,
+      "scenarios": [
+        {
+          "scenario": "conversation-list",
+          "samples": 11028,
+          "errors": 0,
+          "p50": 29.95,
+          "p95": 32.31,
+          "p99": 36.07,
+          "max": 39.82,
+          "mean": 29.97
+        },
+        {
+          "scenario": "conversation-open",
+          "samples": 6352,
+          "errors": 0,
+          "p50": 31.37,
+          "p95": 34.13,
+          "p99": 37.27,
+          "max": 41.94,
+          "mean": 31.53
+        },
+        {
+          "scenario": "message-timeline",
+          "samples": 6444,
+          "errors": 0,
+          "p50": 30.95,
+          "p95": 33.4,
+          "p99": 36.97,
+          "max": 41.1,
+          "mean": 31.07
+        },
+        {
+          "scenario": "contact-search",
+          "samples": 3965,
+          "errors": 0,
+          "p50": 32.67,
+          "p95": 36.05,
+          "p99": 38.7,
+          "max": 42.58,
+          "mean": 32.82
+        },
+        {
+          "scenario": "session-check",
+          "samples": 3848,
+          "errors": 0,
+          "p50": 18.23,
+          "p95": 21.32,
+          "p99": 23.94,
+          "max": 27.18,
+          "mean": 18.2
+        },
+        {
+          "scenario": "readiness",
+          "samples": 6847,
+          "errors": 0,
+          "p50": 9.95,
+          "p95": 13.54,
+          "p99": 15.1,
+          "max": 20.37,
+          "mean": 10.23
+        }
+      ]
+    }
+  ]
+}

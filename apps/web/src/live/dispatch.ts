@@ -49,6 +49,15 @@ import {
   validateCampaign,
 } from './campaign-actions.js';
 import {
+  addAutomationStep,
+  createBlankAutomation,
+  loadAutomationsScreen,
+  removeAutomationStep,
+  saveAutomation,
+  transitionAutomation,
+  useAutomationTemplate,
+} from './automation-actions.js';
+import {
   addTeamMember,
   archiveTeam,
   authorizeTestRecipient,
@@ -334,6 +343,23 @@ export function metadataFieldValue(target: string, entityId: string, fieldId: st
 }
 
 export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
+  'live-request-recovery': async (context) => {
+    if (context.live.busy !== null) return false;
+    const email = form(context, 'recoveryEmail');
+    const errors = email === '' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+      ? { recoveryEmail: text(context, 'أدخل بريدًا إلكترونيًا صحيحًا.', 'Enter a valid email address.') }
+      : {};
+    if (invalid(context, errors)) return false;
+    context.live.busy = 'recovery-request'; context.live.error = null; context.refresh();
+    const result = await context.live.api.requestRecovery(email);
+    context.live.busy = null;
+    if (!result.ok) context.live.error = result.error;
+    else context.state.authFlowComplete = 'recovery-request';
+    context.refresh(); return result.ok;
+  },
+
+  'live-accept-invitation': async (context) => submitCredentialFlow(context, 'invitation'),
+  'live-complete-recovery': async (context) => submitCredentialFlow(context, 'recovery'),
   /**
    * Checks the form before sending anything, then signs in.
    *
@@ -407,6 +433,20 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-campaigns-reload': async (context) => loadCampaignsScreen(context),
+
+  'live-automations-reload': async (context) => loadAutomationsScreen(context),
+  'live-automation-use': async (context, arg) => useAutomationTemplate(context, arg),
+  'live-automation-create': async (context) => {
+    const name = context.state.dialogForm['automationBlankName']?.trim() ?? '';
+    if (name === '') return false;
+    const created = await createBlankAutomation(context, name);
+    if (created) context.state.dialogForm = {};
+    return created;
+  },
+  'live-automation-save': async (context, arg) => saveAutomation(context, arg),
+  'live-automation-add-step': async (context, arg) => addAutomationStep(context, arg),
+  'live-automation-remove-step': async (context, arg) => removeAutomationStep(context, arg),
+  'live-automation-transition': async (context, arg) => transitionAutomation(context, arg),
 
   'live-campaign-create': async (context) => {
     const name = form(context, 'campaignName');
@@ -1039,6 +1079,27 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return settleOwnership(context, id, value);
   },
 };
+
+async function submitCredentialFlow(context: LiveContext, kind: 'invitation' | 'recovery'): Promise<boolean> {
+  if (context.live.busy !== null) return false;
+  const token = context.state.route.params['token'] ?? '';
+  const password = context.state.dialogForm['authPassword'] ?? '';
+  const confirm = context.state.dialogForm['authPasswordConfirm'] ?? '';
+  const errors: Record<string, string> = {};
+  if (password.length < 12) errors['authPassword'] = text(context, 'استخدم 12 حرفًا على الأقل.', 'Use at least 12 characters.');
+  if (confirm !== password) errors['authPasswordConfirm'] = text(context, 'كلمتا المرور غير متطابقتين.', 'Passwords do not match.');
+  if (invalid(context, errors)) return false;
+  const busy = kind === 'invitation' ? 'live-accept-invitation' : 'live-complete-recovery';
+  context.live.busy = busy; context.live.error = null; context.refresh();
+  const result = kind === 'invitation'
+    ? await context.live.api.acceptInvitation(token, password)
+    : await context.live.api.completeRecovery(token, password);
+  context.live.busy = null;
+  context.state.dialogForm = {};
+  if (!result.ok) context.live.error = result.error;
+  else context.state.authFlowComplete = kind;
+  context.refresh(); return result.ok;
+}
 
 /** Runs a `live-*` action, or reports that the name is not one. */
 export function runLiveAction(context: LiveContext, name: string, arg: string): Promise<unknown> | null {

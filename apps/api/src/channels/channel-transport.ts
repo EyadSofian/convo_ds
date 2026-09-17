@@ -22,7 +22,27 @@ export interface ChannelTransportPort {
     assetIdentity: string,
   ): Promise<ConnectionCheck>;
   send(kind: ChannelKind, credential: string, command: SendCommand): Promise<SendOutcome>;
+  /** Optional because only WhatsApp exposes the template catalogue. */
+  fetchTemplates?(
+    kind: ChannelKind,
+    credential: string,
+    assetIdentity: string,
+  ): Promise<TemplateFetchResult>;
 }
+
+export interface ProviderTemplate {
+  readonly providerId: string;
+  readonly name: string;
+  readonly language: string;
+  readonly category: string;
+  readonly status: 'approved' | 'pending' | 'paused' | 'rejected' | 'disabled';
+  readonly components: readonly unknown[];
+  readonly variables: readonly string[];
+}
+
+export type TemplateFetchResult =
+  | { readonly ok: true; readonly templates: readonly ProviderTemplate[] }
+  | { readonly ok: false; readonly code: string; readonly message: string; readonly retryable: boolean };
 
 export const NO_PROVIDER_CODE = 'provider_not_connected';
 

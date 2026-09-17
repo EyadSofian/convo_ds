@@ -59,6 +59,16 @@ export interface WorkerSummary {
    */
   readonly offered: number;
   readonly achieved: number;
+  /**
+   * When the last tick completed, and when the last one failed.
+   *
+   * A worker with no port cannot be asked "are you working". These two answer
+   * it: a `lastTickAt` that stopped advancing is a stuck loop, which looks
+   * exactly like a healthy idle one from every other angle.
+   */
+  readonly lastTickAt: string | null;
+  readonly lastErrorAt: string | null;
+  readonly lastErrorMessage: string | null;
 }
 
 export function runWorkerLoop(options: WorkerLoopOptions): WorkerHandle {
@@ -70,6 +80,9 @@ export function runWorkerLoop(options: WorkerLoopOptions): WorkerHandle {
     errors: 0,
     offered: 0,
     achieved: 0,
+    lastTickAt: null as string | null,
+    lastErrorAt: null as string | null,
+    lastErrorMessage: null as string | null,
   };
 
   const done = (async (): Promise<WorkerSummary> => {
@@ -80,6 +93,7 @@ export function runWorkerLoop(options: WorkerLoopOptions): WorkerHandle {
         summary.handled += tick.handled;
         summary.offered += tick.fairness?.offered ?? 0;
         summary.achieved += tick.fairness?.achieved ?? 0;
+        summary.lastTickAt = new Date().toISOString();
         if (tick.handled === 0) {
           await options.sleep(options.idleDelayMs);
         }
@@ -87,6 +101,8 @@ export function runWorkerLoop(options: WorkerLoopOptions): WorkerHandle {
         // One bad row must not take the loop down: every other company's work
         // is still waiting behind it.
         summary.errors += 1;
+        summary.lastErrorAt = new Date().toISOString();
+        summary.lastErrorMessage = error instanceof Error ? error.message : 'unknown worker failure';
         options.onError?.(error);
         await options.sleep(options.errorDelayMs);
       }

@@ -29,6 +29,130 @@ export function renderGate(state: AppState): HTMLElement {
   return signIn(state, session.error, session.expired === true);
 }
 
+const TOKEN = /^[A-Za-z0-9_-]{43}$/;
+
+/** Public credential flows. They deliberately use the existing gate shell. */
+export function renderPublicAuth(state: AppState): HTMLElement {
+  return state.route.screen === 'accept-invitation'
+    ? invitationScreen(state)
+    : recoveryScreen(state);
+}
+
+function invitationScreen(state: AppState): HTMLElement {
+  const token = state.route.params['token'] ?? '';
+  if (state.authFlowComplete === 'invitation') {
+    return successScreen(
+      state,
+      t(state, 'تم قبول الدعوة', 'Invitation accepted'),
+      t(state, 'يمكنك الآن تسجيل الدخول إلى مساحة العمل.', 'You can now sign in to your workspace.'),
+    );
+  }
+  return credentialForm(
+    state,
+    t(state, 'قبول الدعوة', 'Accept invitation'),
+    token,
+    'live-accept-invitation',
+    t(state, 'اختر كلمة مرور لحسابك. إذا كان لديك حساب بالفعل، أدخل كلمة مروره الحالية.', 'Choose a password for your account. If you already have an account, enter its current password.'),
+  );
+}
+
+function recoveryScreen(state: AppState): HTMLElement {
+  const token = state.route.params['token'] ?? '';
+  if (state.authFlowComplete === 'recovery-request') {
+    return successScreen(
+      state,
+      t(state, 'تحقق من بريدك', 'Check your email'),
+      t(state, 'إذا كان هناك حساب بهذا البريد، أرسلنا رابط إعادة التعيين.', 'If an account exists for that address, a reset link has been sent.'),
+    );
+  }
+  if (state.authFlowComplete === 'recovery') {
+    return successScreen(
+      state,
+      t(state, 'تم تغيير كلمة المرور', 'Password changed'),
+      t(state, 'تم إنهاء جميع الجلسات السابقة. سجّل الدخول بكلمة المرور الجديدة.', 'All previous sessions were ended. Sign in with your new password.'),
+    );
+  }
+  if (token === '') return recoveryRequestForm(state);
+  return credentialForm(
+    state,
+    t(state, 'إعادة تعيين كلمة المرور', 'Reset password'),
+    token,
+    'live-complete-recovery',
+    t(state, 'اختر كلمة مرور جديدة. سيؤدي ذلك إلى إنهاء جميع جلساتك المفتوحة.', 'Choose a new password. This will end all your open sessions.'),
+  );
+}
+
+function recoveryRequestForm(state: AppState): HTMLElement {
+  const error = state.live.error;
+  return frame(state, [
+    h('section', { class: 'auth-card', 'aria-labelledby': 'auth-title' }, [
+      brandLockup(),
+      h('div', { class: 'auth-card__intro' }, [
+        h('h1', { class: 'auth-card__title', id: 'auth-title' }, [t(state, 'استعادة الوصول', 'Recover access')]),
+        h('p', { class: 'auth-card__lede' }, [t(state, 'أدخل بريد العمل وسنرسل رابطًا إذا كان الحساب موجودًا.', 'Enter your work email and we will send a link if the account exists.')]),
+      ]),
+      error === null ? null : publicFailure(state, error),
+      h('form', { class: 'auth-form', 'data-submit': 'live-request-recovery', novalidate: true }, [
+        h('div', { class: 'field' }, [
+          h('label', { class: 'field__label', for: 'recovery-email' }, [t(state, 'البريد الإلكتروني', 'Email')]),
+          h('input', { id: 'recovery-email', class: state.formErrors['recoveryEmail'] === undefined ? 'input' : 'input input--invalid', type: 'email', autocomplete: 'email', dir: 'ltr', required: true, value: state.dialogForm['recoveryEmail'] ?? '', 'data-act': 'form', 'data-form': 'recoveryEmail' }),
+          fieldError('recovery-email-error', state.formErrors['recoveryEmail']),
+        ]),
+        button({ label: t(state, 'إرسال رابط إعادة التعيين', 'Send reset link'), act: 'live-request-recovery', type: 'submit', variant: 'primary', busy: state.live.busy === 'recovery-request', extraClass: 'auth-form__submit' }),
+      ]),
+    ]),
+  ]);
+}
+
+function credentialForm(state: AppState, title: string, token: string, action: string, lede: string): HTMLElement {
+  const malformed = token !== '' && !TOKEN.test(token);
+  const error = state.live.error;
+  const busy = state.live.busy === action;
+  return frame(state, [
+    h('section', { class: 'auth-card', 'aria-labelledby': 'auth-title' }, [
+      brandLockup(),
+      h('div', { class: 'auth-card__intro' }, [h('h1', { class: 'auth-card__title', id: 'auth-title' }, [title]), h('p', { class: 'auth-card__lede' }, [lede])]),
+      token === '' || malformed
+        ? h('div', { class: 'inline-error', role: 'alert' }, [icon('alert', 16), h('p', { class: 'inline-error__title' }, [t(state, 'هذا الرابط غير صالح. اطلب رابطًا جديدًا.', 'This link is invalid. Request a new one.')])])
+        : error === null ? null : publicFailure(state, error),
+      token === '' || malformed ? null : h('form', { class: 'auth-form', 'data-submit': action, novalidate: true }, [
+        passwordField(state, 'authPassword', 'new-password', t(state, 'كلمة المرور', 'Password')),
+        passwordField(state, 'authPasswordConfirm', 'new-password', t(state, 'تأكيد كلمة المرور', 'Confirm password')),
+        h('p', { class: 'field__hint' }, [t(state, 'استخدم 12 حرفًا على الأقل.', 'Use at least 12 characters.')]),
+        button({ label: title, act: action, type: 'submit', variant: 'primary', busy, extraClass: 'auth-form__submit' }),
+      ]),
+    ]),
+  ]);
+}
+
+function passwordField(state: AppState, key: string, autocomplete: string, label: string): HTMLElement {
+  return h('div', { class: 'field' }, [
+    h('label', { class: 'field__label', for: key }, [label]),
+    h('input', { id: key, class: state.formErrors[key] === undefined ? 'input' : 'input input--invalid', type: 'password', autocomplete, dir: 'ltr', required: true, value: state.dialogForm[key] ?? '', 'data-act': 'form', 'data-form': key }),
+    fieldError(`${key}-error`, state.formErrors[key]),
+  ]);
+}
+
+function publicFailure(state: AppState, error: ApiError): HTMLElement {
+  const invalid = error.details.some((detail) => detail.code === 'invalid_or_expired');
+  const message = invalid
+    ? t(state, 'انتهت صلاحية الرابط أو استُخدم بالفعل. اطلب رابطًا جديدًا.', 'This link expired or was already used. Request a new one.')
+    : error.status === 429
+      ? t(state, 'محاولات كثيرة. انتظر قليلًا ثم أعد المحاولة.', 'Too many attempts. Wait a moment, then try again.')
+      : error.code === 'network'
+        ? t(state, 'تعذّر الاتصال بالخادم.', 'Could not reach the server.')
+        : t(state, 'تعذّر إكمال الطلب. أعد المحاولة.', 'The request could not be completed. Try again.');
+  return h('div', { class: 'inline-error', role: 'alert' }, [icon('alert', 16), h('div', {}, [h('p', { class: 'inline-error__title' }, [message]), requestIdLine(state, error.requestId)])]);
+}
+
+function successScreen(state: AppState, title: string, body: string): HTMLElement {
+  return frame(state, [h('section', { class: 'auth-card auth-card--status', 'aria-labelledby': 'auth-title' }, [
+    brandLockup(),
+    h('div', { class: 'auth-card__intro' }, [h('h1', { class: 'auth-card__title', id: 'auth-title' }, [title]), h('p', { class: 'auth-card__lede' }, [body])]),
+    h('a', { class: 'button button--primary auth-form__submit', href: '#/inbox' }, [t(state, 'تسجيل الدخول', 'Sign in')]),
+  ])]);
+}
+
 /** The branded wait while the session probe is in flight. */
 export function loadingScreen(state: AppState): HTMLElement {
   return h('div', { class: 'gate gate--loading' }, [

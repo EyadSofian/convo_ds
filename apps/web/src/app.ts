@@ -6,6 +6,7 @@ import { ContactsApi } from './api/contacts';
 import { ConversationsApi } from './api/conversations';
 import { MetadataApi } from './api/metadata';
 import { CampaignsApi } from './api/campaigns';
+import { AutomationsApi } from './api/automations';
 import {
   disconnectedApi,
   disconnectedChannelsApi,
@@ -25,6 +26,7 @@ import {
 } from './live/inbox-actions';
 import { loadContactsScreen } from './live/contact-actions';
 import { loadCampaignReport, loadCampaignsScreen, refreshCampaignReportExport } from './live/campaign-actions';
+import { loadAutomationsScreen } from './live/automation-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
 import { createLiveState, renewLiveState } from './live/store';
@@ -37,8 +39,9 @@ import { onRouteChange, readRoute, writeRoute } from './router';
 import type { AppState } from './state';
 import { applyRoute, createState, NO_ANALYTICS_FILTERS, routeParamsFor } from './state';
 import { renderAnalytics } from './ui/analytics-screen';
-import { renderGate } from './ui/auth';
+import { renderGate, renderPublicAuth } from './ui/auth';
 import { renderBroadcasts } from './ui/campaigns-screen';
+import { renderAutomations } from './ui/automations-screen';
 import { renderChannels } from './ui/channels-screen';
 import { renderContacts } from './ui/contacts-screen';
 import { renderDialog } from './ui/dialogs';
@@ -52,6 +55,7 @@ function renderScreen(state: AppState): HTMLElement {
   if (state.route.screen === 'channels') return renderChannels(state);
   if (state.route.screen === 'people') return renderPeople(state);
   if (state.route.screen === 'broadcasts') return renderBroadcasts(state);
+  if (state.route.screen === 'automations') return renderAutomations(state);
   if (state.route.screen === 'analytics') return renderAnalytics(state);
   if (state.route.screen === 'settings') return renderSettings(state);
   return renderInbox(state);
@@ -70,6 +74,10 @@ export function workspaceOpen(state: AppState): boolean {
 
 export function renderApp(state: AppState): DocumentFragment {
   const fragment = document.createDocumentFragment();
+  if (state.route.screen === 'accept-invitation' || state.route.screen === 'reset-password') {
+    fragment.appendChild(renderPublicAuth(state));
+    return fragment;
+  }
   if (!workspaceOpen(state)) {
     fragment.appendChild(renderGate(state));
     return fragment;
@@ -270,12 +278,13 @@ export const EXPORT_POLL_MS = 2500;
  * A table rather than a chain of `if`s because every screen reads the server
  * now, and one missing here is a screen that would silently show nothing.
  */
-const SCREEN_LOADERS: Readonly<Record<ScreenId, (context: LiveContext) => Promise<void>>> = {
+const SCREEN_LOADERS: Readonly<Record<Exclude<ScreenId, 'accept-invitation' | 'reset-password'>, (context: LiveContext) => Promise<void>>> = {
   people: loadPeopleScreen,
   channels: loadChannelsScreen,
   inbox: loadInboxScreen,
   contacts: loadContactsScreen,
   broadcasts: loadCampaignsScreen,
+  automations: loadAutomationsScreen,
   analytics: loadCampaignReport,
   settings: loadSettingsScreen,
 };
@@ -328,13 +337,14 @@ export function mount(options: MountOptions): AppHandle {
   const contacts = client === null ? disconnectedContactsApi() : new ContactsApi(client);
   const metadata = client === null ? disconnectedMetadataApi() : new MetadataApi(client);
   const campaigns = client === null ? undefined : new CampaignsApi(client);
+  const automations = client === null ? undefined : new AutomationsApi(client);
   /**
    * The clock the whole screen reads. When `now` is supplied it is the clock —
    * frozen, and used for relative times *and* for any instant an action
    * computes. In production nothing is supplied and this is `new Date()`.
    */
   const clock = (): Date => options.now ?? new Date();
-  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata, campaigns));
+  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata, campaigns, automations));
   const store = options.preferences ?? null;
   const stored = readPreferences(store);
   state.theme = stored.theme ?? ((options.prefersDark?.() ?? false) ? 'dark' : 'light');
@@ -514,6 +524,7 @@ export function mount(options: MountOptions): AppHandle {
    * Returns whether it drew, so `refresh` does not draw a second time.
    */
   const ensureScreen = (): boolean => {
+    if (state.route.screen === 'accept-invitation' || state.route.screen === 'reset-password') return false;
     if (!workspaceOpen(state)) return false;
     if (!allowedScreens(state.live).includes(state.route.screen)) {
       // A screen this membership cannot use is not offered in the navigation,
@@ -522,7 +533,7 @@ export function mount(options: MountOptions): AppHandle {
       state.route = { screen: landingScreen(state.live), conversationId: null, params: state.route.params };
       syncUrl();
     }
-    const screen = state.route.screen;
+    const screen = state.route.screen as Exclude<ScreenId, 'accept-invitation' | 'reset-password'>;
     if (loadedScreen === screen) return false;
     loadedScreen = screen;
     const current = liveContext;

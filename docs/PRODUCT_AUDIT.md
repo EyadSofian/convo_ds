@@ -25,7 +25,7 @@ The current purple `CONVO` presentation is also inconsistent with the supplied D
 | Area | Status | Current evidence | Gap / required change | Primary impact |
 | --- | --- | --- | --- | --- |
 | Authentication and sessions | `IMPLEMENTED` | Argon2id login, opaque server sessions, CSRF, rate limits, session listing/revocation, recovery challenge, generic anti-enumeration response | Add production email delivery and optional activation/verification policy | API/config/email |
-| Invitations and password recovery | `PARTIALLY_IMPLEMENTED` | Secure invitation and recovery workflows exist | Default delivery adapters only log redacted events; no SMTP/Resend adapter, templates or delivery evidence | API/config/database |
+| Invitations and password recovery | `PARTIALLY_IMPLEMENTED` | Durable outbox, Resend adapter, localized templates, accept/reset screens, token invalidation and session revocation are implemented and tested | Real Resend credential, verified sender and recipient evidence are externally blocked | Config/provider |
 | Users, teams, roles and permissions | `IMPLEMENTED` | Configurable roles, permission catalogue, team scopes and server authorization engine | Configure client teams and final grants during onboarding; do not encode department names in code | Client data/config |
 | Team conversation restriction | `NEEDS_CLIENT_CONFIGURATION` | Scoped authorization is supported | Client left `access.restrict_conversations_by_team` unanswered | Policy only |
 | Inbox and conversation lifecycle | `IMPLEMENTED` | Open/reopen/close/snooze/wake, unread state, notes, priority, timeline and customer panel | Attachments are readable from provider events but operators cannot upload/send files | API/UI/storage |
@@ -45,18 +45,18 @@ The current purple `CONVO` presentation is also inconsistent with the supplied D
 | Campaign approval | `PARTIALLY_IMPLEMENTED` | Revision-bound approval and separation-of-duty checks exist | Add `requestedBy/requestedAt` and a visible pending approval queue | DB/API/UI |
 | One-time scheduled campaign | `IMPLEMENTED` | Durable execution schedule and campaign worker exist | None | — |
 | Recurring scheduled campaign | `MISSING` | No recurrence definition or next-run calculator | Add daily/weekly/monthly/custom recurrence, timezone, range, enabled/paused, next/last run and durable materialization | DB/domain/worker/UI |
-| Automation engine | `MISSING` | Durable queue patterns and auditable services exist | Add trigger/action definitions, shared conditions, execution history, idempotency, retry and safe webhook action | DB/domain/API/worker/UI |
+| Automation engine | `PARTIALLY_IMPLEMENTED` | 24-trigger/10-step contract, 19 presets, durable event/schedule intake, recipient planning, ordered executor/delays, idempotent action evidence, WhatsApp/label/custom-field actions, receipt reconciliation and a deployed staging worker | Additional advertised action types, optional approvals/test runs, richer detail UI, and live provider proof remain | UI/provider/product scope |
 | Campaign reports | `IMPLEMENTED` | Performance, audience, delivery, failure, export and date/channel/campaign scopes exist | Extend to reusable audience names and recurring run dimensions | API/UI |
 | General operational reports | `MISSING` | No general report service | Add volume, open/closed, agent/team workload, response time, customer/audience, labels and custom report builder | DB/API/UI |
 | Resolution-time report | `NEEDS_CLIENT_CONFIGURATION` | Lifecycle timestamps make it calculable | Client left the metric unanswered; define resolved event, pause treatment and business-hour clock | Policy |
-| WhatsApp, Messenger, Instagram | `PARTIALLY_IMPLEMENTED` | Signed webhook adapters, normalization, capability-specific policy and durable dispatch exist | No live Graph transport or client Meta app credentials | Provider/config |
+| WhatsApp, Messenger, Instagram | `PARTIALLY_IMPLEMENTED` | Signed webhook adapters, normalization, durable dispatch, live Graph transport, paginated WhatsApp template sync, remote deletion handling and typed failure paths exist | No authorized client Meta assets; Messenger/Instagram live adapters are not claimed | Provider/config |
 | Website Chat and Custom Channel | `PARTIALLY_IMPLEMENTED` | Signed self-hosted ingress and channel contracts exist | Finish install UI/snippet distribution and production connectivity verification | API/UI/config |
 | TikTok / additional channels | `MISSING` | Versioned custom-channel escape hatch exists | Build a capability-specific adapter only after API access and supported events are confirmed | Provider/DB/API/UI |
 | Realtime | `IMPLEMENTED` | Authorized event projection, cursors, reconnect and durable relay model exist | Production broker still requires configuration | Config/infra |
-| Durable jobs | `PARTIALLY_IMPLEMENTED` | PostgreSQL queues/outbox, attempts, recovery, fencing and separate workers exist | Automation/SLA/recurrence queues are absent; production broker adapter is unconfigured | DB/worker/config |
+| Durable jobs | `PARTIALLY_IMPLEMENTED` | PostgreSQL queues/outbox, attempts, recovery, fencing, separate workers, automation planning/execution and restart-safe schedule materialization exist | SLA queues remain; production worker configuration and provider assets are absent | Worker/config |
 | Database and tenant security | `IMPLEMENTED` | Forward-only checksummed migrations, transaction-scoped tenant context, forced RLS and tenant-qualified foreign keys | New modules must preserve the same rules | — |
 | HTTP/API security | `IMPLEMENTED` | Session gate, CSRF, request IDs, typed errors, authorization, anti-enumeration and idempotency | Add structured production logger and security headers review | API/ops |
-| Railway production topology | `PARTIALLY_IMPLEMENTED` | Docker build, API/web/workers, one-shot migration and runbook exist | Add provider/email/broker assets, health probes, backups, recovery drill and final smoke checks | Infra/config |
+| Railway production topology | `PARTIALLY_IMPLEMENTED` | Isolated staging has web, API, migration, PostgreSQL and six workers; all probes pass and logical restore/load smoke were exercised | Production PITR, platform healthcheck paths, provider assets, two new production workers, immutable tag and production smoke remain | Infra/config |
 | Responsive operator UI | `PARTIALLY_IMPLEMENTED` | Desktop layouts, dark/light themes, accessibility and visual tests exist | Complete mobile/tablet responsive behaviour for new screens and fix the overly sparse unauthenticated state | UI/tests |
 | Digital School brand | `PARTIALLY_IMPLEMENTED` | Official logo, blue/yellow/charcoal/powder tokens, IBM Plex hierarchy, metadata and contrast checks are applied | Review every visual baseline and extend the identity to service email/export artifacts | UI/assets/tests |
 
@@ -82,4 +82,8 @@ The current purple `CONVO` presentation is also inconsistent with the supplied D
 
 ## Definition of production-ready
 
-Production readiness requires all migrations applied, no demo adapter enabled, real email and provider adapters configured, secret rotation documented, broker/realtime topology verified, backups and restore tested, health probes green, browser smoke tests against the deployed URL, and every remaining `NEEDS_CLIENT_CONFIGURATION` item either supplied or explicitly deferred in writing.
+Production readiness requires all 32 migrations applied from an immutable tag,
+no demo adapter enabled, real email/provider assets verified, production PITR
+enabled and restored, healthchecks wired, both new workers deployed, mutation
+testing green, production smoke complete, and every remaining
+`NEEDS_CLIENT_CONFIGURATION` item supplied or explicitly deferred in writing.

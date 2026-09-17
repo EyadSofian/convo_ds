@@ -36,6 +36,7 @@ export default tseslint.config(
     ignores: [
       '**/dist/**',
       '**/node_modules/**',
+      '.stryker-tmp/**',
       '.research-cache/**',
       'research/**',
       'tmp/**',

@@ -11,16 +11,23 @@ import type { ApiConfig } from './config.js';
 import { AuthController } from './auth/auth.controller.js';
 import { AuthRateLimiter } from './auth/auth-rate-limiter.js';
 import { AuthService } from './auth/auth.service.js';
-import { LoggingRecoveryDelivery } from './auth/recovery-delivery.js';
 import type { RecoveryDeliveryPort } from './auth/recovery-delivery.js';
 import { RecoveryService } from './auth/recovery.service.js';
 import { AuthorizationService } from './authorization/authorization.service.js';
+import { HealthController } from './health/health.controller.js';
+import { HealthService } from './health/health.service.js';
+import { LoggingEmailProvider, unconfiguredEmailProvider } from './email/email-provider.port.js';
+import type { EmailProviderPort } from './email/email-provider.port.js';
+import { ResendEmailProvider } from './email/resend.provider.js';
+import { EmailOutboxService } from './email/email-outbox.service.js';
+import { OutboxInvitationDelivery, OutboxRecoveryDelivery } from './email/outbox-delivery.js';
 import { unconfiguredBroker } from './broker/broker.port.js';
 import type { BrokerPort } from './broker/broker.port.js';
 import { BrokerRelayService } from './broker/relay.service.js';
 import { ChannelController } from './channels/channel.controller.js';
 import { ChannelService } from './channels/channel.service.js';
 import { unconfiguredTransport } from './channels/channel-transport.js';
+import { MetaWhatsAppTransport } from './channels/meta-whatsapp.transport.js';
 import type { ChannelTransportPort } from './channels/channel-transport.js';
 import { ChannelCredentialService } from './channels/credential.service.js';
 import { ChannelIngressController } from './channels/ingress.controller.js';
@@ -46,7 +53,6 @@ import { InstanceController } from './instance/instance.controller.js';
 import { InstanceService } from './instance/instance.service.js';
 import { MembershipController } from './memberships/membership.controller.js';
 import { InvitationController } from './people/invitation.controller.js';
-import { LoggingInvitationDelivery } from './people/invitation-delivery.js';
 import type { InvitationDeliveryPort } from './people/invitation-delivery.js';
 import { InvitationService } from './people/invitation.service.js';
 import { PeopleController } from './people/people.controller.js';
@@ -61,11 +67,16 @@ import { CampaignReportingService } from './campaigns/reporting.service.js';
 import { CampaignReportExportService } from './campaigns/report-export.service.js';
 import { SegmentController } from './segments/segment.controller.js';
 import { SegmentService } from './segments/segment.service.js';
+import { AutomationController } from './automations/automation.controller.js';
+import { AutomationService } from './automations/automation.service.js';
+import { AutomationEventService } from './automations/automation-event.service.js';
+import { AutomationRunnerService } from './automations/automation-runner.service.js';
 import {
   API_CONFIG,
   API_POOL,
   BROKER,
   CHANNEL_TRANSPORT,
+  EMAIL_PROVIDER,
   INVITATION_DELIVERY,
   PASSWORD_HASHER,
   RECOVERY_DELIVERY,
@@ -105,11 +116,13 @@ export class ApiModule {
       readonly invitationDelivery?: InvitationDeliveryPort | undefined;
       readonly channelTransport?: ChannelTransportPort | undefined;
       readonly broker?: BrokerPort | undefined;
+      readonly emailProvider?: EmailProviderPort | undefined;
     } = {},
   ): DynamicModule {
     return {
       module: ApiModule,
       controllers: [
+        HealthController,
         InstanceController,
         AuthController,
         MembershipController,
@@ -125,33 +138,43 @@ export class ApiModule {
         CampaignController,
         RealtimeController,
         SegmentController,
+        AutomationController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
         { provide: API_POOL, useValue: pool },
         { provide: PASSWORD_HASHER, useValue: ARGON2ID_HASHER },
-        // No email provider is configured. The default adapter logs a redacted
-        // line and never the token; it is not a working integration and the
-        // ledger records it as an unconfigured port.
-        {
-          provide: RECOVERY_DELIVERY,
-          useValue: adapters.recoveryDelivery ?? new LoggingRecoveryDelivery(),
-        },
-        {
-          provide: INVITATION_DELIVERY,
-          useValue: adapters.invitationDelivery ?? new LoggingInvitationDelivery(),
-        },
-        // No provider transport is configured, because no authorized Meta
-        // assets exist. The default refuses every send and every connection
-        // test with a typed reason rather than pretending to succeed.
+        // Email leaves this process through one door: a row in
+        // `email_deliveries`, written on the caller's transaction. The provider
+        // is reached only by the worker that drains that table, so no request
+        // path can ever block on, or fail because of, a third party.
+        //
+        // `parseEmailConfig` has already refused to boot a production process
+        // whose provider is missing or set to `logging`, so there is no silent
+        // fallback below — only the choice between two real bindings.
+        { provide: EMAIL_PROVIDER, useValue: adapters.emailProvider ?? emailProviderFor(config) },
+        // The overrides exist so a test can observe a delivery without a table.
+        // Nothing in production supplies them: `startApi` passes no adapters.
+        adapters.recoveryDelivery === undefined
+          ? { provide: RECOVERY_DELIVERY, useClass: OutboxRecoveryDelivery }
+          : { provide: RECOVERY_DELIVERY, useValue: adapters.recoveryDelivery },
+        adapters.invitationDelivery === undefined
+          ? { provide: INVITATION_DELIVERY, useClass: OutboxInvitationDelivery }
+          : { provide: INVITATION_DELIVERY, useValue: adapters.invitationDelivery },
+        // The provider transport, chosen by configuration. `none` is still the
+        // default and still refuses every send and every connection test with a
+        // typed reason rather than pretending to succeed — but `meta` is now a
+        // real WhatsApp Cloud API adapter rather than a thing that did not
+        // exist.
         {
           provide: CHANNEL_TRANSPORT,
-          useValue: adapters.channelTransport ?? unconfiguredTransport,
+          useValue: adapters.channelTransport ?? channelTransportFor(config),
         },
         // No durable broker is configured. The default refuses every publish,
         // so the outbox grows visibly rather than a queue silently becoming an
         // array that loses everything on restart.
         { provide: BROKER, useValue: adapters.broker ?? unconfiguredBroker },
+        HealthService,
         IdempotencyService,
         InstanceService,
         AuthRateLimiter,
@@ -182,8 +205,45 @@ export class ApiModule {
         MembershipService,
         PermissionService,
         SegmentService,
+        AutomationService,
+        AutomationEventService,
+        AutomationRunnerService,
+        EmailOutboxService,
         PoolLifecycle,
       ],
     };
   }
+}
+
+/**
+ * Which email transport this installation uses.
+ *
+ * The config parser has already rejected a production process that reaches
+ * `logging`, so the branch below is total and neither arm is a fallback: one is
+ * the real provider, the other is the local adapter an operator explicitly
+ * asked for. Anything else failed at boot with a named issue.
+ */
+export function emailProviderFor(config: ApiConfig): EmailProviderPort {
+  if (config.email.provider === 'resend') {
+    return new ResendEmailProvider({
+      apiKey: config.email.resendApiKey,
+      from: config.email.from,
+    });
+  }
+  return config.email.from === '' && config.email.resendApiKey === ''
+    ? new LoggingEmailProvider()
+    : unconfiguredEmailProvider;
+}
+
+/**
+ * Which provider transport carries outbound channel messages.
+ *
+ * The Meta adapter is constructed with no credentials: a WhatsApp access token
+ * belongs to a *connection*, is sealed per tenant by `ChannelCredentialService`,
+ * and is opened inside the dispatch transaction and handed to `send` as an
+ * argument. Nothing provider-shaped lives in installation configuration except
+ * the choice of adapter itself.
+ */
+export function channelTransportFor(config: ApiConfig): ChannelTransportPort {
+  return config.channelTransport === 'meta' ? new MetaWhatsAppTransport() : unconfiguredTransport;
 }

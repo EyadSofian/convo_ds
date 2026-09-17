@@ -60,6 +60,7 @@
     --brand-telegram: #1f8fcb;
     --brand-web-chat: #004fef;
     --brand-custom: #4c5260;
+    --brand-highlight: #d9ff3f;
     --on-brand: #ffffff;
 
     /* Not contrast-bearing: hairlines, layers and elevation. */
@@ -193,6 +194,7 @@
     --brand-telegram: #1f8fcb;
     --brand-web-chat: #004fef;
     --brand-custom: #4c5260;
+    --brand-highlight: #d9ff3f;
     --on-brand: #ffffff;
 
     --border: rgba(255, 255, 255, 0.08);
