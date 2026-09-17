@@ -36,7 +36,7 @@ describe('while the session is being checked', () => {
     const element = renderGate(state);
     expect(element.className).toBe('gate gate--loading');
     expect(element.querySelector('[role="status"]')?.textContent).toContain('Checking your session');
-    expect(element.querySelector('.brand')?.textContent).toBe('CONVO');
+    expect(element.querySelector('.brand')?.textContent).toBe('DIGITAL SCHOOL');
     expectNothingProtected(element);
     expect(loadingScreen(gate('ar')).textContent).toContain('جارٍ التحقق من الجلسة');
   });

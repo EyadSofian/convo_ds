@@ -15,10 +15,7 @@ div.gate
   main.gate__main
     section.auth-card
       span.brand
-        span.logomark.logomark--lg
-          svg
-            path
-            path
+        img.logomark.logomark--lg
         span.brand__name
       div.auth-card__intro
         h1.auth-card__title

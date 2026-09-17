@@ -272,8 +272,9 @@ describe('layout atoms', () => {
 describe('brand', () => {
   it('draws the mark, the lockup and a channel tile, all decorative', () => {
     expect(logomark().className).toBe('logomark logomark--sm');
-    expect(logomark('lg').querySelector('svg')?.getAttribute('width')).toBe('22');
-    expect(brandLockup().textContent).toBe('CONVO');
+    expect(logomark('lg').getAttribute('src')).toBe('/brand/digital-school-by-berlitz.png');
+    expect(logomark('lg').getAttribute('alt')).toBe('');
+    expect(brandLockup().textContent).toBe('DIGITAL SCHOOL');
     const tile = channelTile('instagram', 'lg');
     expect(tile.className).toBe('channel-tile channel-tile--instagram channel-tile--lg');
     expect(tile.getAttribute('aria-hidden')).toBe('true');

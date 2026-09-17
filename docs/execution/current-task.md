@@ -4,6 +4,20 @@ This is the handoff file. Read it first, then [traceability.md](../requirements/
 
 ---
 
+## Current slice — requirements audit, shared segments and Digital School brand (2026-09-17)
+
+**Delivered.** The supplied requirements questionnaire has been reconciled against executable code, migrations and routes in [`../PRODUCT_AUDIT.md`](../PRODUCT_AUDIT.md); unknown client facts are isolated in [`../CLIENT_CONFIGURATION_GAPS.md`](../CLIENT_CONFIGURATION_GAPS.md). Migrations 0026 and 0027 add validated email/phone custom fields, saved views and reusable audience definitions under tenant RLS. The API exposes version-fenced create/list/update/retire operations for private, team and workspace saved views and for audiences. A bounded versioned condition AST is shared by the domain vocabulary intended for audiences, routing, label rules and automations.
+
+**Production truth.** The browser demo server and its `?demo=1` activation path have been deleted. The web build always uses the real same-origin API and the existing session gate. The operator shell now uses the supplied Digital School by Berlitz logo, IBM Plex and the documented blue/yellow/powder/charcoal palette. Brand source, usage constraints and token mapping are recorded in [`../BRAND_IMPLEMENTATION.md`](../BRAND_IMPLEMENTATION.md).
+
+**Evidence.** `lint`, `typecheck` and the production build exit 0. Coverage runs 108 files and 2,107 tests at **100% lines, statements, functions and branches**. Contract gates pass 170 domain/adapter tests plus 121 API/integration tests. Security passes 375 PostgreSQL-backed tests and the production dependency audit reports no known vulnerabilities. The complete browser gate passes 242 tests across 1440×900 and 1366×768; the six expected brand/field structural baselines were inspected, regenerated, and the 66-test visual suite then passed.
+
+**Not claimed.** Saved views and audiences are server surfaces only in this slice; their management UI, a SQL condition compiler, audience preview/count, execution-time re-evaluation and immutable campaign snapshot linkage remain. Automatic labels, routing rules, automation execution, recurring campaign scheduling, SLA/business-hours escalation, provider email delivery, and live Meta transport remain unimplemented or client-blocked as classified in the audit. CRM stays deferred by owner direction.
+
+**Next execution slice.** Compile the shared condition document into parameterized tenant-scoped queries, expose audience preview/count, wire saved views into Inbox/Contacts, and bind campaign execution to a freshly evaluated audience definition whose result is frozen as immutable execution evidence.
+
+---
+
 ## Production deployment — Railway
 
 The production deployment now has a persistent PostgreSQL service, a private API, four independently running durable-queue workers (inbound, interactive, campaign and report), and one public web service. The public web service owns the only public domain and streams same-origin `/api` traffic, including SSE and cookies, to the API over Railway private networking.

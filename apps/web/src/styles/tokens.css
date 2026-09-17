@@ -18,25 +18,25 @@
 @layer tokens {
   /* @tokens light */
   :root {
-    /* Surfaces: a warm off-white ground with white-ish layers above it. */
-    --canvas: #f4f3f0;
-    --surface-1: #fcfbf9;
-    --surface-2: #f7f6f3;
-    --surface-3: #efeee9;
-    --surface-hover: #f0efea;
-    --surface-selected: #ecebf9;
+    /* Digital School: Powder work surfaces with restrained blue selection. */
+    --canvas: #f4f6fa;
+    --surface-1: #fcfcfc;
+    --surface-2: #f7f8fb;
+    --surface-3: #edf1f7;
+    --surface-hover: #eef3fd;
+    --surface-selected: #e5edfd;
 
     /* Text. */
-    --text: #17191f;
-    --text-secondary: #3f4450;
-    --text-muted: #5f6674;
+    --text: #1d1d1d;
+    --text-secondary: #3d434d;
+    --text-muted: #5c6572;
     --text-disabled: #a3a7b0;
 
-    /* One restrained violet accent. */
-    --accent: #6558d9;
-    --accent-hover: #5548c8;
-    --accent-text: #5346c9;
-    --accent-soft: #ecebf9;
+    /* Berlitz Blue is the action colour; yellow stays a deliberate highlight. */
+    --accent: #004fef;
+    --accent-hover: #0045d1;
+    --accent-text: #004fef;
+    --accent-soft: #e5edfd;
     --on-accent: #ffffff;
 
     /* Semantic status, each with a quiet tint for badges and notices. */
@@ -51,14 +51,14 @@
 
     /* Boundaries that identify a control (WCAG 1.4.11), and focus. */
     --border-strong: #858a95;
-    --focus-ring: #6558d9;
+    --focus-ring: #004fef;
 
     /* Provider colour, confined to the small tile behind a channel glyph. */
     --brand-whatsapp: #1fa855;
     --brand-messenger: #0a6cff;
     --brand-instagram: #c7306f;
     --brand-telegram: #1f8fcb;
-    --brand-web-chat: #6558d9;
+    --brand-web-chat: #004fef;
     --brand-custom: #4c5260;
     --on-brand: #ffffff;
 
@@ -74,7 +74,7 @@
     --shadow-md: 0 6px 16px rgba(20, 24, 32, 0.08), 0 1px 3px rgba(20, 24, 32, 0.05);
     --shadow-lg: 0 18px 48px rgba(20, 24, 32, 0.16), 0 2px 8px rgba(20, 24, 32, 0.06);
     --bubble-in: #ffffff;
-    --bubble-out: #ecebf9;
+    --bubble-out: #e5edfd;
     --note-surface: #fbf4e4;
     --note-edge: rgba(138, 90, 0, 0.35);
     --chart-bar: rgba(95, 102, 116, 0.28);
@@ -156,24 +156,24 @@
 
   /* @tokens dark */
   :root[data-theme='dark'] {
-    /* Deep graphite, never pure black. */
-    --canvas: #0b0d12;
-    --surface-1: #11141b;
-    --surface-2: #171b24;
-    --surface-3: #1d2230;
-    --surface-hover: #1a1e28;
-    --surface-selected: #221f3f;
+    /* Charcoal-derived dark mode from the same Digital School palette. */
+    --canvas: #111418;
+    --surface-1: #1d1d1d;
+    --surface-2: #232830;
+    --surface-3: #2a303a;
+    --surface-hover: #252c36;
+    --surface-selected: #102b57;
 
     --text: #f4f5f8;
     --text-secondary: #c3c8d2;
     --text-muted: #959eae;
     --text-disabled: #5c6372;
 
-    --accent: #6554e6;
-    --accent-hover: #5747d6;
-    --accent-text: #a59bff;
-    --accent-soft: #221f3f;
-    --on-accent: #ffffff;
+    --accent: #ddff57;
+    --accent-hover: #e7ff89;
+    --accent-text: #ddff57;
+    --accent-soft: #102b57;
+    --on-accent: #1d1d1d;
 
     --success: #5ccf94;
     --success-soft: #12261c;
@@ -185,13 +185,13 @@
     --unknown-soft: #152632;
 
     --border-strong: #6a7282;
-    --focus-ring: #a59bff;
+    --focus-ring: #ddff57;
 
     --brand-whatsapp: #1fa855;
     --brand-messenger: #0a6cff;
     --brand-instagram: #c7306f;
     --brand-telegram: #1f8fcb;
-    --brand-web-chat: #6554e6;
+    --brand-web-chat: #004fef;
     --brand-custom: #4c5260;
     --on-brand: #ffffff;
 
@@ -206,7 +206,7 @@
     --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
     --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
     --bubble-in: #1a1e28;
-    --bubble-out: #25224a;
+    --bubble-out: #102b57;
     --note-surface: #251f13;
     --note-edge: rgba(227, 179, 90, 0.38);
     --chart-bar: rgba(149, 158, 174, 0.3);

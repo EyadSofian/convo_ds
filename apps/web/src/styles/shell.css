@@ -124,24 +124,22 @@
   .brand__name {
     font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
-    letter-spacing: 0.08em;
+    letter-spacing: 0.04em;
+    color: var(--accent-text);
   }
 
   .logomark {
-    display: grid;
-    place-items: center;
     inline-size: 32px;
     block-size: 32px;
-    border-radius: 9px;
-    background: var(--accent);
-    color: var(--on-accent);
+    border-radius: 8px;
+    object-fit: contain;
     flex: none;
   }
 
   .logomark--lg {
     inline-size: 40px;
     block-size: 40px;
-    border-radius: 11px;
+    border-radius: 10px;
   }
 
   /* ---------------------------------------------------------------- frame -- */

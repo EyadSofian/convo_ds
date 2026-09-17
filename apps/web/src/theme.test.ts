@@ -62,18 +62,14 @@ describe('palettes read from styles/tokens.css', () => {
     expect(dark).toEqual(light);
   });
 
-  it('uses the requested direction: warm light ground, graphite dark ground, a violet accent', () => {
+  it('uses the supplied Digital School blue, yellow, powder and charcoal direction', () => {
     const light = paletteFromCss(TOKENS_CSS, 'light');
     const dark = paletteFromCss(TOKENS_CSS, 'dark');
-    expect(light['canvas']).toBe('#f4f3f0');
-    expect(dark['canvas']).toBe('#0b0d12');
-    // Not pure black, and not the old light blue.
+    expect(light['surface-1']).toBe('#fcfcfc');
+    expect(light['accent']).toBe('#004fef');
+    expect(dark['surface-1']).toBe('#1d1d1d');
+    expect(dark['accent']).toBe('#ddff57');
     expect(dark['canvas']).not.toBe('#000000');
-    for (const palette of [light, dark]) {
-      const [red, green, blue] = parseHex(palette['accent'] as string);
-      expect(blue).toBeGreaterThan(green);
-      expect(red).toBeGreaterThan(green);
-    }
   });
 
   it('gives outcome_unknown its own hue, not a shade of danger', () => {
