@@ -22,6 +22,23 @@ export {
   normalizeSearchText,
   validateFieldValue,
 } from './metadata/custom-fields.js';
+
+export {
+  CONDITION_OPERATORS,
+  CONDITION_VERSION,
+  validateConditionDocument,
+} from './conditions/condition.js';
+export type {
+  ConditionContext,
+  ConditionDocument,
+  ConditionGroup,
+  ConditionIssue,
+  ConditionNode,
+  ConditionOperator,
+  ConditionPredicate,
+  ConditionScalar,
+  ConditionValidation,
+} from './conditions/condition.js';
 export type {
   CustomFieldDefinition,
   CustomFieldTarget,

@@ -1,7 +1,7 @@
 import type { ApiClient, ApiResult } from './client.js';
 
 export type FieldTarget = 'contact' | 'conversation';
-export type FieldType = 'text' | 'number' | 'boolean' | 'date' | 'single_select' | 'multi_select';
+export type FieldType = 'text' | 'number' | 'boolean' | 'date' | 'email' | 'phone' | 'single_select' | 'multi_select';
 
 export interface Label {
   readonly id: string;

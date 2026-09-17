@@ -805,13 +805,13 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     const type = form(context, 'fieldType') || 'text';
     if (
       (target !== 'contact' && target !== 'conversation') ||
-      !['text', 'number', 'boolean', 'date', 'single_select', 'multi_select'].includes(type)
+      !['text', 'number', 'boolean', 'date', 'email', 'phone', 'single_select', 'multi_select'].includes(type)
     ) return false;
     const ok = await createField(context, {
       target,
       key: form(context, 'fieldKey'),
       name: form(context, 'fieldName'),
-      type: type as 'text' | 'number' | 'boolean' | 'date' | 'single_select' | 'multi_select',
+      type: type as 'text' | 'number' | 'boolean' | 'date' | 'email' | 'phone' | 'single_select' | 'multi_select',
       options: ['single_select', 'multi_select'].includes(type)
         ? form(context, 'fieldOptions').split(',').map((value) => value.trim()).filter(Boolean)
         : [],

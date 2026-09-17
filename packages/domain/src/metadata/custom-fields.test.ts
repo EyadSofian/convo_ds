@@ -11,7 +11,7 @@ import {
 describe('typed custom fields', () => {
   it('recognises only the closed target and type vocabularies', () => {
     expect(CUSTOM_FIELD_TARGETS).toEqual(['contact', 'conversation']);
-    expect(CUSTOM_FIELD_TYPES).toHaveLength(6);
+    expect(CUSTOM_FIELD_TYPES).toHaveLength(8);
     expect(isCustomFieldTarget('contact')).toBe(true);
     expect(isCustomFieldTarget('message')).toBe(false);
     expect(isCustomFieldType('multi_select')).toBe(true);
@@ -38,6 +38,12 @@ describe('typed custom fields', () => {
     ['date', '2026-02-30', false, undefined],
     ['date', '2026/02/28', false, undefined],
     ['date', 20260228, false, undefined],
+    ['email', ' Student@Example.COM ', true, 'student@example.com'],
+    ['email', 'student@invalid', false, undefined],
+    ['email', 3, false, undefined],
+    ['phone', '+20 100-123-4567', true, '+201001234567'],
+    ['phone', '01001234567', false, undefined],
+    ['phone', 201001234567, false, undefined],
   ] as const)('validates %s values', (type, value, ok, search) => {
     const result = validateFieldValue({ type, options: [] }, value);
     expect(result.ok).toBe(ok);

@@ -67,6 +67,8 @@ describe('migrate', () => {
       '0023_campaign_reporting.sql',
       '0024_campaign_failed_retry.sql',
       '0025_campaign_report_exports.sql',
+      '0026_contact_field_email_phone.sql',
+      '0027_views_and_audiences.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -79,6 +81,7 @@ describe('migrate', () => {
       'admin_audit_events',
       'audience_snapshot_members',
       'audience_snapshots',
+      'audiences',
       'auth_rate_limits',
       'broker_dead_letters',
       'broker_deliveries',
@@ -143,6 +146,7 @@ describe('migrate', () => {
       'realtime_events',
       'role_permissions',
       'roles',
+      'saved_views',
       'schema_migrations',
       'team_members',
       'teams',

@@ -191,6 +191,8 @@ function catalogPanel(state: AppState, live: LiveState): HTMLElement {
             { value: 'number', label: t(state, 'رقم', 'Number') },
             { value: 'boolean', label: t(state, 'نعم / لا', 'Yes / No') },
             { value: 'date', label: t(state, 'تاريخ', 'Date') },
+            { value: 'email', label: t(state, 'بريد إلكتروني', 'Email') },
+            { value: 'phone', label: t(state, 'هاتف دولي', 'International phone') },
             { value: 'single_select', label: t(state, 'اختيار واحد', 'Single choice') },
             { value: 'multi_select', label: t(state, 'اختيارات متعددة', 'Multiple choice') },
           ] })),

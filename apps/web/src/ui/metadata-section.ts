@@ -126,5 +126,7 @@ function fieldControl(
   const input = textInput(key, value, type === 'multi_select' ? t(state, 'افصل القيم بفاصلة', 'Comma-separated values') : '');
   if (type === 'number') input.type = 'number';
   if (type === 'date') input.type = 'date';
+  if (type === 'email') input.type = 'email';
+  if (type === 'phone') input.type = 'tel';
   return input;
 }

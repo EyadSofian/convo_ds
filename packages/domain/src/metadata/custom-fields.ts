@@ -15,6 +15,8 @@ export const CUSTOM_FIELD_TYPES = [
   'number',
   'boolean',
   'date',
+  'email',
+  'phone',
   'single_select',
   'multi_select',
 ] as const;
@@ -32,6 +34,8 @@ export type FieldValueResult =
   | { readonly ok: false; readonly code: 'invalid_type' | 'invalid_value' | 'unknown_option' };
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+const PHONE = /^\+[1-9]\d{6,14}$/;
 
 export function isCustomFieldTarget(value: string): value is CustomFieldTarget {
   return (CUSTOM_FIELD_TARGETS as readonly string[]).includes(value);
@@ -75,6 +79,20 @@ export function validateFieldValue(
     if (typeof candidate !== 'string') return { ok: false, code: 'invalid_type' };
     return validDate(candidate)
       ? { ok: true, value: candidate, search: candidate }
+      : { ok: false, code: 'invalid_value' };
+  }
+  if (definition.type === 'email') {
+    if (typeof candidate !== 'string') return { ok: false, code: 'invalid_type' };
+    const value = candidate.trim();
+    return value.length <= 254 && EMAIL.test(value)
+      ? { ok: true, value, search: value.toLocaleLowerCase('und') }
+      : { ok: false, code: 'invalid_value' };
+  }
+  if (definition.type === 'phone') {
+    if (typeof candidate !== 'string') return { ok: false, code: 'invalid_type' };
+    const value = candidate.replace(/[\s().-]/gu, '');
+    return PHONE.test(value)
+      ? { ok: true, value, search: value }
       : { ok: false, code: 'invalid_value' };
   }
   if (definition.type === 'single_select') {

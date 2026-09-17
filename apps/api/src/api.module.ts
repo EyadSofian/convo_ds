@@ -59,6 +59,8 @@ import { CampaignService } from './campaigns/campaign.service.js';
 import { CampaignPlannerService } from './campaigns/campaign-planner.service.js';
 import { CampaignReportingService } from './campaigns/reporting.service.js';
 import { CampaignReportExportService } from './campaigns/report-export.service.js';
+import { SegmentController } from './segments/segment.controller.js';
+import { SegmentService } from './segments/segment.service.js';
 import {
   API_CONFIG,
   API_POOL,
@@ -122,6 +124,7 @@ export class ApiModule {
         MetadataController,
         CampaignController,
         RealtimeController,
+        SegmentController,
       ],
       providers: [
         { provide: API_CONFIG, useValue: config },
@@ -178,6 +181,7 @@ export class ApiModule {
         OutboundService,
         MembershipService,
         PermissionService,
+        SegmentService,
         PoolLifecycle,
       ],
     };

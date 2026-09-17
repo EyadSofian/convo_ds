@@ -202,6 +202,14 @@ describe('pinned OpenAPI contract', () => {
       "createCampaignReportExport",
       "getCampaignReportExport",
       "downloadCampaignReportExport",
+      "listSavedViews",
+      "createSavedView",
+      "updateSavedView",
+      "retireSavedView",
+      "listAudiences",
+      "createAudience",
+      "updateAudience",
+      "retireAudience",
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);

@@ -6368,6 +6368,80 @@
           }
         }
       }
+    },
+    "/tenants/{tenantId}/saved-views": {
+      "get": {
+        "operationId": "listSavedViews",
+        "summary": "List saved views visible to the current operator",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "resource", "in": "query", "required": true, "schema": { "type": "string", "enum": ["conversations", "contacts"] } }
+        ],
+        "responses": { "200": { "description": "Visible saved views" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "post": {
+        "operationId": "createSavedView",
+        "summary": "Create a validated private, team or workspace saved view",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "201": { "description": "Saved view created" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/saved-views/{viewId}": {
+      "patch": {
+        "operationId": "updateSavedView",
+        "summary": "Update a saved view with optimistic concurrency",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "viewId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Saved view updated" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "delete": {
+        "operationId": "retireSavedView",
+        "summary": "Retire a saved view",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "viewId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["version"], "properties": { "version": { "type": "integer", "minimum": 1 } } } } } },
+        "responses": { "200": { "description": "Saved view retired" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/audiences": {
+      "get": {
+        "operationId": "listAudiences",
+        "summary": "List reusable dynamic audiences",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }],
+        "responses": { "200": { "description": "Active audiences" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "post": {
+        "operationId": "createAudience",
+        "summary": "Create a reusable dynamic audience",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "201": { "description": "Audience created" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/audiences/{audienceId}": {
+      "patch": {
+        "operationId": "updateAudience",
+        "summary": "Update a reusable audience with optimistic concurrency",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "audienceId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Audience updated" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      },
+      "delete": {
+        "operationId": "retireAudience",
+        "summary": "Retire a reusable audience",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "audienceId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["version"], "properties": { "version": { "type": "integer", "minimum": 1 } } } } } },
+        "responses": { "200": { "description": "Audience retired" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
     }
   },
   "components": {
@@ -10242,6 +10316,8 @@
               "number",
               "boolean",
               "date",
+              "email",
+              "phone",
               "single_select",
               "multi_select"
             ]
@@ -10432,6 +10508,8 @@
               "number",
               "boolean",
               "date",
+              "email",
+              "phone",
               "single_select",
               "multi_select"
             ]
