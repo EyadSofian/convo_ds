@@ -1,6 +1,6 @@
 # Incident: Railway cross-environment deployment
 
-Status: recovery in progress
+Status: core production recovered; provider activation blocked
 Date: 2026-09-18
 Severity: production availability / release isolation
 Customer messaging: not activated
@@ -32,6 +32,18 @@ stayed attached. Meta and Resend remained disabled.
   `CONVO_EMAIL_PROVIDER (required)`.
 - During incident verification — all application GitHub source associations
   were disconnected; staging deployments remained healthy and immutable.
+- 17:05:21 UTC — isolated staging API deployment
+  `1c1fe476-51e0-48b6-8fa3-c58308778ab9` created from recovery SHA
+  `91b26d06c6de3ba3fe0f7547d9aadba56a83fec0`; every production deployment ID
+  and the 32-row migration ledger remained unchanged.
+- 17:09:15 UTC — locked pre-recovery production backup
+  `1b94f948-bf61-4ebd-94ff-15e058d73e2d` created.
+- 17:09:50 UTC — production migration verification deployment
+  `a2e141f5-4929-45cc-9227-d94af356257f` reported `no pending migrations`.
+- 17:11:29 UTC — production API recovery deployment
+  `6292ce47-8585-4896-a670-11a005da5653` created.
+- 17:12:56 UTC — production API `/ready` returned 200. The measured API
+  availability incident was 7 hours, 26 minutes and 13 seconds.
 
 ## Trigger and contributing conditions
 
@@ -99,7 +111,7 @@ Migrations 0026–0032 are forward-only and were not removed or reversed.
 
 ## Current production state
 
-At capture time, production web health was 200, production API was 502,
-PostgreSQL was healthy at schema 0032, and provider-dependent capabilities were
-not configured. The final recovery deployment and smoke results are recorded in
-`docs/release/PRODUCTION_RECOVERY_REPORT.md`.
+Production web health, API `/live`, API `/ready`, and the public API proxy are
+all 200. PostgreSQL remains healthy at schema 0032. No worker or provider was
+activated during core recovery. Provider-dependent capabilities remain blocked.
+The final evidence is recorded in `docs/release/PRODUCTION_RECOVERY_REPORT.md`.
