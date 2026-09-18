@@ -186,6 +186,41 @@ sweeper must use indexed timestamps, tenant-scoped batches of at most 1,000,
 `SKIP LOCKED`, and must never delete active leases, unresolved provider outcomes,
 consent/suppression evidence, or business audit records.
 
+The planning envelope below makes that decision actionable. It assumes the
+same 25-operator pilot and is deliberately rounded; row sizes include a coarse
+allowance for indexes and TOAST and are not a billing forecast.
+
+| Evidence family | Expected rows/day | Rows/month | Estimated storage/month | Required retention / action trigger |
+| --- | ---: | ---: | ---: | --- |
+| `webhook_receipts` | 20,000 | 600,000 | 300 MiB | 90 days proposed; owner approval required |
+| `channel_events` | 10,000 | 300,000 | 450 MiB | 90 days proposed; preserve unresolved/quarantined |
+| `inbound_events` | 10,000 | 300,000 | 300 MiB | product/legal decision; archive before deletion |
+| `realtime_events` | 10,000 | 300,000 | 225 MiB | retain at least replay horizon; 30 days proposed |
+| provider/dispatch evidence | 10,000 | 300,000 | 225 MiB | never sweep active or `outcome_unknown` work |
+| `idempotency_records` | 2,000 | 60,000 | 60 MiB | delete only after `expires_at` |
+| `auth_rate_limits` | 500 | 15,000 | 8 MiB | delete only after `expires_at` |
+| `email_deliveries` | 100 | 3,000 | 3 MiB | 90 days proposed after payload scrubbing |
+| automation runs/actions/logs | 1,000 | 30,000 | 60 MiB | 180 days proposed; preserve active runs |
+| business audit families | 1,000 | 30,000 | 25 MiB | archive policy required; do not delete by default |
+
+This is approximately 1.6 GiB/month before database-level overhead, below the
+existing 10 GiB/90-day decision gate for the initial pilot. Recalculate from
+actual `pg_total_relation_size` and daily row deltas after two weeks; implement
+the sweeper earlier if any table exceeds 2× its planned daily rate, total
+evidence reaches 10 GiB, or the oldest retained row reaches 90 days.
+
+Cleanup predicate readiness is mixed and therefore explicit. Existing indexes
+support `webhook_receipts.received_at`, `email_deliveries(tenant_id,
+created_at)`, and the `expires_at` columns on idempotency and auth-rate rows.
+`inbound_events` can be tenant-scoped by its conversation/time index, and
+automation children can be removed through an approved run cutoff and their
+cascading foreign keys. A general historical sweep of `channel_events` has
+only its partial pending index, while `realtime_events` has a tenant/sequence
+index rather than a time cutoff; automation run history is scoped by
+tenant/automation. Before enabling deletion for those families, add and measure
+the exact tenant/cutoff indexes required by the approved policy. Their measured
+pilot growth does not justify a speculative migration now.
+
 ---
 
 ## Query plans at volume

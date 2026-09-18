@@ -7,21 +7,31 @@ or copied into this repository.
 | --- | --- | --- |
 | Environment | `staging` (`6c7d3ce1-db61-40fd-9cf7-bffac954eda5`) | `production` (`ea473c79-c29e-4aab-91c4-e48f606dc057`) |
 | Public web | `convo-client-demo-staging.up.railway.app` | `convo-client-demo-production.up.railway.app` |
-| PostgreSQL | isolated service and volume | existing volume reattached and healthy after native recovery-point boot drill |
+| PostgreSQL | isolated service and volume; schema 0032 | existing volume healthy; schema unexpectedly advanced to 0032 by shared source trigger on 2026-09-18 |
 | Email | `logging`, explicitly non-production | **BLOCKED:** `CONVO_EMAIL_PROVIDER`, `CONVO_EMAIL_FROM`, and `CONVO_RESEND_API_KEY` absent |
 | Meta transport | `none`; contract tests only | **BLOCKED:** no authorized Meta asset/app evidence and no live transport configuration |
 | Broker | absent | absent; integration relay remains fail-closed if armed without a broker |
-| Automation worker | service created and configured | variable contract and `worker-automation` role staged; first deployment withheld |
-| Integration worker | service created and configured | variable contract and `worker-integration` role staged; provider values absent and first deployment withheld |
-| Trusted proxy | API set to two hops and observed at startup | API set to two hops; deploy pending release promotion |
+| Automation worker | service created and configured | release attempt failed closed; not activated |
+| Integration worker | service created and configured | release attempt failed closed; provider values absent; not activated |
+| Trusted proxy | API set to two hops and observed at startup | API set to two hops; release API failed healthcheck |
 | Platform backups/PITR | `enabled: false`; logical restore drilled separately | enabled; bucket wired; daily + weekly schedules and pre-release backup created |
-| Railway healthcheck config | API/workers `/ready`, web `/healthz`, 120s | API, web and existing workers persisted; new worker instances receive `/ready` on first deployment |
+| Railway healthcheck config | API/workers `/ready`, web `/healthz`, 120s | release web healthy; release API/workers failed closed and are not activated |
+
+On 2026-09-18 every staging application artifact was built from
+`EyadSofian/convo_ds` at `eac8b262c5b6eadf3289327ce1bbabd40249a7dc`.
+Railway's GitHub source is associated at service scope and created triggers in
+production as well as staging. After the unintended production migration, all
+nine application source associations were disconnected to prevent recurrence.
+The running staging deployments remain traceable to the commit in deployment
+metadata; automatic GitHub redeploy is intentionally disabled pending an
+environment-isolated topology or an explicit staging-only release workflow.
 
 Shared database, installation, locale, cryptographic, and role variables are
 present in the existing production API and workers. The two new production
 workers now have matching core contracts and explicit role selectors.
-Production deployment must not begin until real provider values are supplied
-by their owner and all workers have the complete validated environment.
+Production activation must not continue until real provider values are supplied
+by their owner, all workers have the complete validated environment, and the
+cross-environment deployment isolation defect is resolved.
 
 Staging intentionally uses `NODE_ENV=staging` with the logging email adapter.
 That permits full product-flow validation without pretending to send email.
