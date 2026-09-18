@@ -69,6 +69,24 @@ test.describe('sign-in baselines', () => {
     await expect(page).toHaveScreenshot('signin-refused.png');
     expect(await structureOf(page, '.gate')).toMatchSnapshot('signin-structure.txt');
   });
+
+  test('recover access', async ({ page }) => {
+    await freezeClock(page);
+    await installApi(page, { signedIn: false });
+    await page.goto('/#/reset-password');
+    await expect(page.locator('#recovery-email')).toBeVisible();
+    await fontsReady(page);
+    await expect(page).toHaveScreenshot('recover-access.png');
+  });
+
+  test('invitation with an invalid link', async ({ page }) => {
+    await freezeClock(page);
+    await installApi(page, { signedIn: false });
+    await page.goto('/#/accept-invitation?token=invalid');
+    await expect(page.locator('.auth-card [role="alert"]')).toBeVisible();
+    await fontsReady(page);
+    await expect(page).toHaveScreenshot('invitation-invalid.png');
+  });
 });
 
 test.describe('inbox baselines', () => {
@@ -117,6 +135,14 @@ test.describe('inbox baselines', () => {
     await expect(page.locator('.nav')).toBeVisible();
     await fontsReady(page);
     await expect(page).toHaveScreenshot('phone-nav-open.png');
+  });
+
+  test('the active conversation on a phone', async ({ page }) => {
+    await openInbox(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('.zone--thread')).toBeVisible();
+    await fontsReady(page);
+    await expect(page).toHaveScreenshot('inbox-phone.png');
   });
 
   test('inbox structure, including what scrolls out of view', async ({ page }) => {

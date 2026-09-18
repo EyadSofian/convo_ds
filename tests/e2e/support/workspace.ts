@@ -60,6 +60,7 @@ export const READY: Readonly<Record<string, string>> = {
   broadcasts: '[data-campaign]',
   analytics: '[data-report-ready]',
   settings: '[data-session]',
+  automations: '.automation-template-card',
 };
 
 /** Opens a workspace screen with the API scripted and waits for its data. */
@@ -157,4 +158,4 @@ export const MATRIX: readonly { direction: Direction; theme: Theme }[] = [
 ];
 
 /** The screens behind the navigation, besides the inbox. */
-export const SCREENS = ['contacts', 'channels', 'people', 'broadcasts', 'analytics', 'settings'] as const;
+export const SCREENS = ['contacts', 'channels', 'people', 'broadcasts', 'automations', 'analytics', 'settings'] as const;

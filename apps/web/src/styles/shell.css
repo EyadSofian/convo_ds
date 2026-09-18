@@ -34,6 +34,7 @@
     block-size: 100dvh;
     overflow-y: auto;
     background: var(--canvas);
+    box-shadow: inset 0 3px 0 var(--accent);
   }
 
   .gate--loading {
@@ -63,7 +64,7 @@
     display: grid;
     align-content: center;
     justify-items: center;
-    gap: var(--space-4);
+    gap: var(--space-5);
     padding: var(--space-4) var(--space-4) var(--space-12);
   }
 
@@ -79,39 +80,51 @@
   }
 
   .auth-card {
+    position: relative;
     display: grid;
-    gap: var(--space-5);
-    inline-size: min(400px, 100%);
-    padding: var(--space-8);
+    gap: var(--space-6);
+    inline-size: min(440px, 100%);
+    padding: var(--space-10);
     background: var(--surface-1);
-    border: 1px solid var(--border);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-xl);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+  }
+
+  .auth-card::before {
+    content: '';
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 3px;
+    background: var(--accent);
   }
 
   .auth-card__intro {
     display: grid;
-    gap: var(--space-1);
+    gap: var(--space-2);
   }
 
   .auth-card__title {
-    font-size: var(--text-xl);
+    font-size: var(--text-2xl);
     font-weight: var(--weight-semibold);
     line-height: var(--leading-tight);
   }
 
   .auth-card__lede {
     color: var(--text-muted);
+    line-height: var(--leading-relaxed);
   }
 
   .auth-form {
     display: grid;
-    gap: var(--space-4);
+    gap: var(--space-5);
   }
 
   .auth-form__submit {
     inline-size: 100%;
-    block-size: 40px;
+    block-size: 44px;
     font-size: var(--text-sm);
   }
 
@@ -207,7 +220,7 @@
     flex-direction: column;
     gap: var(--space-1);
     min-block-size: 0;
-    padding: var(--space-3) var(--space-3);
+    padding: var(--space-3) var(--space-2);
     background: var(--nav-surface);
     border-inline-end: 1px solid var(--border);
     backdrop-filter: blur(var(--blur-glass));
@@ -246,7 +259,7 @@
     gap: var(--space-3);
     inline-size: 100%;
     block-size: 40px;
-    padding-inline: 11px;
+    padding-inline: var(--space-3);
     border: 0;
     border-radius: var(--radius-md);
     background: transparent;
@@ -267,6 +280,16 @@
   .nav__item[aria-current='page'] {
     background: var(--accent-soft);
     color: var(--text);
+  }
+
+  .nav__item[aria-current='page']::before {
+    content: '';
+    position: absolute;
+    inset-block: var(--space-2);
+    inset-inline-start: 0;
+    inline-size: 3px;
+    border-radius: var(--radius-full);
+    background: var(--accent);
   }
 
   .nav__item[aria-current='page'] svg {
@@ -374,7 +397,8 @@
     min-inline-size: 0;
     padding-inline: var(--space-5);
     border-block-end: 1px solid var(--border);
-    background: var(--canvas);
+    background: var(--surface-1);
+    box-shadow: var(--shadow-xs);
   }
 
   .header__menu {
@@ -630,7 +654,7 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
-    block-size: 52px;
+    block-size: var(--thread-header-height);
     flex: none;
     padding-inline: var(--space-4) var(--space-2);
     border-block-end: 1px solid var(--border);
@@ -858,6 +882,21 @@
   @media (max-width: 599px) {
     .header__tenant {
       display: none;
+    }
+
+    .gate__main {
+      align-content: start;
+      padding: var(--space-6) var(--space-3) var(--space-8);
+    }
+
+    .auth-card {
+      gap: var(--space-5);
+      padding: var(--space-6);
+      border-radius: var(--radius-lg);
+    }
+
+    .auth-card__title {
+      font-size: var(--text-xl);
     }
   }
 }

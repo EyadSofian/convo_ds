@@ -69,7 +69,10 @@ function templatesView(state: AppState): Child {
         ]),
       ]) : null,
     ]),
-    ...CATEGORIES.map((category) => categorySection(state, category, resource.value.filter((entry) => entry.category === category), canCreate)),
+    ...CATEGORIES.flatMap((category) => {
+      const templates = resource.value.filter((entry) => entry.category === category);
+      return templates.length === 0 ? [] : [categorySection(state, category, templates, canCreate)];
+    }),
   ]);
 }
 
