@@ -69,8 +69,8 @@ $git_bin cat-file -e "${release_sha}^{commit}" 2>/dev/null || {
   exit 65
 }
 
-remote_branches=$($git_bin branch -r --contains "$release_sha" | sed '/^[[:space:]]*$/d')
-remote_tags=$($git_bin tag --contains "$release_sha" | sed '/^[[:space:]]*$/d')
+remote_branches=$($git_bin branch -r --contains "$release_sha" | sed -n '/^[[:space:]]*origin\//p')
+remote_tags=$($git_bin ls-remote origin 'refs/tags/*' | awk -v sha="$release_sha" '$1 == sha { print $2 }')
 [ -n "$remote_branches$remote_tags" ] || {
   echo 'release SHA is not reachable from a fetched remote branch or tag' >&2
   exit 65
@@ -80,6 +80,12 @@ if [ "$target" = 'production' ]; then
   exact_tag=$($git_bin tag --points-at "$release_sha" | sed -n '/^v[0-9]/p' | head -n 1)
   [ -n "$exact_tag" ] || {
     echo 'production requires an immutable version tag pointing exactly at the SHA' >&2
+    exit 65
+  }
+  remote_tag_targets=$($git_bin ls-remote origin "refs/tags/$exact_tag" "refs/tags/$exact_tag^{}" |
+    awk '{ print $1 }')
+  printf '%s\n' "$remote_tag_targets" | grep -qx "$release_sha" || {
+    echo "production version tag $exact_tag is not published at the requested SHA" >&2
     exit 65
   }
 fi
