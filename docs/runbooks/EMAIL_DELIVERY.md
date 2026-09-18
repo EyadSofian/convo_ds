@@ -30,16 +30,16 @@ a send.
 
 | Variable | Required | Notes |
 | --- | --- | --- |
-| `CONVO_EMAIL_PROVIDER` | **yes in production** | `resend` or `logging` |
+| `CONVO_EMAIL_PROVIDER` | on `worker-integration` when delivery is enabled | `disabled`, `resend`, or non-production-only `logging` |
 | `CONVO_EMAIL_FROM` | when `resend` | `Name <address@domain>` or a bare address. The domain must be verified with Resend first. |
 | `CONVO_RESEND_API_KEY` | when `resend` | ≥16 characters. Never logged, never returned by any API. |
 | `CONVO_PUBLIC_BASE_URL` | yes | Every link in every email is built from this |
 
-**Production fails closed.** A process with `NODE_ENV=production` refuses to
-start when the provider is missing or set to `logging`, with a named
-configuration issue. There is no silent fallback to a logging adapter; that
-behaviour is what made the previous build appear to send invitations it never
-sent.
+**Production delivery fails closed without taking core services offline.**
+Only `worker-integration` consumes this configuration. Missing configuration or
+`disabled` binds a provider that refuses with `email_provider_not_configured`;
+`logging` is rejected in production. Core API and unrelated workers always bind
+the refusing adapter and do not validate provider-only secrets.
 
 `logging` is available outside production only. It writes a redacted line, sends
 nothing, and returns a synthetic id so the outbox state machine still completes.
@@ -88,7 +88,7 @@ A healthy installation has a pending count that is almost always zero.
 | `provider_timeout` / `provider_unreachable` | No answer came back | Retried automatically. A duplicate is possible and acceptable here. |
 | `attempts_exhausted:<code>` | Six attempts, all retryable failures | The underlying `<code>` is the real problem. Fix it, then resend. |
 | `payload_unrenderable` | The stored payload is unusable | A bug, not an outage. Capture the row id and raise it. |
-| `email_provider_not_configured` | No provider bound | Only reachable outside production. Configure one. |
+| `email_provider_not_configured` | Provider disabled or not configured | Expected until an approved production provider is enabled. Do not deploy the integration worker to drain real rows in this state. |
 
 Retry schedule: 30s, 1m, 2m, 4m, 8m, capped at one hour, six attempts.
 

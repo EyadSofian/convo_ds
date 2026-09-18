@@ -21,8 +21,9 @@ the release checklist for the client production environment.
 
 - Independent auth-hash, bootstrap, idempotency and credential-encryption keys
 - Runtime and migration database roles and passwords
-- **Email provider key and verified sender** — a production process will not
-  start without them
+- **Email provider key and verified sender** — required by
+  `convo-worker-integration` only when Resend delivery is enabled; core API and
+  unrelated workers bind a refusing provider-disabled adapter
 - **`CONVO_TRUSTED_PROXY_HOPS=2`** — not optional on this topology; at the
   default the login rate limiter is one bucket shared by every user
 - Meta app-secret references and access tokens, when channels are connected

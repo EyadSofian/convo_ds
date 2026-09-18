@@ -91,6 +91,15 @@ describe('API boot boundary', () => {
     });
   });
 
+  it('serves core production health without email provider credentials', async () => {
+    const app = await startApi({ ...envFor(names, 'saas'), NODE_ENV: 'production' });
+    apps.push(app);
+    const url = await app.getUrl();
+    expect((await fetch(url + '/live')).status).toBe(200);
+    expect((await fetch(url + '/ready')).status).toBe(200);
+    expect((await fetch(url + '/api/v1/instance')).status).toBe(200);
+  });
+
   it('formats typed boot errors and hides unknown startup details', () => {
     expect(bootFailureMessage(new ApiBootError('boot_code', 'Safe reason.'))).toBe(
       'boot_code: Safe reason.',

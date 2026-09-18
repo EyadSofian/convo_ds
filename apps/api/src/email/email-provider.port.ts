@@ -53,10 +53,8 @@ export const EMAIL_NOT_CONFIGURED = 'email_provider_not_configured';
 /**
  * The default: none.
  *
- * It is reachable only outside production — `parseEmailConfig` refuses to boot a
- * production process whose email provider is missing or set to `logging` — and
- * it refuses non-retryably, so a delivery queued in a misconfigured environment
- * fails visibly on its first attempt instead of retrying six times into nothing.
+ * It is the explicit `disabled` binding. It refuses non-retryably, so no caller
+ * can mistake absent provider configuration for a successful delivery.
  */
 export const unconfiguredEmailProvider: EmailProviderPort = {
   name: 'unconfigured',
@@ -77,8 +75,8 @@ export const unconfiguredEmailProvider: EmailProviderPort = {
  * **never** the subject, body or token, and reports a synthetic id so the outbox
  * still reaches a terminal state and the state machine is exercised end to end.
  *
- * It is not a working integration. `parseEmailConfig` refuses to select it in
- * production, which is the only thing that keeps that sentence true.
+ * It is not a working integration. The config parser permits it only for a
+ * non-production integration worker.
  */
 export class LoggingEmailProvider implements EmailProviderPort {
   readonly name = 'logging';
