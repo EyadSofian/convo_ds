@@ -1,0 +1,100 @@
+name: Release validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Immutable release tag to validate (for example v1.0.0-rc.2)
+        required: true
+        type: string
+      expected_sha:
+        description: Full 40-character commit SHA expected behind the tag
+        required: true
+        type: string
+      migration:
+        description: Expected migration filename without its directory
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-validation-${{ inputs.release_ref }}
+  cancel-in-progress: false
+
+jobs:
+  immutable-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+
+      - name: Verify immutable release identity
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_REF: ${{ inputs.release_ref }}
+          MIGRATION: ${{ inputs.migration }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-list -n 1 "$RELEASE_REF")" = "$EXPECTED_SHA"
+          test -f "packages/database/migrations/$MIGRATION"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: pnpm test:e2e
+
+      - name: Accessibility tests
+        run: pnpm test:a11y
+
+      - name: Visual tests
+        run: pnpm test:visual
+
+      - name: Recovery tests
+        run: pnpm test:recovery
+
+      - name: Target load tests
+        run: pnpm test:load:target
+
+      - name: Mutation tests
+        run: pnpm test:mutation
+
+      - name: Record release evidence
+        if: always()
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_REF: ${{ inputs.release_ref }}
+          MIGRATION: ${{ inputs.migration }}
+        run: |
+          mkdir -p release-evidence
+          printf 'release_ref=%s\nsha=%s\nmigration=%s\n' \
+            "$RELEASE_REF" "$EXPECTED_SHA" "$MIGRATION" \
+            > release-evidence/release.txt
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-validation-${{ inputs.release_ref }}
+          path: |
+            release-evidence/
+            playwright-report/
+            reports/
+          if-no-files-found: ignore
