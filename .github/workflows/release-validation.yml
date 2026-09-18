@@ -40,9 +40,28 @@ jobs:
           MIGRATION: ${{ inputs.migration }}
         run: |
           set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$MIGRATION" =~ ^[0-9]{4}_[a-z0-9_]+\.sql$ ]]
+          case "$RELEASE_REF" in
+            refs/tags/v[0-9]*) release_tag="${RELEASE_REF#refs/tags/}" ;;
+            v[0-9]*) release_tag="$RELEASE_REF" ;;
+            *)
+              echo 'release_ref must be an immutable version tag, not a branch' >&2
+              exit 64
+              ;;
+          esac
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          test "$(git rev-list -n 1 "$RELEASE_REF")" = "$EXPECTED_SHA"
+          test "$(git rev-parse "refs/tags/${release_tag}^{commit}")" = "$EXPECTED_SHA"
+          git ls-remote origin "refs/tags/${release_tag}" "refs/tags/${release_tag}^{}" |
+            awk -v sha="$EXPECTED_SHA" '$1 == sha { found=1 } END { exit !found }'
           test -f "packages/database/migrations/$MIGRATION"
+          latest_migration="$(
+            git ls-tree -r --name-only HEAD packages/database/migrations |
+              sed -n 's#packages/database/migrations/##p' |
+              sort |
+              tail -n 1
+          )"
+          test "$latest_migration" = "$MIGRATION"
 
       - uses: pnpm/action-setup@v4
         with:
