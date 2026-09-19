@@ -5,7 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Pool } from 'pg';
-import { migrate } from '../../packages/database/src/migrate.js';
+import {
+  MIGRATION_ADVISORY_LOCK_KEY,
+  migrate,
+} from '../../packages/database/src/migrate.js';
 import type { DatabaseNames } from '../../packages/database/src/types.js';
 import {
   clusterCredentials,
@@ -187,6 +190,42 @@ describe('migrate', () => {
     // Counted from the directory rather than pinned: a forward-only migration
     // added by a later slice must not make this assertion a lie somebody edits.
     expect(recorded.rows[0]?.count).toBe(String(MIGRATION_FILES.length));
+  });
+
+  it('serializes two migration jobs instead of racing schema writes', async () => {
+    const target = await createScratchDatabase('convo_migrate_concurrent');
+    const [first, second] = await Promise.all([
+      migrate(clusterCredentials(), target),
+      migrate(clusterCredentials(), target),
+    ]);
+
+    expect(first.length + second.length).toBe(MIGRATION_FILES.length);
+    expect([first.length, second.length].sort((a, b) => a - b)).toEqual([
+      0,
+      MIGRATION_FILES.length,
+    ]);
+  }, 120_000);
+
+  it('fails clearly after a bounded wait when another migrator holds the lock', async () => {
+    const lockClient = await pool.connect();
+    try {
+      await lockClient.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK_KEY]);
+      await expect(
+        migrate(clusterCredentials(), names, { lockTimeoutMs: 25, lockPollMs: 5 }),
+      ).rejects.toThrow(/Migration lock timed out after 25 ms.*another migrator is still running/);
+    } finally {
+      await lockClient.query('SELECT pg_advisory_unlock($1)', [MIGRATION_ADVISORY_LOCK_KEY]);
+      lockClient.release();
+    }
+  });
+
+  it.each([
+    [{ lockTimeoutMs: 1.5 }, /timeout must be a non-negative integer/],
+    [{ lockTimeoutMs: -1 }, /timeout must be a non-negative integer/],
+    [{ lockPollMs: 1.5 }, /poll interval must be a positive integer/],
+    [{ lockPollMs: 0 }, /poll interval must be a positive integer/],
+  ] as const)('rejects invalid advisory-lock timing options: %o', async (options, message) => {
+    await expect(migrate(clusterCredentials(), names, options)).rejects.toThrow(message);
   });
 
   /**

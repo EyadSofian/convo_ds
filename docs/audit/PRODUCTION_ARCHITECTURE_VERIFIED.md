@@ -140,7 +140,7 @@ nothing was ever sent.
 | Crash after claim, before send | the lease expires and the row is retried with `attempt_count` already advanced, so a row that kills workers exhausts its attempts rather than cycling. |
 | Crash after send, before recording | retried; the provider idempotency key covers it. |
 | Retry | 30s, 1m, 2m, 4m, 8m, capped at an hour, 6 attempts, then `failed` with a typed code. |
-| Fail closed | a production process with no configured provider **does not start**. |
+| Fail closed | `worker-integration` without an enabled provider refuses delivery with `email_provider_not_configured`; production rejects the logging adapter. Core API remains available. |
 | Tenant A → B | `email_deliveries` is a global table with no tenant API over it. |
 | Observed | `state`, `attempt_count`, `last_error_code`, `sent_at` per row; `backlog()` gives pending/failed/oldest. |
 

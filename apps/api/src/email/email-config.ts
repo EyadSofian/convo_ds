@@ -9,24 +9,25 @@ import type { EnvironmentSource } from '@convo/domain';
  * invitations, reported success, and delivered nothing. Nobody finds that until
  * a new employee says they never got the link.
  *
- * So the default is gone. A production process must name a real provider and
- * configure it completely, or it does not start. The logging adapter still
- * exists — it is how the integration tests drive the whole outbox state machine
- * without a network — but selecting it in production is a configuration error
- * with its own code, not a shrug.
+ * Provider validation belongs only to the integration worker, which is the
+ * sole process that calls an email provider. Every other role receives the
+ * disabled binding, even if unrelated provider variables are malformed. That
+ * keeps Inbox/auth/readiness independent from Resend without creating a silent
+ * fallback. The logging adapter still exists for non-production integration
+ * workers and tests, but selecting it in production is a configuration error.
  *
  * "Production" is `NODE_ENV=production`, which the Dockerfile sets and which no
  * request can influence. It is read here and nowhere else.
  */
 
-export const EMAIL_PROVIDERS = ['resend', 'logging'] as const;
+export const EMAIL_PROVIDERS = ['disabled', 'resend', 'logging'] as const;
 export type EmailProviderName = (typeof EMAIL_PROVIDERS)[number];
 
 export interface EmailConfig {
   readonly provider: EmailProviderName;
-  /** `Name <address@domain>` or a bare address. Empty for the logging provider. */
+  /** `Name <address@domain>` or a bare address. Empty when not using Resend. */
   readonly from: string;
-  /** Empty for the logging provider. Never logged, never returned by an API. */
+  /** Empty when not using Resend. Never logged, never returned by an API. */
   readonly resendApiKey: string;
 }
 
@@ -48,21 +49,22 @@ export function isProductionEnvironment(env: EnvironmentSource): boolean {
   return env['NODE_ENV']?.trim() === 'production';
 }
 
-export function readEmailConfig(env: EnvironmentSource, issues: ErrorDetail[]): EmailConfig {
+export function readEmailConfig(
+  env: EnvironmentSource,
+  issues: ErrorDetail[],
+  consumesProvider: boolean,
+): EmailConfig {
   const production = isProductionEnvironment(env);
   const raw = optional(env, 'CONVO_EMAIL_PROVIDER');
 
+  // Only worker-integration sends email. Returning `disabled` here is not a
+  // fallback provider: its adapter refuses every send with a typed error.
+  if (!consumesProvider) {
+    return { provider: 'disabled', from: '', resendApiKey: '' };
+  }
+
   if (raw === undefined) {
-    if (production) {
-      issues.push(
-        issue(
-          'CONVO_EMAIL_PROVIDER',
-          'required',
-          'A production installation must configure an email provider. Invitations and password recovery do not work without one.',
-        ),
-      );
-    }
-    return { provider: 'logging', from: '', resendApiKey: '' };
+    return { provider: 'disabled', from: '', resendApiKey: '' };
   }
 
   if (!(EMAIL_PROVIDERS as readonly string[]).includes(raw)) {
@@ -77,6 +79,10 @@ export function readEmailConfig(env: EnvironmentSource, issues: ErrorDetail[]): 
   }
 
   const provider = raw as EmailProviderName;
+
+  if (provider === 'disabled') {
+    return { provider: 'disabled', from: '', resendApiKey: '' };
+  }
 
   if (provider === 'logging') {
     if (production) {

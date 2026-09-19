@@ -81,10 +81,9 @@ export interface ApiConfig extends InstallationConfig {
   /**
    * How invitations and password recovery reach a person.
    *
-   * Validated at boot and fail-closed in production: a production process with
-   * no configured provider, or one pointed at the logging adapter, does not
-   * start. See email/email-config.ts for why the old silent default was a
-   * production incident waiting to be noticed.
+   * Validated at boot only for the integration worker, the sole provider
+   * consumer. Other roles bind the explicit disabled adapter so missing Resend
+   * credentials cannot take core APIs or unrelated workers offline.
    */
   readonly email: EmailConfig;
   /**
@@ -144,7 +143,7 @@ export function parseApiConfig(env: EnvironmentSource): ApiConfig {
   const idempotencyHash = readSecret(env, 'CONVO_IDEMPOTENCY_HASH_SECRET', issues);
   const credentialKeys = readCredentialKeys(env, issues);
   const channelSecrets = readChannelSecrets(env);
-  const email = readEmailConfig(env, issues);
+  const email = readEmailConfig(env, issues, processRole === 'worker-integration');
   const trustedProxyHops = readTrustedProxyHops(env, issues);
   const channelTransport = readChannelTransport(env, issues);
   const logLevel = readLogLevel(env);
