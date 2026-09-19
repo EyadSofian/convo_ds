@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CATEGORY_LABELS, CURRENT_PROJECT_DAY, DELIVERABLES, PROJECT_DAYS } from './progress-data.js';
-import { categorySummaries, clientActions, deliverableStatus, statusOfDay, summarize, tasksOf, validatePlan } from './progress-model.js';
+import { CATEGORY_LABELS, CLIENT_REQUIREMENTS, CURRENT_PROJECT_DAY, DELIVERABLES, PROJECT_DAYS, PROJECT_PHASES } from './progress-data.js';
+import { categorySummaries, clientActions, currentPhase, deliverableStatus, phaseTasks, statusOfDay, statusOfPhase, summarize, tasksOf, validatePhases, validatePlan } from './progress-model.js';
 
 const tasks = tasksOf(PROJECT_DAYS);
 
@@ -22,6 +22,25 @@ test('all numbers derive from the status data and count blocked work as remainin
   assert.equal(areas.reduce((sum, area) => sum + area.completed, 0), 16);
 });
 
+test('three presentation phases cover each task exactly once without changing completion', () => {
+  assert.equal(validatePhases(PROJECT_PHASES, tasks, CLIENT_REQUIREMENTS), true);
+  const grouped = PROJECT_PHASES.flatMap((phase) => phaseTasks(phase, tasks));
+  assert.equal(grouped.length, tasks.length);
+  assert.equal(new Set(grouped.map((task) => task.id)).size, tasks.length);
+  assert.equal(summarize(grouped).percent, 44);
+  assert.equal(currentPhase(PROJECT_PHASES, tasks).number, 1);
+  assert.deepEqual(PROJECT_PHASES.map((phase) => statusOfPhase(phaseTasks(phase, tasks))), ['in_progress', 'blocked', 'blocked']);
+  assert.deepEqual(PROJECT_PHASES.map((phase) => summarize(phaseTasks(phase, tasks)).percent), [58, 50, 25]);
+});
+
+test('client access prerequisites stay pending until independently received and verified', () => {
+  assert.equal(CLIENT_REQUIREMENTS.length, 4);
+  assert.ok(CLIENT_REQUIREMENTS.every((item) => item.status === 'pending' && item.taskId === 'whatsapp-access'));
+  assert.throws(() => validatePhases(PROJECT_PHASES, tasks, [{ ...CLIENT_REQUIREMENTS[0], status: 'connected' }]));
+  assert.equal(validatePhases(PROJECT_PHASES, tasks, [{ ...CLIENT_REQUIREMENTS[0], status: 'received' }]), true);
+  assert.throws(() => validatePhases([{ ...PROJECT_PHASES[0], days: [1, 2] }, ...PROJECT_PHASES.slice(1)], tasks, CLIENT_REQUIREMENTS));
+});
+
 test('client actions and deliverables are derived rather than hand-entered in the page', () => {
   assert.equal(clientActions(tasks).length, 5);
   assert.equal(deliverableStatus(DELIVERABLES[0], tasks), 'in_progress');
@@ -29,7 +48,7 @@ test('client actions and deliverables are derived rather than hand-entered in th
 });
 
 test('public task data has no technical or secret identifiers', () => {
-  const copy = JSON.stringify({ days: PROJECT_DAYS, deliverables: DELIVERABLES });
+  const copy = JSON.stringify({ days: PROJECT_DAYS, phases: PROJECT_PHASES, requirements: CLIENT_REQUIREMENTS, deliverables: DELIVERABLES });
   assert.doesNotMatch(copy, /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i);
   assert.doesNotMatch(copy, /\b[0-9a-f]{40}\b/i);
   assert.doesNotMatch(copy, /(?:sk_|re_|whsec_|Bearer\s|Postgres|Railway|migration|incident|vulnerability|RLS|Git SHA)/i);

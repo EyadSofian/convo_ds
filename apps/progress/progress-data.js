@@ -1,7 +1,7 @@
 /**
  * Client-safe source of truth for the read-only portal.
- * Day numbers are delivery-plan stages, not historical development dates.
- * Change CURRENT_PROJECT_DAY here when presenting the next stage.
+ * The original stage numbers are retained for task identity and internal planning,
+ * not displayed by the client portal. They are not historical dates.
  */
 export const CURRENT_PROJECT_DAY = 2;
 
@@ -159,4 +159,37 @@ export const DELIVERABLES = [
   { title: 'Automation', taskIds: ['automation-builder', 'automation-controls', 'automation-live'] },
   { title: 'Reports', taskIds: ['campaign-reporting', 'operations-reporting', 'report-definitions'] },
   { title: 'Source, documentation and launch', taskIds: ['approved-launch', 'source-handover', 'admin-handover'] },
+];
+
+/** Presentation groups only. The task statuses above remain the source of truth. */
+export const PROJECT_PHASES = [
+  {
+    number: 1,
+    title: 'Platform & Core Operations',
+    description: 'The secure workspace, customer records, Inbox and team workflows.',
+    days: [1, 2, 3, 10],
+    featuredTaskIds: ['workspace-access', 'unified-inbox', 'conversation-actions', 'operator-review', 'team-acceptance'],
+  },
+  {
+    number: 2,
+    title: 'Channels, Campaigns & Automation',
+    description: 'WhatsApp, Facebook and Instagram readiness, plus campaigns, automation and email.',
+    days: [4, 5, 6, 7],
+    featuredTaskIds: ['channel-management', 'whatsapp-access', 'whatsapp-live-proof', 'campaign-workflow', 'automation-builder', 'email-live-proof'],
+  },
+  {
+    number: 3,
+    title: 'Final QA, Launch & Handover',
+    description: 'Reporting review, safety checks, client acceptance and an approved launch.',
+    days: [8, 9, 11, 12],
+    featuredTaskIds: ['campaign-reporting', 'operations-reporting', 'automated-qa', 'client-uat', 'approved-launch', 'source-handover'],
+  },
+];
+
+/** These are access prerequisites, not a claim that a live channel is connected. */
+export const CLIENT_REQUIREMENTS = [
+  { id: 'phone', title: 'Dedicated WhatsApp phone number', status: 'pending', taskId: 'whatsapp-access' },
+  { id: 'portfolio', title: 'Meta Business Portfolio access', status: 'pending', taskId: 'whatsapp-access' },
+  { id: 'facebook', title: 'Facebook Page access', status: 'pending', taskId: 'whatsapp-access' },
+  { id: 'instagram', title: 'Instagram Business access', status: 'pending', taskId: 'whatsapp-access' },
 ];

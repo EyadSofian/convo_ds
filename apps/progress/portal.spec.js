@@ -2,31 +2,32 @@ import { expect, test } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
 for (const width of [390, 430, 768, 1366, 1440]) {
-  test(`${width}px presents the same task-derived progress without horizontal overflow`, async ({ page }) => {
+  test(`${width}px presents three task-derived phases without horizontal overflow`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: /clear view/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /clear path/i })).toBeVisible();
     await expect(page.locator('#overall-percent')).toHaveText('44%');
+    await expect(page.locator('#current-phase')).toHaveText('Phase 1 of 3');
     await expect(page.locator('#completed-stat')).toHaveText('16');
     await expect(page.locator('#remaining-stat')).toHaveText('20');
-    await expect(page.locator('.day-card')).toHaveCount(12);
-    await expect(page.locator('#day-detail')).toContainText('Conversation operations');
-    await expect(page.locator('#next-list li').first()).toContainText('Day 3');
+    await expect(page.locator('.phase-card')).toHaveCount(3);
+    await expect(page.locator('.phase-card__progress strong')).toHaveText(['58%', '50%', '25%']);
+    await expect(page.locator('.phase-card__status')).toHaveText(['In Progress', 'Waiting for Client', 'Waiting for Client']);
+    await expect(page.locator('#requirements-list li')).toHaveCount(4);
+    await expect(page.locator('#next-steps-list li')).toHaveCount(5);
+    await expect(page.locator('body')).not.toContainText(/12.day|day (?:1|2|3|4|5|6|7|8|9|10|11|12)/i);
     const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(documentWidth).toBeLessThanOrEqual(width);
   });
 }
 
-test('day cards are usable by keyboard and reveal client-safe detail', async ({ page }) => {
+test('client access requirements remain pending and no live provider success is implied', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  const dayFour = page.getByRole('button', { name: /Day 4: WhatsApp connection/i });
-  await dayFour.focus();
-  await page.keyboard.press('Enter');
-  await expect(dayFour).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.locator('#day-detail')).toContainText('Live message validation');
-  await expect(page.locator('#day-detail')).toBeInViewport();
-  await expect(page.locator('#client-action-list li')).toHaveCount(5);
+  await expect(page.locator('.requirement__state')).toHaveText(['Pending', 'Pending', 'Pending', 'Pending']);
+  await expect(page.locator('.phase-card').nth(1)).toContainText('Live message validation');
+  await expect(page.locator('.phase-card').nth(1)).toContainText('Waiting for Client');
+  await expect(page.locator('body')).not.toContainText('passwords through this page');
   await expect(page.locator('body')).not.toContainText('Railway');
   await expect(page.locator('body')).not.toContainText('migration');
 });

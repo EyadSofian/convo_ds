@@ -5,9 +5,9 @@ Audience: project client. This file and `apps/progress/*` are public-safe. The d
 ## Page message
 
 - Identity: **CONVO · Project Progress**
-- Plan label: **12-Day Delivery Plan**
-- Current presentation stage: the configurable `CURRENT_PROJECT_DAY`, initially **Day 2 of 12**. This is not a historical development start date.
-- Delivery statement: **Target handover: Day 12, subject to required inputs and acceptance. No calendar delivery date has been set.**
+- Plan label: **Project Delivery Plan** with three major phases.
+- Current phase: the first phase with incomplete tasks, currently **Phase 1 of 3**. This is derived from task state, not an asserted historical date.
+- Delivery statement: launch follows verified channels, client acceptance and final production checks. No calendar delivery date is asserted.
 - The portal is a read-only status view, not an administration or credential-upload page.
 
 ## Status language
@@ -23,22 +23,21 @@ Live WhatsApp and real email delivery are **not** called complete. The client is
 
 ## Sections and derivation
 
-The page renders one central source: `apps/progress/progress-data.js`. It contains all 12 days, their tasks, categories, current day and deliverables. `apps/progress/progress-model.js` computes counts and states. No task copy or numeric progress value is scattered through page markup.
+The page renders one central source: `apps/progress/progress-data.js`. Its 36 existing tasks and their statuses remain unchanged. The 12-stage source structure and separate internal plan are retained as planning history, but are not displayed to clients. `PROJECT_PHASES` groups every task exactly once; `apps/progress/progress-model.js` computes counts and phase states. No numeric progress value is scattered through page markup.
 
-1. Header and overview: current plan stage, overall completion, completed, in progress and remaining tasks.
-2. Twelve-day timeline: all stages; selecting a card reveals that day's task states, outcome and any client-dependent step.
-3. Area progress: Core Platform, Inbox, Channels, Campaigns, Automation, Analytics, UI / UX and QA & Deployment.
-4. Completed work, genuinely active work and at most four upcoming tasks.
-5. Required from client: only blocked tasks with a specific client action.
-6. Delivery checklist: each item derives its state from linked task IDs.
+1. Header and project status: overall completion, current phase, completed and remaining tasks.
+2. Three large phase cards: task-derived progress, status and four to six representative items each.
+3. Genuinely active work.
+4. Required From You: four Meta/channel prerequisites, with explicit Pending/Received/Verified states. Other known launch inputs are mentioned briefly; no password collection.
+5. At most five next steps and a concise final deliverables list.
 
-Formula: `overall = round(100 × completed MVP delivery tasks / all MVP delivery tasks)`. Every task currently has equal weight. `remaining = total − completed`, so it includes active, upcoming and waiting-for-client work. Per-area percentages use the same formula on that area's tasks. Day and deliverable states are also derived, not manually declared in the page. The plan intentionally excludes optional post-MVP work from the denominator.
+Formula: `overall = round(100 × completed MVP delivery tasks / all MVP delivery tasks)`. Every task currently has equal weight. `remaining = total − completed`, so it includes active, upcoming and waiting-for-client work. Each phase uses the same formula for its assigned tasks. A phase is Completed only if all its tasks are complete; otherwise In Progress takes precedence when work is active, then Waiting for Client when blocked, otherwise Upcoming. The plan intentionally excludes optional post-MVP work from the denominator.
 
 ## Safe update checklist
 
 1. Verify changed status against current code, tests and operational evidence.
 2. Confirm that a live provider step has **real** inbound/outbound or email proof, not only a scripted test.
-3. Update only `apps/progress/progress-data.js`; advance `CURRENT_PROJECT_DAY` only when the presented delivery stage changes.
+3. Update task and individual requirement states in `apps/progress/progress-data.js` only with evidence. One access item can be verified while other items still block the linked task; do not alter the grouping to improve the percentage.
 4. Run `pnpm test:progress`, `pnpm lint` and the portal browser checks at 390, 430, 768, 1366 and 1440px.
 5. Review client wording for secrets/private incidents, then republish the separate static site.
 6. If scope or schedule changes, update this plan and obtain client approval before presenting a new delivery promise.
