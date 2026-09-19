@@ -76,7 +76,7 @@ export interface BadgeOptions {
 export function badge(label: string, tone: Tone = 'neutral', options: BadgeOptions = {}): HTMLElement {
   return h('span', { class: `badge badge--${tone}` }, [
     options.dot === true ? h('span', { class: 'badge__dot', 'aria-hidden': 'true' }) : null,
-    options.icon === undefined ? null : icon(options.icon, 12),
+    options.icon === undefined ? null : icon(options.icon, 14),
     label,
   ]);
 }

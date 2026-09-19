@@ -35,6 +35,14 @@ test.describe('required responsive matrix', () => {
       if (width <= 768) {
         await expect(page.locator('.zone--panel')).toBeHidden();
       }
+      if (width === 1280) {
+        await expect(page.locator('.zone--panel')).toBeHidden();
+        const nameFits = await page.locator('.thread__name').evaluate((element) => element.scrollWidth <= element.clientWidth);
+        expect(nameFits).toBe(true);
+      }
+      if (width <= 430) {
+        await expect(page.locator('[data-act="live-inbox-send"]')).toBeVisible();
+      }
     });
 
     test(`${String(width)}px keeps every workspace screen inside the viewport`, async ({ page }) => {
@@ -58,5 +66,29 @@ test.describe('required responsive matrix', () => {
     expect(box).not.toBeNull();
     expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
     expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390);
+  });
+
+  for (const width of [1024, 430] as const) {
+    test(`${String(width)}px gives the seventh report KPI a complete row`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await openScreen(page, 'analytics');
+      const figures = page.locator('.kpis--7 .kpi');
+      const first = await figures.first().boundingBox();
+      const last = await figures.last().boundingBox();
+      expect(first).not.toBeNull();
+      expect(last).not.toBeNull();
+      expect(last?.width ?? 0).toBeGreaterThan((first?.width ?? 0) * 1.9);
+    });
+  }
+
+  test('side chevrons mirror in RTL while down chevrons do not', async ({ page }) => {
+    await openScreen(page, 'automations');
+    const side = page.locator('.automation-flow-mini .icon--directional').first();
+    await expect(side).toBeVisible();
+    expect(await side.evaluate((element) => getComputedStyle(element).scale)).toBe('-1 1');
+    const down = page.locator('.user-button svg').last();
+    expect(await down.evaluate((element) => getComputedStyle(element).scale)).toBe('none');
+    await setDirection(page, 'ltr');
+    expect(await page.locator('.automation-flow-mini .icon--directional').first().evaluate((element) => getComputedStyle(element).scale)).toBe('none');
   });
 });

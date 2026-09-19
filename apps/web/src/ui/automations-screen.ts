@@ -55,7 +55,7 @@ function templatesView(state: AppState): Child {
   const canCreate = hasPermission(state.live, 'automation.create');
   return h('div', { class: 'automation-catalogue' }, [
     h('section', { class: 'automation-hero' }, [
-      h('div', { class: 'automation-hero__mark', 'aria-hidden': 'true' }, [icon('macro', 26)]),
+      h('div', { class: 'automation-hero__mark', 'aria-hidden': 'true' }, [icon('macro', 20)]),
       h('div', { class: 'automation-hero__copy' }, [
         h('p', { class: 'eyebrow' }, [t(state, 'منطق متسلسل وقابل للمراجعة', 'Sequential, reviewable logic')]),
         h('h2', {}, [t(state, 'ابدأ من قالب ثم اجعله مناسبًا لطريقة عملك', 'Start with a proven flow, then make it yours')]),
@@ -88,7 +88,7 @@ function categorySection(state: AppState, category: string, templates: readonly 
         h('h3', {}, [template.name]),
         h('p', {}, [template.description]),
         h('div', { class: 'automation-flow-mini', 'aria-label': t(state, 'ملخص التدفق', 'Flow summary') }, [
-          h('span', {}, [human(template.preset.trigger.type)]), icon('chevronEnd', 13), h('span', {}, [formatNumber(template.preset.steps.length, state.lang), ' ', t(state, 'خطوة', 'step(s)')]),
+          h('span', {}, [human(template.preset.trigger.type)]), icon('chevronEnd', 14), h('span', {}, [formatNumber(template.preset.steps.length, state.lang), ' ', t(state, 'خطوة', 'step(s)')]),
         ]),
       ]),
       canCreate ? button({ label: t(state, 'استخدام القالب', 'Use template'), act: 'live-automation-use', arg: template.key, small: true, busy: state.live.busy === `automation-use:${template.key}` }) : null,
@@ -108,7 +108,7 @@ function automationCard(state: AppState, automation: Automation): HTMLElement {
   const mayEdit = hasPermission(state.live, 'automation.edit') && (automation.state === 'draft' || automation.state === 'paused');
   const action = automation.state === 'active' ? 'pause' : automation.state === 'paused' ? 'resume' : 'activate';
   return h('article', { class: 'automation-row' }, [
-    h('div', { class: 'automation-row__state', 'data-state': automation.state }, [icon(automation.state === 'active' ? 'play' : 'pause', 17)]),
+    h('div', { class: 'automation-row__state', 'data-state': automation.state }, [icon(automation.state === 'active' ? 'play' : 'pause', 18)]),
     h('div', { class: 'automation-row__main' }, [
       h('div', { class: 'automation-row__title' }, [h('h2', {}, [automation.name]), badge(human(automation.state), STATE_TONE[automation.state] ?? 'neutral', { dot: true })]),
       h('p', {}, [automation.description ?? t(state, 'تدفق قابل للتعديل', 'Editable workflow')]),
@@ -126,7 +126,7 @@ function builder(state: AppState, automation: Automation): HTMLElement {
   const scheduleKind = state.dialogForm['automationScheduleKind'] || String(automation.workflow.schedule?.['kind'] ?? 'daily');
   return h('section', { class: 'automation-builder' }, [
     h('header', { class: 'automation-builder__header' }, [
-      h('a', { class: 'automation-builder__back', href: formatHash({ screen: 'automations', conversationId: null, params: { view: 'mine' } }) }, [icon('chevronStart', 15), t(state, 'رجوع إلى أتمتتي', 'Back to automations')]),
+      h('a', { class: 'automation-builder__back', href: formatHash({ screen: 'automations', conversationId: null, params: { view: 'mine' } }) }, [icon('chevronStart', 16), t(state, 'رجوع إلى أتمتتي', 'Back to automations')]),
       h('div', {}, [h('p', { class: 'eyebrow' }, [t(state, 'مسودة سير عمل', 'Workflow draft')]), h('h2', {}, [automation.name])]),
       button({ label: t(state, 'حفظ المسودة', 'Save draft'), icon: 'check', act: 'live-automation-save', arg: automation.id, variant: 'primary', busy: state.live.busy === `automation-save:${automation.id}` }),
     ]),
@@ -146,7 +146,7 @@ function builder(state: AppState, automation: Automation): HTMLElement {
           connector(),
         ]),
         button({ label: t(state, 'إضافة خطوة', 'Add step'), icon: 'plus', act: 'live-automation-add-step', arg: automation.id, extraClass: 'automation-add-step' }),
-        h('section', { class: 'automation-safety-card' }, [icon('shield', 19), h('div', {}, [h('h3', {}, [t(state, 'الحماية قبل التشغيل', 'Execution safety')]), h('p', {}, [t(state, 'منع التكرار فعال. التفعيل يفحص صلاحية قوالب WhatsApp والمتغيرات المطلوبة.', 'Duplicate suppression is on. Activation validates WhatsApp template approval and required variables.')])])]),
+        h('section', { class: 'automation-safety-card' }, [icon('shield', 20), h('div', {}, [h('h3', {}, [t(state, 'الحماية قبل التشغيل', 'Execution safety')]), h('p', {}, [t(state, 'منع التكرار فعال. التفعيل يفحص صلاحية قوالب WhatsApp والمتغيرات المطلوبة.', 'Duplicate suppression is on. Activation validates WhatsApp template approval and required variables.')])])]),
       ]),
       h('aside', { class: 'automation-inspector' }, [
         h('h2', {}, [t(state, 'تفاصيل المسودة', 'Draft details')]),

@@ -300,7 +300,7 @@ main.app__screen
                     span.badge__dot
                   span.connection__evidence
                 button.btn.btn--ghost.btn--sm [connection-toggle]
-                  svg
+                  svg.icon--directional
                     path
                   span.btn__label
             li.connection
@@ -320,6 +320,6 @@ main.app__screen
                     span.badge__dot
                   span.connection__evidence
                 button.btn.btn--ghost.btn--sm [connection-toggle]
-                  svg
+                  svg.icon--directional
                     path
                   span.btn__label

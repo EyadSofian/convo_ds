@@ -222,7 +222,7 @@ function steps(state: AppState, campaign: Campaign): HTMLElement {
   const current = list.findIndex((step) => !step.complete);
   return h('ol', { class: 'steps', 'aria-label': t(state, 'مراحل الحملة', 'Campaign progress') }, list.map((step, index) =>
     h('li', { class: step.complete ? 'steps__item steps__item--done' : index === current ? 'steps__item steps__item--current' : 'steps__item', 'aria-current': index === current ? 'step' : undefined }, [
-      h('span', { class: 'steps__mark', 'aria-hidden': 'true' }, [step.complete ? icon('check', 12) : String(index + 1)]),
+      h('span', { class: 'steps__mark', 'aria-hidden': 'true' }, [step.complete ? icon('check', 14) : String(index + 1)]),
       h('span', { class: 'steps__label' }, [step.label]),
     ]),
   ));

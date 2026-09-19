@@ -90,6 +90,13 @@ export const ICON_PATHS = {
 
 export type IconName = keyof typeof ICON_PATHS;
 
+const DIRECTIONAL_ICONS: ReadonlySet<IconName> = new Set(['chevronEnd', 'chevronStart']);
+
 export function icon(name: IconName, size = 16, attrs: Attrs = {}): SVGElement {
-  return svgIcon(ICON_PATHS[name], size, attrs);
+  if (!DIRECTIONAL_ICONS.has(name)) return svgIcon(ICON_PATHS[name], size, attrs);
+  const suppliedClass = typeof attrs['class'] === 'string' ? attrs['class'] : '';
+  return svgIcon(ICON_PATHS[name], size, {
+    ...attrs,
+    class: `icon--directional${suppliedClass === '' ? '' : ` ${suppliedClass}`}`,
+  });
 }

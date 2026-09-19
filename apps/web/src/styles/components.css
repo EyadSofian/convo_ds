@@ -121,7 +121,7 @@
   .badge {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: var(--space-1);
     block-size: var(--badge-height);
     padding-inline: var(--space-2);
     border-radius: var(--radius-sm);
@@ -215,12 +215,12 @@
 
   .avatar__channel {
     position: absolute;
-    inset-block-end: -3px;
-    inset-inline-end: -3px;
+    inset-block-end: calc(-1 * var(--space-half));
+    inset-inline-end: calc(-1 * var(--space-half));
     display: grid;
     place-items: center;
-    inline-size: 18px;
-    block-size: 18px;
+    inline-size: var(--icon-lg);
+    block-size: var(--icon-lg);
     border: 2px solid var(--surface-1);
     border-radius: var(--radius-full);
     background: var(--brand-custom);
@@ -787,6 +787,27 @@
     grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
   }
 
+  @container screen (max-width: 1100px) {
+    .kpis--7 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .kpis--7 .kpi {
+      border-block-end: 1px solid var(--border-subtle);
+      margin-block-end: -1px;
+    }
+
+    .kpis--7 .kpi:last-child {
+      grid-column: span 2;
+    }
+  }
+
+  @container screen (max-width: 600px) {
+    .kpis--7 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
   .kpi {
     display: grid;
     align-content: start;
@@ -915,6 +936,19 @@
 
   .table tr[aria-current='true'] {
     background: var(--surface-selected);
+  }
+
+  .table tr[aria-current='true'] td:first-child {
+    box-shadow: inset 4px 0 0 var(--accent);
+  }
+
+  [dir='rtl'] .table tr[aria-current='true'] td:first-child {
+    box-shadow: inset -4px 0 0 var(--accent);
+  }
+
+  .table tr[aria-current='true'] .table__primary,
+  .table tr[aria-current='true'] .table__link {
+    font-weight: var(--weight-semibold);
   }
 
   .table__link {

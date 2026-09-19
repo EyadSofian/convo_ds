@@ -8,14 +8,14 @@
    Geometry contract (asserted by tests/e2e/layout.spec.ts):
      navigation   64px collapsed, 232px expanded, overlay drawer below 960px
      header       56px
-     queue list   300–400px, 336px by default, resizable
-     thread       never squeezed below 560px by a side column
+     queue list   300–400px, 352px by default, resizable
+     thread       never squeezed below 540px by a side column
 
    The inbox decides its columns from the width of the screen area rather than
    the viewport, with a container query: the navigation can be 64px or 232px
    wide, and a viewport breakpoint cannot know which.
-     list inline          336 + 560         = 896px of screen
-     customer panel inline 336 + 560 + 304  = 1200px of screen
+     list inline          352 + 540         = 892px of screen
+     customer panel inline 352 + 540 + 320  = 1212px of screen
    ========================================================================== */
 
 @layer shell {
@@ -152,7 +152,7 @@
   .logomark--lg {
     inline-size: 40px;
     block-size: 40px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
   }
 
   /* ---------------------------------------------------------------- frame -- */
@@ -333,11 +333,11 @@
 
   .app[data-nav='collapsed'] .nav__badge {
     position: absolute;
-    inset-block-start: 3px;
-    inset-inline-end: 3px;
-    min-inline-size: 16px;
-    block-size: 16px;
-    font-size: 11px;
+    inset-block-start: var(--space-half);
+    inset-inline-end: var(--space-half);
+    min-inline-size: 20px;
+    block-size: 20px;
+    font-size: var(--text-2xs);
   }
 
   .app[data-nav='expanded'] .nav__toggle svg {
@@ -439,7 +439,7 @@
   }
 
   .header__tenant--switch {
-    block-size: 30px;
+    block-size: var(--control-height-sm);
     border-radius: 0;
   }
 
@@ -482,7 +482,7 @@
   .menu,
   .popover {
     position: absolute;
-    inset-block-start: calc(100% + 6px);
+    inset-block-start: calc(100% + var(--space-2));
     inset-inline-end: 0;
     z-index: 70;
     min-inline-size: 240px;
@@ -564,7 +564,7 @@
 
   .menu__check {
     display: inline-grid;
-    inline-size: 14px;
+    inline-size: var(--icon-sm);
     visibility: hidden;
     color: var(--accent-text);
   }
@@ -752,7 +752,7 @@
     }
   }
 
-  @container screen (min-width: 1200px) {
+  @container screen (min-width: 1240px) {
     .inbox[data-panel='open'] {
       grid-template-columns: var(--list-width) minmax(var(--thread-min-width), 1fr) var(--panel-width);
     }

@@ -11,6 +11,7 @@
   .integration-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    align-items: start;
     gap: var(--space-3);
   }
 
@@ -18,6 +19,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+    inline-size: 100%;
     padding: var(--space-4);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -417,7 +419,7 @@
 
   .chart__tick {
     fill: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-family: var(--font-sans);
   }
 
@@ -598,6 +600,7 @@
   }
 
   .contactrow {
+    position: relative;
     display: grid;
     grid-template-columns: 28px minmax(0, 1fr) auto;
     align-items: center;
@@ -617,6 +620,17 @@
 
   .contactrow[aria-current='true'] {
     background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-subtle);
+  }
+
+  .contactrow[aria-current='true']::before {
+    content: '';
+    position: absolute;
+    inset-block: var(--space-2);
+    inset-inline-start: 0;
+    inline-size: var(--space-1);
+    border-radius: var(--radius-full);
+    background: var(--accent);
   }
 
   .contactrow__main {
@@ -769,16 +783,19 @@
 
   .automation-tabs {
     display: flex;
-    gap: var(--space-1);
+    gap: var(--space-half);
     inline-size: max-content;
-    padding: var(--space-1);
-    border: 1px solid var(--border);
+    padding: var(--space-half);
     border-radius: var(--radius-lg);
     background: var(--surface-2);
   }
 
   .automation-tabs__item {
-    padding: var(--space-2) var(--space-3);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    block-size: var(--control-height-sm);
+    padding-inline: var(--space-3);
     border-radius: var(--radius-md);
     color: var(--text-muted);
     font-size: var(--text-xs);
@@ -1093,7 +1110,7 @@
     border-radius: var(--radius-xl);
     background-color: var(--surface-2);
     background-image: radial-gradient(var(--border) 1px, transparent 1px);
-    background-size: 18px 18px;
+    background-size: var(--space-5) var(--space-5);
   }
 
   .workflow-block {
