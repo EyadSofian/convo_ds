@@ -30,6 +30,8 @@ docs/project/PROJECT_STATUS_INTERNAL.md
 .env.*
 !.env.example
 *.local
+.demo-staging-credentials.txt
+.demo-staging-cookiejar.txt
 .data/
 pgdata/
 
