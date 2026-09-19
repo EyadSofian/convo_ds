@@ -45,4 +45,6 @@ Formula: `overall = round(100 × completed MVP delivery tasks / all MVP delivery
 
 ## Hosting boundary
 
-The portal is a standalone static page under `apps/progress`, separate from the CONVO runtime. Its public artifact contains only client-safe copy and read-only code. Hosting it does not activate or redeploy the customer messaging product. The public URL must be checked after each publication before sharing it with the client.
+The portal is live at **https://eyadsofian.github.io/convo_ds/** through GitHub Pages. Access is public/read-only with no login or share token; the published artifact contains only the five client-safe static page files, not this repository's internal documentation. The source remains under `apps/progress`, separate from the CONVO runtime. Hosting it does not activate or redeploy customer messaging.
+
+After each approved data update, publish only `index.html`, `styles.css`, `app.js`, `progress-data.js`, and `progress-model.js` to the `gh-pages` branch without force-pushing. Verify the live page, counts, phone layout and client-safe wording before sharing the refreshed URL. A private access requirement would need a different host with server-side authorization; a URL token on public static hosting is not access control.
