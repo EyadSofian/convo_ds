@@ -37,6 +37,61 @@ zero. This is approximately 80 events/second over the measured drain interval.
 All five queues were empty afterward. Other worker classes had current ticks
 and zero errors, but no production-provider send throughput is claimed.
 
+## GitHub-backed staging follow-up (2026-09-18)
+
+### SSE connect, replay and controlled reconnect
+
+The immutable GitHub-backed release was exercised through the public staging
+edge with fresh authenticated sessions. This was a bounded reliability probe,
+not a denial-of-service test.
+
+| Concurrent SSE connects | Connected | setup p50 | setup p95 | maximum |
+| ---: | ---: | ---: | ---: | ---: |
+| 10 | 10 | 429.7 ms | 639.0 ms | 639.0 ms |
+| 25 | 25 | 402.5 ms | 432.8 ms | 434.9 ms |
+| 50 | 50 | 478.6 ms | 797.0 ms | 1,437.0 ms |
+
+Three immediate reconnect rounds of 10 clients all connected; setup p95 was
+379.8, 345.2 and 359.2 ms. A controlled event followed by a reconnect with
+`Last-Event-ID` replayed two distinct `conversation.routing` events with no
+duplicate client-visible event identity. Multiple frames can legitimately
+share one page cursor; correctness was therefore checked by event identity,
+not cursor cardinality.
+
+Restarting the staging API caused an established stream to disconnect and a
+new authenticated stream recovered in 21.8 seconds, including deployment
+restart time. The session remained valid. Ten clients then reconnected with a
+391.2 ms p50 and 1,462.2 ms p95/maximum. Memory, database-load and event-loop
+time series were not available at sufficient resolution during this short
+probe, so they are not claimed. The conservative pilot threshold is **25 live
+SSE sessions per API replica** and reconnect bursts of no more than 10 clients;
+alert and scale if connection setup p95 exceeds one second for five minutes.
+
+### Locating the 100-concurrency tail
+
+A focused probe sent 500 public instance reads at each of 50 and 100
+concurrency. Both levels completed with zero errors:
+
+| concurrency | throughput | client p50 | client p95 | client p99 | max |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 50 | 125.89 req/s | 229.1 ms | 921.4 ms | 1,008.4 ms | 1,871.3 ms |
+| 100 | 138.48 req/s | 241.1 ms | 1,213.4 ms | 1,942.3 ms | 3,364.9 ms |
+
+For the correlated sample, API request logs showed 600 retained route samples
+at p50 1 ms, p95 2 ms, p99 3 ms and maximum 5 ms (Railway log-rate limiting
+dropped 400 otherwise successful log records). Railway HTTP observations over
+1,001 requests showed total p50 3 ms, p95 12 ms, p99 31 ms and maximum 48 ms;
+reported upstream duration was p50 2 ms, p95 11 ms, p99 31 ms and maximum 48
+ms. There were no application or edge errors. The edge region was `us-west2`
+while the load generator was in Cairo.
+
+The evidence rules out route execution, database work and the measured Railway
+upstream as the source of the seconds-long client tail for this route. The
+remaining delay is outside the application, between the remote client and the
+Railway edge (network/TLS/connection scheduling); this probe cannot divide
+those components further. No architecture or pool change is justified by this
+result. The approved 25-operator pilot envelope remains appropriate.
+
 ## Local diagnostic curve
 
 These numbers were measured on a **local developer machine**, with the client
@@ -248,17 +303,21 @@ Stated as a recommendation with its basis, not as a measurement:
 - **Real provider writes.** Meta and Resend credentials are not available, so
   external send throughput, provider throttling and receipt latency are not
   claimed.
-- **SSE longevity.** Realtime catch-up was exercised at every concurrency level
-  and two-session replay was proved, but a many-hour reconnect/slow-consumer
-  storm is not represented by this short release curve.
+- **SSE longevity.** Bounded 10/25/50-connect, rapid reconnect, replay and API
+  restart behavior are now measured above. A many-hour slow-consumer run and
+  high-resolution resource telemetry are not represented by this release
+  probe.
 - **Campaign and automation provider backlogs.** Their queues and worker probes
-  were observed, while correctness/retry behavior is covered by integration
-  tests; live provider throughput requires provider assets.
+  were observed, while correctness, lease reclaim and idempotency are covered
+  by integration tests. The shipped staging runtime deliberately has no fake
+  success transport: it supports the refusing `none` adapter or real Meta.
+  Consequently a 100/500/1,000 successful-send backlog test cannot be run
+  honestly without provider assets and is not claimed.
 - **Volumes above 10,000.** The mission suggested 100k conversations. Seeding
   10k takes 36s through the constraint-honouring path; 100k is a longer run
   rather than a different one, and is the obvious next step.
-- **Resource ceilings.** CPU, RAM and PostgreSQL connection counts were not
-  sampled during the run; only client-observed latency was.
+- **Resource ceilings.** Point-in-time CPU, RAM and PostgreSQL connections were
+  sampled after the production-shape curve, but peak time series were not.
 
 ## Reproducing
 

@@ -37,6 +37,16 @@ forensic use. This proves the native recovery point is bootable, but it is not
 an isolated application/readback drill and must never be invoked casually on a
 live service.
 
+On 2026-09-18 an isolated native-restore attempt created a disposable scratch
+environment and confirmed that its PostgreSQL volume was independent and empty
+(the production volume remained attached, ready and 1,204 MB). Restoring the
+named production point directly into that explicitly selected scratch target
+was rejected before any restore began with Railway
+`OAUTH_INSUFFICIENT_GRANT`. Production stayed healthy and unchanged. The empty
+scratch environment was deleted to stop cost. This is evidence of a current
+platform/permission limitation, not proof of an isolated restore or a measured
+RTO; do not represent it as either.
+
 ## Safe restore procedure
 
 1. Stop application writers and record current deployment/volume identifiers.

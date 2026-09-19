@@ -23,11 +23,13 @@ External blockers:
    invitation/recovery delivery cannot run.
 3. `BLOCKED_EXTERNAL_CONFIG`: no named on-call destination, so alert rules are
    defined but delivery cannot be installed or demonstrated.
-4. `BLOCKED_EXTERNAL_CONFIG`: this checkout has no Git remote, so the requested
-   branch/tag push cannot be performed locally.
 
-Production application promotion is intentionally withheld while the first
-three customer-safety dependencies are absent.
+The Git remote blocker was closed on 2026-09-18: `main`,
+`release/production-hardening` and `v1.0.0-rc.1` all resolve remotely to
+`eac8b262c5b6eadf3289327ce1bbabd40249a7dc`.
+
+Production activation remains withheld while the three customer-safety
+dependencies above are absent.
 
 ## Gate evidence
 
@@ -68,8 +70,17 @@ are recorded in the release manifest after the release cut.
 - API, web and the four existing workers have persisted platform health checks.
 - `CONVO_TRUSTED_PROXY_HOPS=2` is staged on the production API.
 - Integration and automation worker variable contracts and process roles are
-  staged. Their service instances/health checks arise on first deployment.
-- Migration 0032 and all application services remain unpromoted by design.
+  staged. Their release deployment attempts failed closed and are not active.
+- **Incident update, 2026-09-18:** connecting the shared Railway services to a
+  GitHub source for staging also created production triggers. The production
+  migration job unexpectedly succeeded and advanced schema 0025 → 0032; the
+  release web deployed, while API and worker deployments failed closed. The
+  production API remains unavailable and no customer/provider activation was
+  declared. GitHub source triggers were disconnected from all application
+  services immediately to prevent another cross-environment deployment. These
+  migrations are forward-only and were not rolled back. Future source-driven
+  deployment requires environment-isolated Railway services or a workflow that
+  targets staging explicitly.
 
 ## Deliberate deferrals
 
