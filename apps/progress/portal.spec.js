@@ -25,7 +25,7 @@ test('day cards are usable by keyboard and reveal client-safe detail', async ({ 
   await expect(dayFour).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('#day-detail')).toContainText('Live message validation');
   await expect(page.locator('#day-detail')).toBeInViewport();
-  await expect(page.locator('#client-action-list li')).toHaveCount(4);
+  await expect(page.locator('#client-action-list li')).toHaveCount(5);
   await expect(page.locator('body')).not.toContainText('Railway');
   await expect(page.locator('body')).not.toContainText('migration');
 });

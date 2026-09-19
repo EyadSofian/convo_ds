@@ -47,7 +47,7 @@ export const PROJECT_DAYS = [
     tasks: [
       { id: 'live-updates', title: 'Live conversation updates', clientDescription: 'The workspace can update when conversation activity changes.', status: 'completed', category: 'inbox' },
       { id: 'team-handoff', title: 'Team handoff workflow', clientDescription: 'Agents can transfer work with a visible history.', status: 'completed', category: 'inbox' },
-      { id: 'team-acceptance', title: 'Team workflow acceptance', clientDescription: 'Review the real team setup and access rules together.', status: 'upcoming', category: 'core' },
+      { id: 'team-acceptance', title: 'Team workflow acceptance', clientDescription: 'Review the real team setup and access rules together.', status: 'blocked', category: 'core', clientActionRequired: 'Confirm the agent roster, team memberships and who may see each team’s conversations.' },
     ],
   },
   {
@@ -57,7 +57,7 @@ export const PROJECT_DAYS = [
     outcome: 'An approved WhatsApp account can exchange a controlled test message.',
     tasks: [
       { id: 'channel-management', title: 'Channel management', clientDescription: 'The channel setup and status experience is prepared.', status: 'completed', category: 'channels' },
-      { id: 'whatsapp-access', title: 'WhatsApp Business access', clientDescription: 'Authorized account access is needed to connect the live channel.', status: 'blocked', category: 'channels', clientActionRequired: 'Provide approved WhatsApp Business account access and a safe test recipient through the agreed secure channel.' },
+      { id: 'whatsapp-access', title: 'WhatsApp Business access', clientDescription: 'Authorized account access is needed to connect the live channel.', status: 'blocked', category: 'channels', clientActionRequired: 'Provide approved WhatsApp Business account access, a safe test recipient and the planned message templates through the agreed secure channel.' },
       { id: 'whatsapp-live-proof', title: 'Live message validation', clientDescription: 'Confirm a real incoming message, reply and delivery updates.', status: 'blocked', category: 'channels', dependency: 'WhatsApp Business access' },
     ],
   },

@@ -15,7 +15,7 @@ test('the public plan has twelve ordered days and one central current day', () =
 });
 
 test('all numbers derive from the status data and count blocked work as remaining', () => {
-  assert.deepEqual(summarize(tasks), { total: 36, completed: 16, inProgress: 3, blocked: 9, remaining: 20, percent: 44 });
+  assert.deepEqual(summarize(tasks), { total: 36, completed: 16, inProgress: 3, blocked: 10, remaining: 20, percent: 44 });
   const areas = categorySummaries(tasks, CATEGORY_LABELS);
   assert.equal(areas.length, 8);
   assert.equal(areas.reduce((sum, area) => sum + area.total, 0), tasks.length);
@@ -23,7 +23,7 @@ test('all numbers derive from the status data and count blocked work as remainin
 });
 
 test('client actions and deliverables are derived rather than hand-entered in the page', () => {
-  assert.equal(clientActions(tasks).length, 4);
+  assert.equal(clientActions(tasks).length, 5);
   assert.equal(deliverableStatus(DELIVERABLES[0], tasks), 'in_progress');
   assert.equal(deliverableStatus(DELIVERABLES[2], tasks), 'blocked');
 });
