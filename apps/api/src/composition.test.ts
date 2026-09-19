@@ -93,7 +93,10 @@ describe('which channel transport is bound', () => {
     // and is handed to `send` as an argument. Nothing provider-shaped lives in
     // installation configuration except the choice of adapter.
     const transport = channelTransportFor(configWith({ channelTransport: 'meta' }));
-    const outcome = await transport.send('messenger', 'token', {
+    // A Meta adapter now deliberately supports Messenger and Instagram.  Keep
+    // this composition assertion offline by exercising a kind the adapter
+    // refuses before it could make a provider request.
+    const outcome = await transport.send('web_chat', 'token', {
       assetIdentity: 'a',
       peerIdentity: 'p',
       messageType: 'text',
