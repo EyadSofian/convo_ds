@@ -25,7 +25,8 @@
     "test:mutation": "stryker run",
     "test:load:target": "vitest run --project load",
     "test:recovery": "vitest run --project recovery",
-    "test:visual": "playwright test --project=desktop-1366 tests/e2e/visual.spec.ts"
+    "test:visual": "playwright test --project=desktop-1366 tests/e2e/visual.spec.ts",
+    "test:progress": "node --test apps/progress/progress.test.js && playwright test -c apps/progress/playwright.config.js"
   },
   "devDependencies": {
     "@eslint/js": "9.12.0",

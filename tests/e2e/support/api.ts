@@ -349,7 +349,38 @@ export const ADMIN_PERMISSIONS: readonly string[] = [
   'contact.read', 'contact.edit', 'consent.read', 'consent.record',
   'campaign.read', 'campaign.draft', 'campaign.approve', 'campaign.launch', 'campaign.control',
   'channel.manage', 'member.manage', 'role.manage', 'report.read',
+  'automation.read', 'automation.create', 'automation.edit', 'automation.activate',
 ];
+
+function automationWorkflow(): Record<string, unknown> {
+  return {
+    version: 1,
+    trigger: { type: 'schedule', config: {} },
+    target: { type: 'dynamic_audience', config: {} },
+    steps: [
+      { id: 'step-1', type: 'send_whatsapp_template', config: {} },
+      { id: 'step-2', type: 'delay', config: { minutes: 30 } },
+    ],
+    schedule: { kind: 'daily', time: '09:00' },
+    safety: { approvalRequired: true, duplicateWindowSeconds: 3600 },
+  };
+}
+
+function automationTemplates(): readonly Record<string, unknown>[] {
+  return [
+    { key: 'class-reminder', category: 'academic', name: 'تذكير الحصة', description: 'ذكّر الطلاب قبل بدء الحصة.', preset: automationWorkflow() },
+    { key: 'lead-follow-up', category: 'sales', name: 'متابعة المهتمين', description: 'تابع مع العميل بعد تسجيل اهتمامه.', preset: { ...automationWorkflow(), trigger: { type: 'contact_created', config: {} } } },
+    { key: 'welcome', category: 'marketing', name: 'رسالة ترحيب', description: 'أرسل رسالة ترحيب منضبطة للمشترك الجديد.', preset: { ...automationWorkflow(), trigger: { type: 'contact_created', config: {} } } },
+    { key: 'operations-check', category: 'operations', name: 'فحص تشغيلي', description: 'أنشئ متابعة داخلية للحالات المتأخرة.', preset: automationWorkflow() },
+  ];
+}
+
+function automations(): readonly Record<string, unknown>[] {
+  return [{
+    id: 'automation-1', name: 'تذكير الحصة الصباحية', description: 'تذكير يومي قبل الحصة', templateKey: 'class-reminder',
+    state: 'draft', workflow: automationWorkflow(), timezone: 'Africa/Cairo', nextRunAt: null, lastRunAt: null, version: 1,
+  }];
+}
 
 function sessions(): readonly Record<string, unknown>[] {
   return [
@@ -479,6 +510,18 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     }
     if (path.endsWith('/reports/campaigns')) {
       return json(route, { data: campaignReport(), request_id: 'e2e' });
+    }
+    if (path.endsWith('/automation-templates')) {
+      return json(route, paged(automationTemplates()));
+    }
+    if (path.endsWith('/whatsapp-templates')) {
+      return json(route, paged([]));
+    }
+    if (path.endsWith('/automation-runs')) {
+      return json(route, paged([]));
+    }
+    if (path.endsWith('/automations')) {
+      return json(route, paged(automations()));
     }
     if (path.endsWith('/campaigns')) {
       return json(route, paged(campaigns()));

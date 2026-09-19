@@ -1,0 +1,47 @@
+name: Deploy staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Full immutable Git SHA to deploy
+        required: true
+        type: string
+      service:
+        description: Explicit Railway service
+        required: true
+        type: choice
+        options:
+          - convo-database
+          - convo-api
+          - convo-client-demo
+          - convo-worker-inbound
+          - convo-worker-interactive
+          - convo-worker-campaign
+          - convo-worker-report
+          - convo-worker-integration
+          - convo-worker-automation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway-staging-${{ inputs.service }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.57.9
+
+      - name: Deploy immutable SHA to staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: ./scripts/deploy-railway.sh staging "${{ inputs.release_sha }}" "${{ inputs.service }}"

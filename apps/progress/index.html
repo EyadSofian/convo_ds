@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f5f0" />
+    <meta name="description" content="CONVO project progress and three-phase delivery plan." />
+    <title>CONVO — Project Progress</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <div class="wordmark" aria-label="CONVO">CONVO<span class="wordmark__period">.</span></div>
+        <span class="header-meta">Project Progress</span>
+      </header>
+
+      <main>
+        <section class="hero" aria-labelledby="page-title">
+          <div>
+            <p class="eyebrow">PROJECT STATUS</p>
+            <h1 id="page-title">A clear path<br /><em>to launch.</em></h1>
+          </div>
+          <div class="hero__status"><span>Status</span><strong id="project-status"></strong></div>
+        </section>
+
+        <section class="summary" aria-label="Project summary">
+          <div class="summary__progress">
+            <span class="summary__label">OVERALL PROGRESS</span>
+            <strong id="overall-percent"></strong>
+            <div class="progress-track" id="overall-progress" role="progressbar" aria-label="Overall project completion" aria-valuemin="0" aria-valuemax="100"><span class="progress-track__fill" id="overall-fill"></span></div>
+          </div>
+          <div class="summary__stat"><span class="summary__label">CURRENT PHASE</span><strong id="current-phase"></strong></div>
+          <div class="summary__stat"><span class="summary__label">COMPLETED TASKS</span><strong id="completed-stat"></strong></div>
+          <div class="summary__stat"><span class="summary__label">REMAINING TASKS</span><strong id="remaining-stat"></strong></div>
+        </section>
+
+        <section class="section phases" aria-labelledby="phases-title">
+          <div class="section-head"><p class="eyebrow">THREE MAJOR PHASES</p><h2 id="phases-title">Project Delivery Plan</h2></div>
+          <div class="phase-grid" id="phase-grid"></div>
+        </section>
+
+        <section class="section working" aria-labelledby="working-title">
+          <div class="section-head"><p class="eyebrow">RIGHT NOW</p><h2 id="working-title">Currently Working On</h2></div>
+          <ul id="working-list" class="working-list"></ul>
+        </section>
+
+        <section class="section requirements" aria-labelledby="requirements-title">
+          <div class="requirements__head"><p class="eyebrow">YOUR INPUT MOVES THIS FORWARD</p><h2 id="requirements-title">Required From You</h2><p>Please share access through the agreed secure channel. We will never ask for passwords on this page.</p></div>
+          <ul id="requirements-list" class="requirements-list"></ul>
+          <p class="requirements__other">Also needed before launch: team access decisions, a verified email sender, reporting definitions and an on-call alert contact.</p>
+        </section>
+
+        <div class="closing-grid">
+          <section class="section next-steps" aria-labelledby="next-steps-title">
+            <div class="section-head"><p class="eyebrow">WHAT HAPPENS NEXT</p><h2 id="next-steps-title">Next Steps</h2></div>
+            <ol id="next-steps-list"></ol>
+          </section>
+          <section class="section deliverables" aria-labelledby="deliverables-title">
+            <div class="section-head"><p class="eyebrow">WHAT YOU WILL RECEIVE</p><h2 id="deliverables-title">Final Deliverables</h2></div>
+            <ul id="deliverables-list"></ul>
+          </section>
+        </div>
+      </main>
+
+      <footer class="footer"><span>CONVO<span class="wordmark__period">.</span></span><span>Launch follows verified channels, client acceptance and final production checks.</span></footer>
+    </div>
+  </body>
+</html>

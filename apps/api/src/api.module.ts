@@ -149,9 +149,9 @@ export class ApiModule {
         // is reached only by the worker that drains that table, so no request
         // path can ever block on, or fail because of, a third party.
         //
-        // `parseEmailConfig` has already refused to boot a production process
-        // whose provider is missing or set to `logging`, so there is no silent
-        // fallback below — only the choice between two real bindings.
+        // Only worker-integration may receive a sending provider. Every other
+        // role gets the explicit refusing adapter, so provider configuration
+        // cannot take core HTTP or unrelated workers offline.
         { provide: EMAIL_PROVIDER, useValue: adapters.emailProvider ?? emailProviderFor(config) },
         // The overrides exist so a test can observe a delivery without a table.
         // Nothing in production supplies them: `startApi` passes no adapters.
@@ -218,10 +218,8 @@ export class ApiModule {
 /**
  * Which email transport this installation uses.
  *
- * The config parser has already rejected a production process that reaches
- * `logging`, so the branch below is total and neither arm is a fallback: one is
- * the real provider, the other is the local adapter an operator explicitly
- * asked for. Anything else failed at boot with a named issue.
+ * The config parser permits `logging` only for a non-production integration
+ * worker. `disabled` binds a typed refusal and never reports a synthetic send.
  */
 export function emailProviderFor(config: ApiConfig): EmailProviderPort {
   if (config.email.provider === 'resend') {
@@ -230,7 +228,9 @@ export function emailProviderFor(config: ApiConfig): EmailProviderPort {
       from: config.email.from,
     });
   }
-  return config.email.from === '' && config.email.resendApiKey === ''
+  return config.email.provider === 'logging' &&
+    config.email.from === '' &&
+    config.email.resendApiKey === ''
     ? new LoggingEmailProvider()
     : unconfiguredEmailProvider;
 }

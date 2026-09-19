@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -12,7 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +40,12 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Install portal browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Client progress portal
+        run: pnpm test:progress
+
       - name: Unit tests
         run: pnpm test:unit
 
@@ -46,6 +55,15 @@ jobs:
       # and object-store adapters land and their contract tests become runnable.
       - name: Integration tests
         run: pnpm test:integration
+
+      - name: Property tests
+        run: pnpm test:property
+
+      - name: Contract tests
+        run: pnpm test:contracts
+
+      - name: Security tests
+        run: pnpm test:security
 
       # DEP-14. This step fails the build when coverage drops below the gates in
       # docs/testing/strategy.md. Lowering a threshold to make it pass is

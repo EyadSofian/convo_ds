@@ -248,6 +248,12 @@
     unicode-bidi: isolate;
   }
 
+  /* Start/end chevrons follow reading direction. Down and non-directional
+     glyphs never enter this class, so they remain unchanged in RTL. */
+  [dir='rtl'] .icon--directional {
+    scale: -1 1;
+  }
+
   .muted {
     color: var(--text-muted);
   }
@@ -267,8 +273,8 @@
 
   .spinner {
     display: inline-block;
-    inline-size: 14px;
-    block-size: 14px;
+    inline-size: var(--icon-sm);
+    block-size: var(--icon-sm);
     border-radius: var(--radius-full);
     border: 2px solid currentColor;
     border-inline-end-color: transparent;

@@ -21,6 +21,10 @@ tmp/
 output/
 docs/evidence/**/raw/
 
+# Owner-only project review: this repository is public. Never publish the
+# technical risk register or operational evidence with the client portal.
+docs/project/PROJECT_STATUS_INTERNAL.md
+
 # local runtime state
 .env
 .env.*
