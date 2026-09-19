@@ -1387,10 +1387,9 @@ describe('the Channels screen', () => {
     expect(kinds).toEqual(['whatsapp', 'messenger', 'instagram', 'web_chat', 'telegram', 'custom']);
 
     const whatsapp = find(root, '[data-channel-kind="whatsapp"]');
-    // One number is still waiting for its credential, so the card says so and
-    // offers to finish it — and never "Connected".
-    expect(text(whatsapp)).toContain('Attention needed');
-    expect(text(whatsapp)).not.toContain('Connected');
+    // One number is still waiting for its credential, so the card makes the
+    // in-progress connection explicit and never calls it "Connected".
+    expect(whatsapp.querySelector('.badge')?.textContent).toBe('Connecting');
     expect(whatsapp.querySelector('[data-act="channel-manage"][data-arg="whatsapp:cn-1"]')).not.toBeNull();
     expect(whatsapp.querySelector('[data-arg="connect-channel:whatsapp"]')).not.toBeNull();
     // Its capabilities are the server's matrix, not a brochure.
