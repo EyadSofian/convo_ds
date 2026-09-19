@@ -62,4 +62,8 @@ export default tseslint.config(
     files: ['apps/proposal/**/*.js'],
     languageOptions: { globals: browserGlobals },
   },
+  {
+    files: ['apps/progress/app.js', 'apps/progress/portal.spec.js'],
+    languageOptions: { globals: browserGlobals },
+  },
 );

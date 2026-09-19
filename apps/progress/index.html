@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f5f0" />
+    <meta name="description" content="CONVO project progress and 12-day delivery plan." />
+    <title>CONVO — Project Progress</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <div class="wordmark" aria-label="CONVO">CONVO<span class="wordmark__period">.</span></div>
+        <div class="header-meta"><span class="header-meta__line"></span> Project Progress</div>
+      </header>
+
+      <main>
+        <section class="hero" aria-labelledby="page-title">
+          <div class="hero__copy">
+            <p class="eyebrow">12-DAY DELIVERY PLAN <span class="eyebrow__dot">●</span> CURRENT STAGE</p>
+            <h1 id="page-title">A clear view of<br /><em>what comes next.</em></h1>
+            <p class="hero__intro">Follow the work from foundation to handover. This plan shows what is complete, what is being reviewed, and where your input will help us move forward.</p>
+            <div class="stage-pill" id="current-stage"></div>
+          </div>
+          <div class="hero__progress" aria-label="Overall project progress">
+            <span class="hero__progress-label">OVERALL PROGRESS</span>
+            <div class="hero__progress-number" id="overall-percent"></div>
+            <div class="hero__progress-track"><span id="overall-fill"></span></div>
+            <p>Based on completed delivery tasks, not elapsed days.</p>
+          </div>
+        </section>
+
+        <section class="overview" aria-label="Project summary">
+          <div class="stat"><span class="stat__label">CURRENT STAGE</span><strong id="current-day-stat"></strong><span class="stat__caption">of 12 planned stages</span></div>
+          <div class="stat"><span class="stat__label">COMPLETED</span><strong id="completed-stat"></strong><span class="stat__caption">delivery tasks</span></div>
+          <div class="stat"><span class="stat__label">IN PROGRESS</span><strong id="active-stat"></strong><span class="stat__caption">under review now</span></div>
+          <div class="stat"><span class="stat__label">REMAINING</span><strong id="remaining-stat"></strong><span class="stat__caption">including client-dependent work</span></div>
+        </section>
+
+        <section class="section timeline-section" aria-labelledby="timeline-title">
+          <div class="section-head">
+            <div><p class="eyebrow">THE ROAD AHEAD</p><h2 id="timeline-title">The 12-day plan</h2></div>
+            <p class="section-head__note">Days are delivery stages, not a claim about past work dates. Workstreams can overlap.</p>
+          </div>
+          <div class="timeline" id="timeline"></div>
+          <article class="day-detail" id="day-detail" aria-live="polite"></article>
+        </section>
+
+        <section class="section progress-section" aria-labelledby="category-title">
+          <div class="section-head"><div><p class="eyebrow">AT A GLANCE</p><h2 id="category-title">Progress by area</h2></div><p class="section-head__note">Each percentage is calculated from completed tasks in that area.</p></div>
+          <div class="category-grid" id="category-grid"></div>
+        </section>
+
+        <div class="work-grid">
+          <section class="section work-panel" aria-labelledby="completed-title"><p class="eyebrow">DONE SO FAR</p><h2 id="completed-title">Completed work</h2><ul class="clean-list" id="completed-list"></ul></section>
+          <div class="work-grid__side">
+            <section class="section work-panel" aria-labelledby="working-title"><p class="eyebrow">RIGHT NOW</p><h2 id="working-title">Currently working on</h2><ul class="clean-list" id="working-list"></ul></section>
+            <section class="section work-panel" aria-labelledby="next-title"><p class="eyebrow">COMING UP</p><h2 id="next-title">Next up</h2><ul class="clean-list" id="next-list"></ul></section>
+          </div>
+        </div>
+
+        <section class="client-action section" id="client-action-section" aria-labelledby="client-action-title">
+          <div class="client-action__intro"><span class="client-action__mark" aria-hidden="true">!</span><div><p class="eyebrow">A LITTLE HELP FROM YOU</p><h2 id="client-action-title">Required from client</h2><p>These items unlock live validation. Please use the agreed secure channel for account access; do not send credentials through this page.</p></div></div>
+          <ul id="client-action-list"></ul>
+        </section>
+
+        <section class="section deliverables-section" aria-labelledby="deliverables-title">
+          <div class="section-head"><div><p class="eyebrow">WHAT YOU WILL RECEIVE</p><h2 id="deliverables-title">Delivery checklist</h2></div><p class="section-head__note">A deliverable is complete only when all linked tasks are complete.</p></div>
+          <ul class="deliverable-grid" id="deliverables-list"></ul>
+        </section>
+      </main>
+
+      <footer class="footer"><span>CONVO <span class="wordmark__period">.</span> Project delivery</span><span>Target handover: Day 12, subject to required inputs and acceptance. No calendar delivery date has been set.</span></footer>
+    </div>
+  </body>
+</html>

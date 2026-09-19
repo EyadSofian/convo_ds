@@ -37,6 +37,12 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Install portal browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Client progress portal
+        run: pnpm test:progress
+
       - name: Unit tests
         run: pnpm test:unit
 
