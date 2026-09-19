@@ -21,6 +21,13 @@ describe('icon', () => {
     expect(element.getAttribute('class')).toBe('x');
   });
 
+  it('marks only reading-direction chevrons for RTL mirroring', () => {
+    expect(icon('chevronStart', 16, { class: 'x' }).getAttribute('class')).toBe('icon--directional x');
+    expect(icon('chevronEnd').getAttribute('class')).toBe('icon--directional');
+    expect(icon('chevronDown').getAttribute('class')).toBeNull();
+    expect(icon('search').getAttribute('class')).toBeNull();
+  });
+
   it('draws icons rather than using emoji or a font glyph', () => {
     for (const markup of Object.values(ICON_PATHS)) {
       expect(markup).toMatch(/^<(path|circle|rect)/);

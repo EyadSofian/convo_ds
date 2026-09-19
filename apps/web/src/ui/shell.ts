@@ -234,7 +234,7 @@ function tenantControl(state: AppState, name: string): HTMLElement {
         'aria-expanded': String(state.openMenu === 'tenant'),
         'aria-label': t(state, `مساحة العمل: ${name}. تبديل`, `Workspace: ${name}. Switch`),
       },
-      [icon('building', 14), h('span', {}, [name]), icon('chevronDown', 12)],
+      [icon('building', 14), h('span', {}, [name]), icon('chevronDown', 14)],
     ),
     state.openMenu === 'tenant'
       ? h(

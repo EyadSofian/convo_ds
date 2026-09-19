@@ -345,7 +345,7 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
         h('h3', { class: 'connection__blocktitle', id: `${id}-evidence` }, [t(state, 'التحقق من الجاهزية', 'Readiness checks')]),
         h('ul', { class: 'checklist' }, connection.evidence.map((item) =>
           h('li', { class: item.satisfied ? 'checklist__item checklist__item--done' : 'checklist__item' }, [
-            h('span', { class: 'checklist__mark', 'aria-hidden': 'true' }, [icon(item.satisfied ? 'check' : 'clock', 12)]),
+            h('span', { class: 'checklist__mark', 'aria-hidden': 'true' }, [icon(item.satisfied ? 'check' : 'clock', 14)]),
             h('span', { class: 'checklist__label' }, [phrase(state, EVIDENCE, item.kind)]),
             h('span', { class: 'checklist__when' }, [
               item.observed_at === null

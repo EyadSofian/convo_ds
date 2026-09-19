@@ -32,6 +32,6 @@ export function brandLockup(): HTMLElement {
 /** A channel's glyph on its provider-coloured tile. */
 export function channelTile(kind: string, size: 'md' | 'lg' = 'md'): HTMLElement {
   return h('span', { class: `channel-tile channel-tile--${kind} channel-tile--${size}`, 'aria-hidden': 'true' }, [
-    icon(channelIcon(kind), size === 'lg' ? 22 : 16),
+    icon(channelIcon(kind), size === 'lg' ? 20 : 16),
   ]);
 }
