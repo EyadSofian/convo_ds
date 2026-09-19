@@ -2,19 +2,7 @@
 
 Snapshot date: 2026-09-19
 
-## A — Must fix before source handover
-
-- [x] Merge PRs 1–5 through protected `main` with required CI.
-- [x] Verify the merged repository from a fresh clone with frozen install,
-  compile, security, coverage and browser gates.
-- [x] Publish a truthful completion audit and integration matrix.
-- [x] Provide a deployment guide that does not depend on GitHub or Railway.
-- [x] Remove documentation claims that contradict the implemented WhatsApp
-  transport and describe secrets in a vendor-neutral way.
-- [ ] Export the final source archive from the final merged SHA and verify its
-  checksum. This is an operator delivery action, not a code gap.
-
-## B — Internal product work after handover
+## A — Development work
 
 - Operator upload/send for attachments, including storage, scanning, MIME,
   size, retention and download authorization.
@@ -23,8 +11,23 @@ Snapshot date: 2026-09-19
 - Rich automation run/detail UI and optional approval/test-run workflow.
 - General agent/team/operations reporting after KPI definitions are approved.
 
-These items should be individually scoped and tested. They do not justify a
-speculative architectural rewrite.
+These are real code/UI gaps. They may be accepted into a later delivery slice,
+but they must not be mislabeled as configuration-only.
+
+## B — Internal test work
+
+- Export the final source archive from the final merged SHA, verify its SHA-256
+  checksum, and perform one install/build from that archive.
+- Deploy one identical final SHA to every internal staging application role and
+  rerun the authenticated operator journey with synthetic data.
+- Exercise signed website/custom ingress without an external provider; build a
+  browser-widget journey only if the widget enters scope.
+- Run conservative SSE reconnect and queue/restart checks against the final
+  staging deployment.
+- Complete an isolated native database restore when the internal hosting account
+  grants the missing snapshot/restore permission.
+- Use owner-controlled Meta or email assets only if authenticated access is
+  actually available and only with controlled test accounts.
 
 ## C — Client input required
 
@@ -39,19 +42,16 @@ speculative architectural rewrite.
 - Approved Meta assets, Resend sender/account, synthetic test recipients and a
   named alert destination.
 
-## D — Live verification required
+## D — Client acceptance
 
-- Resend invitation and password-recovery chains, including link reuse denial.
-- WhatsApp real signed inbound, agent reply, provider message ID and delivery
-  receipts, followed by exactly one controlled automation recipient.
-- Messenger/Instagram inbound only if those channels are enabled; do not call
-  them two-way until outbound transports exist.
-- Website/custom signed ingress from an approved installation when scoped.
-- Alert warning and critical paths with a check that payloads contain no secret
-  or customer message content.
-- Authenticated staging operator smoke on the exact deployment SHA.
-- Isolated native database recovery drill when the hosting account grants the
-  required snapshot/restore permission.
+- UAT of Inbox, contacts, labels, assignments/handoffs, people/teams/roles,
+  campaigns, automation, reports and settings against synthetic data.
+- Sign off which section-A development gaps are accepted for this delivery.
+- Approve the final roles, team visibility, consent and reporting rules.
+- After assets are supplied: accept Resend invite/recovery, WhatsApp inbound and
+  reply/receipts, one controlled campaign/automation recipient, and alerts.
+- Accept the client-hosted deployment, backup/recovery procedure and operations
+  ownership. Provider-live production GO remains separate from source receipt.
 
 ## E — Post-MVP / optional scope
 
@@ -65,6 +65,7 @@ speculative architectural rewrite.
 
 ## Handover boundary
 
-The archive may be delivered with sections B–E open because they are clearly
-classified. Customer production activation may not proceed while the provider
-and alert live gates in section D are open under the current fail-closed policy.
+The archive may be delivered with sections A–E open only when the delivery
+receipt explicitly accepts them. Customer production activation may not proceed
+while the provider and alert acceptance gates in section D are open under the
+current fail-closed policy.

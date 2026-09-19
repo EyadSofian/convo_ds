@@ -43,6 +43,7 @@ campaigns are post-MVP unless the owner explicitly changes the acceptance scope.
 | Users, teams, roles and permissions | `COMPLETE` | Seven-role baseline, configurable grants, team/resource scopes and server-side authorization | Client roster and final grants are onboarding data, not code. |
 | Tenant isolation | `COMPLETE` | Forced RLS, transaction-scoped tenant context and tenant-qualified foreign keys | Preserve these invariants in every future migration. |
 | Inbox and conversation lifecycle | `COMPLETE` | Queue, claim, assignment, priority, snooze/wake, resolve/reopen, unread state, history and realtime refresh | No release-blocking core gap. |
+| Inbox search and filters | `PARTIAL` | Server-backed queue modes, status, ownership, priority, channel, label and metadata filters exist | Complete the single composable query for every requested person/team/date/message/custom-field dimension. |
 | Internal notes | `COMPLETE` | Separate note model, author-only edit/delete policy and retained tombstone/audit behavior | Mentions and note search are optional later enhancements. |
 | Manual assignment and handoff | `COMPLETE` | Direct assignment, unassignment, collaborators and offered handoff with accept/decline/cancel/expiry and version fencing | No core gap. |
 | Automatic routing | `MISSING` | Manual routing and a shared condition language provide foundations | Implement ordered auditable rules only after client team/capacity policy is approved. |
@@ -52,6 +53,7 @@ campaigns are post-MVP unless the owner explicitly changes the acceptance scope.
 | Saved views | `PARTIAL` | Tenant-isolated private/team/workspace CRUD API and validated conditions | Complete operator UI and full filter binding. |
 | Contacts and identities | `COMPLETE` | Scoped identities, exact matching, identity history, consent and suppression evidence, custom fields | Manual import/create and reviewed merge are not implemented; inbound-created contacts are the current product rule. |
 | Custom fields | `COMPLETE` | Text, number, date, boolean, select, multi-select, email and phone types enforced in domain and PostgreSQL | Reuse consistently in future reporting/rules. |
+| Contact search/history | `COMPLETE` | Tenant-scoped directory/profile reads, channel identity history and conversation history are server-backed | Manual contact creation/import is outside the current inbound-created contact rule. |
 | Operator attachment send/upload | `MISSING` | Inbound attachment metadata can be normalized and displayed; outbound transport explicitly refuses unsupported attachment send | Define storage, malware/MIME/size policy and retention before implementation. |
 | Campaign authoring | `COMPLETE` | Drafts, immutable revisions, validation, clone, approval, test-send and recipient selection surfaces | Reusable audience UI remains partial. |
 | Campaign execution | `COMPLETE` | One-time scheduling, durable recipient jobs, pause/cancel, retry, delivery reconciliation and immutable evidence | Live provider execution is separately gated. |
@@ -68,13 +70,18 @@ campaigns are post-MVP unless the owner explicitly changes the acceptance scope.
 | Messenger and Instagram outbound | `MISSING` | No live outbound transport is claimed | Build channel-specific Graph transports before promising two-way live messaging. |
 | Website chat and custom channel ingress | `PARTIAL` | Signed HMAC ingress, replay protection, origin allowlist, normalization and dedupe | Production connectivity test and credential provisioning are required. |
 | Installable website-chat widget | `MISSING` | No finished customer-facing embed package/snippet | Productize only if it is part of the contracted MVP. |
+| Channel connection UX | `PARTIAL` | Admin catalogue distinguishes configured/unavailable states and keeps secrets server-side | Provider identity, last verification and actionable degraded states need live adapter data; technical IDs should move behind advanced admin detail. |
 | Email / Resend | `LIVE_TEST_REQUIRED` | Resend adapter, durable outbox, retries and fail-closed production validation | Verified sender, key, delivery and link acceptance/reset evidence required. |
 | Alerting | `CLIENT_INPUT_REQUIRED` | Alert rules and runbook exist | Name and configure Slack/PagerDuty/Opsgenie/email/webhook destination; run safe warning and critical tests. |
 | CRM / Odoo | `POST_MVP` | No live CRM adapter is part of this release | Require vendor contract, auth, mappings and conflict ownership before work. |
 | Telegram / TikTok / other channels | `POST_MVP` | UI accurately marks unavailable; versioned custom-channel boundary exists | Confirm approved API product and capabilities before an adapter is designed. |
 | API and HTTP security | `COMPLETE` | Authorization, CSRF, typed errors, request IDs, idempotency, signed webhooks and dependency audit | Continue release-time security checks. |
+| Profile, settings and session security | `COMPLETE` | Authenticated profile context, active-session listing/revocation and honest unavailable states replace demo settings | Client-specific organizational settings remain onboarding data. |
+| Health, logs and monitoring | `PARTIAL` | Structured logs, request IDs, `/live`, `/ready`, web `/healthz`, queue evidence and alert rules exist | A named alert destination and live warning/critical delivery proof are absent. |
+| Backups and recovery | `PARTIAL` | Logical dump/restore evidence, recovery tests/runbook, production PITR and scheduled backups are documented | Native restore into an isolated Railway scratch target remains permission-blocked; each client host needs its own verified policy. |
 | Database migrations and recovery logic | `COMPLETE` | 32 checksummed forward migrations, advisory migration lock, real pg_dump/restore tests and recovery runbook | An isolated native Railway snapshot restore remains platform-permission blocked. |
 | Responsive UI / RTL / accessibility | `COMPLETE` | Desktop, tablet and mobile matrices; RTL/LTR, dark/light, keyboard and automated a11y/visual coverage | Future features must extend the same matrices. |
+| UI states and operational styling | `COMPLETE` | Navigation, inbox, contacts, people, channels, campaigns, automation, reports, settings, auth, loading/empty/error/denied/disabled states and dialog/form primitives use the restrained brand layer | No new visual defect was found that justified another redesign. |
 | Source deployment portability | `COMPLETE` | Node 22/pnpm lockfile, one Dockerfile, role-selected process artifact, generic environment contract and PostgreSQL source of truth | Provider and infrastructure credentials stay outside the archive. |
 
 ## Automated verification of merged source
