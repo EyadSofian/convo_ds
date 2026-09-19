@@ -11,6 +11,7 @@ for (const width of [390, 430, 768, 1366, 1440]) {
     await expect(page.locator('#remaining-stat')).toHaveText('20');
     await expect(page.locator('.day-card')).toHaveCount(12);
     await expect(page.locator('#day-detail')).toContainText('Conversation operations');
+    await expect(page.locator('#next-list li').first()).toContainText('Day 3');
     const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(documentWidth).toBeLessThanOrEqual(width);
   });
