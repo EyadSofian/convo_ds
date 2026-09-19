@@ -94,6 +94,7 @@ h2 { margin-bottom: 0; font-family: 'Iowan Old Style', 'Palatino Linotype', Pala
 .task__mark--blocked { color: var(--amber); background: var(--amber-soft); }
 .task__copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .task__copy strong { font-size: 13px; line-height: 1.35; }
+.task__status { color: var(--neutral-ink); font-size: 11px; font-weight: 700; }
 .task__description { color: var(--muted); font-size: 12px; line-height: 1.5; }
 
 .category-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }

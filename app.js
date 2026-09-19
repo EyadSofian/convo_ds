@@ -26,12 +26,13 @@ function statusBadge(status) {
   return badge;
 }
 
-function taskItem(task, compact = false) {
+function taskItem(task, compact = false, showStatus = false) {
   const item = element('li', compact ? 'task task--compact' : 'task');
   const mark = element('span', `task__mark task__mark--${task.status}`, STATUS_MARKS[task.status]);
   mark.setAttribute('aria-hidden', 'true');
   const copy = element('span', 'task__copy');
   copy.append(element('strong', '', task.title));
+  if (showStatus) copy.append(element('span', 'task__status', STATUS_LABELS[task.status]));
   if (!compact) copy.append(element('span', 'task__description', task.clientDescription));
   item.append(mark, copy);
   return item;
@@ -112,8 +113,8 @@ function renderCategories(tasks) {
 function renderLists(tasks) {
   replace('completed-list', ...tasks.filter((task) => task.status === 'completed').map((task) => taskItem(task, true)));
   replace('working-list', ...tasks.filter((task) => task.status === 'in_progress').map((task) => taskItem(task)));
-  const upcoming = tasks.filter((task) => task.status === 'upcoming' && task.day >= CURRENT_PROJECT_DAY).slice(0, 4);
-  replace('next-list', ...upcoming.map((task) => taskItem(task)));
+  const upcoming = tasks.filter((task) => task.day > CURRENT_PROJECT_DAY && (task.status === 'upcoming' || (task.status === 'blocked' && task.clientActionRequired))).slice(0, 4);
+  replace('next-list', ...upcoming.map((task) => taskItem({ ...task, title: `Day ${task.day} · ${task.title}` }, false, true)));
   const actions = clientActions(tasks);
   document.getElementById('client-action-section').hidden = actions.length === 0;
   replace('client-action-list', ...actions.map((action) => element('li', '', action)));
