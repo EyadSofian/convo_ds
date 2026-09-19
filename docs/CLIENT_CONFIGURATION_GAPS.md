@@ -24,4 +24,8 @@ These items require client-owned information or a business decision. They do not
 
 ## Secret handling
 
-Provider tokens, SMTP credentials, signing secrets and encryption keys belong only in Railway secret variables. The UI may collect provider identifiers and initiate a server-side connection test, but it must never return stored secret material to the browser or logs.
+Provider tokens, SMTP credentials, signing secrets and encryption keys belong
+only in the target platform's server-side secret manager or injected process
+environment. The UI may collect provider identifiers and initiate a server-side
+connection test, but it must never return stored secret material to the browser
+or logs.
