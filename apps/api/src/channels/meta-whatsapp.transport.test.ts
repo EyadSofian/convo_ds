@@ -166,6 +166,26 @@ describe('Messenger and Instagram Graph contracts', () => {
     });
     expect(calls).toHaveLength(0);
   });
+
+  it('rejects incomplete Messenger and Instagram text commands before they reach Graph', async () => {
+    const { adapter, calls } = transport(() => ACCEPTED);
+    await expect(adapter.send('messenger', TOKEN, { ...TEXT, text: null })).resolves.toMatchObject({
+      status: 'definitely_rejected', code: 'unsupported_message_type', retryable: false,
+    });
+    await expect(adapter.send('instagram', TOKEN, { ...TEXT, text: '' })).resolves.toMatchObject({
+      status: 'definitely_rejected', code: 'unsupported_message_type', retryable: false,
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('falls back to the message collection when a direct Meta message id is blank', async () => {
+    const { adapter } = transport(() => json(200, {
+      message_id: '',
+      messages: [{ id: 'mid.page.fallback' }],
+    }));
+    await expect(adapter.send('messenger', TOKEN, { ...TEXT, assetIdentity: 'page-1', peerIdentity: 'psid-1' }))
+      .resolves.toMatchObject({ status: 'accepted', providerMessageId: 'mid.page.fallback' });
+  });
 });
 
 describe('a request that vanished', () => {
