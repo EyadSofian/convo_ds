@@ -57,8 +57,9 @@ administrator that access had been granted when no credential had been
 delivered, so the real state of who can join was unknown.
 
 **Fixed by** a durable outbox (migration `0030`), a real Resend adapter, and
-fail-closed configuration: a process with `NODE_ENV=production` refuses to boot
-when the email provider is missing or set to `logging`.
+role-scoped fail-closed configuration. The integration worker rejects the
+logging adapter in production and refuses delivery when disabled; core API and
+unrelated workers stay available without provider credentials.
 
 **Evidence:** `apps/api/src/email/*`, 21 config tests, 14 provider tests, 16
 integration tests in `tests/integration/api-email.test.ts`.

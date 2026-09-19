@@ -64,9 +64,6 @@ CONVO_AUTH_HASH_SECRET=...            # openssl rand -hex 32, all three distinct
 CONVO_BOOTSTRAP_TOKEN=...
 CONVO_IDEMPOTENCY_HASH_SECRET=...
 CONVO_PG_*=...                        # Railway reference variables
-CONVO_EMAIL_PROVIDER=resend           # production refuses to boot without this
-CONVO_EMAIL_FROM=...                  # on a domain verified with Resend
-CONVO_RESEND_API_KEY=...
 CONVO_LOG_LEVEL=info
 NODE_ENV=production
 ```
@@ -88,6 +85,19 @@ rate limited at all. On this topology the value is `2`.
 
 Each worker sets its own `CONVO_PROCESS_ROLE` and may set
 `CONVO_WORKER_CONCURRENCY` (default 4).
+
+Only `convo-worker-integration` receives email-provider configuration when
+delivery is deliberately enabled:
+
+```
+CONVO_EMAIL_PROVIDER=resend
+CONVO_EMAIL_FROM=...                  # on a domain verified with Resend
+CONVO_RESEND_API_KEY=...
+```
+
+Absent provider configuration leaves that worker in explicit disabled mode;
+production rejects `logging`. Do not deploy it to drain real rows until the
+provider is verified. Core API and unrelated workers do not need these values.
 
 `convo-client-demo`:
 

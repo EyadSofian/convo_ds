@@ -35,6 +35,7 @@ describe('parseApiConfig', () => {
       credentialKeys: [],
     });
     expect(config.channelSecrets).toEqual({});
+    expect(config.email.provider).toBe('disabled');
     expect(config.workerConcurrency).toBe(4);
     expect(config.host).toBe('0.0.0.0');
     expect(config.port).toBe(3000);
@@ -58,6 +59,35 @@ describe('parseApiConfig', () => {
       expect(parseApiConfig({ ...validEnv(), CONVO_PROCESS_ROLE: role }).processRole).toBe(role);
     },
   );
+
+  it('scopes email provider validation to the integration worker', () => {
+    const productionApi = parseApiConfig({ ...validEnv(), NODE_ENV: 'production' });
+    expect(productionApi.email.provider).toBe('disabled');
+
+    const integrationDisabled = parseApiConfig({
+      ...validEnv(),
+      NODE_ENV: 'production',
+      CONVO_PROCESS_ROLE: 'worker-integration',
+    });
+    expect(integrationDisabled.email.provider).toBe('disabled');
+
+    expect(() =>
+      parseApiConfig({
+        ...validEnv(),
+        NODE_ENV: 'production',
+        CONVO_PROCESS_ROLE: 'worker-integration',
+        CONVO_EMAIL_PROVIDER: 'resend',
+      }),
+    ).toThrow(/CONVO_EMAIL_FROM.*CONVO_RESEND_API_KEY/);
+
+    expect(
+      parseApiConfig({
+        ...validEnv(),
+        NODE_ENV: 'production',
+        CONVO_EMAIL_PROVIDER: 'resend',
+      }).email.provider,
+    ).toBe('disabled');
+  });
 
   it('reads channel app secrets from the environment, by reference name', () => {
     // The secret lives in configuration and never in a column: rotating it is

@@ -2,13 +2,17 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import pg from 'pg';
+import pg, { type Client as PgClient } from 'pg';
 import type { AppliedMigration, ClusterCredentials, DatabaseNames } from './types.js';
 
 // See the note in bootstrap.ts: `pg` is CommonJS and has no ESM named export.
 const { Client } = pg;
 
 export const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations', import.meta.url));
+/** Stable per-database session lock: ASCII-ish `CONV`, inside signed int32. */
+export const MIGRATION_ADVISORY_LOCK_KEY = 1_129_273_942;
+const DEFAULT_LOCK_TIMEOUT_MS = 60_000;
+const DEFAULT_LOCK_POLL_MS = 250;
 
 export interface MigrateOptions {
   /**
@@ -17,6 +21,10 @@ export interface MigrateOptions {
    * that cannot be demonstrated with the real, working migration set.
    */
   readonly migrationsDir?: string;
+  /** Maximum wait for another migrator before failing clearly. */
+  readonly lockTimeoutMs?: number;
+  /** Test override; production uses a short, bounded polling interval. */
+  readonly lockPollMs?: number;
 }
 
 /**
@@ -40,7 +48,16 @@ export async function migrate(
     database: names.database,
   });
   await client.connect();
+  let lockHeld = false;
   try {
+    await acquireMigrationLock(
+      client,
+      names.database,
+      options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS,
+      options.lockPollMs ?? DEFAULT_LOCK_POLL_MS,
+    );
+    lockHeld = true;
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         name       text PRIMARY KEY,
@@ -87,6 +104,46 @@ export async function migrate(
     }
     return results;
   } finally {
-    await client.end();
+    try {
+      if (lockHeld) {
+        await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_ADVISORY_LOCK_KEY]);
+      }
+    } finally {
+      await client.end();
+    }
+  }
+}
+
+async function acquireMigrationLock(
+  client: PgClient,
+  database: string,
+  timeoutMs: number,
+  pollMs: number,
+): Promise<void> {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 0) {
+    throw new Error('Migration lock timeout must be a non-negative integer.');
+  }
+  if (!Number.isInteger(pollMs) || pollMs < 1) {
+    throw new Error('Migration lock poll interval must be a positive integer.');
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const result = await client.query<{ acquired: boolean }>(
+      'SELECT pg_try_advisory_lock($1) AS acquired',
+      [MIGRATION_ADVISORY_LOCK_KEY],
+    );
+    if (result.rows[0]?.acquired === true) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Migration lock timed out after ${String(timeoutMs)} ms for database ${database}; ` +
+          'another migrator is still running.',
+      );
+    }
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, Math.min(pollMs, deadline - Date.now())),
+    );
   }
 }

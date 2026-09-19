@@ -10,9 +10,9 @@ import { isSendingIdentity, readEmailConfig } from './email-config.js';
  * cannot.** Everything below is that one sentence, checked from both sides.
  */
 
-function read(env: Record<string, string | undefined>) {
+function read(env: Record<string, string | undefined>, consumesProvider = true) {
   const issues: ErrorDetail[] = [];
-  const config = readEmailConfig(env, issues);
+  const config = readEmailConfig(env, issues, consumesProvider);
   return { config, issues, codes: issues.map((issue) => `${issue.field}:${issue.code}`) };
 }
 
@@ -20,9 +20,9 @@ const PRODUCTION = { NODE_ENV: 'production' };
 const KEY = 're_0123456789abcdefghij';
 
 describe('outside production', () => {
-  it('defaults to the logging adapter with no complaint', () => {
+  it('defaults the integration worker to the disabled adapter', () => {
     const { config, issues } = read({});
-    expect(config.provider).toBe('logging');
+    expect(config.provider).toBe('disabled');
     expect(issues).toHaveLength(0);
   });
 
@@ -31,12 +31,19 @@ describe('outside production', () => {
     expect(config.provider).toBe('logging');
     expect(issues).toHaveLength(0);
   });
+
+  it('allows the integration worker to be disabled explicitly', () => {
+    const { config, issues } = read({ CONVO_EMAIL_PROVIDER: 'disabled' });
+    expect(config).toEqual({ provider: 'disabled', from: '', resendApiKey: '' });
+    expect(issues).toHaveLength(0);
+  });
 });
 
 describe('in production', () => {
-  it('refuses to start with no provider configured', () => {
-    const { codes } = read(PRODUCTION);
-    expect(codes).toContain('CONVO_EMAIL_PROVIDER:required');
+  it('starts the integration worker disabled with no provider configured', () => {
+    const { config, issues } = read(PRODUCTION);
+    expect(config.provider).toBe('disabled');
+    expect(issues).toHaveLength(0);
   });
 
   it('refuses the logging adapter, which sends nothing', () => {
@@ -110,6 +117,22 @@ describe('an unknown provider name', () => {
   it('is refused rather than silently ignored', () => {
     const { codes } = read({ CONVO_EMAIL_PROVIDER: 'sendgrid' });
     expect(codes).toContain('CONVO_EMAIL_PROVIDER:unsupported_value');
+  });
+});
+
+describe('a process that does not consume email', () => {
+  it('always binds the refusing adapter and ignores provider-only fields', () => {
+    const { config, issues } = read(
+      {
+        ...PRODUCTION,
+        CONVO_EMAIL_PROVIDER: 'resend',
+        CONVO_EMAIL_FROM: 'not-an-address',
+        CONVO_RESEND_API_KEY: 'short',
+      },
+      false,
+    );
+    expect(config).toEqual({ provider: 'disabled', from: '', resendApiKey: '' });
+    expect(issues).toHaveLength(0);
   });
 });
 
@@ -187,6 +210,6 @@ describe('what counts as production', () => {
     for (const value of ['Production', 'prod', 'staging', '']) {
       expect(read({ NODE_ENV: value }).issues).toHaveLength(0);
     }
-    expect(read({ NODE_ENV: 'production' }).codes).toContain('CONVO_EMAIL_PROVIDER:required');
+    expect(read({ NODE_ENV: 'production' }).config.provider).toBe('disabled');
   });
 });
