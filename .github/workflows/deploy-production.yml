@@ -1,0 +1,52 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Full immutable Git SHA carrying a version tag
+        required: true
+        type: string
+      service:
+        description: Explicit Railway service
+        required: true
+        type: choice
+        options:
+          - convo-database
+          - convo-api
+          - convo-client-demo
+          - convo-worker-inbound
+          - convo-worker-interactive
+          - convo-worker-campaign
+          - convo-worker-report
+          - convo-worker-integration
+          - convo-worker-automation
+      confirmation:
+        description: Type PRODUCTION to acknowledge the protected target
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway-production-${{ inputs.service }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: inputs.confirmation == 'PRODUCTION'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Railway CLI
+        run: npm install --global @railway/cli@5.57.9
+
+      - name: Deploy immutable tagged SHA to production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: ./scripts/deploy-railway.sh production "${{ inputs.release_sha }}" "${{ inputs.service }}" --confirm-production
