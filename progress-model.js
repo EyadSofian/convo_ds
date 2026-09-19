@@ -1,4 +1,5 @@
 const TASK_STATUSES = new Set(['completed', 'in_progress', 'upcoming', 'blocked']);
+const REQUIREMENT_STATUSES = new Set(['pending', 'received', 'verified']);
 
 export function tasksOf(days) {
   return days.flatMap((day) => day.tasks.map((task) => ({ ...task, day: day.day })));
@@ -66,4 +67,36 @@ export function deliverableStatus(deliverable, tasks) {
   if (selected.some((task) => task.status === 'blocked')) return 'blocked';
   if (selected.some((task) => task.status === 'in_progress')) return 'in_progress';
   return 'upcoming';
+}
+
+export function validatePhases(phases, tasks, requirements) {
+  if (phases.length !== 3 || phases.some((phase, index) => phase.number !== index + 1)) throw new Error('The plan must contain three ordered phases');
+  const taskIds = new Set(tasks.map((task) => task.id));
+  const dayCounts = new Map();
+  for (const phase of phases) {
+    if (!phase.title || !phase.description || phase.featuredTaskIds.length < 4 || phase.featuredTaskIds.length > 6) throw new Error(`Invalid phase presentation: ${phase.number}`);
+    for (const day of phase.days) dayCounts.set(day, (dayCounts.get(day) || 0) + 1);
+    if (phase.featuredTaskIds.some((id) => !taskIds.has(id) || !tasks.some((task) => task.id === id && phase.days.includes(task.day)))) throw new Error(`Phase ${phase.number} references a task outside its scope`);
+  }
+  const sourceDays = new Set(tasks.map((task) => task.day));
+  if (dayCounts.size !== sourceDays.size || [...sourceDays].some((day) => dayCounts.get(day) !== 1)) throw new Error('Every source task stage must belong to exactly one phase');
+  for (const requirement of requirements) {
+    if (!requirement.title || !REQUIREMENT_STATUSES.has(requirement.status) || !taskIds.has(requirement.taskId)) throw new Error(`Invalid client requirement: ${requirement.id}`);
+  }
+  return true;
+}
+
+export function phaseTasks(phase, tasks) {
+  return tasks.filter((task) => phase.days.includes(task.day));
+}
+
+export function statusOfPhase(tasks) {
+  if (tasks.every((task) => task.status === 'completed')) return 'completed';
+  if (tasks.some((task) => task.status === 'in_progress')) return 'in_progress';
+  if (tasks.some((task) => task.status === 'blocked')) return 'blocked';
+  return 'upcoming';
+}
+
+export function currentPhase(phases, tasks) {
+  return phases.find((phase) => phaseTasks(phase, tasks).some((task) => task.status !== 'completed')) || phases.at(-1);
 }
