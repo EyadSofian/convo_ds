@@ -9,6 +9,8 @@
 
 ## الحالة الحالية
 
+اكتملت مراجعة التسليم النهائية في [`docs/final/PRODUCT_COMPLETION_AUDIT.md`](docs/final/PRODUCT_COMPLETION_AUDIT.md)، ومصفوفة الصدق الخاصة بكل تكامل في [`docs/final/INTEGRATION_MATRIX.md`](docs/final/INTEGRATION_MATRIX.md)، وحزمة التشغيل المستقلة عن GitHub وRailway في [`docs/final/SOURCE_HANDOVER.md`](docs/final/SOURCE_HANDOVER.md). تظل Meta وResend ووجهة التنبيه بوابات تفعيل خارجية؛ نجاح الاختبارات الداخلية لا يُسجَّل كنجاح حي لأي مزوّد.
+
 أُنجزت مراجعة المنتج مقابل ملف متطلبات Digital School بندًا بندًا في [`docs/PRODUCT_AUDIT.md`](docs/PRODUCT_AUDIT.md)، مع فصل ما يحتاج إعداد العميل في [`docs/CLIENT_CONFIGURATION_GAPS.md`](docs/CLIENT_CONFIGURATION_GAPS.md). أضيف عقد شروط موحّد ومحكوم يمكن أن تستخدمه الشرائح والتوجيه والوسوم والأتمتة، وواجهات API فعلية للعروض المحفوظة الخاصة/الفِرَقية/المشتركة وللشرائح الديناميكية القابلة لإعادة الاستخدام. الشرائح تُخزَّن الآن كتعريفات قابلة للإصدار؛ ربطها بتنفيذ الحملة وإنتاج لقطة جمهور ثابتة وقت الإرسال ما زال ضمن الشريحة التالية.
 
 كتالوج الحقول المخصّصة يدعم الآن `EMAIL` و`PHONE` إلى جانب الأنواع السابقة، مع تطبيع البريد والتحقق من رقم E.164 في النطاق وقاعدة البيانات. حُذف خادم الديمو المضمّن نهائيًا؛ بناء الويب لا يملك مسارًا يفتح بيانات وهمية، وكل مساحة العمل تبقى خلف جلسة الخادم. كما طُبّقت هوية Digital School الرسمية: الشعار المورّد، IBM Plex، وألوان Berlitz Blue وDigital Yellow وPowder وCharcoal الموثقة في [`docs/BRAND_IMPLEMENTATION.md`](docs/BRAND_IMPLEMENTATION.md).
@@ -27,7 +29,7 @@
 
 وأخيرًا **الزمن الحقيقي**: سجل أحداث مُلحَق فقط لكل شركة، مرقَّم بلا فجوات وبترتيب الإيداع، يُكتب في نفس معاملة الأثر الذي يصفه. كل حدث يُصرَّح به من جديد عند الخروج بنفس محرك الصلاحيات الذي تستخدمه الواجهات — فمن يملك معاينة فقط يستلم **بطاقة طابور** مبنية حقلًا حقلًا على الخادم، لا محادثة أُخفيت حقولها في المتصفح؛ ومن سُحب منه صندوق وارد يتوقف بثّه عند أول استطلاع لا عند الدخول التالي. المؤشر يحمل موضعه **وبصمة الصلاحية التي صدر بها**، فتغيّر الصلاحيات يُجيب `reset_required` بدل استئناف خاطئ بصمت.
 
-لا يوجد بعد عميل HTTP لأي مزوّد: مسار الإرسال مُختبَر عبر نقل بديل (**stub**) معلَّن بوضوح داخل ملف الاختبار وحده. ولا وسيط رسائل مُهيَّأ: المنفذ حقيقي ومُختبَر، والافتراضي يُجيب `broker_not_configured` بحالة «غير معروف» لا «مرفوض»، فينمو الـoutbox ظاهرًا بدل أن تُفقد الأحداث.
+يوجد ناقل HTTP فعلي لـWhatsApp Cloud API فقط، لكنه يبقى معطّلًا حتى تُضاف أصول Meta مصرّح بها ويُجتاز الاختبار الحي. أما Messenger وInstagram فمساراهما الواردان موجودان، ولا يُدّعى وجود إرسال حي لهما. ولا وسيط رسائل مُهيَّأ: المنفذ حقيقي ومُختبَر، والافتراضي يُجيب `broker_not_configured` بحالة «غير معروف» لا «مرفوض»، فينمو الـoutbox ظاهرًا بدل أن تُفقد الأحداث.
 
 واكتملت **الشريحة الأولى من Milestone D**: صندوق الوارد الحقيقي. الشاشة التجريبية القديمة حُذفت لا عُطِّلت، ومعها مبدّل «حالة العرض» الذي كان يزيّف التحميل والفراغ والانقطاع والمنع. صندوق الوارد الآن يقرأ من الخادم وحده: طابور غير المسندة، ومحادثات هذا الموظّف، وسجل محادثة واحدة، والبثّ الحي. من يملك «معاينة» فقط يرى **بطاقة طابور** لأن البطاقة هي كل ما أرسله الخادم — لا يوجد مقتطف في الحمولة كي «يُخفيه» المتصفح. والاستلام يحمل النسخة التي رآها الموظّف فعلًا، فإن سبقه زميل قيل له ذلك بوضوح لا كخطأ. والرد يُوجَّه إلى **المحادثة**: المستلم يأتي من السجل، وأي `peerIdentity` في الجسم يُتجاهل.
 
@@ -82,7 +84,7 @@ pnpm start:api
 - `GET /api/v1/me/memberships` و`GET /api/v1/tenants/{tenantId}/permissions` يطبقان العضوية النشطة وفحص `role.manage` داخل RLS.
 - العقد المنفّذ موجود في [`docs/api/openapi.v1.json`](docs/api/openapi.v1.json).
 
-نشر Railway الفعلي، وتوزيع خدمة الويب والـAPI والعمّال وقاعدة البيانات، موثّق في [`docs/runbooks/RAILWAY_PRODUCTION.md`](docs/runbooks/RAILWAY_PRODUCTION.md).
+التشغيل المحمول من حزمة المصدر موثّق في [`docs/final/SOURCE_HANDOVER.md`](docs/final/SOURCE_HANDOVER.md). نشر Railway الفعلي، وتوزيع خدمة الويب والـAPI والعمّال وقاعدة البيانات، موثّق في [`docs/runbooks/RAILWAY_PRODUCTION.md`](docs/runbooks/RAILWAY_PRODUCTION.md).
 
 ### الواجهة
 
@@ -113,7 +115,7 @@ pnpm test:load:target
 pnpm test:mutation
 ```
 
-اختبارات integration وcoverage وrecovery وload تشغّل PostgreSQL 17.4 مؤقتًا داخل العملية ولا تحتاج Docker. آخر نتيجة مسجلة (2026-09-17): `test:unit` **1847**؛ `test:integration` **574**؛ `test:property` 5؛ `test:contracts` 170 + 123؛ `test:security` 377 مع تدقيق نظيف؛ `test:coverage` 131 ملفًا و**2426 اختبارًا** بتغطية **100%** للسطور والعبارات والدوال والفروع؛ `test:e2e` 242؛ `test:a11y` 40؛ `test:visual` 33؛ `test:recovery` **13**؛ و`test:load:target` بصفر أخطاء عند 10/25/50/100. `test:mutation` حقيقي ويجتاز الحد بنسبة **83.69%** (564 mutation محسوبة). التفاصيل في [`docs/audit/PRODUCTION_READINESS_REPORT.md`](docs/audit/PRODUCTION_READINESS_REPORT.md).
+اختبارات integration وcoverage وrecovery وload تشغّل PostgreSQL 17.4 مؤقتًا داخل العملية ولا تحتاج Docker. آخر تحقق من نسخة نظيفة (2026-09-19): `test:unit` **1851**؛ `test:integration` **581**؛ `test:property` 5؛ `test:security` **378** مع تدقيق نظيف؛ `test:coverage` 131 ملفًا و**2437 اختبارًا** بتغطية **100%** للسطور والعبارات والدوال والفروع؛ `test:e2e` **296**؛ `test:a11y` **43**؛ و`test:visual` **38**. كما اجتاز `test:contracts` و`test:progress`. آخر بوابات recovery/load/mutation المسجلة موثقة في [`docs/audit/PRODUCTION_READINESS_REPORT.md`](docs/audit/PRODUCTION_READINESS_REPORT.md)؛ لا يُعاد تأريخ نتيجتها من دون تشغيل جديد.
 
 `test:security` يشغّل مجموعات العزل والتفويض والتحقق من التوقيع، ثم `pnpm audit --audit-level high --prod` — وهو نظيف حاليًا. تم أيضًا تنفيذ `pg_dump`/`pg_restore` حقيقي على Railway staging والتحقق من 32 migration، وتفعيل PITR والنسخ اليومية والأسبوعية في production مع نقطة استعادة مسماة. واختبار staging الحقيقي سجّل صفر أخطاء؛ التفاصيل في [`docs/audit/LOAD_TEST_REPORT.md`](docs/audit/LOAD_TEST_REPORT.md).
 
