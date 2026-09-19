@@ -124,6 +124,50 @@ describe('sending a text message', () => {
   });
 });
 
+describe('Messenger and Instagram Graph contracts', () => {
+  it('sends Messenger replies through the Page endpoint and preserves Meta message ids', async () => {
+    const { adapter, calls } = transport(() => json(200, { recipient_id: 'psid-1', message_id: 'mid.page.1' }));
+    const outcome = await adapter.send('messenger', TOKEN, { ...TEXT, assetIdentity: 'page-1', peerIdentity: 'psid-1' });
+    expect(outcome).toMatchObject({ status: 'accepted', providerMessageId: 'mid.page.1' });
+    expect(calls[0]).toMatchObject({
+      url: `${GRAPH}/page-1/messages`,
+      body: { recipient: { id: 'psid-1' }, messaging_type: 'RESPONSE', message: { text: TEXT.text } },
+    });
+  });
+
+  it('sends Instagram replies through the professional-account endpoint', async () => {
+    const { adapter, calls } = transport(() => json(200, { recipient_id: 'igsid-1', message_id: 'mid.ig.1' }));
+    const outcome = await adapter.send('instagram', TOKEN, { ...TEXT, assetIdentity: 'ig-account-1', peerIdentity: 'igsid-1' });
+    expect(outcome).toMatchObject({ status: 'accepted', providerMessageId: 'mid.ig.1' });
+    expect(calls[0]).toMatchObject({
+      url: `${GRAPH}/ig-account-1/messages`,
+      body: { recipient: { id: 'igsid-1' }, message: { text: TEXT.text } },
+    });
+    expect(calls[0]?.body).not.toHaveProperty('messaging_type');
+  });
+
+  it('validates the configured Page and Instagram assets before the channel is considered connected', async () => {
+    const { adapter, calls } = transport((call) => {
+      if (call.url.includes('page-1')) return json(200, { id: 'page-1', name: 'I BOTS' });
+      return json(200, { id: 'ig-account-1', username: 'ibots' });
+    });
+    await expect(adapter.validateConnection('messenger', TOKEN, 'page-1')).resolves.toMatchObject({ ok: true, assetIdentity: 'page-1' });
+    await expect(adapter.validateConnection('instagram', TOKEN, 'ig-account-1')).resolves.toMatchObject({ ok: true, assetIdentity: 'ig-account-1' });
+    expect(calls.map((call) => call.url)).toEqual([
+      `${GRAPH}/page-1?fields=id,name`,
+      `${GRAPH}/ig-account-1?fields=id,username`,
+    ]);
+  });
+
+  it('refuses unsupported attachment commands without making a partial provider call', async () => {
+    const { adapter, calls } = transport(() => ACCEPTED);
+    await expect(adapter.send('messenger', TOKEN, { ...TEXT, messageType: 'image', text: null })).resolves.toMatchObject({
+      status: 'definitely_rejected', code: 'unsupported_message_type', retryable: false,
+    });
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe('a request that vanished', () => {
   it('is outcome_unknown on a timeout, because Meta may hold the message', async () => {
     const { adapter } = transport(() => {
@@ -235,10 +279,8 @@ describe('failures time cannot fix', () => {
   });
 });
 
-describe('channels this adapter does not serve', () => {
-  it.each(['messenger', 'instagram', 'web_chat', 'custom'] as const)('refuses %s by name', async (kind) => {
-    // They share the app registration and the signature scheme, but not the
-    // send contract, the window or the template rules (ADR-0009).
+describe('channels this transport does not serve', () => {
+  it.each(['web_chat', 'custom'] as const)('refuses %s by name', async (kind) => {
     const { adapter, calls } = transport(() => ACCEPTED);
     expect(await adapter.send(kind, TOKEN, TEXT)).toMatchObject({
       status: 'definitely_rejected',
@@ -289,9 +331,9 @@ describe('the connection test', () => {
     });
   });
 
-  it('refuses to validate a channel it does not serve', async () => {
+  it('refuses to validate a non-Meta channel', async () => {
     const { adapter } = transport(() => ACCEPTED);
-    expect(await adapter.validateConnection('instagram', TOKEN, 'x')).toMatchObject({
+    expect(await adapter.validateConnection('web_chat', TOKEN, 'x')).toMatchObject({
       ok: false,
       code: 'channel_not_supported',
     });

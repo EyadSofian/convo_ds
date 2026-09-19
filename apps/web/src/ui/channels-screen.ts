@@ -101,13 +101,15 @@ export function catalogueItem(kind: string): CatalogueItem | undefined {
   return CATALOGUE.find((item) => item.kind === kind);
 }
 
-export type IntegrationStatus = 'connected' | 'attention' | 'disconnected' | 'not_connected' | 'unavailable';
+export type IntegrationStatus = 'connected' | 'connecting' | 'attention' | 'permission_expired' | 'disconnected' | 'not_connected' | 'unavailable';
 
 export interface IntegrationSummary {
   readonly status: IntegrationStatus;
   readonly active: readonly ChannelConnection[];
   /** The newest instant a provider accepted a credential for this kind. */
   readonly lastVerified: string | null;
+  /** Names are provider-supplied operator labels, never credentials or ids. */
+  readonly assetNames: readonly string[];
 }
 
 /**
@@ -125,21 +127,29 @@ export function summarize(kind: string, implemented: boolean, connections: reado
     .map((evidence) => evidence.observed_at as string)
     .sort()
     .at(-1) ?? null;
+  const permissionExpired = active.some((connection) => connection.last_error_code === 'credential_rejected');
+  const connecting = active.some((connection) => connection.status === 'authorization_needed' || connection.status === 'webhook_pending');
   const status: IntegrationStatus = !implemented
     ? 'unavailable'
-    : active.some((connection) => connection.status !== 'healthy')
-      ? 'attention'
-      : active.length > 0
-        ? 'connected'
-        : ofKind.length > 0
-          ? 'disconnected'
-          : 'not_connected';
-  return { status, active, lastVerified };
+    : permissionExpired
+      ? 'permission_expired'
+      : active.some((connection) => connection.status === 'degraded')
+        ? 'attention'
+        : connecting
+          ? 'connecting'
+          : active.length > 0
+            ? 'connected'
+            : ofKind.length > 0
+              ? 'disconnected'
+              : 'not_connected';
+  return { status, active, lastVerified, assetNames: active.map((connection) => connection.display_name) };
 }
 
 const STATUS_VIEW: Readonly<Record<IntegrationStatus, { readonly label: Phrase; readonly tone: Tone }>> = {
   connected: { label: { ar: 'متصلة', en: 'Connected' }, tone: 'success' },
+  connecting: { label: { ar: 'جارٍ الربط', en: 'Connecting' }, tone: 'accent' },
   attention: { label: { ar: 'تحتاج إكمال الإعداد', en: 'Attention needed' }, tone: 'warning' },
+  permission_expired: { label: { ar: 'انتهت الصلاحية', en: 'Permission expired' }, tone: 'danger' },
   disconnected: { label: { ar: 'مفصولة', en: 'Disconnected' }, tone: 'neutral' },
   not_connected: { label: { ar: 'غير متصلة', en: 'Not connected' }, tone: 'neutral' },
   unavailable: { label: { ar: 'غير متاح حاليًا', en: 'Coming soon' }, tone: 'neutral' },
@@ -220,6 +230,10 @@ function integrationCard(
         h('dt', {}, [t(state, 'آخر تحقق ناجح', 'Last verified')]),
         h('dd', {}, [summary.lastVerified === null ? '—' : relativeTime(summary.lastVerified, state.clock, state.lang)]),
       ]),
+      h('div', {}, [
+        h('dt', {}, [t(state, 'الأصل المتصل', 'Connected asset')]),
+        h('dd', {}, [summary.assetNames.length === 0 ? '—' : isolated(summary.assetNames.join(', '))]),
+      ]),
     ]),
     h('footer', { class: 'integration__actions' }, [primaryAction(state, item, summary.status, attention)]),
   ]);
@@ -238,7 +252,7 @@ function primaryAction(
   // Another account can be added whatever state the first one is in: one
   // number waiting for verification is no reason to block a second.
   const another = button({ label: t(state, 'إضافة', 'Add'), icon: 'plus', act: 'dialog', arg: `connect-channel:${item.kind}`, small: true, variant: 'ghost', title: t(state, `ربط حساب ${name} آخر`, `Connect another ${name} account`) });
-  if (status === 'attention') {
+  if (status === 'attention' || status === 'connecting' || status === 'permission_expired') {
     return h('div', { class: 'integration__buttons' }, [
       button({ label: t(state, 'إكمال الإعداد', 'Complete setup'), icon: 'arrowOut', act: 'channel-manage', arg: `${item.kind}:${(attention as ChannelConnection).id}`, small: true, variant: 'primary', title: t(state, `إكمال إعداد ${name}`, `Complete ${name} setup`) }),
       another,

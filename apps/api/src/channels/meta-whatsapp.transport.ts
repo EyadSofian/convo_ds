@@ -39,12 +39,12 @@ import type { ChannelTransportPort, ProviderTemplate, TemplateFetchResult } from
  * count and exponential backoff, and a second retry loop inside the transport
  * would multiply against it invisibly.
  *
- * It handles `whatsapp` only. Messenger and Instagram share this app
- * registration and this signature scheme, but their send contracts, their
- * windows and their template rules are genuinely different, and one adapter
- * pretending otherwise is how Instagram ends up governed by WhatsApp's rules
- * (ADR-0009). Both are refused here by name, so an operator who connects one
- * gets a clear reason rather than a subtly wrong message.
+ * It handles the three Meta Graph channels, but never by treating them as the
+ * same protocol.  WhatsApp uses a phone-number-id endpoint and a `to` field;
+ * Messenger and Instagram use an asset-scoped conversations endpoint and a
+ * recipient object.  Their policies are still enforced above this transport
+ * from their own capability matrices.  Keeping the wire shapes here makes a
+ * future channel unable to accidentally inherit WhatsApp's contract.
  */
 
 /** Meta is given this long to answer before the attempt is abandoned. */
@@ -90,19 +90,12 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     credential: string,
     assetIdentity: string,
   ): Promise<ConnectionCheck> {
-    if (kind !== 'whatsapp') {
-      return {
-        ok: false,
-        assetIdentity: null,
-        code: 'channel_not_supported',
-        message: `This transport serves WhatsApp only; ${kind} needs its own adapter.`,
-      };
-    }
+    if (!isMetaGraphKind(kind)) return unsupportedConnection(kind);
 
     let response: Response;
     try {
       response = await this.fetchImpl(
-        `${this.graphBase}/${encodeURIComponent(assetIdentity)}?fields=id,display_phone_number,verified_name`,
+        `${this.graphBase}/${encodeURIComponent(assetIdentity)}?fields=${connectionFields(kind)}`,
         {
           method: 'GET',
           headers: { authorization: `Bearer ${credential}` },
@@ -114,7 +107,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
         ok: false,
         assetIdentity: null,
         code: isTimeout(error) ? 'provider_timeout' : 'provider_unreachable',
-        message: 'The WhatsApp Cloud API could not be reached.',
+        message: 'The Meta Graph API could not be reached.',
       };
     }
 
@@ -136,25 +129,16 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
         ok: false,
         assetIdentity: id,
         code: 'asset_mismatch',
-        message: 'The token does not grant access to the configured phone number id.',
+        message: 'The token does not grant access to the configured provider asset.',
       };
     }
     return { ok: true, assetIdentity: id, code: null, message: null };
   }
 
   async send(kind: ChannelKind, credential: string, command: SendCommand): Promise<SendOutcome> {
-    if (kind !== 'whatsapp') {
-      return {
-        status: 'definitely_rejected',
-        code: 'channel_not_supported',
-        message: `This transport serves WhatsApp only; ${kind} needs its own adapter.`,
-        // Not retryable: no amount of waiting turns this into a WhatsApp
-        // channel. It needs an adapter that does not exist yet.
-        retryable: false,
-      };
-    }
+    if (!isMetaGraphKind(kind)) return unsupportedSend(kind);
 
-    const payload = this.payloadFor(command);
+    const payload = this.payloadFor(kind, command);
     if (payload === null) {
       return {
         status: 'definitely_rejected',
@@ -186,8 +170,8 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
         status: 'outcome_unknown',
         code: isTimeout(error) ? 'provider_timeout' : 'provider_unreachable',
         message: isTimeout(error)
-          ? `The WhatsApp Cloud API did not answer within ${String(this.timeoutMs)}ms.`
-          : 'The WhatsApp Cloud API could not be reached.',
+          ? `The Meta Graph API did not answer within ${String(this.timeoutMs)}ms.`
+          : 'The Meta Graph API could not be reached.',
       };
     }
 
@@ -196,7 +180,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       | null;
 
     if (response.ok) {
-      const id = firstMessageId(body?.messages);
+      const id = firstMessageId(body);
       if (id === null) {
         // A 200 with no message id. We cannot evidence it and we cannot fold a
         // receipt onto it, so it is not an accept — but Meta may still have
@@ -269,7 +253,22 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
    * silently dropped an attachment would be worse than one that says it cannot
    * send that type.
    */
-  private payloadFor(command: SendCommand): Record<string, unknown> | null {
+  private payloadFor(kind: ChannelKind, command: SendCommand): Record<string, unknown> | null {
+    if (kind === 'messenger') {
+      if (command.messageType !== 'text' || command.text === null || command.text === '') return null;
+      return {
+        recipient: { id: command.peerIdentity },
+        messaging_type: 'RESPONSE',
+        message: { text: command.text },
+      };
+    }
+    if (kind === 'instagram') {
+      if (command.messageType !== 'text' || command.text === null || command.text === '') return null;
+      return {
+        recipient: { id: command.peerIdentity },
+        message: { text: command.text },
+      };
+    }
     const base = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
@@ -383,12 +382,31 @@ function classify(status: number, error: GraphError | undefined): Classification
   };
 }
 
-function firstMessageId(messages: unknown): string | null {
-  if (!Array.isArray(messages)) {
-    return null;
-  }
-  const first = messages[0] as { id?: unknown } | undefined;
-  return typeof first?.id === 'string' && first.id !== '' ? first.id : null;
+function firstMessageId(body: unknown): string | null {
+  const recordBody = record(body);
+  const direct = recordBody?.['message_id'];
+  if (typeof direct === 'string' && direct !== '') return direct;
+  const messages = recordBody?.['messages'];
+  if (!Array.isArray(messages)) return null;
+  const first = record(messages[0]);
+  return typeof first?.['id'] === 'string' && first['id'] !== '' ? first['id'] : null;
+}
+
+function isMetaGraphKind(kind: ChannelKind): kind is 'whatsapp' | 'messenger' | 'instagram' {
+  return kind === 'whatsapp' || kind === 'messenger' || kind === 'instagram';
+}
+
+function connectionFields(kind: 'whatsapp' | 'messenger' | 'instagram'): string {
+  if (kind === 'whatsapp') return 'id,display_phone_number,verified_name';
+  return kind === 'messenger' ? 'id,name' : 'id,username';
+}
+
+function unsupportedConnection(kind: ChannelKind): ConnectionCheck {
+  return { ok: false, assetIdentity: null, code: 'channel_not_supported', message: `The Meta Graph transport does not serve ${kind}.` };
+}
+
+function unsupportedSend(kind: ChannelKind): SendOutcome {
+  return { status: 'definitely_rejected', code: 'channel_not_supported', message: `The Meta Graph transport does not serve ${kind}.`, retryable: false };
 }
 
 function isTimeout(error: unknown): boolean {

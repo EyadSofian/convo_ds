@@ -69,12 +69,14 @@ describe('summarize', () => {
     const gone = connection({ id: 'cn-3', disconnected_at: NOW.toISOString(), status: 'disconnected' });
     expect(summarize('whatsapp', false, [healthy]).status).toBe('unavailable');
     expect(summarize('whatsapp', true, [healthy]).status).toBe('connected');
-    // Attention wins: one healthy number does not hide a broken one.
-    expect(summarize('whatsapp', true, [healthy, pending]).status).toBe('attention');
+    // A configuration still gathering evidence is connecting, not failed.
+    expect(summarize('whatsapp', true, [healthy, pending]).status).toBe('connecting');
     expect(summarize('whatsapp', true, [gone]).status).toBe('disconnected');
     expect(summarize('whatsapp', true, []).status).toBe('not_connected');
     expect(summarize('whatsapp', true, [healthy]).lastVerified).toBe('2026-09-09T08:30:00.000Z');
     expect(summarize('instagram', true, [healthy]).lastVerified).toBeNull();
+    expect(summarize('whatsapp', true, [connection({ last_error_code: 'credential_rejected', status: 'degraded' })]).status).toBe('permission_expired');
+    expect(summarize('whatsapp', true, [healthy]).assetNames).toEqual(['Admissions']);
   });
 
   it('lists the six integrations the product offers', () => {
@@ -119,7 +121,7 @@ describe('the catalogue', () => {
   it('asks to complete setup on the connection that needs it', () => {
     const root = screen([connection(), connection({ id: 'cn-2', status: 'webhook_pending' })]).element();
     const whatsapp = card(root, 'whatsapp');
-    expect(whatsapp.className).toContain('integration--attention');
+    expect(whatsapp.className).toContain('integration--connecting');
     expect(whatsapp.querySelector('[data-act="channel-manage"]')?.getAttribute('data-arg')).toBe('whatsapp:cn-2');
   });
 
