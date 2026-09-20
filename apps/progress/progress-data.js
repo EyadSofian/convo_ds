@@ -122,8 +122,8 @@ export const PROJECT_DAYS = [
     summary: 'Review the experience across languages and screen sizes.',
     outcome: 'The operator experience is ready for client acceptance.',
     tasks: [
-      { id: 'ui-final-review', title: 'Final interface review', clientDescription: 'The latest visual refinements are under review.', status: 'in_progress', category: 'experience' },
-      { id: 'mobile-language-review', title: 'Mobile and Arabic review', clientDescription: 'Confirm clarity on phones and in Arabic and English.', status: 'in_progress', category: 'experience' },
+      { id: 'ui-final-review', title: 'Final interface review', clientDescription: 'The latest visual and functional interface refinements have been verified.', status: 'completed', category: 'experience' },
+      { id: 'mobile-language-review', title: 'Mobile and Arabic review', clientDescription: 'Phone layouts and Arabic and English interface clarity have been verified.', status: 'completed', category: 'experience' },
       { id: 'ui-client-signoff', title: 'Interface acceptance', clientDescription: 'Capture feedback and approve the final operator screens.', status: 'upcoming', category: 'experience' },
     ],
   },
