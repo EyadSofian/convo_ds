@@ -1,4 +1,5 @@
 import type { ErrorDetail } from '@convo/contracts';
+import { MAX_PASSWORD_LENGTH } from './recovery-request.js';
 
 export interface LoginRequest {
   readonly email: string;
@@ -27,8 +28,10 @@ export function parseLoginRequest(input: unknown): LoginRequestParse {
   if (email !== '' && !plausibleEmail(email)) {
     details.push(detail('email', 'malformed', 'A valid email is required.'));
   }
-  if (password.length > 128) {
-    details.push(detail('password', 'too_long', 'At most 128 characters are accepted.'));
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    details.push(
+      detail('password', 'too_long', `At most ${String(MAX_PASSWORD_LENGTH)} characters are accepted.`),
+    );
   }
   return details.length === 0
     ? { status: 'valid', value: { email: email.toLowerCase(), password } }

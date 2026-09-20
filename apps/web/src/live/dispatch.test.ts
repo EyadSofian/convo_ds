@@ -197,3 +197,81 @@ describe('public credential actions', () => {
     await expect(LIVE_ACTIONS['live-accept-invitation']?.(ctx, '')).resolves.toBe(false);
   });
 });
+
+describe('authenticated password change dispatch', () => {
+  function context() {
+    const state = createState(new Date('2026-09-17T00:00:00Z'));
+    state.lang = 'en';
+    state.dialog = { kind: 'change-password', arg: '' };
+    state.live.session = {
+      status: 'signed_in',
+      email: 'owner@example.test',
+      memberships: [],
+      tenantId: 't',
+    };
+    return {
+      state,
+      live: state.live,
+      refresh: vi.fn(),
+      now: () => 1,
+      newKey: () => 'k',
+      endSession: vi.fn(),
+      switchWorkspace: vi.fn(),
+    } as unknown as LiveContext;
+  }
+
+  it('validates locally, preserves significant whitespace, and completes the real action', async () => {
+    const ctx = context();
+    const changePassword = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        error: { code: 'current_password_invalid', message: 'wrong', requestId: null, status: 400, details: [] },
+      })
+      .mockResolvedValue({ ok: true, data: undefined });
+    const sessions = vi.fn().mockResolvedValue({ ok: true, data: [] });
+    Object.defineProperty(ctx.live, 'api', { value: { changePassword, sessions } });
+
+    ctx.state.dialogForm = {};
+    await expect(LIVE_ACTIONS['live-change-password']?.(ctx, '')).resolves.toBe(false);
+    expect(changePassword).not.toHaveBeenCalled();
+
+    ctx.state.dialogForm = {
+      currentPassword: 'same password value',
+      newPassword: 'same password value',
+      confirmPassword: 'same password value',
+    };
+    await expect(LIVE_ACTIONS['live-change-password']?.(ctx, '')).resolves.toBe(false);
+    expect(changePassword).not.toHaveBeenCalled();
+
+    ctx.state.dialogForm = {
+      currentPassword: 'current password value',
+      newPassword: 'new password value',
+      confirmPassword: 'different password value',
+    };
+    await expect(LIVE_ACTIONS['live-change-password']?.(ctx, '')).resolves.toBe(false);
+    expect(changePassword).not.toHaveBeenCalled();
+
+    ctx.state.dialogForm = {
+      currentPassword: ' current password ',
+      newPassword: ' new password value ',
+      confirmPassword: ' new password value ',
+    };
+    await expect(LIVE_ACTIONS['live-change-password']?.(ctx, '')).resolves.toBe(false);
+    expect(ctx.live.error?.code).toBe('current_password_invalid');
+
+    ctx.state.dialogForm = {
+      currentPassword: ' current password ',
+      newPassword: ' new password value ',
+      confirmPassword: ' new password value ',
+    };
+    await expect(LIVE_ACTIONS['live-change-password']?.(ctx, '')).resolves.toBe(true);
+    expect(changePassword).toHaveBeenLastCalledWith(
+      ' current password ',
+      ' new password value ',
+      ' new password value ',
+    );
+    expect(sessions).toHaveBeenCalledOnce();
+    expect(ctx.state.dialog).toBeNull();
+  });
+});

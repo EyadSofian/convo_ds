@@ -36,6 +36,7 @@ describe('settings', () => {
     expect(root.textContent).toContain('Digital School');
     expect(root.textContent).not.toContain('digital-school');
     expect(root.querySelector('[data-act="live-signout"]')).not.toBeNull();
+    expect(root.querySelector('[data-act="dialog"][data-arg="change-password"]')).not.toBeNull();
   });
 
   it('offers language, theme and navigation as preferences that take effect', () => {
@@ -52,8 +53,9 @@ describe('settings', () => {
 
   it('lists workspace settings without a server endpoint as unavailable, not as controls', () => {
     const root = renderSettings(screen());
-    const unavailable = root.querySelector('.unavailable-list') as HTMLElement;
-    expect(unavailable.querySelectorAll('li')).toHaveLength(3);
+    const sections = root.querySelectorAll('.settings-section');
+    const unavailable = sections.item(sections.length - 1) as HTMLElement;
+    expect(unavailable.querySelectorAll('.setting-row')).toHaveLength(3);
     expect(unavailable.querySelector('input, select, [role="switch"]')).toBeNull();
     expect(root.textContent).not.toContain('demo');
   });

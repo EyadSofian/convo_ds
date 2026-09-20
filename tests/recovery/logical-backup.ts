@@ -79,6 +79,7 @@ export const RESTORE_ORDER: readonly string[] = [
   "invitation_scopes",
   "ownership_transfers",
   "admin_audit_events",
+  "account_security_events",
   "idempotency_records",
   // Channels.
   "channel_apps",

@@ -143,6 +143,7 @@ const openDialog: ActionHandler = (context, arg) => {
   context.state.dialog = { kind, arg: value };
   context.state.openMenu = null;
   context.state.dialogForm = {};
+  context.state.passwordVisible = false;
   context.state.live.error = null;
   context.refresh();
 };
@@ -150,6 +151,7 @@ const openDialog: ActionHandler = (context, arg) => {
 const closeDialog: ActionHandler = (context) => {
   context.state.dialog = null;
   context.state.dialogForm = {};
+  context.state.passwordVisible = false;
   context.state.live.error = null;
   context.refresh();
 };

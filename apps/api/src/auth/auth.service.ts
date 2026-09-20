@@ -6,6 +6,7 @@ import { ApiHttpError } from '../http-error.js';
 import { API_CONFIG, API_POOL, PASSWORD_HASHER, type PasswordHasher } from '../tokens.js';
 import { AuthRateLimiter, type RateLimitDecision } from './auth-rate-limiter.js';
 import { parseLoginRequest } from './auth-request.js';
+import { parsePasswordChange } from './password-change-request.js';
 import {
   CSRF_COOKIE,
   SESSION_COOKIE,
@@ -233,6 +234,48 @@ export class AuthService {
       'UPDATE user_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL',
       [current.sessionId],
     );
+  }
+
+  /** Changes the credential atomically, retaining only the session that proved it. */
+  async changePassword(current: AuthenticatedSession, body: unknown): Promise<void> {
+    const parsed = parsePasswordChange(body);
+    if (!parsed.ok) {
+      throw new ApiHttpError(400, 'invalid_input', 'The password change request is not valid.', parsed.details);
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const found = await client.query<{ password_hash: string | null }>(
+        "SELECT password_hash FROM users WHERE id = $1 AND status = 'active' FOR UPDATE",
+        [current.userId],
+      );
+      const existing = found.rows[0]?.password_hash;
+      if (existing === null || existing === undefined || !(await this.passwords.verify(existing, parsed.value.currentPassword).catch(() => false))) {
+        throw new ApiHttpError(400, 'current_password_invalid', 'The current password is not valid.');
+      }
+      if (await this.passwords.verify(existing, parsed.value.newPassword).catch(() => false)) {
+        throw new ApiHttpError(409, 'password_unchanged', 'Choose a password you have not just used.');
+      }
+      const replacement = await this.passwords.hash(parsed.value.newPassword);
+      await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [replacement, current.userId]);
+      await client.query(
+        `UPDATE user_sessions SET revoked_at = now()
+         WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL`,
+        [current.userId, current.sessionId],
+      );
+      await client.query(
+        `INSERT INTO account_security_events(user_id,session_id,action,detail)
+         VALUES ($1,$2,'password.changed',$3::jsonb)`,
+        [current.userId, current.sessionId, JSON.stringify({ other_sessions_revoked: true })],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   get sessionTtlSeconds(): number {

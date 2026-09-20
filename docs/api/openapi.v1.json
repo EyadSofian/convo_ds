@@ -101,6 +101,56 @@
         }
       }
     },
+    "/auth/password/change": {
+      "post": {
+        "operationId": "changePassword",
+        "summary": "Change the authenticated user's password",
+        "description": "Re-authenticates with the current password, replaces it with an Argon2id hash, retains the current session, revokes every other session, and writes account-level audit evidence in one transaction.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Password changed; current session retained and other sessions revoked."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/auth/recovery": {
       "post": {
         "operationId": "startPasswordRecovery",
@@ -6704,7 +6754,7 @@
           "ownerPassword": {
             "type": "string",
             "minLength": 12,
-            "maxLength": 128,
+            "maxLength": 512,
             "writeOnly": true
           }
         }
@@ -7592,7 +7642,36 @@
           "password": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 128,
+            "maxLength": 512,
+            "writeOnly": true
+          }
+        }
+      },
+      "PasswordChangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "currentPassword",
+          "newPassword",
+          "confirmPassword"
+        ],
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "writeOnly": true
+          },
+          "newPassword": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 512,
+            "writeOnly": true
+          },
+          "confirmPassword": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 512,
             "writeOnly": true
           }
         }

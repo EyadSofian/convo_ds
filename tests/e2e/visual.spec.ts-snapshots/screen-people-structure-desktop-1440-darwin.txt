@@ -14,23 +14,19 @@ main.app__screen
             svg
               path
             span.btn__label
-      section.kpis.kpis--4
-        div.kpi
-          span.kpi__label
-          span.kpi__value
-            bdi
-        div.kpi
-          span.kpi__label
-          span.kpi__value
-            bdi
-        div.kpi
-          span.kpi__label
-          span.kpi__value
-            bdi
-        div.kpi
-          span.kpi__label
-          span.kpi__value
-            bdi
+      section.people-summary
+        span.people-summary__item
+          strong
+          span
+        span.people-summary__item
+          strong
+          span
+        span.people-summary__item
+          strong
+          span
+        span.people-summary__item
+          strong
+          span
       section.panel
         header.panel__header
           div.panel__titles

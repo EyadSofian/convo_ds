@@ -488,7 +488,7 @@ describe('changing people, roles and teams', () => {
     release({ status: 201, body: { data: invitation() } });
     await settle();
 
-    expect(toasts(app)).toEqual(['Invitation sent to tarek@digital-school.example']);
+    expect(toasts(app)).toEqual(['Invitation created for tarek@digital-school.example and queued. Email delivery depends on the configured provider.']);
     // The dialog closes and the form is cleared only after the server accepted.
     expect(root.querySelector('.dialog')).toBeNull();
     expect(app.state.dialogForm['inviteEmail']).toBeUndefined();
@@ -1042,12 +1042,12 @@ describe('rendering the rows the server sent', () => {
     const release = api.hold(`GET /tenants/${TENANT}/teams`);
     const { root } = start(api);
     await settle();
-    const summary = find(root, '.kpis');
+    const summary = find(root, '.people-summary');
     // The lists are read together, so the summary waits for all of them.
     expect(text(summary)).toContain('—');
     release({ status: 200, body: { data: [] } });
     await settle();
-    const values = [...find(root, '.kpis').querySelectorAll('.kpi__value')].map((node) => node.textContent);
+    const values = [...find(root, '.people-summary').querySelectorAll('strong')].map((node) => node.textContent);
     expect(values).toEqual(['1', '1', '0', '2']);
   });
 

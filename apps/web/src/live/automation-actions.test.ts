@@ -29,8 +29,18 @@ describe('automation actions',()=>{
   });
   it('creates from a preset and from scratch only after the server commits',async()=>{
     const s=setup(); expect(await useAutomationTemplate(s.context,'welcome')).toBe(true); expect(s.api.useTemplate).toHaveBeenCalledWith('t','welcome',expect.stringContaining('Welcome'));
+    expect(s.state.route).toEqual({ screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1' } });
+    expect(s.state.focusTarget).toContain('automationName');
+    expect(s.state.toasts.at(-1)?.text).toContain('Draft created');
     expect(await useAutomationTemplate(s.context,'missing')).toBe(false); expect(await createBlankAutomation(s.context,'Blank')).toBe(true); expect(s.api.create).toHaveBeenCalledWith('t',expect.objectContaining({name:'Blank'})); expect(s.state.toasts.length).toBe(2);
     const refused=setup({ok:false,error:ERROR}); expect(await createBlankAutomation(refused.context,'No')).toBe(false); expect(refused.state.live.error).toBe(ERROR);
+  });
+  it('keeps the operator on the catalogue when template creation is refused',async()=>{
+    const s=setup({ok:false,error:ERROR});
+    s.state.route={screen:'automations',conversationId:null,params:{view:'templates'}};
+    expect(await useAutomationTemplate(s.context,'welcome')).toBe(false);
+    expect(s.state.route.params['view']).toBe('templates');
+    expect(s.state.live.error).toBe(ERROR);
   });
   it('edits, adds, removes and transitions with version fencing',async()=>{
     const s=setup(); s.state.dialogForm={automationName:'Edited',automationTrigger:'schedule',automationTarget:'label',automationStep_step_1:'delay'};

@@ -161,24 +161,24 @@
 
   /* @tokens dark */
   :root[data-theme='dark'] {
-    /* Charcoal-derived dark mode from the same Digital School palette. */
-    --canvas: #111418;
-    --surface-1: #1d1d1d;
-    --surface-2: #232830;
-    --surface-3: #2a303a;
-    --surface-hover: #252c36;
-    --surface-selected: #102b57;
+    /* Charcoal/navy operations surfaces; blue remains the action colour. */
+    --canvas: #0b1220;
+    --surface-1: #111a2a;
+    --surface-2: #172235;
+    --surface-3: #1e2b40;
+    --surface-hover: #22324a;
+    --surface-selected: #173768;
 
-    --text: #f4f5f8;
-    --text-secondary: #c3c8d2;
-    --text-muted: #959eae;
-    --text-disabled: #5c6372;
+    --text: #f2f6fc;
+    --text-secondary: #c5cfdd;
+    --text-muted: #97a6ba;
+    --text-disabled: #657188;
 
-    --accent: #ddff57;
-    --accent-hover: #e7ff89;
-    --accent-text: #ddff57;
-    --accent-soft: #102b57;
-    --on-accent: #1d1d1d;
+    --accent: #2563c7;
+    --accent-hover: #2f6dcc;
+    --accent-text: #84b4ff;
+    --accent-soft: #172f54;
+    --on-accent: #ffffff;
 
     --success: #5ccf94;
     --success-soft: #12261c;
@@ -189,8 +189,8 @@
     --unknown: #8ec5ec;
     --unknown-soft: #152632;
 
-    --border-strong: #6a7282;
-    --focus-ring: #ddff57;
+    --border-strong: #718096;
+    --focus-ring: #79aaff;
 
     --brand-whatsapp: #1fa855;
     --brand-messenger: #0a6cff;
@@ -204,15 +204,15 @@
     --border: rgba(255, 255, 255, 0.08);
     --border-subtle: rgba(255, 255, 255, 0.05);
     --scrim: rgba(3, 4, 8, 0.62);
-    --glass: rgba(17, 20, 27, 0.78);
+    --glass: rgba(11, 18, 32, 0.82);
     --glass-border: rgba(255, 255, 255, 0.07);
-    --nav-surface: rgba(17, 20, 27, 0.72);
+    --nav-surface: rgba(11, 18, 32, 0.9);
     --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.3);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
     --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
-    --bubble-in: #1a1e28;
-    --bubble-out: #102b57;
+    --bubble-in: #172235;
+    --bubble-out: #173768;
     --note-surface: #251f13;
     --note-edge: rgba(227, 179, 90, 0.38);
     --chart-bar: rgba(149, 158, 174, 0.3);

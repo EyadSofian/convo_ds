@@ -92,6 +92,19 @@ export class AuthController {
     await reply.status(204).send();
   }
 
+  @Post('password/change')
+  async changePassword(
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    await this.auth.changePassword(session, body);
+    await reply.status(204).send();
+  }
+
   @Get('session')
   async current(@Req() request: FastifyRequest) {
     const session = await this.auth.authenticate(request.headers.cookie);

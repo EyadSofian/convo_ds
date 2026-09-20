@@ -41,6 +41,34 @@ describe('renderDialog', () => {
   });
 });
 
+describe('changing the password', () => {
+  it('asks for the current and confirmed replacement without exposing a value', () => {
+    const state = base();
+    const dialog = open(state, 'change-password');
+    expect(dialog.querySelector('form')?.getAttribute('data-submit')).toBe('live-change-password');
+    expect(dialog.querySelectorAll('input[type="password"]')).toHaveLength(3);
+    expect(dialog.textContent).toContain('Every other session will be signed out.');
+    expect(dialog.querySelector('[data-act="live-change-password"]')).not.toBeNull();
+
+    state.passwordVisible = true;
+    const visible = renderDialog(state) as HTMLElement;
+    expect(visible.querySelectorAll('input[type="text"]')).toHaveLength(3);
+    expect(visible.querySelector('[data-act="password-visibility"]')?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('shows validation and server errors, and disables the submit while changing', () => {
+    const state = base();
+    state.dialog = { kind: 'change-password', arg: '' };
+    state.formErrors = { newPassword: 'Use at least 12 characters.' };
+    state.live.error = { code: 'current_password_invalid', message: 'No', requestId: 'r-pw', status: 400, details: [] };
+    state.live.busy = 'change-password';
+    const dialog = renderDialog(state) as HTMLElement;
+    expect(dialog.querySelector('.field__error')?.textContent).toContain('12 characters');
+    expect(dialog.textContent).toContain('r-pw');
+    expect((dialog.querySelector('[data-act="live-change-password"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
 describe('connecting a channel', () => {
   it('asks a Meta channel for the configured app, the asset, a name and the token', () => {
     const state = base();

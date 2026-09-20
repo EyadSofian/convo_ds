@@ -17,7 +17,6 @@ import {
   errorState,
   inlineError,
   isolated,
-  kpi,
   notice,
   page,
   panel,
@@ -96,11 +95,14 @@ function summary(state: AppState, live: LiveState): HTMLElement {
   const count = (resource: Resource<readonly unknown[]>): string =>
     resource.status === 'ready' ? formatNumber(resource.value.length, state.lang) : '—';
   const pending = rowsOf(live.invitations).filter((invitation) => invitation.status === 'pending').length;
-  return h('section', { class: 'kpis kpis--4', 'aria-label': t(state, 'ملخص الفريق', 'Team summary') }, [
-    kpi(t(state, 'الأعضاء', 'Members'), count(live.people)),
-    kpi(t(state, 'دعوات معلّقة', 'Pending invitations'), live.invitations.status === 'ready' ? formatNumber(pending, state.lang) : '—'),
-    kpi(t(state, 'الفرق', 'Teams'), count(live.teams)),
-    kpi(t(state, 'الأدوار', 'Roles'), count(live.roles)),
+  const item = (value: string, label: string) => h('span', { class: 'people-summary__item' }, [
+    h('strong', {}, [value]), h('span', {}, [label]),
+  ]);
+  return h('section', { class: 'people-summary', 'aria-label': t(state, 'ملخص الفريق', 'Team summary') }, [
+    item(count(live.people), t(state, 'أعضاء', 'members')),
+    item(live.invitations.status === 'ready' ? formatNumber(pending, state.lang) : '—', t(state, 'دعوات معلّقة', 'pending invitations')),
+    item(count(live.teams), t(state, 'فرق', 'teams')),
+    item(count(live.roles), t(state, 'أدوار', 'roles')),
   ]);
 }
 

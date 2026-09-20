@@ -182,6 +182,32 @@ export async function revokeSession(context: LiveContext, sessionId: string): Pr
   return true;
 }
 
+/** Re-authenticates before changing the credential; only this session survives. */
+export async function changePassword(
+  context: LiveContext,
+  currentPassword: string,
+  newPassword: string,
+  confirmPassword: string,
+): Promise<boolean> {
+  const { live, state } = context;
+  live.busy = 'change-password';
+  live.error = null;
+  context.refresh();
+  const result = await live.api.changePassword(currentPassword, newPassword, confirmPassword);
+  live.busy = null;
+  state.dialogForm = {};
+  state.passwordVisible = false;
+  if (!result.ok) {
+    live.error = result.error;
+    context.refresh();
+    return false;
+  }
+  state.dialog = null;
+  pushToast(state, t(state, 'تحدّثت كلمة المرور. سُجّلت الجلسات الأخرى خروجًا.', 'Password updated. Other sessions have been signed out.'));
+  await loadSettingsScreen(context);
+  return true;
+}
+
 /* ----------------------------------------------------------------- loads -- */
 
 /** Loads everything the People screen shows, in parallel. */
@@ -443,8 +469,8 @@ export function invitePerson(
     (invitation) =>
       t(
         context.state,
-        `أُرسلت دعوة إلى ${invitation.email}`,
-        `Invitation sent to ${invitation.email}`,
+        `أُنشئت دعوة لـ ${invitation.email} ووُضعت في قائمة التسليم. يعتمد وصول البريد على إعداد مزوّد البريد.`,
+        `Invitation created for ${invitation.email} and queued. Email delivery depends on the configured provider.`,
       ),
   );
 }
@@ -640,4 +666,3 @@ export function settleOwnership(
           : t(context.state, 'أُلغي عرض الملكية', 'Ownership offer cancelled'),
   );
 }
-

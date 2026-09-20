@@ -124,7 +124,7 @@ function automationCard(state: AppState, automation: Automation): HTMLElement {
 function builder(state: AppState, automation: Automation): HTMLElement {
   const effectiveTrigger = state.dialogForm['automationTrigger'] || automation.workflow.trigger.type;
   const scheduleKind = state.dialogForm['automationScheduleKind'] || String(automation.workflow.schedule?.['kind'] ?? 'daily');
-  return h('section', { class: 'automation-builder' }, [
+  return h('section', { class: 'automation-builder', 'data-automation-builder': true }, [
     h('header', { class: 'automation-builder__header' }, [
       h('a', { class: 'automation-builder__back', href: formatHash({ screen: 'automations', conversationId: null, params: { view: 'mine' } }) }, [icon('chevronStart', 16), t(state, 'رجوع إلى أتمتتي', 'Back to automations')]),
       h('div', {}, [h('p', { class: 'eyebrow' }, [t(state, 'مسودة سير عمل', 'Workflow draft')]), h('h2', {}, [automation.name])]),
@@ -216,7 +216,7 @@ function whatsappStep(state: AppState, step: Automation['workflow']['steps'][num
 }
 function connector(): HTMLElement { return h('div', { class: 'workflow-connector', 'aria-hidden': 'true' }, [h('span', {})]); }
 function select(name: string, value: string, options: readonly string[]): HTMLSelectElement { return h('select', { class: 'select', 'data-act': 'form', 'data-form': name }, options.map((option) => h('option', { value: option, selected: option === value }, [human(option)]))); }
-function labelInput(name: string, label: string, value: string): HTMLElement { return h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [label]), h('input', { class: 'input', value, 'data-act': 'form', 'data-form': name })]); }
+function labelInput(name: string, label: string, value: string): HTMLElement { return h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [label]), h('input', { class: 'input', name, value, 'data-act': 'form', 'data-form': name })]); }
 
 function runsView(state: AppState): Child {
   const resource = state.live.automationRuns;

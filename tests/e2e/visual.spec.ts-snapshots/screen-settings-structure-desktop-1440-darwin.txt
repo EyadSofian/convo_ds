@@ -1,52 +1,85 @@
 main.app__screen
   div.page.page--settings
     div.page__inner
-      div.settings-grid
-        section.panel
-          header.panel__header
-            div.panel__titles
-              h2.panel__title
-          div.panel__body
-            dl.attrgrid
-              dt
-              dd
+      div.settings-sections
+        section.settings-section
+          header.settings-section__header
+            h2.settings-section__title
+            p.settings-section__description
+          div.settings-section__rows
+            div.setting-row
+              div.setting-row__text
+                p.setting-row__title
+                p.setting-row__hint
+              div.setting-row__control
                 bdi
-              dt
-              dd
-              dt
-              dd
-            button.btn.btn--sm [live-signout]
-              svg
-                path
-                path
-                path
-              span.btn__label
-        section.panel
-          header.panel__header
-            div.panel__titles
-              h2.panel__title
-          div.panel__body
             div.setting-row
               div.setting-row__text
                 p.setting-row__title
                 p.setting-row__hint
-              select.select [lang]
-                option
-                option
+              div.setting-row__control
+                span.badge.badge--neutral
             div.setting-row
               div.setting-row__text
                 p.setting-row__title
                 p.setting-row__hint
-              div.segmented
-                button.segmented__item [theme-set]
-                button.segmented__item [theme-set]
+              div.setting-row__control
+                span
             div.setting-row
               div.setting-row__text
                 p.setting-row__title
                 p.setting-row__hint
-              div.segmented
-                button.segmented__item [nav-set]
-                button.segmented__item [nav-set]
+              div.setting-row__control
+                button.btn.btn--sm [live-signout]
+                  svg
+                    path
+                    path
+                    path
+                  span.btn__label
+        section.settings-section
+          header.settings-section__header
+            h2.settings-section__title
+            p.settings-section__description
+          div.settings-section__rows
+            div.setting-row
+              div.setting-row__text
+                p.setting-row__title
+                p.setting-row__hint
+              div.setting-row__control
+                button.btn.btn--sm [dialog]
+                  svg
+                    rect
+                    path
+                  span.btn__label
+        section.settings-section
+          header.settings-section__header
+            h2.settings-section__title
+            p.settings-section__description
+          div.settings-section__rows
+            div.setting-row
+              div.setting-row__text
+                p.setting-row__title
+                p.setting-row__hint
+              div.setting-row__control
+                select.select [lang]
+                  option
+                  option
+            div.setting-row
+              div.setting-row__text
+                p.setting-row__title
+                p.setting-row__hint
+              div.setting-row__control
+                div.segmented
+                  button.segmented__item [theme-set]
+                  button.segmented__item [theme-set]
+            div.setting-row
+              div.setting-row__text
+                p.setting-row__title
+                p.setting-row__hint
+              div.setting-row__control
+                div.segmented
+                  button.segmented__item [nav-set]
+                  button.segmented__item [nav-set]
       section.panel
         header.panel__header
           div.panel__titles
@@ -65,19 +98,26 @@ main.app__screen
                 p.session__meta
               button.btn.btn--danger.btn--sm [live-revoke-session]
                 span.btn__label
-      section.panel
-        header.panel__header
-          div.panel__titles
-            h2.panel__title
-            p.panel__description
-        div.panel__body
-          ul.unavailable-list
-            li.unavailable-list__item
-              span
+      section.settings-section
+        header.settings-section__header
+          h2.settings-section__title
+          p.settings-section__description
+        div.settings-section__rows
+          div.setting-row
+            div.setting-row__text
+              p.setting-row__title
+              p.setting-row__hint
+            div.setting-row__control
               span.badge.badge--neutral
-            li.unavailable-list__item
-              span
+          div.setting-row
+            div.setting-row__text
+              p.setting-row__title
+              p.setting-row__hint
+            div.setting-row__control
               span.badge.badge--neutral
-            li.unavailable-list__item
-              span
+          div.setting-row
+            div.setting-row__text
+              p.setting-row__title
+              p.setting-row__hint
+            div.setting-row__control
               span.badge.badge--neutral

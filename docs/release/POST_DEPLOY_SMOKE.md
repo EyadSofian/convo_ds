@@ -6,7 +6,8 @@ release record; never put credentials or tokens in this repository.
 ## Platform and schema
 
 - [ ] Every deployment resolves to the release SHA/tag.
-- [ ] Migration service succeeds once; 32 migration rows end at 0032.
+- [ ] Migration service succeeds once; 33 migration rows end at
+      `0033_account_security_events.sql`.
 - [ ] Web `/healthz`, API `/live` and `/ready`, and every worker's `/live`,
       `/ready`, and `/metrics` return 200.
 - [ ] Railway healthcheck paths and restart policies are explicitly configured.
