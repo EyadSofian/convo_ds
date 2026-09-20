@@ -26,6 +26,7 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'campaign-schedule') return campaignSchedule(state, dialog.arg);
   if (dialog.kind === 'campaign' || dialog.kind === 'campaign-edit') return campaignEditor(state, dialog.kind, dialog.arg);
   if (dialog.kind === 'invite') return invite(state);
+  if (dialog.kind === 'change-password') return changePasswordDialog(state);
   if (dialog.kind === 'ownership-offer') return ownershipOffer(state, dialog.arg);
   return dialogShell(
     state,
@@ -33,6 +34,58 @@ export function renderDialog(state: AppState): HTMLElement | null {
     [h('p', {}, [t(state, 'لا يوجد محتوى لهذه النافذة.', 'There is nothing to show here.')])],
     [closeButton(state)],
   );
+}
+
+function changePasswordDialog(state: AppState): HTMLElement {
+  const busy = state.live.busy === 'change-password';
+  return dialogShell(
+    state,
+    t(state, 'تغيير كلمة المرور', 'Change password'),
+    [
+      inlineError(state, state.live.error),
+      h('form', { class: 'form-grid', 'data-submit': 'live-change-password', novalidate: true }, [
+        passwordInput(state, 'currentPassword', t(state, 'كلمة المرور الحالية', 'Current password'), 'current-password'),
+        passwordInput(state, 'newPassword', t(state, 'كلمة المرور الجديدة', 'New password'), 'new-password'),
+        passwordInput(state, 'confirmPassword', t(state, 'تأكيد كلمة المرور الجديدة', 'Confirm new password'), 'new-password'),
+        h('p', { class: 'field__hint' }, [t(state, 'استخدم 12 حرفًا على الأقل. ستُنهى كل الجلسات الأخرى.', 'Use at least 12 characters. Every other session will be signed out.')]),
+      ]),
+    ],
+    [
+      closeButton(state),
+      button({ label: busy ? t(state, 'جارٍ التحديث…', 'Updating…') : t(state, 'تحديث كلمة المرور', 'Update password'), act: 'live-change-password', variant: 'primary', busy }),
+    ],
+    { description: t(state, 'تبقى هذه الجلسة مفتوحة بعد نجاح التغيير.', 'This session stays signed in after a successful change.') },
+  );
+}
+
+function passwordInput(state: AppState, key: string, label: string, autocomplete: string): HTMLElement {
+  const error = state.formErrors[key];
+  return h('div', { class: 'field' }, [
+    h('label', { class: 'field__label', for: key }, [label]),
+    h('div', { class: 'input-affix' }, [
+      h('input', {
+        id: key,
+        class: error === undefined ? 'input' : 'input input--invalid',
+        type: state.passwordVisible ? 'text' : 'password',
+        autocomplete,
+        dir: 'ltr',
+        required: true,
+        value: state.dialogForm[key] ?? '',
+        'data-act': 'form',
+        'data-form': key,
+      }),
+      button({
+        icon: state.passwordVisible ? 'eyeOff' : 'eye',
+        act: 'password-visibility',
+        variant: 'ghost',
+        small: true,
+        pressed: state.passwordVisible,
+        title: state.passwordVisible ? t(state, 'إخفاء كلمات المرور', 'Hide passwords') : t(state, 'إظهار كلمات المرور', 'Show passwords'),
+        extraClass: 'input-affix__button',
+      }),
+    ]),
+    fieldError(state, key),
+  ]);
 }
 
 /* --------------------------------------------------------------- channels -- */
@@ -190,7 +243,7 @@ function invite(state: AppState): HTMLElement {
     ],
     [
       closeButton(state),
-      button({ label: t(state, 'إرسال الدعوة', 'Send invitation'), act: 'live-invite', variant: 'primary', busy }),
+      button({ label: t(state, 'إنشاء الدعوة', 'Create invitation'), act: 'live-invite', variant: 'primary', busy }),
     ],
   );
 }

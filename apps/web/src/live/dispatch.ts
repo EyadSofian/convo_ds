@@ -72,6 +72,7 @@ import {
   invitePerson,
   loadChannelsScreen,
   loadPeopleScreen,
+  changePassword,
   loadSession,
   loadSettingsScreen,
   revokeSession,
@@ -268,6 +269,10 @@ function form(context: LiveContext, key: string): string {
   return (context.state.dialogForm[key] ?? '').trim();
 }
 
+function rawForm(context: LiveContext, key: string): string {
+  return context.state.dialogForm[key] ?? '';
+}
+
 function text(context: LiveContext, ar: string, en: string): string {
   return context.state.lang === 'ar' ? ar : en;
 }
@@ -408,6 +413,21 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-sessions-reload': async (context) => loadSettingsScreen(context),
 
   'live-revoke-session': async (context, arg) => revokeSession(context, arg),
+
+  'live-change-password': async (context) => {
+    // Password whitespace is significant. Keep these values byte-for-byte the
+    // same as the operator entered them, just as the sign-in form does.
+    const currentPassword = rawForm(context, 'currentPassword');
+    const newPassword = rawForm(context, 'newPassword');
+    const confirmPassword = rawForm(context, 'confirmPassword');
+    if (invalid(context, {
+      ...(currentPassword === '' ? { currentPassword: text(context, 'أدخل كلمة المرور الحالية.', 'Enter your current password.') } : {}),
+      ...(newPassword.length < 12 ? { newPassword: text(context, 'استخدم 12 حرفًا على الأقل.', 'Use at least 12 characters.') } : {}),
+      ...(confirmPassword !== newPassword ? { confirmPassword: text(context, 'كلمتا المرور غير متطابقتين.', 'The passwords do not match.') } : {}),
+      ...(currentPassword !== '' && newPassword === currentPassword ? { newPassword: text(context, 'اختر كلمة مرور مختلفة.', 'Choose a different password.') } : {}),
+    })) return false;
+    return changePassword(context, currentPassword, newPassword, confirmPassword);
+  },
 
   // A reload re-reads the screen's lists, never the session: the workspace is
   // already open, and any 401 on the way closes it through the client.

@@ -139,6 +139,12 @@ export class PeopleApi {
     return this.client.delete<undefined>(`/auth/sessions/${id}`);
   }
 
+  changePassword(currentPassword: string, newPassword: string, confirmPassword: string): Promise<ApiResult<undefined>> {
+    return this.client.post<undefined>('/auth/password/change', {
+      body: { currentPassword, newPassword, confirmPassword },
+    });
+  }
+
   memberships(): Promise<ApiResult<readonly MembershipSummary[]>> {
     return this.client.get<readonly MembershipSummary[]>('/me/memberships');
   }

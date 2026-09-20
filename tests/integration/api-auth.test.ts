@@ -452,6 +452,70 @@ describe('local authentication and permission boundary', () => {
     expect(asArray(revoke.headers['set-cookie'])).toHaveLength(3);
   });
 
+  it('changes the password only after re-authentication and revokes every other session', async () => {
+    const otherLogin = await login(api.server, 'owner@auth.test', OWNER_PASSWORD, 'password-change-other');
+    const other = otherLogin.browser as BrowserSession;
+    const payload = {
+      currentPassword: OWNER_PASSWORD,
+      newPassword: 'replacement owner password 2026',
+      confirmPassword: 'replacement owner password 2026',
+    };
+
+    const noCsrf = await api.server.inject({
+      method: 'POST', url: '/api/v1/auth/password/change', headers: { cookie: owner.cookie }, payload,
+    });
+    expect(noCsrf.statusCode).toBe(403);
+
+    const wrong = await api.server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/password/change',
+      headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrf },
+      payload: { ...payload, currentPassword: 'not the current password' },
+    });
+    expect(wrong.statusCode).toBe(400);
+    expect(wrong.json()).toMatchObject({ error: { code: 'current_password_invalid' } });
+
+    const malformed = await api.server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/password/change',
+      headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrf },
+      payload: { currentPassword: OWNER_PASSWORD },
+    });
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.json()).toMatchObject({ error: { code: 'invalid_input' } });
+
+    const unchanged = await api.server.inject({
+      method: 'POST',
+      url: '/api/v1/auth/password/change',
+      headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrf },
+      payload: {
+        currentPassword: OWNER_PASSWORD,
+        newPassword: OWNER_PASSWORD,
+        confirmPassword: OWNER_PASSWORD,
+      },
+    });
+    expect(unchanged.statusCode).toBe(409);
+    expect(unchanged.json()).toMatchObject({ error: { code: 'password_unchanged' } });
+
+    const changed = await api.server.inject({
+      method: 'POST', url: '/api/v1/auth/password/change',
+      headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrf }, payload,
+    });
+    expect(changed.statusCode).toBe(204);
+
+    const retained = await api.server.inject({ method: 'GET', url: '/api/v1/auth/session', headers: { cookie: owner.cookie } });
+    const revoked = await api.server.inject({ method: 'GET', url: '/api/v1/auth/session', headers: { cookie: other.cookie } });
+    expect(retained.statusCode).toBe(200);
+    expect(revoked.statusCode).toBe(401);
+    expect((await login(api.server, 'owner@auth.test', OWNER_PASSWORD, 'password-change-old')).response.statusCode).toBe(401);
+    expect((await login(api.server, 'owner@auth.test', payload.newPassword, 'password-change-new')).response.statusCode).toBe(200);
+
+    const audit = await api.pool.query<{ action: string; session_id: string }>(
+      "SELECT action,session_id::text FROM account_security_events WHERE user_id=(SELECT id FROM users WHERE email='owner@auth.test')",
+    );
+    expect(audit.rows).toEqual([{ action: 'password.changed', session_id: owner.sessionId }]);
+  });
+
   it('clears cookies on logout and rejects the next request', async () => {
     const logout = await api.server.inject({
       method: 'POST',

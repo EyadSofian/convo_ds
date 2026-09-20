@@ -434,8 +434,10 @@ const UNAUTHENTICATED = { error: { code: 'unauthenticated', message: 'Sign in to
 
 export async function installApi(page: Page, options: ApiOptions = {}): Promise<void> {
   let signedIn = options.signedIn ?? true;
+  let automationRows = [...automations()];
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
+    const method = route.request().method();
 
     if (path === '/auth/login') {
       const body = route.request().postDataJSON() as { email?: string; password?: string };
@@ -449,6 +451,12 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     if (path === '/auth/logout') {
       signedIn = false;
       return route.fulfill({ status: 204 });
+    }
+    if (path === '/auth/password/change' && method === 'POST') {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      return body['currentPassword'] === PASSWORD && body['newPassword'] === body['confirmPassword']
+        ? route.fulfill({ status: 204 })
+        : json(route, { error: { code: 'current_password_invalid', message: 'The current password is not valid.', request_id: 'e2e' } }, 400);
     }
     // Everything else needs the session, exactly as the API does.
     if (!signedIn) {
@@ -520,8 +528,19 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     if (path.endsWith('/automation-runs')) {
       return json(route, paged([]));
     }
+    if (/\/automation-templates\/[^/]+\/use$/.test(path) && method === 'POST') {
+      const source = automationTemplates().find((template) => path.includes(`/${String(template['key'])}/use`));
+      const body = route.request().postDataJSON() as { name?: string };
+      const created = {
+        id: 'automation-from-template', name: body.name ?? 'Template draft', description: source?.['description'] ?? null,
+        templateKey: source?.['key'] ?? null, state: 'draft', workflow: source?.['preset'] ?? automationWorkflow(),
+        timezone: 'Africa/Cairo', nextRunAt: null, lastRunAt: null, version: 1,
+      };
+      automationRows = [created, ...automationRows];
+      return json(route, { data: created, request_id: 'e2e' }, 201);
+    }
     if (path.endsWith('/automations')) {
-      return json(route, paged(automations()));
+      return json(route, paged(automationRows));
     }
     if (path.endsWith('/campaigns')) {
       return json(route, paged(campaigns()));

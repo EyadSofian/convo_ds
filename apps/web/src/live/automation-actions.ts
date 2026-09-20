@@ -34,10 +34,29 @@ export async function loadAutomationsScreen(context: LiveContext): Promise<void>
 export async function useAutomationTemplate(context: LiveContext, key: string): Promise<boolean> {
   const source = rowsOf(context.live.automationTemplates).find((entry) => entry.key === key);
   if (source === undefined) return false;
-  return mutate(context, `automation-use:${key}`, async (tenantId) => {
+  context.live.busy = `automation-use:${key}`;
+  context.live.error = null;
+  context.refresh();
+  return forTenant(context, false, async (tenantId) => {
     const suffix = context.newKey().slice(-6).toUpperCase();
-    return context.live.automationsApi.useTemplate(tenantId, key, `${source.name} · ${suffix}`);
-  }, copy(context, 'تم إنشاء مسودة قابلة للتعديل.', 'Editable draft created.'));
+    const result = await context.live.automationsApi.useTemplate(tenantId, key, `${source.name} · ${suffix}`);
+    context.live.busy = null;
+    if (!result.ok) {
+      context.live.error = result.error;
+      context.refresh();
+      return false;
+    }
+    await loadAutomationsScreen(context);
+    context.state.route = {
+      screen: 'automations',
+      conversationId: null,
+      params: { view: 'mine', edit: result.data.id },
+    };
+    context.state.focusTarget = '[data-automation-builder] input[name="automationName"]';
+    pushToast(context.state, copy(context, '✓ أُنشئت المسودة. جارٍ فتح المحرر.', '✓ Draft created. Opening editor.'));
+    context.refresh();
+    return true;
+  });
 }
 
 export async function createBlankAutomation(context: LiveContext, name: string): Promise<boolean> {

@@ -48,7 +48,7 @@ describe('parseLoginRequest', () => {
     expect(parseLoginRequest({ email: ' ', password: '' })).toMatchObject({ status: 'invalid' });
     const outcome = parseLoginRequest({
       email: 'owner@example.com',
-      password: 'x'.repeat(129),
+      password: 'x'.repeat(513),
     });
     expect(outcome.status).toBe('invalid');
     if (outcome.status === 'invalid') {

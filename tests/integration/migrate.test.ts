@@ -77,6 +77,7 @@ describe('migrate', () => {
       '0030_email_outbox.sql',
       '0031_invitation_tenant_scope.sql',
       '0032_automation_execution.sql',
+      '0033_account_security_events.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -86,6 +87,7 @@ describe('migrate', () => {
         WHERE table_schema = 'public' ORDER BY table_name`,
     );
     expect(tables.rows.map((r) => r.table_name)).toEqual([
+      'account_security_events',
       'admin_audit_events',
       'audience_snapshot_members',
       'audience_snapshots',

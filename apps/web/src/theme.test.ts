@@ -62,13 +62,13 @@ describe('palettes read from styles/tokens.css', () => {
     expect(dark).toEqual(light);
   });
 
-  it('uses the supplied Digital School blue, yellow, powder and charcoal direction', () => {
+  it('uses the supplied Digital School blue, yellow, powder and charcoal-navy direction', () => {
     const light = paletteFromCss(TOKENS_CSS, 'light');
     const dark = paletteFromCss(TOKENS_CSS, 'dark');
     expect(light['surface-1']).toBe('#fcfcfc');
     expect(light['accent']).toBe('#004fef');
-    expect(dark['surface-1']).toBe('#1d1d1d');
-    expect(dark['accent']).toBe('#ddff57');
+    expect(dark['surface-1']).toBe('#111a2a');
+    expect(dark['accent']).toBe('#2563c7');
     expect(dark['canvas']).not.toBe('#000000');
   });
 
