@@ -179,6 +179,12 @@ export function routeParamsFor(state: AppState): Record<string, string> {
     if (filters.channel !== '') params.channel = filters.channel;
     if (filters.campaignId !== '') params.campaign = filters.campaignId;
   }
+  if (state.route.screen === 'automations') {
+    const view = state.route.params['view'];
+    if (view !== undefined && ['templates', 'mine', 'runs'].includes(view)) params.view = view;
+    const edit = state.route.params['edit'];
+    if (edit !== undefined && edit !== '') params.edit = edit;
+  }
   return params;
 }
 

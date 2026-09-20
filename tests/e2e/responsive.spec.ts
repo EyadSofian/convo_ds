@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   fontsReady,
+  openAutomationBuilder,
   openInbox,
   openScreen,
   openSignedOut,
@@ -91,4 +92,17 @@ test.describe('required responsive matrix', () => {
     await setDirection(page, 'ltr');
     expect(await page.locator('.automation-flow-mini .icon--directional').first().evaluate((element) => getComputedStyle(element).scale)).toBe('none');
   });
+
+  for (const width of [1024, 768, 430, 390] as const) {
+    test(`${String(width)}px keeps the Automation editor and its nodes inside the viewport`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width <= 430 ? 844 : 900 });
+      await openAutomationBuilder(page);
+      expect(await overflowsHorizontally(page)).toBe(false);
+      const node = await page.locator('.workflow-block').first().boundingBox();
+      expect(node).not.toBeNull();
+      expect(node?.x ?? -1).toBeGreaterThanOrEqual(0);
+      expect((node?.x ?? 0) + (node?.width ?? 0)).toBeLessThanOrEqual(width);
+      await expect(page.locator('.automation-inspector')).toBeVisible();
+    });
+  }
 });

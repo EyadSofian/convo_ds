@@ -112,6 +112,14 @@ describe('URL round-trip', () => {
     expect(routeParamsFor(state)).toEqual({});
   });
 
+  it('keeps the selected automation view and editor in the shareable route', () => {
+    const state = createState(NOW);
+    state.route = parseHash('#/automations?view=mine&edit=automation-1');
+    expect(routeParamsFor(state)).toEqual({ view: 'mine', edit: 'automation-1' });
+    state.route = parseHash('#/automations?view=unknown&edit=');
+    expect(routeParamsFor(state)).toEqual({});
+  });
+
   it('reads the language, the queue and the conversation back', () => {
     const state = createState(NOW);
     applyRoute(state, parseHash('#/inbox/cv-4820?lang=en&queue=mine'));

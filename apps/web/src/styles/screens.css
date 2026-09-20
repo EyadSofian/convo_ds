@@ -1104,6 +1104,7 @@
   }
 
   .automation-canvas {
+    --workflow-node-width: min(650px, 100%);
     min-block-size: 680px;
     padding: var(--space-6);
     border: 1px solid var(--border);
@@ -1118,13 +1119,23 @@
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: start;
     gap: var(--space-3);
-    max-inline-size: 650px;
+    inline-size: var(--workflow-node-width);
     margin-inline: auto;
     padding: var(--space-4);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--surface-1);
     box-shadow: var(--shadow-xs);
+    transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+  }
+
+  .workflow-block:hover {
+    border-color: var(--border-strong);
+  }
+
+  .workflow-block:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
   .workflow-block--root {
@@ -1172,14 +1183,41 @@
   }
 
   .workflow-connector {
+    position: relative;
     display: grid;
     place-items: center;
-    block-size: 28px;
+    inline-size: var(--workflow-node-width);
+    block-size: 32px;
+    margin-inline: auto;
   }
 
   .workflow-connector span {
     inline-size: 2px;
-    block-size: 100%;
+    block-size: 24px;
+    align-self: start;
+    background: var(--border-strong);
+  }
+
+  .workflow-connector::after {
+    content: '';
+    position: absolute;
+    inset-block-end: 5px;
+    inset-inline-start: calc(50% - 4px);
+    inline-size: 8px;
+    block-size: 6px;
+    background: var(--border-strong);
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+  }
+
+  .workflow-connector::before {
+    content: '';
+    position: absolute;
+    inset-block-start: -3px;
+    inset-inline-start: calc(50% - 3px);
+    inline-size: 6px;
+    block-size: 6px;
+    border: 2px solid var(--surface-2);
+    border-radius: var(--radius-full);
     background: var(--border-strong);
   }
 
@@ -1192,7 +1230,7 @@
   .automation-safety-card {
     display: flex;
     gap: var(--space-3);
-    max-inline-size: 650px;
+    inline-size: var(--workflow-node-width);
     margin-inline: auto;
     padding: var(--space-4);
     border: 1px solid var(--success);
