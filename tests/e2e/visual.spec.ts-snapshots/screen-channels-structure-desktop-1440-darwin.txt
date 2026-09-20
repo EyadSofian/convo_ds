@@ -54,6 +54,10 @@ main.app__screen
               div
                 dt
                 dd
+              div
+                dt
+                dd
+                  bdi
             footer.integration__actions
               div.integration__buttons
                 button.btn.btn--sm [channel-manage]
@@ -103,6 +107,9 @@ main.app__screen
               div
                 dt
                 dd
+              div
+                dt
+                dd
             footer.integration__actions
               button.btn.btn--primary.btn--sm [dialog]
                 svg
@@ -110,7 +117,7 @@ main.app__screen
                   path
                   path
                 span.btn__label
-          article.integration.integration--attention
+          article.integration.integration--connecting
             header.integration__head
               span.channel-tile.channel-tile--instagram.channel-tile--lg
                 svg
@@ -119,7 +126,7 @@ main.app__screen
                   circle
               div.integration__titles
                 h3.integration__name
-                span.badge.badge--warning
+                span.badge.badge--accent
                   span.badge__dot
             p.integration__description
             ul.integration__capabilities
@@ -152,6 +159,10 @@ main.app__screen
               div
                 dt
                 dd
+              div
+                dt
+                dd
+                  bdi
             footer.integration__actions
               div.integration__buttons
                 button.btn.btn--primary.btn--sm [channel-manage]
@@ -200,6 +211,9 @@ main.app__screen
               div
                 dt
                 dd
+              div
+                dt
+                dd
             footer.integration__actions
               button.btn.btn--primary.btn--sm [dialog]
                 svg
@@ -219,6 +233,9 @@ main.app__screen
             p.integration__description
             p.integration__note
             dl.integration__facts
+              div
+                dt
+                dd
               div
                 dt
                 dd
@@ -260,6 +277,9 @@ main.app__screen
                   path
                   path
             dl.integration__facts
+              div
+                dt
+                dd
               div
                 dt
                 dd

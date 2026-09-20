@@ -75,6 +75,17 @@ export async function openScreen(page: Page, screen: string, query = ''): Promis
   await fontsReady(page);
 }
 
+/** Opens the real automation editor through the same links an operator uses. */
+export async function openAutomationBuilder(page: Page): Promise<void> {
+  await openScreen(page, 'automations');
+  await page.locator('.automation-tabs__item').filter({ hasText: /أتمتتي|My Automations/ }).click();
+  await expect(page.locator('.automation-row').first()).toBeVisible();
+  await page.locator('.automation-row__actions a').first().click();
+  await expect(page.locator('.automation-builder')).toBeVisible();
+  await expect(page.locator('.workflow-block').first()).toBeVisible();
+  await fontsReady(page);
+}
+
 /** Opens the app with no session: the sign-in page and nothing else. */
 export async function openSignedOut(page: Page, hash = '#/inbox', options: ApiOptions = {}): Promise<void> {
   await freezeClock(page);

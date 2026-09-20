@@ -5,6 +5,7 @@ import {
   freezeClock,
   fullyVisibleCount,
   MATRIX,
+  openAutomationBuilder,
   openInbox,
   openScreen,
   overflowsHorizontally,
@@ -426,10 +427,10 @@ test.describe('the Channels catalogue', () => {
       'whatsapp', 'messenger', 'instagram', 'web_chat', 'telegram', 'custom',
     ]);
 
-    // Healthy WhatsApp: connected, managed. Instagram waiting on its credential:
-    // attention, complete setup. Messenger with nothing connected: connect.
+    // Healthy WhatsApp: connected, managed. Instagram is still authorizing:
+    // connecting, complete setup. Messenger with nothing connected: connect.
     await expect(page.locator('.integration--connected[data-channel-kind="whatsapp"] [data-act="channel-manage"]')).toBeVisible();
-    await expect(page.locator(`.integration--attention[data-channel-kind="instagram"] [data-act="channel-manage"][data-arg="instagram:cn-instagram-01"]`)).toBeVisible();
+    await expect(page.locator(`.integration--connecting[data-channel-kind="instagram"] [data-act="channel-manage"][data-arg="instagram:cn-instagram-01"]`)).toBeVisible();
     await expect(page.locator('.integration--not_connected[data-channel-kind="messenger"] [data-arg="connect-channel:messenger"]')).toBeVisible();
 
     // Telegram is not implemented, and says so rather than offering a form.
@@ -461,6 +462,53 @@ test.describe('the Channels catalogue', () => {
     await expect(details).toBeVisible();
     await expect(details.locator('.checklist__item--done')).toHaveCount(1);
     await expect(page.locator(`[data-connection="${CONNECTION}"] .connection__details`)).toHaveCount(0);
+  });
+});
+
+test.describe('the Automation builder geometry', () => {
+  test('aligns every node and connector on one measured workflow axis', async ({ page }) => {
+    await openAutomationBuilder(page);
+
+    const nodes = await page.locator('.workflow-block').evaluateAll((elements) => elements.map((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { x: bounds.x, width: bounds.width, centre: bounds.x + bounds.width / 2 };
+    }));
+    expect(nodes.length).toBeGreaterThanOrEqual(4);
+    for (const node of nodes.slice(1)) {
+      expect(node.x).toBeCloseTo(nodes[0]?.x ?? 0, 0);
+      expect(node.width).toBeCloseTo(nodes[0]?.width ?? 0, 0);
+      expect(node.centre).toBeCloseTo(nodes[0]?.centre ?? 0, 0);
+    }
+
+    const connectors = await page.locator('.workflow-connector').evaluateAll((elements) => elements.map((element) => {
+      const bounds = element.getBoundingClientRect();
+      const after = getComputedStyle(element, '::after');
+      return {
+        centre: bounds.x + bounds.width / 2,
+        arrowContent: after.content,
+        arrowWidth: Number.parseFloat(after.width),
+        arrowHeight: Number.parseFloat(after.height),
+      };
+    }));
+    expect(connectors).toHaveLength(nodes.length);
+    for (const connector of connectors) {
+      expect(connector.centre).toBeCloseTo(nodes[0]?.centre ?? 0, 0);
+      expect(connector.arrowContent).not.toBe('none');
+      expect(connector.arrowWidth).toBe(8);
+      expect(connector.arrowHeight).toBe(6);
+    }
+  });
+
+  test('keeps the editor aligned in RTL and LTR', async ({ page }) => {
+    await openAutomationBuilder(page);
+    const rtl = await box(page.locator('.workflow-block').first());
+    const rtlCanvas = await box(page.locator('.automation-canvas'));
+    await setDirection(page, 'ltr');
+    const ltr = await box(page.locator('.workflow-block').first());
+    const ltrCanvas = await box(page.locator('.automation-canvas'));
+    expect(ltr.width).toBeCloseTo(rtl.width, 0);
+    expect(rtl.x + rtl.width / 2).toBeCloseTo(rtlCanvas.x + rtlCanvas.width / 2, 0);
+    expect(ltr.x + ltr.width / 2).toBeCloseTo(ltrCanvas.x + ltrCanvas.width / 2, 0);
   });
 });
 

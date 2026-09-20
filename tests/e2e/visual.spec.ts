@@ -4,6 +4,7 @@ import {
   fontsReady,
   freezeClock,
   MATRIX,
+  openAutomationBuilder,
   openInbox,
   openScreen,
   openSignedOut,
@@ -216,5 +217,21 @@ test.describe('workspace screen baselines', () => {
     await page.locator('[data-arg="connect-channel:whatsapp"]').first().click();
     await expect(page.locator('.dialog')).toBeVisible();
     await expect(page.locator('[role="dialog"]')).toHaveScreenshot('dialog-connect-whatsapp.png');
+  });
+});
+
+test.describe('automation builder baselines', () => {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`automation builder — ${theme}`, async ({ page }) => {
+      await openAutomationBuilder(page);
+      await setTheme(page, theme);
+      await expect(page.locator('.automation-builder')).toHaveScreenshot(`automation-builder-${theme}.png`);
+    });
+  }
+
+  test('automation builder — phone', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openAutomationBuilder(page);
+    await expect(page).toHaveScreenshot('automation-builder-phone.png');
   });
 });
