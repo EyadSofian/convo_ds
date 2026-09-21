@@ -226,6 +226,8 @@ export {
 
 export { INBOX_FILTER_CATALOGUE, INBOX_FILTER_KEYS, inboxFilterDefinition } from './conversations/inbox-filters.js';
 export type { InboxFilterDefinition, InboxFilterGroup, InboxFilterKey, InboxFilterValueType } from './conversations/inbox-filters.js';
+export { INBOX_QUERY_DEFAULT, INBOX_SORTS, isInboxQuery } from './conversations/inbox-query.js';
+export type { InboxFilter, InboxQuery, InboxQueue, InboxSort } from './conversations/inbox-query.js';
 export type {
   ConversationState,
   LifecycleEffect,
