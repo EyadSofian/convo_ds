@@ -1,4 +1,5 @@
 import type { Theme } from './state';
+import type { Lang } from './format';
 
 /**
  * Visual preferences that outlive a page load.
@@ -12,6 +13,8 @@ import type { Theme } from './state';
 export interface Preferences {
   readonly theme: Theme | null;
   readonly navCollapsed: boolean | null;
+  /** Presentation preference only; never an authorization signal. */
+  readonly lang: Lang | null;
 }
 
 /** The part of `Storage` this module uses, so a test can hand it a plain object. */
@@ -22,27 +25,31 @@ export interface PreferenceStore {
 
 export const THEME_KEY = 'convo.theme';
 export const NAV_KEY = 'convo.nav';
+export const LANG_KEY = 'convo.lang';
 
 /** Reads what was stored. Anything unrecognised reads as "no preference". */
 export function readPreferences(store: PreferenceStore | null): Preferences {
-  if (store === null) return { theme: null, navCollapsed: null };
+  if (store === null) return { theme: null, navCollapsed: null, lang: null };
   const theme = attempt(() => store.getItem(THEME_KEY));
   const nav = attempt(() => store.getItem(NAV_KEY));
+  const lang = attempt(() => store.getItem(LANG_KEY));
   return {
     theme: theme === 'light' || theme === 'dark' ? theme : null,
     navCollapsed: nav === 'collapsed' ? true : nav === 'expanded' ? false : null,
+    lang: lang === 'en' || lang === 'ar' ? lang : null,
   };
 }
 
 /** Writes both values. A store that refuses (private mode, quota) is ignored. */
 export function writePreferences(
   store: PreferenceStore | null,
-  preferences: { readonly theme: Theme; readonly navCollapsed: boolean },
+  preferences: { readonly theme: Theme; readonly navCollapsed: boolean; readonly lang: Lang },
 ): void {
   if (store === null) return;
   attempt(() => {
     store.setItem(THEME_KEY, preferences.theme);
     store.setItem(NAV_KEY, preferences.navCollapsed ? 'collapsed' : 'expanded');
+    store.setItem(LANG_KEY, preferences.lang);
     return null;
   });
 }

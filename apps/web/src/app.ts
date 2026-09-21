@@ -349,8 +349,10 @@ export function mount(options: MountOptions): AppHandle {
   const stored = readPreferences(store);
   state.theme = stored.theme ?? ((options.prefersDark?.() ?? false) ? 'dark' : 'light');
   state.navCollapsed = stored.navCollapsed ?? true;
+  state.lang = stored.lang ?? state.lang;
   let savedTheme = state.theme;
   let savedNav = state.navCollapsed;
+  let savedLang = state.lang;
 
   const root = options.root;
   const host = options.host;
@@ -383,10 +385,11 @@ export function mount(options: MountOptions): AppHandle {
     document_.documentElement.setAttribute('lang', state.lang);
     document_.documentElement.setAttribute('dir', state.lang === 'ar' ? 'rtl' : 'ltr');
     document_.documentElement.setAttribute('data-theme', state.theme);
-    if (state.theme !== savedTheme || state.navCollapsed !== savedNav) {
+    if (state.theme !== savedTheme || state.navCollapsed !== savedNav || state.lang !== savedLang) {
       savedTheme = state.theme;
       savedNav = state.navCollapsed;
-      writePreferences(store, { theme: state.theme, navCollapsed: state.navCollapsed });
+      savedLang = state.lang;
+      writePreferences(store, { theme: state.theme, navCollapsed: state.navCollapsed, lang: state.lang });
     }
     root.className = 'app-root';
     replace(root, [renderApp(state)]);

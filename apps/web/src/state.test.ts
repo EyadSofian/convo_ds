@@ -143,11 +143,12 @@ describe('URL round-trip', () => {
     expect(state.analyticsFilters).toEqual({ from: '', to: '2026-09-10', channel: '', campaignId: '' });
   });
 
-  it('falls back to the defaults for values it does not recognise', () => {
+  it('does not let an omitted or invalid route language erase the current preference', () => {
     const state = createState(NOW);
+    state.lang = 'en';
     applyRoute(state, parseHash('#/inbox?queue=nope&lang=de'));
     expect(state.inboxQueue).toBe('unassigned');
-    expect(state.lang).toBe('ar');
+    expect(state.lang).toBe('en');
   });
 
   it('leaves the queue alone on a non-inbox route', () => {

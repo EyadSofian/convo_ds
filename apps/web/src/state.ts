@@ -191,7 +191,10 @@ export function routeParamsFor(state: AppState): Record<string, string> {
 export function applyRoute(state: AppState, route: Route): void {
   const params = route.params;
   state.route = route;
-  state.lang = params.lang === 'en' ? 'en' : 'ar';
+  // An absent language parameter means "keep the operator's persisted choice",
+  // not "reset to Arabic". Deep links must not overwrite a presentation
+  // preference just because they omit it.
+  if (params.lang === 'en' || params.lang === 'ar') state.lang = params.lang;
   if (route.screen === 'inbox') {
     // Which half of the inbox is showing is worth sharing in a link; nothing
     // else about it is local state any more.

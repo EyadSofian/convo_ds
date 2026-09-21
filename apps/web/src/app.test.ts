@@ -6,7 +6,7 @@ import type { FetchLike } from './api/client';
 import type { AppHandle, Cancel, MountOptions } from './app';
 import { boot, browserEventSource, browserScheduler, EXPORT_POLL_MS, mount, renderApp, workspaceOpen } from './app';
 import type { PreferenceStore } from './preferences';
-import { NAV_KEY, THEME_KEY } from './preferences';
+import { LANG_KEY, NAV_KEY, THEME_KEY } from './preferences';
 import type { RouterHost } from './router';
 import { createState } from './state';
 
@@ -462,16 +462,25 @@ describe('screens and preferences', () => {
     }
   });
 
-  it('applies a stored theme and navigation width, and remembers changes', async () => {
-    const store = memoryStore({ [THEME_KEY]: 'dark', [NAV_KEY]: 'expanded' });
-    const { root, app } = start('#/settings', signedIn(), { preferences: store });
+  it('applies stored visual preferences and retains language through an Automation deep link', async () => {
+    const store = memoryStore({ [THEME_KEY]: 'dark', [NAV_KEY]: 'expanded', [LANG_KEY]: 'en' });
+    const { root, app, host } = start('#/settings', signedIn(), { preferences: store });
     await settle();
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.getAttribute('lang')).toBe('en');
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr');
     expect(root.querySelector('.app')?.getAttribute('data-nav')).toBe('expanded');
     click(root.querySelector('.nav__toggle'));
     click(root.querySelector('.theme-toggle'));
-    expect(store.values).toEqual({ [THEME_KEY]: 'light', [NAV_KEY]: 'collapsed' });
+    expect(store.values).toEqual({ [THEME_KEY]: 'light', [NAV_KEY]: 'collapsed', [LANG_KEY]: 'en' });
     expect(app.state.theme).toBe('light');
+
+    // The draft route intentionally omits `lang`. It must retain the current
+    // presentation preference rather than resetting to the app default.
+    host.go('#/automations?view=mine&edit=0df0f076-256c-49a6-ad0c-3e797b29ea49');
+    await settle();
+    expect(document.documentElement.getAttribute('lang')).toBe('en');
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr');
   });
 
   it('follows the system colour scheme on a first visit', async () => {
