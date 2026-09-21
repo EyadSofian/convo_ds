@@ -188,6 +188,22 @@ export function routeParamsFor(state: AppState): Record<string, string> {
   return params;
 }
 
+/**
+ * Carries the global presentation language into a manually authored route.
+ *
+ * The normal navigation path goes through `routeParamsFor`, but anchors in
+ * independently-rendered screens must use this helper as well. A copied deep
+ * link therefore retains its language even in a fresh browser with no stored
+ * preference. It deliberately carries only a presentation preference, never
+ * identity, tenant or permission state.
+ */
+export function routeParamsWithLanguage(
+  state: Pick<AppState, 'lang'>,
+  params: Readonly<Record<string, string>>,
+): Record<string, string> {
+  return { ...params, lang: state.lang };
+}
+
 export function applyRoute(state: AppState, route: Route): void {
   const params = route.params;
   state.route = route;

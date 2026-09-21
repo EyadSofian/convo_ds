@@ -11,6 +11,7 @@ import {
   nextId,
   pushToast,
   routeParamsFor,
+  routeParamsWithLanguage,
   screenTitle,
 } from './state';
 
@@ -87,6 +88,13 @@ describe('toasts', () => {
 });
 
 describe('URL round-trip', () => {
+  it('adds language to manually authored deep links without exposing authority', () => {
+    const state = createState(NOW);
+    state.lang = 'en';
+    expect(routeParamsWithLanguage(state, { view: 'mine', edit: 'automation-1' }))
+      .toEqual({ view: 'mine', edit: 'automation-1', lang: 'en' });
+  });
+
   it('encodes only what is worth sharing', () => {
     const state = createState(NOW);
     expect(routeParamsFor(state)).toEqual({});

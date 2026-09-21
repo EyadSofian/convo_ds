@@ -6,6 +6,7 @@ import { icon } from '../icons.js';
 import { hasPermission } from '../live/ability.js';
 import { rowsOf } from '../live/store.js';
 import { formatHash } from '../router.js';
+import { routeParamsWithLanguage } from '../state.js';
 import type { AppState } from '../state.js';
 import { t } from './copy.js';
 import { badge, button, emptyState, errorState, inlineError, page, panel, skeleton, toolbar, type Tone } from './parts.js';
@@ -38,7 +39,7 @@ function navigation(state: AppState, current: string): HTMLElement {
     ['runs', t(state, 'التشغيل والسجلات', 'Runs & Logs')],
   ] as const;
   return h('nav', { class: 'automation-tabs', 'aria-label': t(state, 'أقسام الأتمتة', 'Automation sections') }, tabs.map(([value, label]) =>
-    h('a', { class: 'automation-tabs__item', href: formatHash({ screen: 'automations', conversationId: null, params: { ...state.route.params, view: value, edit: '' } }), 'aria-current': current === value ? 'page' : undefined }, [label]),
+    h('a', { class: 'automation-tabs__item', href: formatHash({ screen: 'automations', conversationId: null, params: routeParamsWithLanguage(state, { ...state.route.params, view: value, edit: '' }) }), 'aria-current': current === value ? 'page' : undefined }, [label]),
   ));
 }
 
@@ -115,7 +116,7 @@ function automationCard(state: AppState, automation: Automation): HTMLElement {
       h('div', { class: 'automation-row__meta' }, [h('span', {}, [human(automation.workflow.trigger.type)]), h('span', {}, [formatNumber(automation.workflow.steps.length, state.lang), ' ', t(state, 'خطوة', 'steps')]), h('span', {}, [automation.timezone])]),
     ]),
     h('div', { class: 'automation-row__actions' }, [
-      mayEdit ? h('a', { class: 'btn btn--sm', href: formatHash({ screen: 'automations', conversationId: null, params: { view: 'mine', edit: automation.id } }) }, [icon('edit', 14), h('span', { class: 'btn__label' }, [t(state, 'تحرير', 'Edit')])]) : null,
+      mayEdit ? h('a', { class: 'btn btn--sm', href: formatHash({ screen: 'automations', conversationId: null, params: routeParamsWithLanguage(state, { view: 'mine', edit: automation.id }) }) }, [icon('edit', 14), h('span', { class: 'btn__label' }, [t(state, 'تحرير', 'Edit')])]) : null,
       automation.state !== 'archived' ? button({ label: human(action), icon: action === 'pause' ? 'pause' : 'play', act: 'live-automation-transition', arg: `${automation.id}:${action}`, small: true, busy: state.live.busy === `automation-${action}:${automation.id}` }) : null,
     ]),
   ]);
@@ -126,7 +127,7 @@ function builder(state: AppState, automation: Automation): HTMLElement {
   const scheduleKind = state.dialogForm['automationScheduleKind'] || String(automation.workflow.schedule?.['kind'] ?? 'daily');
   return h('section', { class: 'automation-builder', 'data-automation-builder': true }, [
     h('header', { class: 'automation-builder__header' }, [
-      h('a', { class: 'automation-builder__back', href: formatHash({ screen: 'automations', conversationId: null, params: { view: 'mine' } }) }, [icon('chevronStart', 16), t(state, 'رجوع إلى أتمتتي', 'Back to automations')]),
+      h('a', { class: 'automation-builder__back', href: formatHash({ screen: 'automations', conversationId: null, params: routeParamsWithLanguage(state, { view: 'mine' }) }) }, [icon('chevronStart', 16), t(state, 'رجوع إلى أتمتتي', 'Back to automations')]),
       h('div', {}, [h('p', { class: 'eyebrow' }, [t(state, 'مسودة سير عمل', 'Workflow draft')]), h('h2', {}, [automation.name])]),
       button({ label: t(state, 'حفظ المسودة', 'Save draft'), icon: 'check', act: 'live-automation-save', arg: automation.id, variant: 'primary', busy: state.live.busy === `automation-save:${automation.id}` }),
     ]),
