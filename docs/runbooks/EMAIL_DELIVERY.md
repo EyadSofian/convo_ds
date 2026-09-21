@@ -13,7 +13,7 @@ request transaction
                     ↓  commits together, or not at all
       worker-integration, every tick
                     ↓
-              Resend HTTP API
+          Resend HTTP API or SMTP
                     ↓
       state = sent + provider_message_id, payload scrubbed
            or state = failed + last_error_code, payload scrubbed
@@ -30,9 +30,14 @@ a send.
 
 | Variable | Required | Notes |
 | --- | --- | --- |
-| `CONVO_EMAIL_PROVIDER` | on `worker-integration` when delivery is enabled | `disabled`, `resend`, or non-production-only `logging` |
-| `CONVO_EMAIL_FROM` | when `resend` | `Name <address@domain>` or a bare address. The domain must be verified with Resend first. |
+| `CONVO_EMAIL_PROVIDER` | on `worker-integration` when delivery is enabled | `disabled`, `resend`, `smtp`, or non-production-only `logging` |
+| `CONVO_EMAIL_FROM` | when `resend` or `smtp` | `Name <address@domain>` or a bare address. Verify the sender with the chosen provider. |
 | `CONVO_RESEND_API_KEY` | when `resend` | ≥16 characters. Never logged, never returned by any API. |
+| `CONVO_SMTP_HOST` | when `smtp` | SMTP relay hostname, for example `smtp.hostinger.com`. |
+| `CONVO_SMTP_PORT` | when `smtp` | Integer from 1 to 65535. Port 465 requires `CONVO_SMTP_SECURE=true`. |
+| `CONVO_SMTP_SECURE` | when `smtp` | Explicit `true` for implicit TLS (including port 465), otherwise `false` for STARTTLS negotiation. |
+| `CONVO_SMTP_USERNAME` | when `smtp` | SMTP authentication username. |
+| `CONVO_SMTP_PASSWORD` | when `smtp` | Environment/secret-manager value only. Never logged or returned by any API. |
 | `CONVO_PUBLIC_BASE_URL` | yes | Every link in every email is built from this |
 
 **Production delivery fails closed without taking core services offline.**
@@ -46,9 +51,10 @@ nothing, and returns a synthetic id so the outbox state machine still completes.
 
 ## Before the first production send
 
-1. Verify the sending domain in Resend (DNS: SPF, DKIM, and the return-path
-   record Resend gives you). An unverified domain is the single most common
-   cause of `provider_credentials_rejected`.
+1. Verify the sending identity with the selected provider. For Resend this is
+   its DNS setup; for SMTP it is the mailbox/domain authorization configured by
+   the relay. Invalid credentials are reported as
+   `provider_credentials_rejected` and are not retried.
 2. Set `CONVO_EMAIL_FROM` to an address **on that verified domain**.
 3. Set `CONVO_PUBLIC_BASE_URL` to the public origin the browser actually uses. A
    wrong value here sends every recipient to a host that will not accept their
@@ -81,10 +87,12 @@ A healthy installation has a pending count that is almost always zero.
 
 | `last_error_code` | Meaning | Action |
 | --- | --- | --- |
-| `provider_credentials_rejected` | 401/403 from Resend | The API key is wrong, or the sending domain is not verified. Fix, then resend. |
+| `provider_credentials_rejected` | Resend 401/403 or SMTP authentication rejection | Fix the API key/password or provider authorization, then send a new invitation/recovery. |
 | `invalid_request:<name>` | 422 from Resend | Usually a malformed `CONVO_EMAIL_FROM`. Fix, then resend. |
 | `rate_limited` | 429 | Retried automatically with backoff. No action unless it persists. |
 | `provider_unavailable` | 5xx | Retried automatically. Check Resend status. |
+| `smtp_temporary_failure` | SMTP 4xx response | Retried automatically with backoff. |
+| `recipient_rejected` / `smtp_permanent_failure` | SMTP 5xx response | Correct the address or provider-side configuration; this is not retried. |
 | `provider_timeout` / `provider_unreachable` | No answer came back | Retried automatically. A duplicate is possible and acceptable here. |
 | `attempts_exhausted:<code>` | Six attempts, all retryable failures | The underlying `<code>` is the real problem. Fix it, then resend. |
 | `payload_unrenderable` | The stored payload is unusable | A bug, not an outage. Capture the row id and raise it. |

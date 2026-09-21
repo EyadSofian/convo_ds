@@ -90,9 +90,15 @@ Only `convo-worker-integration` receives email-provider configuration when
 delivery is deliberately enabled:
 
 ```
-CONVO_EMAIL_PROVIDER=resend
-CONVO_EMAIL_FROM=...                  # on a domain verified with Resend
-CONVO_RESEND_API_KEY=...
+CONVO_EMAIL_PROVIDER=resend            # or smtp
+CONVO_EMAIL_FROM=...                  # verified sender identity
+CONVO_RESEND_API_KEY=...               # only when provider=resend
+# SMTP only, stored as Railway secrets — never in source or logs:
+# CONVO_SMTP_HOST=smtp.hostinger.com
+# CONVO_SMTP_PORT=465
+# CONVO_SMTP_SECURE=true
+# CONVO_SMTP_USERNAME=no-reply@example.com
+# CONVO_SMTP_PASSWORD=...
 ```
 
 Absent provider configuration leaves that worker in explicit disabled mode;

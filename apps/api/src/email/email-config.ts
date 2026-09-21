@@ -20,15 +20,24 @@ import type { EnvironmentSource } from '@convo/domain';
  * request can influence. It is read here and nowhere else.
  */
 
-export const EMAIL_PROVIDERS = ['disabled', 'resend', 'logging'] as const;
+export const EMAIL_PROVIDERS = ['disabled', 'logging', 'resend', 'smtp'] as const;
 export type EmailProviderName = (typeof EMAIL_PROVIDERS)[number];
 
 export interface EmailConfig {
   readonly provider: EmailProviderName;
-  /** `Name <address@domain>` or a bare address. Empty when not using Resend. */
+  /** `Name <address@domain>` or a bare address. Empty when delivery is disabled. */
   readonly from: string;
   /** Empty when not using Resend. Never logged, never returned by an API. */
   readonly resendApiKey: string;
+  /** SMTP settings are populated only for the SMTP integration-worker binding. */
+  readonly smtp: {
+    readonly host: string;
+    readonly port: number;
+    readonly secure: boolean;
+    readonly username: string;
+    /** Never logged, never returned by an API. */
+    readonly password: string;
+  };
 }
 
 /**
@@ -44,6 +53,7 @@ const NAMED_ADDRESS = /^(?<name>[^<>]{1,120})<(?<address>[^\s<>@,;"]+@[^\s<>,;"]
 
 /** Short enough to be obviously a placeholder, long enough that a real key passes. */
 const MIN_API_KEY_LENGTH = 16;
+const EMPTY_SMTP = Object.freeze({ host: '', port: 0, secure: false, username: '', password: '' });
 
 export function isProductionEnvironment(env: EnvironmentSource): boolean {
   return env['NODE_ENV']?.trim() === 'production';
@@ -60,11 +70,11 @@ export function readEmailConfig(
   // Only worker-integration sends email. Returning `disabled` here is not a
   // fallback provider: its adapter refuses every send with a typed error.
   if (!consumesProvider) {
-    return { provider: 'disabled', from: '', resendApiKey: '' };
+    return disabledConfig();
   }
 
   if (raw === undefined) {
-    return { provider: 'disabled', from: '', resendApiKey: '' };
+    return disabledConfig();
   }
 
   if (!(EMAIL_PROVIDERS as readonly string[]).includes(raw)) {
@@ -75,13 +85,13 @@ export function readEmailConfig(
         `The email provider must be one of: ${EMAIL_PROVIDERS.join(', ')}.`,
       ),
     );
-    return { provider: 'logging', from: '', resendApiKey: '' };
+    return loggingConfig();
   }
 
   const provider = raw as EmailProviderName;
 
   if (provider === 'disabled') {
-    return { provider: 'disabled', from: '', resendApiKey: '' };
+    return disabledConfig();
   }
 
   if (provider === 'logging') {
@@ -94,12 +104,22 @@ export function readEmailConfig(
         ),
       );
     }
-    return { provider: 'logging', from: '', resendApiKey: '' };
+    return loggingConfig();
   }
 
   const from = readFrom(env, issues);
-  const resendApiKey = readApiKey(env, issues);
-  return { provider, from, resendApiKey };
+  if (provider === 'resend') {
+    return { provider, from, resendApiKey: readApiKey(env, issues), smtp: EMPTY_SMTP };
+  }
+  return { provider, from, resendApiKey: '', smtp: readSmtp(env, issues) };
+}
+
+function disabledConfig(): EmailConfig {
+  return { provider: 'disabled', from: '', resendApiKey: '', smtp: EMPTY_SMTP };
+}
+
+function loggingConfig(): EmailConfig {
+  return { provider: 'logging', from: '', resendApiKey: '', smtp: EMPTY_SMTP };
 }
 
 function readFrom(env: EnvironmentSource, issues: ErrorDetail[]): string {
@@ -141,6 +161,58 @@ function readApiKey(env: EnvironmentSource, issues: ErrorDetail[]): string {
     return '';
   }
   return value;
+}
+
+function readSmtp(env: EnvironmentSource, issues: ErrorDetail[]): EmailConfig['smtp'] {
+  const host = requiredSmtpText(env, 'CONVO_SMTP_HOST', issues);
+  const port = readSmtpPort(env, issues);
+  const secure = readSmtpSecure(env, issues);
+  const username = requiredSmtpText(env, 'CONVO_SMTP_USERNAME', issues);
+  const password = requiredSmtpText(env, 'CONVO_SMTP_PASSWORD', issues);
+
+  // Port 465 is implicit TLS. Configuring it as STARTTLS makes the client wait
+  // for a plaintext SMTP greeting that the server will never send.
+  if (port === 465 && secure !== true) {
+    issues.push(
+      issue('CONVO_SMTP_SECURE', 'required_for_port_465', 'SMTP port 465 requires CONVO_SMTP_SECURE=true.'),
+    );
+  }
+  return { host, port, secure, username, password };
+}
+
+function requiredSmtpText(env: EnvironmentSource, field: string, issues: ErrorDetail[]): string {
+  const value = optional(env, field);
+  if (value === undefined) {
+    issues.push(issue(field, 'required', `${field} must be configured for the SMTP provider.`));
+    return '';
+  }
+  return value;
+}
+
+function readSmtpPort(env: EnvironmentSource, issues: ErrorDetail[]): number {
+  const raw = optional(env, 'CONVO_SMTP_PORT');
+  if (raw === undefined) {
+    issues.push(issue('CONVO_SMTP_PORT', 'required', 'SMTP port must be configured for the SMTP provider.'));
+    return 0;
+  }
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    issues.push(issue('CONVO_SMTP_PORT', 'out_of_range', 'SMTP port must be an integer from 1 to 65535.'));
+    return 0;
+  }
+  return port;
+}
+
+function readSmtpSecure(env: EnvironmentSource, issues: ErrorDetail[]): boolean {
+  const raw = optional(env, 'CONVO_SMTP_SECURE');
+  if (raw === undefined) {
+    issues.push(issue('CONVO_SMTP_SECURE', 'required', 'SMTP secure mode must be explicitly true or false.'));
+    return false;
+  }
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  issues.push(issue('CONVO_SMTP_SECURE', 'invalid_boolean', 'SMTP secure mode must be true or false.'));
+  return false;
 }
 
 export function isSendingIdentity(value: string): boolean {
