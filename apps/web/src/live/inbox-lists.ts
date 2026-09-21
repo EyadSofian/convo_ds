@@ -17,8 +17,11 @@ export async function refreshInboxLists(context: LiveContext): Promise<void> {
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
     const [unassigned, mine] = await Promise.all([
-      live.conversationsApi.unassigned(tenantId),
-      live.conversationsApi.list(tenantId, 'mine'),
+      // A realtime event refreshes the first visible page of the *same*
+      // operational query. Dropping these would silently turn an Agent/Label
+      // queue into an unfiltered one after the first incoming message.
+      live.conversationsApi.unassigned(tenantId, live.inboxFilters),
+      live.conversationsApi.list(tenantId, 'mine', live.inboxFilters),
     ]);
     const now = context.now();
     if (unassigned.ok) {
