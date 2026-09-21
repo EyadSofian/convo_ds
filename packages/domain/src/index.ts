@@ -223,6 +223,9 @@ export {
   LIFECYCLE_TRIGGERS,
   occupiesIdentity,
 } from './conversations/lifecycle.js';
+
+export { INBOX_FILTER_CATALOGUE, INBOX_FILTER_KEYS, inboxFilterDefinition } from './conversations/inbox-filters.js';
+export type { InboxFilterDefinition, InboxFilterGroup, InboxFilterKey, InboxFilterValueType } from './conversations/inbox-filters.js';
 export type {
   ConversationState,
   LifecycleEffect,
