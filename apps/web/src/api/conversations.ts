@@ -160,23 +160,47 @@ export interface OutboundMessage {
 
 export type ConversationQueue = 'mine' | 'all';
 
+/** The server's closed InboxQuery representation, mirrored without SQL terms. */
+export interface InboxQueryFilter {
+  readonly key: string;
+  readonly operator: string;
+  readonly value?: string | boolean | readonly string[];
+  readonly fieldId?: string;
+}
+
+export type InboxSort = 'activity_desc' | 'activity_asc' | 'created_desc' | 'created_asc' | 'waiting_desc' | 'priority_desc';
+
+export interface InboxQuery {
+  readonly queue: ConversationQueue;
+  readonly filters: readonly InboxQueryFilter[];
+  readonly search: string | null;
+  readonly sort: InboxSort;
+  readonly cursor: string | null;
+  readonly limit: number;
+}
+
+export interface ConversationPage {
+  readonly items: readonly Conversation[];
+  readonly nextCursor: string | null;
+}
+
+export const DEFAULT_INBOX_QUERY: InboxQuery = {
+  queue: 'mine', filters: [], search: null, sort: 'activity_desc', cursor: null, limit: 50,
+};
+
 export class ConversationsApi {
   constructor(private readonly client: ApiClient) {}
 
   /** Conversations the caller may read. Never a card. */
-  list(
-    tenantId: string,
-    queue: ConversationQueue,
-    filters: { readonly unread: string; readonly priority: string; readonly channel: string; readonly labelId: string } = { unread: '', priority: '', channel: '', labelId: '' },
-  ): Promise<ApiResult<readonly Conversation[]>> {
-    const query = new URLSearchParams({ queue });
-    if (filters.unread !== '') query.set('unread', filters.unread);
-    if (filters.priority !== '') query.set('priority', filters.priority);
-    if (filters.channel !== '') query.set('channel', filters.channel);
-    if (filters.labelId !== '') query.append('label', filters.labelId);
-    return this.client.get<readonly Conversation[]>(
-      `/tenants/${tenantId}/conversations?${query.toString()}`,
-    );
+  async list(tenantId: string, inboxQuery: InboxQuery): Promise<ApiResult<ConversationPage>> {
+    const query = new URLSearchParams({ queue: inboxQuery.queue });
+    if (inboxQuery.sort !== 'activity_desc') query.set('sort', inboxQuery.sort);
+    if (inboxQuery.limit !== 50) query.set('limit', String(inboxQuery.limit));
+    if (inboxQuery.cursor !== null) query.set('cursor', inboxQuery.cursor);
+    if (inboxQuery.search !== null && inboxQuery.search !== '') query.set('search', inboxQuery.search);
+    for (const filter of inboxQuery.filters) query.append('filter', JSON.stringify(filter));
+    const page = await this.client.page<Conversation>(`/tenants/${tenantId}/conversations?${query.toString()}`);
+    return page.ok ? { ok: true, data: { items: page.data.data, nextCursor: page.data.nextCursor } } : page;
   }
 
   /** The Unassigned queue. Never a transcript. */

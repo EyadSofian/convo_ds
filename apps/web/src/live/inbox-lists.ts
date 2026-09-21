@@ -1,4 +1,5 @@
 import type { LiveContext } from './actions.js';
+import { unassignedFilterProjection } from './inbox-query.js';
 import { forTenant, ready } from './store.js';
 
 /**
@@ -20,15 +21,15 @@ export async function refreshInboxLists(context: LiveContext): Promise<void> {
       // A realtime event refreshes the first visible page of the *same*
       // operational query. Dropping these would silently turn an Agent/Label
       // queue into an unfiltered one after the first incoming message.
-      live.conversationsApi.unassigned(tenantId, live.inboxFilters),
-      live.conversationsApi.list(tenantId, 'mine', live.inboxFilters),
+      live.conversationsApi.unassigned(tenantId, unassignedFilterProjection(live.inboxQuery)),
+      live.conversationsApi.list(tenantId, live.inboxQuery),
     ]);
     const now = context.now();
     if (unassigned.ok) {
       live.unassigned = ready(unassigned.data, now);
     }
     if (mine.ok) {
-      live.conversations = ready(mine.data, now);
+      live.conversations = ready(mine.data.items, now);
     }
     context.refresh();
   });

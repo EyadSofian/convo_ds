@@ -9,8 +9,10 @@ import type {
   Handoff,
   Note,
   QueueCard,
+  InboxQuery,
   TimelineMessage,
 } from '../api/conversations.js';
+import { DEFAULT_INBOX_QUERY } from '../api/conversations.js';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
 import type { Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi } from '../api/campaigns.js';
@@ -209,7 +211,8 @@ export interface LiveState {
   automationRuns: Resource<readonly AutomationRun[]>;
   whatsappTemplates: Resource<readonly WhatsAppTemplate[]>;
   selectedCampaignId: string | null;
-  inboxFilters: { unread: string; priority: string; channel: string; labelId: string };
+  /** Single authoritative readable-Inbox query, shared by load and realtime. */
+  inboxQuery: InboxQuery;
   contactFilters: { labelId: string; fieldId: string; fieldValue: string };
   busy: string | null;
   error: ApiError | null;
@@ -293,7 +296,7 @@ export function createLiveState(
     automationRuns: IDLE,
     whatsappTemplates: IDLE,
     selectedCampaignId: null,
-    inboxFilters: { unread: '', priority: '', channel: '', labelId: '' },
+    inboxQuery: DEFAULT_INBOX_QUERY,
     contactFilters: { labelId: '', fieldId: '', fieldValue: '' },
     conversationsApi: conversations,
     contactsApi: contacts,

@@ -32,6 +32,7 @@ import {
 } from './routing-actions.js';
 import { createField, createLabel, setEntityLabel, setFieldValue } from './metadata-actions.js';
 import { rowsOf } from './store.js';
+import { setSimpleFilter } from './inbox-query.js';
 import {
   approveCampaign,
   cloneCampaign,
@@ -826,7 +827,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-inbox-filter': async (context, arg) => {
     const { id, value } = splitArg(arg);
     if (!['unread', 'priority', 'channel', 'labelId'].includes(id)) return false;
-    context.live.inboxFilters = { ...context.live.inboxFilters, [id]: value };
+    context.live.inboxQuery = setSimpleFilter(context.live.inboxQuery, id as 'unread' | 'priority' | 'channel' | 'labelId', value);
     return loadInboxScreen(context);
   },
 

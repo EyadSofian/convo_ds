@@ -4,6 +4,7 @@ import { h } from '../dom.js';
 import { clockTime, dayLabel, initials, relativeTime } from '../format.js';
 import { icon } from '../icons.js';
 import { routingAbility } from '../live/ability.js';
+import { activeFilterCount, simpleFilterValue } from '../live/inbox-query.js';
 import { isDenial, rowsOf } from '../live/store.js';
 import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
@@ -141,7 +142,7 @@ function listResizer(state: AppState): HTMLElement {
 /* ------------------------------------------------------------------- list -- */
 
 function renderListZone(state: AppState, live: LiveState): HTMLElement {
-  const activeFilters = Object.values(live.inboxFilters).filter((value) => value !== '').length;
+  const activeFilters = activeFilterCount(live.inboxQuery);
   return h('section', { class: 'zone zone--list', 'aria-label': t(state, 'قائمة المحادثات', 'Conversation list') }, [
     h('header', { class: 'listhead' }, [
       segmented(
@@ -202,29 +203,29 @@ function countOf(resource: Resource<readonly unknown[]>): number | undefined {
 }
 
 function inboxFilters(state: AppState, live: LiveState): HTMLElement {
-  const filters = live.inboxFilters;
+  const filters = live.inboxQuery;
   const labels = rowsOf(live.labels).filter((entry) => entry.state === 'active');
   const common = { act: 'live-inbox-filter', disabled: live.busy !== null };
   const row = (label: string, control: HTMLElement): HTMLElement =>
     h('label', { class: 'field field--row' }, [h('span', { class: 'field__label' }, [label]), control]);
   return h('div', { class: 'popover', role: 'group', 'data-overlay': 'popover', 'aria-label': t(state, 'تصفية المحادثات', 'Filter conversations') }, [
-    row(t(state, 'القراءة', 'Read state'), selectControl({ ...common, value: filters.unread, form: 'unread', options: [
+    row(t(state, 'القراءة', 'Read state'), selectControl({ ...common, value: simpleFilterValue(filters, 'unread'), form: 'unread', options: [
       { value: '', label: t(state, 'الكل', 'All') },
       { value: 'true', label: t(state, 'غير مقروءة', 'Unread') },
       { value: 'false', label: t(state, 'مقروءة', 'Read') },
     ] })),
-    row(t(state, 'الأولوية', 'Priority'), selectControl({ ...common, value: filters.priority, form: 'priority', options: [
+    row(t(state, 'الأولوية', 'Priority'), selectControl({ ...common, value: simpleFilterValue(filters, 'priority'), form: 'priority', options: [
       { value: '', label: t(state, 'كل الأولويات', 'Any priority') },
       { value: 'urgent', label: t(state, 'عاجلة', 'Urgent') },
       { value: 'high', label: t(state, 'مرتفعة', 'High') },
       { value: 'normal', label: t(state, 'عادية', 'Normal') },
       { value: 'low', label: t(state, 'منخفضة', 'Low') },
     ] })),
-    row(t(state, 'القناة', 'Channel'), selectControl({ ...common, value: filters.channel, form: 'channel', options: [
+    row(t(state, 'القناة', 'Channel'), selectControl({ ...common, value: simpleFilterValue(filters, 'channel'), form: 'channel', options: [
       { value: '', label: t(state, 'كل القنوات', 'Any channel') },
       ...['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom'].map((value) => ({ value, label: phrase(state, CHANNEL_NAMES, value) })),
     ] })),
-    row(t(state, 'التصنيف', 'Label'), selectControl({ ...common, value: filters.labelId, form: 'labelId', options: [
+    row(t(state, 'التصنيف', 'Label'), selectControl({ ...common, value: simpleFilterValue(filters, 'labelId'), form: 'labelId', options: [
       { value: '', label: t(state, 'كل التصنيفات', 'Any label') },
       ...labels.map((entry) => ({ value: entry.id, label: entry.name })),
     ] })),

@@ -5,6 +5,8 @@ import {
   disconnectedContactsApi,
   disconnectedConversationsApi,
 } from './api/people';
+import { DEFAULT_INBOX_QUERY } from './api/conversations';
+import type { InboxQueryFilter, InboxSort } from './api/conversations';
 import type { LiveState } from './live/store';
 import { createLiveState } from './live/store';
 import type { Route, ScreenId } from './router';
@@ -172,6 +174,12 @@ export function routeParamsFor(state: AppState): Record<string, string> {
   if (state.route.screen === 'inbox' && state.inboxQueue !== 'unassigned') {
     params.queue = state.inboxQueue;
   }
+  if (state.route.screen === 'inbox') {
+    const query = state.live.inboxQuery;
+    if (query.queue !== 'mine') params.scope = query.queue;
+    if (query.sort !== 'activity_desc') params.sort = query.sort;
+    if (query.filters.length > 0) params.filters = JSON.stringify(query.filters);
+  }
   if (state.route.screen === 'analytics') {
     const filters = state.analyticsFilters;
     if (filters.from !== '') params.from = filters.from;
@@ -215,6 +223,12 @@ export function applyRoute(state: AppState, route: Route): void {
     // Which half of the inbox is showing is worth sharing in a link; nothing
     // else about it is local state any more.
     state.inboxQueue = params.queue === 'mine' ? 'mine' : 'unassigned';
+    state.live.inboxQuery = {
+      ...DEFAULT_INBOX_QUERY,
+      queue: params.scope === 'all' ? 'all' : 'mine',
+      sort: isInboxSort(params.sort) ? params.sort : 'activity_desc',
+      filters: routeFilters(params.filters),
+    };
   }
   if (route.screen === 'analytics') {
     state.analyticsFilters = {
@@ -224,6 +238,33 @@ export function applyRoute(state: AppState, route: Route): void {
       campaignId: params.campaign ?? '',
     };
   }
+}
+
+function isInboxSort(value: string | undefined): value is InboxSort {
+  return value === 'activity_desc' || value === 'activity_asc' || value === 'created_desc' || value === 'created_asc' || value === 'waiting_desc' || value === 'priority_desc';
+}
+
+function routeFilters(value: string | undefined): readonly InboxQueryFilter[] {
+  if (value === undefined || value.length > 6000) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed) || parsed.length > 20) return [];
+    return parsed.every(isRouteFilter) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function isRouteFilter(value: unknown): value is InboxQueryFilter {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const filter = value as Record<string, unknown>;
+  const filterValue = filter['value'];
+  const scalar = typeof filterValue === 'string' || typeof filterValue === 'boolean';
+  const list = Array.isArray(filterValue) && filterValue.length > 0 && filterValue.length <= 20 && filterValue.every((item) => typeof item === 'string');
+  return typeof filter['key'] === 'string' && filter['key'].length <= 64 &&
+    typeof filter['operator'] === 'string' && filter['operator'].length <= 24 &&
+    (filterValue === undefined || scalar || list) &&
+    (filter['fieldId'] === undefined || typeof filter['fieldId'] === 'string');
 }
 
 export function screenTitle(screen: ScreenId, lang: Lang): string {

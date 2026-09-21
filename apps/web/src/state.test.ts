@@ -136,6 +136,20 @@ describe('URL round-trip', () => {
     expect(state.route.conversationId).toBe('cv-4820');
   });
 
+  it('round-trips a structured inbox query without putting search text in the URL', () => {
+    const state = createState(NOW);
+    state.live.inboxQuery = {
+      queue: 'all', sort: 'priority_desc', cursor: null, limit: 50, search: 'private customer words',
+      filters: [{ key: 'label_id', operator: 'eq', value: '11111111-1111-4111-8111-111111111111' }],
+    };
+    const params = routeParamsFor(state);
+    expect(params).toMatchObject({ scope: 'all', sort: 'priority_desc' });
+    expect(params.search).toBeUndefined();
+    const next = createState(NOW);
+    applyRoute(next, parseHash(`#/inbox?scope=${params.scope}&sort=${params.sort}&filters=${encodeURIComponent(params.filters as string)}`));
+    expect(next.live.inboxQuery).toMatchObject({ queue: 'all', sort: 'priority_desc', filters: state.live.inboxQuery.filters, search: null });
+  });
+
   it('ignores a role in the URL, as it always must', () => {
     const state = createState(NOW);
     applyRoute(state, parseHash('#/inbox?as=owner'));

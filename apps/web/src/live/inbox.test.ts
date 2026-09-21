@@ -281,7 +281,7 @@ describe('the queue', () => {
         status: 200,
         body: { data: [] },
       })
-      .on(`GET /tenants/${TENANT}/conversations?queue=mine&priority=urgent`, {
+      .on(`GET /tenants/${TENANT}/conversations?queue=mine&filter=${encodeURIComponent(JSON.stringify({ key: 'priority', operator: 'eq', value: 'urgent' }))}`, {
         status: 200,
         body: { data: [] },
       });
@@ -289,7 +289,7 @@ describe('the queue', () => {
     app.dispatch('live-inbox-filter', 'priority:urgent');
     await settle();
     expect(api.countOf(`GET /tenants/${TENANT}/conversations/unassigned?priority=urgent`)).toBe(1);
-    expect(api.countOf(`GET /tenants/${TENANT}/conversations?queue=mine&priority=urgent`)).toBe(1);
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations?queue=mine&filter=${encodeURIComponent(JSON.stringify({ key: 'priority', operator: 'eq', value: 'urgent' }))}`)).toBe(1);
   });
 
   it('shows a projected card, and nothing that was not sent', async () => {
@@ -730,7 +730,7 @@ describe('what the screen does with what it is given', () => {
         },
       })
       .on(`GET /tenants/${TENANT}/conversations/unassigned?label=l-1`, { status: 200, body: { data: [] } })
-      .on(`GET /tenants/${TENANT}/conversations?queue=mine&label=l-1`, { status: 200, body: { data: [] } });
+      .on(`GET /tenants/${TENANT}/conversations?queue=mine&filter=${encodeURIComponent(JSON.stringify({ key: 'label_id', operator: 'eq', value: 'l-1' }))}`, { status: 200, body: { data: [], page: { next_cursor: null, has_more: false } } });
     const { root, app } = await open(api);
     click(root, '[data-act="menu"][data-arg="inbox-filters"]');
     const popover = root.querySelector('.popover') as HTMLElement;
@@ -743,7 +743,7 @@ describe('what the screen does with what it is given', () => {
     label.value = 'l-1';
     label.dispatchEvent(new window.Event('change', { bubbles: true }));
     await settle();
-    expect(app.state.live.inboxFilters.labelId).toBe('l-1');
+    expect(app.state.live.inboxQuery.filters).toContainEqual({ key: 'label_id', operator: 'eq', value: 'l-1' });
     expect(api.countOf(`GET /tenants/${TENANT}/conversations/unassigned?label=l-1`)).toBe(1);
     // The control says how many filters are on.
     expect(root.querySelector('[data-arg="inbox-filters"]')?.getAttribute('title')).toBe('تصفية (1 مفعّلة)');

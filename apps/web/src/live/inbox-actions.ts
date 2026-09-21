@@ -3,6 +3,7 @@ import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { loadOpenContact } from './contact-actions.js';
 import { refreshInboxLists } from './inbox-lists.js';
+import { unassignedFilterProjection } from './inbox-query.js';
 import { loadEpisodes, loadNotes, markConversationRead } from './lifecycle-actions.js';
 import { loadRouting } from './routing-actions.js';
 import { subscribe } from './realtime.js';
@@ -45,12 +46,12 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
     context.refresh();
 
     const [unassigned, mine] = await Promise.all([
-      live.conversationsApi.unassigned(tenantId, live.inboxFilters),
-      live.conversationsApi.list(tenantId, 'mine', live.inboxFilters),
+      live.conversationsApi.unassigned(tenantId, unassignedFilterProjection(live.inboxQuery)),
+      live.conversationsApi.list(tenantId, live.inboxQuery),
     ]);
     const now = context.now();
     live.unassigned = fromResult(unassigned, now);
-    live.conversations = fromResult(mine, now);
+    live.conversations = mine.ok ? ready(mine.data.items, now) : failed(mine.error);
     context.refresh();
     if (live.labels.status === 'idle') await loadMetadataCatalog(context);
   });
