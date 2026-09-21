@@ -1117,7 +1117,8 @@ describe('the inbox surface', () => {
   });
 
   it('lists everything an owner may read, and filters by status', async () => {
-    const all = await send(api, owner, 'GET', '/conversations?queue=all&status=open');
+    const status = encodeURIComponent(JSON.stringify({ key: 'status', operator: 'eq', value: 'open' }));
+    const all = await send(api, owner, 'GET', `/conversations?queue=all&filter=${status}`);
     expect(all.statusCode).toBe(200);
     const rows = (all.json() as { data: { id: string; status: string }[] }).data;
     // An owner reads at tenant level, so `queue=all` is genuinely everything —
@@ -1125,12 +1126,10 @@ describe('the inbox surface', () => {
     expect(rows.map((row) => row.id)).toContain(conversationId);
     expect(rows.every((row) => row.status === 'open')).toBe(true);
 
-    // A filter nobody recognises is not an error: the honest answer to "show me
-    // conversations that are flurble" is the unfiltered list, not a 400 that
-    // hides the inbox.
-    const odd = await send(api, owner, 'GET', '/conversations?queue=all&status=flurble');
-    expect(odd.statusCode).toBe(200);
-    expect((odd.json() as { data: unknown[] }).data.length).toBeGreaterThanOrEqual(rows.length);
+    // The structured query is strict: unknown enums must not silently widen a
+    // saved or shareable Inbox query into an unfiltered list.
+    const odd = encodeURIComponent(JSON.stringify({ key: 'status', operator: 'eq', value: 'flurble' }));
+    expect((await send(api, owner, 'GET', `/conversations?queue=all&filter=${odd}`)).statusCode).toBe(400);
   });
 
   it('reaches a team-routed conversation through the list, the timeline and a reply', async () => {
@@ -1812,8 +1811,9 @@ describe('contacts', () => {
     expect((await send(api, owner, 'GET', `/contacts?${repeatedLabels.toString()}`)).statusCode).toBe(400);
 
     const validId = '99999999-9999-4999-8999-999999999999';
-    expect((await send(api, owner, 'GET', `/conversations?queue=all&unread=true&priority=high&channel=whatsapp&inboxId=${validId}&teamId=${validId}&assigneeId=${validId}`)).statusCode).toBe(200);
-    expect((await send(api, owner, 'GET', '/conversations?unread=false')).statusCode).toBe(200);
+    const inboxFilter = (filter: unknown): string => `filter=${encodeURIComponent(JSON.stringify(filter))}`;
+    expect((await send(api, owner, 'GET', `/conversations?queue=all&${inboxFilter({ key: 'status', operator: 'eq', value: 'open' })}`)).statusCode).toBe(200);
+    expect((await send(api, owner, 'GET', `/conversations?${inboxFilter({ key: 'unread', operator: 'eq', value: false })}`)).statusCode).toBe(200);
     expect((await send(api, owner, 'GET', `/conversations/unassigned?priority=urgent&channel=instagram&inboxId=${validId}`)).statusCode).toBe(200);
     for (const path of [
       '/conversations?unread=maybe',

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
-import { authorize, projectQueueCard, REALTIME_SCHEMA_VERSION } from '@convo/domain';
+import type { InboxQuery, QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
+import { authorize, projectQueueCard, reachFor, REALTIME_SCHEMA_VERSION } from '@convo/domain';
 import type { Pool } from 'pg';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
@@ -15,7 +15,6 @@ import {
   DETAIL_COLUMNS,
   inboxOf,
   notFound,
-  participantIds,
   readConversation,
   readDetail,
   recordParticipation,
@@ -34,6 +33,9 @@ import {
 import type { TimelinePage } from './timeline.js';
 import { MetadataService } from '../metadata/metadata.service.js';
 import type { EntityMetadata } from '../metadata/metadata.service.js';
+import { OpaqueCursorCodec } from '../pagination.js';
+import { compileInboxQuery } from './inbox-query-compiler.js';
+import { validateInboxQuery } from './inbox-query-validation.js';
 
 export type { ConversationDetail, ConversationRow } from './record.js';
 
@@ -48,6 +50,7 @@ export type { ConversationDetail, ConversationRow } from './record.js';
 export interface ConversationListRow extends ConversationDetail, EntityMetadata {
   readonly unread: boolean;
 }
+export interface ConversationListPage { readonly items: readonly ConversationListRow[]; readonly nextCursor: string | null; }
 
 /**
  * Conversations: the thing an inbox is a list of.
@@ -328,86 +331,61 @@ export class ConversationService {
   async list(
     session: AuthenticatedSession,
     tenantId: string,
-    query: {
-      readonly queue: 'mine' | 'all';
-      readonly status: string | null;
-      readonly unread: boolean | null;
-      readonly priority: string | null;
-      readonly channel: string | null;
-      readonly inboxId: string | null;
-      readonly teamId: string | null;
-      readonly assigneeId: string | null;
-      readonly labelIds: readonly string[];
-    },
-  ): Promise<readonly ConversationListRow[]> {
+    query: InboxQuery,
+  ): Promise<ConversationListPage> {
     return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      if (reachFor(principal, 'conversation.read') === 'none') throw denied();
+      const customFields = await validateInboxQuery(sql, query);
+      const compiled=compileInboxQuery(query,principal,customFields);
+      const params=[...compiled.params]; const add=(value:unknown)=>{params.push(value);return `$${params.length}`;};
+      const binding={tenantId,filterHash:compiled.fingerprint,sort:query.sort};const codec=new OpaqueCursorCodec(this.config.secrets.idempotencyHash);
+      let cursor='';
+      if(query.cursor!==null){const decoded=codec.decode(query.cursor,binding);if(decoded.status==='rejected')throw new ApiHttpError(400,decoded.code,decoded.message);cursor=cursorPredicate(query.sort,decoded.after.value,decoded.after.id,add);}
+      const viewer=add(principal.membershipId);const limit=add(query.limit+1);
       const rows = await sql.query<
-        RawConversation & { display_name: string; kind: string; read_through: Date | null }
+        RawConversation & { display_name: string; kind: string; read_through: Date | null; cursor_value:string; participant_membership_ids: readonly string[] }
       >(
         // The read cursor is joined for THIS membership only. Unread is a fact
         // about a person, so a row's unread flag is not a property of the row —
         // two agents looking at the same list see different answers, correctly.
-        `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, r.read_through
+        `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, r.read_through, ${cursorValue(query.sort)} AS cursor_value,
+                ARRAY(SELECT participant.membership_id::text FROM conversation_participants participant WHERE participant.conversation_id = c.id
+                      UNION
+                      SELECT collaborator.membership_id::text FROM conversation_collaborators collaborator WHERE collaborator.conversation_id = c.id AND collaborator.removed_at IS NULL) AS participant_membership_ids
            FROM conversations c
            JOIN channel_connections n ON n.id = c.connection_id
            LEFT JOIN conversation_reads r
-             ON r.conversation_id = c.id AND r.membership_id = $3
-          WHERE ($1::text IS NULL OR c.status = $1)
-            AND ($2::uuid IS NULL OR c.assignee_membership_id = $2)
-            -- Archived threads are history. They are reachable by id and by an
-            -- explicit status filter, never by the working list.
-            AND ($1::text IS NOT NULL OR c.status <> 'archived')
-            AND ($4::text IS NULL OR c.priority = $4)
-            AND ($5::text IS NULL OR n.kind = $5)
-            AND ($6::uuid IS NULL OR c.connection_id = $6)
-            AND ($7::uuid IS NULL OR c.team_id = $7)
-            AND ($8::boolean IS NULL OR
-              (r.read_through IS NULL OR r.read_through < c.last_activity_at) = $8)
-            AND (cardinality($9::uuid[]) = 0 OR (
-              SELECT count(DISTINCT cl.label_id) FROM conversation_labels cl
-               WHERE cl.conversation_id = c.id AND cl.removed_at IS NULL
-                 AND cl.label_id = ANY($9::uuid[])
-            ) = cardinality($9::uuid[]))
-          ORDER BY c.last_activity_at DESC, c.id
-          LIMIT 200`,
-        [
-          query.status,
-          query.queue === 'mine' ? principal.membershipId : query.assigneeId,
-          principal.membershipId,
-          query.priority,
-          query.channel,
-          query.inboxId,
-          query.teamId,
-          query.unread,
-          query.labelIds,
-        ],
+             ON r.conversation_id = c.id AND r.membership_id = ${viewer}
+          WHERE ${compiled.where}${cursor}
+          ORDER BY ${compiled.order}
+          LIMIT ${limit}`,
+        params,
       );
-
-      const visible: ConversationListRow[] = [];
-      for (const row of rows.rows) {
-        const participants = await participantIds(sql, row.id);
-        // Decided per row against the same terms the socket uses. A list route
-        // being permitted in general says nothing about any particular row.
+      const pageRows=rows.rows.slice(0,query.limit);const items: ConversationListRow[] = [];
+      for (const row of pageRows) {
+        const participants = row.participant_membership_ids;
+        // This is an equivalence guard, not a post-page filter. The SQL scope
+        // above has already applied the exact same terms before LIMIT; a drift
+        // must fail closed instead of returning a shortened, misleading page.
         const decision = authorize(principal, 'conversation.read', {
           inboxId: row.connection_id,
           ...(row.team_id === null ? {} : { teamId: row.team_id }),
           assigneeMembershipId: row.assignee_membership_id,
           participantMembershipIds: participants,
         });
-        if (decision.allowed) {
-          visible.push({
-            ...rowOf(row),
-            inboxLabel: row.display_name,
-            channel: row.kind,
-            participantMembershipIds: participants,
-            unread:
-              row.read_through === null ||
-              row.read_through.getTime() < row.last_activity_at.getTime(),
-            ...(await this.metadata.conversationMetadata(sql, row.id)),
-          });
-        }
+        if (!decision.allowed) throw new Error('Inbox SQL authorization scope disagreed with domain authorization.');
+        items.push({
+          ...rowOf(row),
+          inboxLabel: row.display_name,
+          channel: row.kind,
+          participantMembershipIds: participants,
+          unread:
+            row.read_through === null ||
+            row.read_through.getTime() < row.last_activity_at.getTime(),
+          ...(await this.metadata.conversationMetadata(sql, row.id)),
+        });
       }
-      return visible;
+      const last=pageRows.at(-1);return{items,nextCursor:rows.rows.length>query.limit&&last!==undefined?codec.encode(binding,{value:last.cursor_value,id:last.id},900):null};
     });
   }
 
@@ -613,6 +591,23 @@ export class ConversationService {
       return { connectionId: detail.connectionId, peerIdentity: detail.peerIdentity, resource };
     });
   }
+}
+
+function cursorValue(sort: InboxQuery['sort']): string {
+  if (sort === 'created_desc' || sort === 'created_asc') return 'c.created_at::text';
+  if (sort === 'waiting_desc') return "coalesce(c.waiting_since,'-infinity'::timestamptz)::text";
+  if (sort === 'priority_desc') return "(CASE c.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END)::text";
+  return 'c.last_activity_at::text';
+}
+
+function cursorPredicate(sort: InboxQuery['sort'], value: string, id: string, add: (value: unknown) => string): string {
+  const v=add(value);const i=add(id);
+  if(sort==='created_desc')return ` AND (c.created_at, c.id)<(${v}::timestamptz,${i}::uuid)`;
+  if(sort==='created_asc')return ` AND (c.created_at, c.id)>(${v}::timestamptz,${i}::uuid)`;
+  if(sort==='waiting_desc')return ` AND (coalesce(c.waiting_since,'-infinity'::timestamptz),c.id)<(${v}::timestamptz,${i}::uuid)`;
+  if(sort==='priority_desc')return ` AND ((CASE c.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END),c.id)<(${v}::integer,${i}::uuid)`;
+  if(sort==='activity_asc')return ` AND (c.last_activity_at,c.id)>(${v}::timestamptz,${i}::uuid)`;
+  return ` AND (c.last_activity_at,c.id)<(${v}::timestamptz,${i}::uuid)`;
 }
 
 

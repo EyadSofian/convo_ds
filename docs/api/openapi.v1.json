@@ -1338,7 +1338,7 @@
       "get": {
         "operationId": "listConversations",
         "summary": "List the conversations this caller may read",
-        "description": "Returns **records**, and every row is one the caller passed `conversation.read` for — decided per row, not once for the list. Different from the Unassigned queue, which returns projected cards for work nobody holds. `queue=mine` (the default) returns the caller's own conversations; `queue=all` returns everything within their reach, which for an Agent is still only their own.",
+        "description": "Returns a cursor-paged, authorization-scoped InboxQuery result. Every record passed `conversation.read` before the final keyset LIMIT. `filter` is a repeatable JSON-encoded object using the documented closed filter catalogue; it never accepts SQL fields, operators, or sort fragments. `queue=mine` (the default) returns the caller's own conversations; `queue=all` returns everything within their reach, which for an Agent is still only their own.",
         "security": [
           {
             "SessionCookie": []
@@ -1365,17 +1365,39 @@
             }
           },
           {
-            "name": "status",
+            "name": "filter",
             "in": "query",
             "required": false,
             "schema": {
               "type": "string",
-              "enum": [
-                "open",
-                "snoozed",
-                "resolved"
-              ]
+              "description": "Repeatable JSON object: { key, operator, value?, fieldId? }. Keys: status, assignment_state, assigned_agent_id, team_id, channel, connection_id, label_id, priority, unread, unreplied, created_at, last_activity_at, waiting_since, customer_name, customer_phone, collaborator_id, participant_id, handoff_target_id, custom_field."
             }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "maxLength": 200 },
+            "description": "Case-insensitive search over conversation UUID, contact name, phone, and peer identity."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["activity_desc", "activity_asc", "created_desc", "created_asc", "waiting_desc", "priority_desc"], "default": "activity_desc" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "maxLength": 4096 },
+            "description": "Opaque signed keyset cursor bound to tenant, effective query, and sort."
           }
         ],
         "responses": {
