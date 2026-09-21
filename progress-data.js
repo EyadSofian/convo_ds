@@ -90,8 +90,8 @@ export const PROJECT_DAYS = [
     outcome: 'A user can receive an invitation and recover access by email.',
     tasks: [
       { id: 'account-flows', title: 'Invitation and recovery flows', clientDescription: 'The account flows and email templates are prepared.', status: 'completed', category: 'core' },
-      { id: 'email-access', title: 'Verified sender setup', clientDescription: 'A verified sending domain and email account are needed.', status: 'blocked', category: 'core', clientActionRequired: 'Provide access to the approved email sending account and verified sender domain through the agreed secure channel.' },
-      { id: 'email-live-proof', title: 'Real email delivery test', clientDescription: 'Confirm invitation and password recovery arrive and work end to end.', status: 'blocked', category: 'core', dependency: 'Verified sender setup' },
+      { id: 'email-access', title: 'Verified sender setup', clientDescription: 'A verified sender and secure delivery connection are configured for the demo environment.', status: 'completed', category: 'core' },
+      { id: 'email-live-proof', title: 'Real email delivery test', clientDescription: 'Invitation and recovery delivery have been sent successfully; final inbox confirmation is in progress.', status: 'in_progress', category: 'core', dependency: 'Verified sender setup' },
     ],
   },
   {
