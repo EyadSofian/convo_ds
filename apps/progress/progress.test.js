@@ -15,11 +15,11 @@ test('the public plan has twelve ordered days and one central current day', () =
 });
 
 test('all numbers derive from the status data and count blocked work as remaining', () => {
-  assert.deepEqual(summarize(tasks), { total: 36, completed: 18, inProgress: 1, blocked: 10, remaining: 18, percent: 50 });
+  assert.deepEqual(summarize(tasks), { total: 36, completed: 19, inProgress: 2, blocked: 8, remaining: 17, percent: 53 });
   const areas = categorySummaries(tasks, CATEGORY_LABELS);
   assert.equal(areas.length, 8);
   assert.equal(areas.reduce((sum, area) => sum + area.total, 0), tasks.length);
-  assert.equal(areas.reduce((sum, area) => sum + area.completed, 0), 18);
+  assert.equal(areas.reduce((sum, area) => sum + area.completed, 0), 19);
 });
 
 test('three presentation phases cover each task exactly once without changing completion', () => {
@@ -27,10 +27,10 @@ test('three presentation phases cover each task exactly once without changing co
   const grouped = PROJECT_PHASES.flatMap((phase) => phaseTasks(phase, tasks));
   assert.equal(grouped.length, tasks.length);
   assert.equal(new Set(grouped.map((task) => task.id)).size, tasks.length);
-  assert.equal(summarize(grouped).percent, 50);
+  assert.equal(summarize(grouped).percent, 53);
   assert.equal(currentPhase(PROJECT_PHASES, tasks).number, 1);
-  assert.deepEqual(PROJECT_PHASES.map((phase) => statusOfPhase(phaseTasks(phase, tasks))), ['in_progress', 'blocked', 'blocked']);
-  assert.deepEqual(PROJECT_PHASES.map((phase) => summarize(phaseTasks(phase, tasks)).percent), [75, 50, 25]);
+  assert.deepEqual(PROJECT_PHASES.map((phase) => statusOfPhase(phaseTasks(phase, tasks))), ['in_progress', 'in_progress', 'blocked']);
+  assert.deepEqual(PROJECT_PHASES.map((phase) => summarize(phaseTasks(phase, tasks)).percent), [75, 58, 25]);
 });
 
 test('client access prerequisites stay pending until independently received and verified', () => {
@@ -42,7 +42,7 @@ test('client access prerequisites stay pending until independently received and 
 });
 
 test('client actions and deliverables are derived rather than hand-entered in the page', () => {
-  assert.equal(clientActions(tasks).length, 5);
+  assert.equal(clientActions(tasks).length, 4);
   assert.equal(deliverableStatus(DELIVERABLES[0], tasks), 'in_progress');
   assert.equal(deliverableStatus(DELIVERABLES[2], tasks), 'blocked');
 });

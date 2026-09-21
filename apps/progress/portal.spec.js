@@ -6,13 +6,13 @@ for (const width of [390, 430, 768, 1366, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
     await expect(page.getByRole('heading', { name: /clear path/i })).toBeVisible();
-    await expect(page.locator('#overall-percent')).toHaveText('50%');
+    await expect(page.locator('#overall-percent')).toHaveText('53%');
     await expect(page.locator('#current-phase')).toHaveText('Phase 1 of 3');
-    await expect(page.locator('#completed-stat')).toHaveText('18');
-    await expect(page.locator('#remaining-stat')).toHaveText('18');
+    await expect(page.locator('#completed-stat')).toHaveText('19');
+    await expect(page.locator('#remaining-stat')).toHaveText('17');
     await expect(page.locator('.phase-card')).toHaveCount(3);
-    await expect(page.locator('.phase-card__progress strong')).toHaveText(['75%', '50%', '25%']);
-    await expect(page.locator('.phase-card__status')).toHaveText(['In Progress', 'Waiting for Client', 'Waiting for Client']);
+    await expect(page.locator('.phase-card__progress strong')).toHaveText(['75%', '58%', '25%']);
+    await expect(page.locator('.phase-card__status')).toHaveText(['In Progress', 'In Progress', 'Waiting for Client']);
     await expect(page.locator('#requirements-list li')).toHaveCount(4);
     await expect(page.locator('#next-steps-list li')).toHaveCount(5);
     await expect(page.locator('body')).not.toContainText(/12.day|day (?:1|2|3|4|5|6|7|8|9|10|11|12)/i);
