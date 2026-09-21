@@ -22,7 +22,7 @@ const CONFIG = {
     credentialKeys: [],
   },
   channelSecrets: {},
-  email: { provider: 'logging', from: '', resendApiKey: '' },
+  email: { provider: 'logging', from: '', resendApiKey: '', smtp: { host: '', port: 0, secure: false, username: '', password: '' } },
   trustedProxyHops: 0,
   channelTransport: 'none',
   logLevel: 'info',

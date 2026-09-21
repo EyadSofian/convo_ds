@@ -29,7 +29,7 @@ function configWith(overrides: Partial<ApiConfig>): ApiConfig {
       credentialKeys: [],
     },
     channelSecrets: {},
-    email: { provider: 'logging', from: '', resendApiKey: '' },
+    email: { provider: 'logging', from: '', resendApiKey: '', smtp: { host: '', port: 0, secure: false, username: '', password: '' } },
     trustedProxyHops: 0,
     channelTransport: 'none',
     logLevel: 'info',
@@ -52,10 +52,30 @@ describe('which email provider is bound', () => {
   it('binds Resend when one is configured', () => {
     const provider = emailProviderFor(
       configWith({
-        email: { provider: 'resend', from: 'ops@convo.test', resendApiKey: 're_0123456789abcdef' },
+        email: { provider: 'resend', from: 'ops@convo.test', resendApiKey: 're_0123456789abcdef', smtp: { host: '', port: 0, secure: false, username: '', password: '' } },
       }),
     );
     expect(provider.name).toBe('resend');
+  });
+
+  it('binds SMTP only from the integration-worker configuration shape', () => {
+    const provider = emailProviderFor(
+      configWith({
+        email: {
+          provider: 'smtp',
+          from: 'ops@convo.test',
+          resendApiKey: '',
+          smtp: {
+            host: 'smtp.example.test',
+            port: 465,
+            secure: true,
+            username: 'ops@convo.test',
+            password: 'smtp-test-secret',
+          },
+        },
+      }),
+    );
+    expect(provider.name).toBe('smtp');
   });
 
   it('binds the logging adapter when the logging provider was chosen', () => {
@@ -70,7 +90,7 @@ describe('which email provider is bound', () => {
     // "logging" but carries a sender is internally inconsistent, and refusing
     // is safer than logging silently.
     const provider = emailProviderFor(
-      configWith({ email: { provider: 'logging', from: 'ops@convo.test', resendApiKey: '' } }),
+      configWith({ email: { provider: 'logging', from: 'ops@convo.test', resendApiKey: '', smtp: { host: '', port: 0, secure: false, username: '', password: '' } } }),
     );
     expect(provider.name).toBe('unconfigured');
   });

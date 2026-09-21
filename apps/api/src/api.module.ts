@@ -19,6 +19,7 @@ import { HealthService } from './health/health.service.js';
 import { LoggingEmailProvider, unconfiguredEmailProvider } from './email/email-provider.port.js';
 import type { EmailProviderPort } from './email/email-provider.port.js';
 import { ResendEmailProvider } from './email/resend.provider.js';
+import { SmtpEmailProvider } from './email/smtp.provider.js';
 import { EmailOutboxService } from './email/email-outbox.service.js';
 import { OutboxInvitationDelivery, OutboxRecoveryDelivery } from './email/outbox-delivery.js';
 import { unconfiguredBroker } from './broker/broker.port.js';
@@ -228,9 +229,23 @@ export function emailProviderFor(config: ApiConfig): EmailProviderPort {
       from: config.email.from,
     });
   }
+  if (config.email.provider === 'smtp') {
+    return new SmtpEmailProvider({
+      host: config.email.smtp.host,
+      port: config.email.smtp.port,
+      secure: config.email.smtp.secure,
+      username: config.email.smtp.username,
+      password: config.email.smtp.password,
+      from: config.email.from,
+    });
+  }
   return config.email.provider === 'logging' &&
     config.email.from === '' &&
-    config.email.resendApiKey === ''
+    config.email.resendApiKey === '' &&
+    config.email.smtp.host === '' &&
+    config.email.smtp.port === 0 &&
+    config.email.smtp.username === '' &&
+    config.email.smtp.password === ''
     ? new LoggingEmailProvider()
     : unconfiguredEmailProvider;
 }
