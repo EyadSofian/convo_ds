@@ -2,10 +2,16 @@ main.app__screen
   div.page.page--analytics
     div.page__inner
       div.stack.stack--sm
-        div.segmented
-          button.segmented__item [analytics-view]
-          button.segmented__item [analytics-view]
-          button.segmented__item [analytics-view]
+        div.report-nav
+          div.segmented
+            button.segmented__item [analytics-view]
+            button.segmented__item [analytics-view]
+            button.segmented__item [analytics-view]
+            button.segmented__item [analytics-view]
+            button.segmented__item [analytics-view]
+            button.segmented__item [analytics-view]
+            button.segmented__item [analytics-view]
+            button.segmented__item [analytics-view]
         div.filterbar
           div.filterbar__fields
             label.field.field--compact
@@ -349,8 +355,10 @@ main.app__screen
                       span.progress-cell__value
                   td
                   td
-                    button.btn.btn--ghost.btn--sm [campaign-open]
-                      span.btn__label
+                    div.filterbar__actions
+                      button.btn.btn--ghost.btn--sm [campaign-open]
+                        span.btn__label
+                      a.btn.btn--ghost.btn--sm
                 tr
                   td
                     span.table__primary
@@ -365,8 +373,10 @@ main.app__screen
                     span.muted
                   td
                   td
-                    button.btn.btn--ghost.btn--sm [campaign-open]
-                      span.btn__label
+                    div.filterbar__actions
+                      button.btn.btn--ghost.btn--sm [campaign-open]
+                        span.btn__label
+                      a.btn.btn--ghost.btn--sm
       section.panel
         header.panel__header
           div.panel__titles
