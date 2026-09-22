@@ -380,7 +380,7 @@ export function metadataFieldValue(target: string, entityId: string, fieldId: st
 
 export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'analytics-view': async (context, arg) => {
-    if (arg !== 'campaigns' && arg !== 'operations' && arg !== 'assignments') return false;
+    if (arg !== 'campaigns' && arg !== 'overview' && arg !== 'agents' && arg !== 'teams' && arg !== 'responses' && arg !== 'resolutions' && arg !== 'assignments' && arg !== 'channels') return false;
     context.state.analyticsView = arg;
     const params = { ...context.state.route.params };
     if (arg === 'campaigns') delete params.view;
@@ -681,7 +681,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     // Preserve the opaque membership ID, rather than a display name, so two
     // people with the same name cannot share a report or a drill-down route.
     if (!rowsOf(context.live.supervisorAgents).some((agent) => agent.membershipId === arg)) return false;
-    context.state.analyticsView = 'operations';
+    context.state.analyticsView = 'overview';
     context.state.route = {
       screen: 'analytics',
       conversationId: null,

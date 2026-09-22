@@ -237,6 +237,18 @@
     background: var(--surface-3);
   }
 
+  .report-nav {
+    max-inline-size: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+  }
+
+  .report-nav .segmented {
+    inline-size: max-content;
+    min-inline-size: 100%;
+  }
+
   .segmented__item {
     display: inline-flex;
     align-items: center;

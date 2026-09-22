@@ -127,8 +127,50 @@ export async function loadAssignmentReport(context: LiveContext, append = false)
   context.refresh();
 }
 
+export async function loadResponseReport(context: LiveContext): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
+  const generation = beginAnalyticsRequest(context);
+  context.live.responseReport = LOADING;
+  context.refresh();
+  const result = await context.live.campaignsApi.responseReport(tenantId, context.state.analyticsFilters);
+  if (context.live.analyticsRequestGeneration !== generation) return;
+  context.live.responseReport = fromResult(result, context.now());
+  context.refresh();
+}
+
+export async function loadResolutionReport(context: LiveContext): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
+  const generation = beginAnalyticsRequest(context);
+  context.live.resolutionReport = LOADING;
+  context.refresh();
+  const result = await context.live.campaignsApi.resolutionReport(tenantId, context.state.analyticsFilters);
+  if (context.live.analyticsRequestGeneration !== generation) return;
+  context.live.resolutionReport = fromResult(result, context.now());
+  context.refresh();
+}
+
+export async function loadTeamReport(context: LiveContext): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
+  const generation = beginAnalyticsRequest(context);
+  context.live.teamReport = LOADING;
+  context.refresh();
+  const result = await context.live.campaignsApi.teamReport(tenantId, context.state.analyticsFilters);
+  if (context.live.analyticsRequestGeneration !== generation) return;
+  context.live.teamReport = fromResult(result, context.now());
+  context.refresh();
+}
+
 export function loadAnalyticsReport(context: LiveContext): Promise<void> {
-  if (context.state.analyticsView === 'operations') return loadOperationalReport(context);
+  if (context.state.analyticsView === 'overview' || context.state.analyticsView === 'agents' || context.state.analyticsView === 'channels') return loadOperationalReport(context);
+  if (context.state.analyticsView === 'responses') return loadResponseReport(context);
+  if (context.state.analyticsView === 'resolutions') return loadResolutionReport(context);
+  if (context.state.analyticsView === 'teams') return loadTeamReport(context);
   if (context.state.analyticsView === 'assignments') return loadAssignmentReport(context);
   return loadCampaignReport(context);
 }

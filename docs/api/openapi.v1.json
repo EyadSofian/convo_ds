@@ -6277,6 +6277,72 @@
         }
       }
     },
+    "/tenants/{tenantId}/reports/responses": {
+      "get": {
+        "operationId": "getResponseReport",
+        "summary": "Read first-response timing by response timestamp within caller-readable scope",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "agentId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Attributed first-response actor membership UUID." },
+          { "name": "teamId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Current team membership of the attributed actor." },
+          { "name": "channel", "in": "query", "schema": { "$ref": "#/components/schemas/ChannelKind" } },
+          { "name": "connectionId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "labelId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Current conversation label." },
+          { "name": "campaignId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Durable attribution, not causal credit." },
+          { "name": "priority", "in": "query", "schema": { "type": "string", "enum": ["low", "normal", "high", "urgent"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["open", "pending", "snoozed", "resolved", "archived"] } }
+        ],
+        "responses": { "200": { "description": "Measured first responses, averages, medians, buckets, and evidence-backed actor/channel breakdowns." }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/reports/resolutions": {
+      "get": {
+        "operationId": "getResolutionReport",
+        "summary": "Read closed-episode timing by close timestamp within caller-readable scope",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "agentId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Attributed resolver membership UUID." },
+          { "name": "teamId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Current team membership of the attributed actor." },
+          { "name": "channel", "in": "query", "schema": { "$ref": "#/components/schemas/ChannelKind" } },
+          { "name": "connectionId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "labelId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Current conversation label." },
+          { "name": "campaignId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Durable attribution, not causal credit." },
+          { "name": "priority", "in": "query", "schema": { "type": "string", "enum": ["low", "normal", "high", "urgent"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["open", "pending", "snoozed", "resolved", "archived"] } }
+        ],
+        "responses": { "200": { "description": "Closed episodes, resolution timings, reopen count (closed episode sequence > 1), and actor/channel breakdowns." }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/reports/teams": {
+      "get": {
+        "operationId": "getTeamReport",
+        "summary": "Read current team workload and explicitly current-membership activity grouping within caller-readable scope",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "agentId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "teamId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "channel", "in": "query", "schema": { "$ref": "#/components/schemas/ChannelKind" } },
+          { "name": "connectionId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "labelId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "campaignId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "priority", "in": "query", "schema": { "type": "string", "enum": ["low", "normal", "high", "urgent"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["open", "pending", "snoozed", "resolved", "archived"] } }
+        ],
+        "responses": { "200": { "description": "Visible team metrics; historical agent activity is grouped by current team membership only." }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
     "/tenants/{tenantId}/campaigns/{campaignId}/retry": {
       "post": {
         "operationId": "retryCampaignFailures",

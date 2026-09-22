@@ -139,7 +139,83 @@ function queries(seeded: { readonly conversationIds: readonly string[] }, eviden
       tenantPrincipal,
       evidence.paginationCursors[sort][depth],
     );
+  const assignmentPage = (depth: 'first' | 'middle' | 'late'): [string, string, unknown[]] => {
+    const cursor = depth === 'first' ? null : evidence.assignmentCursors[depth];
+    return [
+      `report assignments — ${depth} page`,
+      `SELECT a.id::text,a.at,c.id::text AS conversation_id,c.peer_identity,a.from_value,a.to_value
+         FROM conversation_audit a JOIN conversations c ON c.id=a.conversation_id
+        WHERE a.act IN ('claim','assign','handoff')
+          AND ($1::timestamptz IS NULL OR (a.at<$1::timestamptz OR (a.at=$1::timestamptz AND a.id<$2::uuid)))
+        ORDER BY a.at DESC,a.id DESC LIMIT 51`,
+      [cursor?.at ?? null,cursor?.id ?? null],
+    ];
+  };
   return [
+    [
+      'report overview — current backlog and period creation volume',
+      `SELECT count(*) FILTER (WHERE c.status IN ('open','pending','snoozed'))::int AS current_active,
+              count(*) FILTER (WHERE c.assignee_membership_id IS NULL AND c.status IN ('open','pending','snoozed'))::int AS unassigned,
+              count(*) FILTER (WHERE c.created_at>=now()-interval '30 days')::int AS new_in_period
+         FROM conversations c JOIN channel_connections n ON n.id=c.connection_id`,
+      [],
+    ],
+    [
+      'report agents — zero-inclusive directory plus activity',
+      `WITH current_work AS (SELECT assignee_membership_id,count(*)::int AS active FROM conversations
+                               WHERE status IN ('open','pending','snoozed') GROUP BY assignee_membership_id),
+            authored AS (SELECT o.author_membership,count(*)::int AS messages FROM outbound_messages o
+                           JOIN conversations c ON ${conversationEventBoundary('c','o','o.created_at')}
+                          WHERE ${qualifyingHumanOutbound('o')} GROUP BY o.author_membership)
+       SELECT m.id,coalesce(w.active,0)::int,coalesce(a.messages,0)::int FROM memberships m
+        LEFT JOIN current_work w ON w.assignee_membership_id=m.id LEFT JOIN authored a ON a.author_membership=m.id
+        WHERE m.id=$1::uuid`,
+      [evidence.membershipIds[0]],
+    ],
+    [
+      'report agent detail — current active workload',
+      `SELECT c.id::text,c.status,c.priority FROM conversations c
+        WHERE c.assignee_membership_id=$1::uuid AND c.status IN ('open','pending','snoozed')`,
+      [evidence.membershipIds[0]],
+    ],
+    [
+      'report teams — current workload by authorized team',
+      `SELECT c.team_id,count(*)::int,count(*) FILTER (WHERE c.status='open')::int
+         FROM conversations c JOIN channel_connections n ON n.id=c.connection_id
+        WHERE c.team_id=ANY($1::uuid[]) AND c.status IN ('open','pending','snoozed') GROUP BY c.team_id`,
+      [evidence.teamIds],
+    ],
+    [
+      'report responses — measured episode timings',
+      `SELECT count(*)::int,avg(extract(epoch FROM e.first_response_at-e.first_inbound_at))::float8,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM e.first_response_at-e.first_inbound_at))::float8
+         FROM conversation_episodes e JOIN conversations c ON c.id=e.conversation_id
+        WHERE e.first_inbound_at IS NOT NULL AND e.first_response_at IS NOT NULL`,
+      [],
+    ],
+    [
+      'report resolutions — closed episode timings',
+      `SELECT count(*)::int,avg(extract(epoch FROM e.closed_at-e.opened_at))::float8,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM e.closed_at-e.opened_at))::float8
+         FROM conversation_episodes e JOIN conversations c ON c.id=e.conversation_id
+        WHERE e.closed_at IS NOT NULL`,
+      [],
+    ],
+    assignmentPage('first'), assignmentPage('middle'), assignmentPage('late'),
+    [
+      'report channels — operational activity by channel',
+      `WITH current_work AS (SELECT n.kind,count(*)::int AS current_active FROM conversations c
+                               JOIN channel_connections n ON n.id=c.connection_id
+                              WHERE c.status IN ('open','pending','snoozed') GROUP BY n.kind),
+            authored AS (SELECT n.kind,count(*)::int AS messages,count(DISTINCT c.id)::int AS handled
+                           FROM outbound_messages o JOIN conversations c ON ${conversationEventBoundary('c','o','o.created_at')}
+                           JOIN channel_connections n ON n.id=c.connection_id
+                          WHERE ${qualifyingHumanOutbound('o')} GROUP BY n.kind)
+       SELECT n.kind,coalesce(w.current_active,0),coalesce(a.messages,0),coalesce(a.handled,0)
+         FROM channel_connections n LEFT JOIN current_work w ON w.kind=n.kind LEFT JOIN authored a ON a.kind=n.kind
+        GROUP BY n.kind,w.current_active,a.messages,a.handled`,
+      [],
+    ],
     [
       'supervisor workload — assigned + conversation-bound unreplied',
       `SELECT count(*) FILTER (WHERE c.status IN ('open','pending','snoozed'))::int AS assigned,

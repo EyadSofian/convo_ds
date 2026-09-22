@@ -60,7 +60,7 @@ export interface AnalyticsFilters {
   readonly status: string;
 }
 
-export type AnalyticsView = 'campaigns' | 'operations' | 'assignments';
+export type AnalyticsView = 'overview' | 'agents' | 'teams' | 'responses' | 'resolutions' | 'assignments' | 'channels' | 'campaigns';
 
 export const NO_ANALYTICS_FILTERS: AnalyticsFilters = { from: '', to: '', agentId: '', teamId: '', channel: '', connectionId: '', labelId: '', campaignId: '', priority: '', status: '' };
 
@@ -257,7 +257,9 @@ export function applyRoute(state: AppState, route: Route): void {
     };
   }
   if (route.screen === 'analytics') {
-    state.analyticsView = params.view === 'operations' || params.view === 'assignments' ? params.view : 'campaigns';
+    const requestedView = params.view === 'operations' ? 'overview' : params.view;
+    state.analyticsView = requestedView === 'overview' || requestedView === 'agents' || requestedView === 'teams' || requestedView === 'responses' || requestedView === 'resolutions' || requestedView === 'assignments' || requestedView === 'channels' || requestedView === 'campaigns'
+      ? requestedView : 'campaigns';
     state.analyticsFilters = {
       from: params.from ?? '',
       to: params.to ?? '',

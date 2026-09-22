@@ -18,6 +18,10 @@ to this document and its deterministic tests.
 - Working hours are **not** applied in this version; display `calendar time`.
 - A reopened conversation has a new `conversation_episodes` row. Historical
   metrics retain the closed episode and do not stretch it through a reopen.
+- **Reopened episodes** counts closed `conversation_episodes` rows with `seq > 1`.
+  The sequence is per conversation, gapless, and is the persisted lifecycle fact
+  that distinguishes later episodes. This is an episode count, not a count of
+  distinct conversations or customer-initiated reopen events.
 - Inbound/outbound events created after migration 0036 retain their exact
   `conversation_id`. Historical null-bound rows use the documented temporal
   fallback in `REPORT_FILTER_SEMANTICS.md`; they are never backfilled by
@@ -33,13 +37,13 @@ to this document and its deterministic tests.
 | Unique customers | handled/resolved conversation joins `contacts` | n/a | Agent from qualifying action | Qualifying action in range | Count distinct `contact_id`; no identity auto-merge assumption |
 | Messages sent | `outbound_messages` | n/a | `author_membership` non-null | `created_at` in range | Human only; campaign/automation rows with null human author excluded |
 | Internal notes | `conversation_notes` | n/a | note author membership | `created_at` in range | Human-authored audit evidence only |
-| First response time | `conversation_episodes` | `first_inbound_at` → `first_response_at` | Human author of first qualifying response where retained; otherwise report aggregate only | Episode closing/opening event in range, explicitly labelled by report | Each episode independently; no bot/automation response qualifies |
+| First response time | `conversation_episodes` | `first_inbound_at` → `first_response_at` | Human author of first qualifying response where retained; NULL actor remains an explicit **Unattributed** breakdown row | Episode closing/opening event in range, explicitly labelled by report | Each episode independently; no bot/automation response qualifies |
 | Assignment → first response | `conversation_audit` + human outbound event | assignment `at` → first subsequent human outbound | Assignee target at assignment | Assignment timestamp in range | Each assignment event can have a measure; reassignment starts a distinct clock |
 | Average response time | message chronology (future compiler) | qualifying inbound → next human outbound | Human outbound author | Response completion timestamp in range | No claim of a value until compiler and fixtures are implemented |
 | Resolution time | `conversation_episodes` | `opened_at` → `closed_at` | Resolution actor only if lifecycle evidence proves it | `closed_at` in range | Previous closed episode remains final after reopen; reopened issue is new episode |
 | Assignment → resolution | assignment audit + episode close | assignment `at` → relevant episode `closed_at` | Resolution actor, with assignment target dimension separate | Episode close in range | Each assignment is distinct; use last qualifying assignment only when report says “last assignment” |
 | Reassignments | `conversation_audit` `assign`/`handoff` after prior assignee | n/a | Actor and target shown separately | audit `at` in range | Count actual events, never a current-state difference |
-| Reopened after resolution | episode transition evidence | prior close → new episode open | No agent attribution unless explicit transition actor is retained | New episode `opened_at` in range | Count new episodes with `reopened_from_id`/equivalent lifecycle evidence |
+| Reopened after resolution | `conversation_episodes.seq` | Closed episode whose sequence is greater than 1 | No agent attribution unless explicit transition actor is retained | This report counts the closed episode using `closed_at` in range | Each later sequence is one reopened episode; it is not inferred from current status |
 | Channel activity | Exact conversation-bound messages and episodes | Metric-specific event evidence | Authored/episode actor where a breakdown is shown | Same timestamp as the underlying message or episode | Channel is the conversation's channel; campaign delivery remains a separate report |
 
 ## Aggregation rules

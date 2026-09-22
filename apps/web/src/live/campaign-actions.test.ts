@@ -14,6 +14,8 @@ import {
   loadCampaignRecipients,
   loadAssignmentReport,
   loadCampaignReport,
+  loadResponseReport,
+  loadResolutionReport,
   loadCampaignsScreen,
   refreshCampaignReportExport,
   retryCampaignFailures,
@@ -81,6 +83,9 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     report: vi.fn().mockResolvedValue(ok(REPORT)),
     operationsReport: vi.fn().mockResolvedValue(ok({ agents: [], agentOptions: [] })),
     assignmentsReport: vi.fn().mockResolvedValue(ok({ data: [], nextCursor: null, hasMore: false })),
+    responseReport: vi.fn().mockResolvedValue(ok({ measured: 0, averageSeconds: null, medianSeconds: null, buckets: [], byAgent: [], byChannel: [] })),
+    resolutionReport: vi.fn().mockResolvedValue(ok({ resolvedEpisodes: 0, averageSeconds: null, medianSeconds: null, reopenedEpisodes: 0, byAgent: [], byChannel: [] })),
+    teamReport: vi.fn().mockResolvedValue(ok([])),
     createReportExport: vi.fn().mockResolvedValue(ok(EXPORT)),
     reportExport: vi.fn().mockResolvedValue(ok({ ...EXPORT, state: 'completed' })),
   } as unknown as CampaignsApi;
@@ -205,6 +210,39 @@ describe('campaign actions', () => {
     expect(ready.state.analyticsView).toBe('assignments');
     expect(ready.state.route.params).toEqual({ lang: 'en', agent: 'membership-1', view: 'assignments' });
     expect(ready.campaigns.assignmentsReport).toHaveBeenCalledOnce();
+  });
+
+  it('loads response and resolution reports through distinct endpoints and retains the selected view', async () => {
+    const ready = setup();
+    ready.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    await LIVE_ACTIONS['analytics-view']?.(ready.context, 'responses');
+    expect(ready.campaigns.responseReport).toHaveBeenCalledWith('tenant-1', NO_ANALYTICS_FILTERS);
+    expect(ready.state.live.responseReport).toMatchObject({ status: 'ready', value: { measured: 0 } });
+    await LIVE_ACTIONS['analytics-view']?.(ready.context, 'resolutions');
+    expect(ready.campaigns.resolutionReport).toHaveBeenCalledWith('tenant-1', NO_ANALYTICS_FILTERS);
+    expect(ready.state.live.resolutionReport).toMatchObject({ status: 'ready', value: { resolvedEpisodes: 0 } });
+  });
+
+  it('loads a dedicated team report after making the shared report filter catalogue available', async () => {
+    const ready = setup();
+    await LIVE_ACTIONS['analytics-view']?.(ready.context, 'teams');
+    expect(ready.campaigns.operationsReport).toHaveBeenCalledOnce();
+    expect(ready.campaigns.teamReport).toHaveBeenCalledWith('tenant-1', NO_ANALYTICS_FILTERS);
+    expect(ready.state.live.teamReport).toMatchObject({ status: 'ready', value: [] });
+  });
+
+  it('ignores an older response-report result after switching to a newer report', async () => {
+    const ready = setup();
+    ready.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    let resolveOld: ((result: ApiResult<{ measured: number; averageSeconds: number | null; medianSeconds: number | null; buckets: readonly []; byAgent: readonly []; byChannel: readonly [] }>) => void) | undefined;
+    vi.mocked(ready.campaigns.responseReport).mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const oldRequest = loadResponseReport(ready.context);
+    vi.mocked(ready.campaigns.resolutionReport).mockResolvedValueOnce(ok({ resolvedEpisodes: 3, averageSeconds: 15, medianSeconds: 12, reopenedEpisodes: 1, byAgent: [], byChannel: [] }));
+    await loadResolutionReport(ready.context);
+    resolveOld?.(ok({ measured: 1, averageSeconds: 99, medianSeconds: 99, buckets: [], byAgent: [], byChannel: [] }));
+    await oldRequest;
+    expect(ready.state.live.responseReport).toMatchObject({ status: 'loading' });
+    expect(ready.state.live.resolutionReport).toMatchObject({ status: 'ready', value: { resolvedEpisodes: 3 } });
   });
 
   it('does not let an older assignments response overwrite the current filter request', async () => {

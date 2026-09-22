@@ -232,7 +232,7 @@ const campaignReport: ActionHandler = (context, arg) => {
 };
 
 const analyticsView: ActionHandler = (context, arg) => {
-  if (arg !== 'campaigns' && arg !== 'operations' && arg !== 'assignments') return;
+  if (arg !== 'campaigns' && arg !== 'overview' && arg !== 'agents' && arg !== 'teams' && arg !== 'responses' && arg !== 'resolutions' && arg !== 'assignments' && arg !== 'channels') return;
   context.state.analyticsView = arg;
   context.navigate('analytics', null);
 };

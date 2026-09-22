@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { withTenant } from '../../packages/database/src/index.js';
 
 /**
@@ -47,6 +47,7 @@ export interface InboxEvidence {
   readonly campaignId: string;
   readonly customFieldIds: Readonly<Record<'text' | 'singleSelect' | 'boolean' | 'date', string>>;
   readonly paginationCursors: PaginationCursors;
+  readonly assignmentCursors: Readonly<Record<'middle' | 'late', Readonly<{ id: string; at: string }>>>;
 }
 
 const BATCH = 1_000;
@@ -354,6 +355,27 @@ export async function seedInboxEvidence(
       [tenantId, membershipIds[0], outboundIds, outboundConversationIds],
     );
     await client.query(
+      `INSERT INTO conversation_episodes
+         (tenant_id,conversation_id,seq,opened_at,opened_by,first_inbound_at,first_response_at,
+          first_response_by_membership_id,closed_at,closed_by_membership_id)
+       SELECT $1,c.id,1,greatest(c.created_at,c.last_inbound_at - interval '1 minute'),'customer_inbound',
+              c.last_inbound_at,c.last_inbound_at + interval '30 seconds',
+              CASE WHEN row_number() OVER (ORDER BY c.id) % 13 = 0 THEN NULL ELSE $2::uuid END,
+              CASE WHEN c.status='resolved' THEN c.last_inbound_at + interval '2 minutes' END,
+              CASE WHEN c.status='resolved' AND row_number() OVER (ORDER BY c.id) % 17 <> 0 THEN $2::uuid END
+         FROM conversations c WHERE c.id = ANY($3::uuid[])`,
+      [tenantId, membershipIds[0], conversationIds],
+    );
+    await client.query(
+      `INSERT INTO conversation_audit
+         (tenant_id,conversation_id,actor_membership_id,act,from_value,to_value,at_version,at)
+       SELECT $1,c.id,$2,'claim',NULL,tm.membership_id::text,1,c.created_at + interval '1 hour'
+         FROM conversations c
+         JOIN LATERAL (SELECT membership_id FROM team_members WHERE team_id=c.team_id ORDER BY membership_id LIMIT 1) tm ON true
+        WHERE c.id=ANY($3::uuid[])`,
+      [tenantId, membershipIds[0], conversationIds],
+    );
+    await client.query(
       `INSERT INTO conversation_participants (tenant_id,conversation_id,membership_id)
        SELECT $1,conversation_id,$2 FROM unnest($3::uuid[]) AS t(conversation_id)`,
       [tenantId, membershipIds[0], conversationIds.filter((_, index) => index % 4 === 0)],
@@ -451,11 +473,24 @@ export async function seedInboxEvidence(
         late: await cursorFor("coalesce(waiting_since,'-infinity'::timestamptz)::text", 'waiting_since DESC NULLS LAST, id DESC', 8_000),
       },
     } as const;
+    const assignmentCursors = {
+      middle: await assignmentCursor(client, 4_000),
+      late: await assignmentCursor(client, 8_000),
+    } as const;
     return {
       membershipIds, teamIds, connectionIds, labelIds, campaignId, customFieldIds,
-      paginationCursors,
+      paginationCursors, assignmentCursors,
     };
   });
+}
+
+async function assignmentCursor(client: PoolClient, offset: number): Promise<{ id: string; at: string }> {
+  const result = await client.query<{ id: string; at: Date | string }>(
+    'SELECT id::text,at FROM conversation_audit ORDER BY at DESC,id DESC OFFSET $1 LIMIT 1', [offset],
+  );
+  const row = result.rows[0];
+  if (row === undefined) throw new Error('performance seed did not create an assignment cursor');
+  return { id: row.id, at: row.at instanceof Date ? row.at.toISOString() : String(row.at) };
 }
 
 /**

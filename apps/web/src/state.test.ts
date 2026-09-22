@@ -183,6 +183,19 @@ describe('URL round-trip', () => {
     expect(routeParamsFor(state)).toMatchObject({ view: 'assignments', lang: 'en', from: '2026-09-01', agentFilter: '00000000-0000-4000-8000-000000000001', channel: 'whatsapp' });
   });
 
+  it('maps legacy operations links to overview and round-trips the final report vocabulary', () => {
+    const state = createState(NOW);
+    applyRoute(state, parseHash('#/analytics?view=operations&lang=en&from=2026-09-01&to=2026-09-09&agentFilter=00000000-0000-4000-8000-000000000001&team=00000000-0000-4000-8000-000000000002&channel=whatsapp&connection=00000000-0000-4000-8000-000000000003&label=00000000-0000-4000-8000-000000000004&campaign=00000000-0000-4000-8000-000000000005&priority=high&status=open'));
+    expect(state.analyticsView).toBe('overview');
+    expect(routeParamsFor(state)).toMatchObject({
+      view: 'overview', lang: 'en', from: '2026-09-01', to: '2026-09-09',
+      agentFilter: '00000000-0000-4000-8000-000000000001', team: '00000000-0000-4000-8000-000000000002',
+      channel: 'whatsapp', connection: '00000000-0000-4000-8000-000000000003',
+      label: '00000000-0000-4000-8000-000000000004', campaign: '00000000-0000-4000-8000-000000000005',
+      priority: 'high', status: 'open',
+    });
+  });
+
   it('does not let an omitted or invalid route language erase the current preference', () => {
     const state = createState(NOW);
     state.lang = 'en';

@@ -42,6 +42,26 @@ export async function scopedReportableAgents(sql: SqlExecutor, principal: Princi
   return scopedAgents(sql, principal);
 }
 
+/** Teams whose identity is visible under the caller's own Inbox scope. */
+export async function scopedReportableTeams(sql: SqlExecutor, principal: Principal): Promise<readonly { readonly teamId: string; readonly name: string }[]> {
+  const tenantReach = principal.grants['conversation.read'] === 'tenant' || principal.scopes.some((entry) => entry.type === 'tenant');
+  if (tenantReach) {
+    const rows = await sql.query<{ team_id: string; name: string }>(
+      'SELECT id::text AS team_id,name FROM teams WHERE archived_at IS NULL ORDER BY lower(name),id',
+    );
+    return rows.rows.map((row) => ({ teamId: row.team_id, name: row.name }));
+  }
+  const values: unknown[] = [];
+  const add = (value: unknown): string => { values.push(value); return `$${values.length}`; };
+  const scope = readableScope(principal, add);
+  const rows = await sql.query<{ team_id: string; name: string }>(
+    `SELECT t.id::text AS team_id,t.name FROM teams t
+      WHERE t.archived_at IS NULL AND EXISTS (SELECT 1 FROM conversations c WHERE c.team_id=t.id AND ${scope})
+      ORDER BY lower(t.name),t.id`, values,
+  );
+  return rows.rows.map((row) => ({ teamId: row.team_id, name: row.name }));
+}
+
 async function scopedAgents(sql: SqlExecutor, principal: Principal): Promise<readonly ScopedSupervisorAgent[]> {
   const values: unknown[] = [];
   const add = (value: unknown): string => { values.push(value); return `$${values.length}`; };

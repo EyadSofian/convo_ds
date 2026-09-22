@@ -40,7 +40,7 @@ export class AssignmentReportService {
   ) {}
 
   page(session: AuthenticatedSession, tenantId: string, query: AssignmentReportQuery): Promise<AssignmentReportPage> {
-    return this.authorization.authorized(session, tenantId, 'report.read', async ({ sql, principal }) => {
+    return this.authorization.authorizedOwnReport(session, tenantId, async ({ sql, principal }) => {
       const agents = await scopedReportableAgents(sql, principal);
       await validateReportEntities(sql, principal, query.filters, agents.map((agent) => agent.membershipId));
       const binding = assignmentBinding(tenantId, query.filters);

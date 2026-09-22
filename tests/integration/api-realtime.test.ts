@@ -2272,6 +2272,130 @@ describe('supervisor inbox lens', () => {
     expect(data.agents).toEqual(expect.arrayContaining([expect.objectContaining({ membershipId: secondAgentAMembershipId, firstResponses: 0, resolutions: 0 })]));
   });
 
+  it('keeps report endpoint aggregates inside Owner, scoped Agent, and report permission boundaries', async () => {
+    const surfaces = ['/reports/operations', '/reports/responses', '/reports/resolutions', '/reports/assignments', '/reports/teams'];
+    for (const path of surfaces) {
+      const ownerResponse = await send(api, owner, 'GET', path);
+      expect(ownerResponse.statusCode, `${path}: ${ownerResponse.payload}`).toBe(200);
+      const ownResponse = await send(api, agentA, 'GET', path);
+      expect(ownResponse.statusCode, `${path}: ${ownResponse.payload}`).toBe(200);
+    }
+    const ownOperations = (await send(api, agentA, 'GET', '/reports/operations')).json() as {
+      data: { agents: { membershipId: string }[]; agentOptions: { membershipId: string }[] };
+    };
+    expect(ownOperations.data.agents.map((row) => row.membershipId)).toEqual([agentAMembershipId]);
+    expect(ownOperations.data.agentOptions.map((row) => row.membershipId)).toEqual([agentAMembershipId]);
+
+    const zeroAgentMembership = await addMember(api, 'zero-activity-report-agent@realtime.test', 'agent', [
+      { type: 'inbox', id: inboxA },
+    ]);
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `UPDATE memberships duplicate SET display_name=source.display_name
+         FROM memberships source WHERE duplicate.id=$1 AND source.id=$2`, [zeroAgentMembership, agentAMembershipId],
+    ));
+    const duplicateRowsResponse = await send(api, owner, 'GET', '/reports/operations');
+    const identityReport = (duplicateRowsResponse.json() as { data: { agents: { membershipId: string; name: string; currentAssigned: number; humanMessages: number; firstResponses: number; resolutions: number }[] } }).data.agents;
+    expect(duplicateRowsResponse.statusCode).toBe(200);
+    const sameNameRows = identityReport.filter((agent) => agent.membershipId === agentAMembershipId || agent.membershipId === zeroAgentMembership);
+    expect(sameNameRows).toHaveLength(2);
+    expect(new Set(sameNameRows.map((agent) => agent.membershipId)).size).toBe(2);
+    expect(sameNameRows.find((agent) => agent.membershipId === zeroAgentMembership)).toMatchObject({ currentAssigned: 0, humanMessages: 0, firstResponses: 0, resolutions: 0 });
+    expect(new Set(sameNameRows.map((agent) => agent.name)).size).toBe(1);
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`UPDATE memberships SET status='revoked' WHERE id=$1`, [zeroAgentMembership]));
+
+    const hash = await argon2.hash(MEMBER_PASSWORD, { type: argon2.argon2id });
+    const user = await api.pool.query<{ id: string }>(
+      `INSERT INTO users (email,password_hash,status) VALUES ('no-report-reader@realtime.test',$1,'active') RETURNING id::text`, [hash],
+    );
+    const noReportMembershipId = await withTenant(api.pool, api.tenantId, async (client) => {
+      const role = await client.query<{ id: string }>(
+        `INSERT INTO roles (tenant_id,key,name,is_builtin) VALUES ($1,'no_report_reader','No report reader',false) RETURNING id::text`, [api.tenantId],
+      );
+      const membership = await client.query<{ id: string }>(
+        `INSERT INTO memberships (tenant_id,user_id,role_id,status) VALUES ($1,$2,$3,'active') RETURNING id::text`,
+        [api.tenantId,user.rows[0]?.id,role.rows[0]?.id],
+      );
+      return membership.rows[0]!.id;
+    });
+    void noReportMembershipId;
+    const noReportReader = await login(api, 'no-report-reader@realtime.test', MEMBER_PASSWORD);
+    for (const path of surfaces) expect((await send(api, noReportReader, 'GET', path)).statusCode, path).toBe(403);
+
+    const admin = superuserPool(api.names.database);
+    let foreignTeamId = '';
+    try {
+      const foreignTenant = await admin.query<{ id: string }>(
+        `INSERT INTO tenants (name,slug,status) VALUES ('Foreign reporting tenant','foreign-reporting-tenant','active') RETURNING id::text`,
+      );
+      const foreignTeam = await admin.query<{ id: string }>(
+        `INSERT INTO teams (tenant_id,name) VALUES ($1,'Private team') RETURNING id::text`, [foreignTenant.rows[0]?.id],
+      );
+      foreignTeamId = foreignTeam.rows[0]!.id;
+    } finally {
+      await admin.end();
+    }
+    expect((await send(api, owner, 'GET', `/reports/teams?teamId=${foreignTeamId}`)).statusCode).toBe(404);
+
+    // Team identity can be valid in the tenant yet absent from the reportable
+    // directory once it is archived. Keep this indistinguishable from missing
+    // or out-of-scope teams at the team-report boundary.
+    const archivedTeam = await withTenant(api.pool, api.tenantId, async (client) => {
+      const created = await client.query<{ id: string }>(
+        `INSERT INTO teams (tenant_id,name,archived_at) VALUES ($1,'Archived reporting team',now()) RETURNING id::text`,
+        [api.tenantId],
+      );
+      return created.rows[0]!.id;
+    });
+    expect((await send(api, owner, 'GET', `/reports/teams?teamId=${archivedTeam}`)).statusCode).toBe(404);
+    expect((await send(api, owner, 'GET', '/reports/teams')).statusCode).toBe(200);
+  });
+
+  it('reports response and resolution episodes using event timestamps and proven actors', async () => {
+    const peer = '15557000945';
+    await customerWrites(INBOX_A, peer, 'قياس زمن الاستجابة والحل', 'wamid.rt-lifecycle-report');
+    const conversation = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2', [inboxA, peer],
+    ))).rows[0]!;
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      await client.query(`UPDATE conversation_episodes
+        SET opened_at='2026-09-01T09:00:00Z',first_inbound_at='2026-09-01T09:01:00Z',
+            first_response_at='2026-09-01T09:08:00Z',first_response_by_membership_id=$3,
+            closed_at='2026-09-02T09:00:00Z',closed_by_membership_id=NULL
+        WHERE conversation_id=$1 AND tenant_id=$2 AND seq=1`, [conversation.id, api.tenantId, agentAMembershipId]);
+      await client.query(`INSERT INTO conversation_episodes
+        (tenant_id,conversation_id,seq,opened_at,opened_by,first_inbound_at,first_response_at,closed_at,closed_by_membership_id)
+        VALUES ($1,$2,2,'2026-09-02T10:00:00Z','agent_reopen','2026-09-02T10:01:00Z','2026-09-02T10:05:00Z','2026-09-03T10:00:00Z',NULL)`,
+      [api.tenantId, conversation.id]);
+    });
+
+    const responses = await send(api, owner, 'GET', '/reports/responses?from=2026-09-01&to=2026-09-01');
+    expect(responses.statusCode, responses.payload).toBe(200);
+    const responseData = (responses.json() as { data: { measured: number; averageSeconds: number; medianSeconds: number; buckets: { bucket: string; count: number }[]; byAgent: { membershipId: string }[] } }).data;
+    expect(responseData).toMatchObject({ measured: 1, averageSeconds: 420, medianSeconds: 420 });
+    expect(responseData.buckets).toEqual([{ bucket: '5–15m', count: 1 }]);
+    expect(responseData.byAgent).toEqual([expect.objectContaining({ membershipId: agentAMembershipId, measured: 1 })]);
+    const outOfScopeAgentResponse = await send(api, supervisor, 'GET', `/reports/responses?agentId=${agentBMembershipId}`);
+    expect(outOfScopeAgentResponse.statusCode).toBe(404);
+    const unknownActorResponse = await send(api, owner, 'GET', '/reports/responses?from=2026-09-02&to=2026-09-02');
+    expect(unknownActorResponse.statusCode, unknownActorResponse.payload).toBe(200);
+    expect((unknownActorResponse.json() as { data: { measured: number; byAgent: { membershipId: string | null; name: string }[] } }).data).toMatchObject({
+      measured: 1, byAgent: [expect.objectContaining({ membershipId: null, name: 'Unattributed' })],
+    });
+    const filteredResponses = await send(api, owner, 'GET', `/reports/responses?from=2026-09-01&to=2026-09-01&agentId=${agentBMembershipId}`);
+    expect((filteredResponses.json() as { data: { measured: number; byAgent: unknown[] } }).data).toEqual({
+      measured: 0, averageSeconds: null, medianSeconds: null, buckets: [], byAgent: [], byChannel: [],
+    });
+
+    const resolutions = await send(api, owner, 'GET', '/reports/resolutions?from=2026-09-02&to=2026-09-03');
+    expect(resolutions.statusCode, resolutions.payload).toBe(200);
+    const resolutionData = (resolutions.json() as { data: { resolvedEpisodes: number; reopenedEpisodes: number; byAgent: { membershipId: string | null; name: string; measured: number }[] } }).data;
+    expect(resolutionData.resolvedEpisodes).toBe(2);
+    expect(resolutionData.reopenedEpisodes).toBe(1);
+    expect(resolutionData.byAgent).toEqual([expect.objectContaining({ membershipId: null, name: 'Unattributed', measured: 2 })]);
+    const outOfScopeAgentResolution = await send(api, supervisor, 'GET', `/reports/resolutions?agentId=${agentBMembershipId}`);
+    expect(outOfScopeAgentResolution.statusCode).toBe(404);
+  });
+
   it('pages assignment events by immutable ownership changes with filter-bound cursors', async () => {
     const peer = '15557000939';
     await customerWrites(INBOX_A, peer, 'تعيين للاختبار', 'wamid.rt-assignment-report');
@@ -2510,12 +2634,28 @@ describe('supervisor inbox lens', () => {
     const teamManagerB = await login(api, 'boundary-team-b@realtime.test', MEMBER_PASSWORD);
     const readableA = await send(api, teamManagerA, 'GET', '/reports/operations');
     const readableB = await send(api, teamManagerB, 'GET', '/reports/operations');
+    const teamReportA = await send(api, teamManagerA, 'GET', '/reports/teams');
+    const teamReportB = await send(api, teamManagerB, 'GET', '/reports/teams');
     expect(readableA.statusCode, readableA.payload).toBe(200);
     expect(readableB.statusCode, readableB.payload).toBe(200);
+    expect(teamReportA.statusCode, teamReportA.payload).toBe(200);
+    expect(teamReportB.statusCode, teamReportB.payload).toBe(200);
     expect((readableA.json() as { data: { conversations: { humanMessages: number } } }).data.conversations.humanMessages).toBe(1);
     expect((readableB.json() as { data: { conversations: { humanMessages: number } } }).data.conversations.humanMessages).toBe(1);
     expect((readableA.json() as { data: { agentOptions: { membershipId: string }[] } }).data.agentOptions.map((row) => row.membershipId)).toContain(agentAMembershipId);
     expect((readableA.json() as { data: { agentOptions: { membershipId: string }[] } }).data.agentOptions.map((row) => row.membershipId)).not.toContain(agentBMembershipId);
+    const scopedTeamIdsA = (teamReportA.json() as { data: { teamId: string }[] }).data.map((row) => row.teamId);
+    const scopedTeamIdsB = (teamReportB.json() as { data: { teamId: string }[] }).data.map((row) => row.teamId);
+    expect(scopedTeamIdsA).toEqual([teamA]);
+    expect(scopedTeamIdsB).toEqual([teamB]);
+    expect((await send(api, teamManagerA, 'GET', `/reports/teams?teamId=${teamB}`)).statusCode).toBe(404);
+    for (const surface of ['/reports/responses', '/reports/resolutions', '/reports/assignments']) {
+      expect((await send(api, teamManagerA, 'GET', surface)).statusCode, surface).toBe(200);
+      expect((await send(api, teamManagerB, 'GET', surface)).statusCode, surface).toBe(200);
+    }
+    for (const surface of ['/reports/operations', '/reports/responses', '/reports/resolutions', '/reports/assignments']) {
+      expect((await send(api, teamManagerA, 'GET', `${surface}?agentId=${agentBMembershipId}`)).statusCode, surface).toBe(404);
+    }
   });
 
   it('scopes operational aggregates through the supervisor readable inbox scope', async () => {

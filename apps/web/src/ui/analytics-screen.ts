@@ -1,10 +1,11 @@
-import type { AssignmentReportRow, CampaignReport, CampaignReportExport, CampaignReportTrendDay, OperationalReport } from '../api/campaigns.js';
+import type { AssignmentReportRow, CampaignReport, CampaignReportExport, CampaignReportTrendDay, OperationalReport, ResponseReport, ResolutionReport, TimingChannelReportRow, TimingReportRow } from '../api/campaigns.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, formatNumber, numberFormat } from '../format.js';
 import { formatHash } from '../router.js';
 import { icon } from '../icons.js';
 import type { AppState } from '../state.js';
+import { routeParamsFor } from '../state.js';
 import { campaignStateBadge } from './campaigns-screen.js';
 import { CHANNEL_NAMES, ERROR_CODES, phrase, RECIPIENT_STATES, t } from './copy.js';
 import {
@@ -46,7 +47,12 @@ function stamp(state: AppState, iso: string): string {
 
 export function renderAnalytics(state: AppState): HTMLElement {
   if (state.analyticsView === 'assignments') return renderAssignments(state);
-  if (state.analyticsView === 'operations') return renderOperations(state);
+  if (state.analyticsView === 'responses') return renderResponses(state);
+  if (state.analyticsView === 'resolutions') return renderResolutions(state);
+  if (state.analyticsView === 'teams') return renderTeams(state);
+  if (state.analyticsView === 'agents') return renderAgents(state);
+  if (state.analyticsView === 'channels') return renderChannels(state);
+  if (state.analyticsView === 'overview') return renderOperations(state);
   const resource = state.live.campaignReport;
   const report = resource.status === 'ready' ? resource.value : null;
   return page('analytics', analyticsHeader(state, filterBar(state, report)), [
@@ -61,13 +67,186 @@ export function renderAnalytics(state: AppState): HTMLElement {
 
 function analyticsHeader(state: AppState, filters: HTMLElement): HTMLElement {
   return h('div', { class: 'stack stack--sm' }, [
-    segmented([
-      { value: 'campaigns', label: t(state, 'الحملات', 'Campaigns') },
-      { value: 'operations', label: t(state, 'التشغيل', 'Operations') },
+    h('div', { class: 'report-nav', role: 'region', 'aria-label': t(state, 'التنقل بين التقارير', 'Report navigation'), tabindex: '0' }, [segmented([
+      { value: 'overview', label: t(state, 'نظرة عامة', 'Overview') },
+      { value: 'agents', label: t(state, 'الوكلاء', 'Agents') },
+      { value: 'teams', label: t(state, 'الفرق', 'Teams') },
+      { value: 'responses', label: t(state, 'الاستجابات', 'Responses') },
+      { value: 'resolutions', label: t(state, 'الحلول', 'Resolutions') },
       { value: 'assignments', label: t(state, 'الإسنادات', 'Assignments') },
-    ], state.analyticsView, 'analytics-view', t(state, 'نوع التقرير', 'Report type')),
+      { value: 'channels', label: t(state, 'القنوات', 'Channels') },
+      { value: 'campaigns', label: t(state, 'الحملات', 'Campaigns') },
+    ], state.analyticsView, 'analytics-view', t(state, 'نوع التقرير', 'Report type'))]),
     filters,
   ]);
+}
+
+function renderResponses(state: AppState): HTMLElement {
+  const resource = state.live.responseReport;
+  const report = resource.status === 'ready' ? resource.value : null;
+  const filters = operationsFilterBar(state, state.live.operationalReport.status === 'ready' ? state.live.operationalReport.value : null, resource.status === 'loading');
+  const body: Child[] = [];
+  if (resource.status === 'idle' || resource.status === 'loading') body.push(skeleton(state, 3));
+  else if (resource.status === 'error') body.push(errorState(state, resource.error, 'live-report-reload'));
+  if (report !== null) body.push(...responseBody(state, report));
+  return page('analytics', analyticsHeader(state, filters), body);
+}
+
+function responseBody(state: AppState, report: ResponseReport): readonly Child[] {
+  return [
+    h('section', { class: 'kpis kpis--3', 'aria-label': t(state, 'مقاييس أول استجابة', 'First-response measures') }, [
+      kpi(t(state, 'استجابات مقاسة', 'Measured responses'), formatNumber(report.measured, state.lang)),
+      kpi(t(state, 'المتوسط', 'Average'), duration(state, report.averageSeconds)),
+      kpi(t(state, 'الوسيط', 'Median'), duration(state, report.medianSeconds)),
+    ]),
+    timingBreakdown(state, t(state, 'توزيع زمن أول رد', 'First-response time buckets'), report.buckets.map((row) => ({ label: row.bucket, count: row.count }))),
+    timingTable(state, t(state, 'حسب الوكيل', 'By agent'), report.byAgent, t(state, 'الوكيل', 'Agent')),
+    channelTimingTable(state, t(state, 'حسب القناة', 'By channel'), report.byChannel),
+  ];
+}
+
+function renderResolutions(state: AppState): HTMLElement {
+  const resource = state.live.resolutionReport;
+  const report = resource.status === 'ready' ? resource.value : null;
+  const filters = operationsFilterBar(state, state.live.operationalReport.status === 'ready' ? state.live.operationalReport.value : null, resource.status === 'loading');
+  const body: Child[] = [];
+  if (resource.status === 'idle' || resource.status === 'loading') body.push(skeleton(state, 3));
+  else if (resource.status === 'error') body.push(errorState(state, resource.error, 'live-report-reload'));
+  if (report !== null) body.push(...resolutionBody(state, report));
+  return page('analytics', analyticsHeader(state, filters), body);
+}
+
+function renderTeams(state: AppState): HTMLElement {
+  const resource = state.live.teamReport;
+  const filters = operationsFilterBar(state, state.live.operationalReport.status === 'ready' ? state.live.operationalReport.value : null, resource.status === 'loading');
+  const rows = resource.status === 'ready' ? resource.value : [];
+  return page('analytics', analyticsHeader(state, filters), [
+    resource.status === 'idle' || resource.status === 'loading' ? skeleton(state, 3)
+      : resource.status === 'error' ? errorState(state, resource.error, 'live-report-reload')
+        : panel(t(state, 'أداء الفرق', 'Team performance'), [
+          notice('plain', 'info', h('strong', {}, [t(state, 'تجميع حسب عضوية الفريق الحالية. ', 'Current team grouping. ')]), t(state, 'تُنسب النشاطات التاريخية لأعضاء كل فريق حاليًا؛ لا يدّعي التقرير معرفة عضوية الفريق وقت الحدث.', 'Historical activity is grouped by each agent’s current team membership; the report does not claim team ownership at event time.')),
+          rows.length === 0 ? emptyState({ icon: 'people', title: t(state, 'لا توجد فرق ضمن النطاق', 'No teams in scope'), body: t(state, 'لا توجد فرق مرئية في نطاق التقارير الحالي.', 'No teams are visible in the current reporting scope.') })
+            : h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+              h('thead', {}, [h('tr', {}, [
+                t(state, 'الفريق', 'Team'), t(state, 'الوكلاء النشطون', 'Active agents'), t(state, 'النشط الآن', 'Current active'),
+                t(state, 'مفتوح', 'Open'), t(state, 'معلّق', 'Pending'), t(state, 'مؤجل', 'Snoozed'),
+                t(state, 'تم التعامل', 'Handled'), t(state, 'رسائل بشرية', 'Human messages'), t(state, 'أول رد', 'First responses'),
+                t(state, 'متوسط أول رد', 'Avg. first response'), t(state, 'وسيط أول رد', 'Median first response'), t(state, 'الحلول', 'Resolutions'), t(state, 'متوسط الحل', 'Avg. resolution'), t(state, 'وسيط الحل', 'Median resolution'),
+              ].map((label) => h('th', { scope: 'col' }, [label])))]),
+              h('tbody', {}, rows.map((row) => h('tr', { 'data-team-id': row.teamId }, [
+                h('th', { scope: 'row' }, [isolated(row.name), h('div', { class: 'filterbar__actions' }, [
+                  teamInboxLink(state, row.teamId), teamInboxLink(state, row.teamId, 'open'), teamInboxLink(state, row.teamId, 'unreplied'),
+                ])]),
+                ...[row.activeAgentCount,row.currentActive,row.currentOpen,row.currentPending,row.currentSnoozed,row.handledConversations,row.humanMessages,row.firstResponses].map((value) => h('td', { class: 'num' }, [formatNumber(value, state.lang)])),
+                h('td', { class: 'num' }, [duration(state, row.firstResponseAverageSeconds)]),
+                h('td', { class: 'num' }, [duration(state, row.firstResponseMedianSeconds)]),
+                h('td', { class: 'num' }, [formatNumber(row.resolutions, state.lang)]),
+                h('td', { class: 'num' }, [duration(state, row.resolutionAverageSeconds)]),
+                h('td', { class: 'num' }, [duration(state, row.resolutionMedianSeconds)]),
+              ]))),
+            ])]),
+        ], { flush: true }),
+  ]);
+}
+
+function renderAgents(state: AppState): HTMLElement {
+  const resource = state.live.operationalReport;
+  const report = resource.status === 'ready' ? resource.value : null;
+  return page('analytics', analyticsHeader(state, operationsFilterBar(state, report, resource.status === 'loading')),
+    resource.status === 'idle' || resource.status === 'loading' ? [skeleton(state, 3)]
+      : resource.status === 'error' ? [errorState(state, resource.error, 'live-report-reload')]
+        : report === null ? [] : [agentPerformanceTable(state, report), agentDetail(state, report)]);
+}
+
+function agentPerformanceTable(state: AppState, report: OperationalReport): HTMLElement {
+  const rows = report.agents;
+  const headers = [t(state, 'الوكيل', 'Agent'),t(state, 'نشط الآن', 'Current active'),t(state, 'أُسند في الفترة', 'Assigned in period'),
+    t(state, 'تم التعامل', 'Handled'),t(state, 'رسائل بشرية', 'Human messages'),t(state, 'ملاحظات', 'Notes'),t(state, 'أول رد', 'First responses'),
+    t(state, 'متوسط الرد', 'Avg. response'),t(state, 'وسيط الرد', 'Median response'),t(state, 'حلول', 'Resolved'),
+    t(state, 'متوسط الحل', 'Avg. resolution'),t(state, 'وسيط الحل', 'Median resolution'),t(state, 'إعادات إسناد', 'Reassignments')];
+  return panel(t(state, 'أداء الوكلاء', 'Agent performance'), [rows.length === 0
+    ? emptyState({ icon: 'people', title: t(state, 'لا يوجد وكلاء ضمن النطاق', 'No agents in scope'), body: t(state, 'لا توجد هويات وكلاء قابلة للتقرير ضمن صلاحياتك.', 'No reportable agent identities are available in your scope.') })
+    : h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+      h('thead', {}, [h('tr', {}, headers.map((label, index) => h('th', { scope: 'col', class: index === 0 ? undefined : 'num' }, [label])))]),
+      h('tbody', {}, rows.map((agent) => h('tr', { 'data-agent-id': agent.membershipId }, [
+        h('th', { scope: 'row' }, [h('a', { href: formatHash({ screen: 'analytics', conversationId: null, params: { ...routeParamsFor(state), view: 'agents', agent: agent.membershipId, agentFilter: agent.membershipId } }) }, [isolated(agent.name)]),
+          h('div', { class: 'table__secondary', dir: 'ltr' }, [isolated(agent.email)])]),
+        h('td', { class: 'num' }, [formatNumber(agent.currentAssigned, state.lang)]),h('td', { class: 'num' }, [formatNumber(agent.assignedInPeriod, state.lang)]),
+        h('td', { class: 'num' }, [formatNumber(agent.handledConversations, state.lang)]),h('td', { class: 'num' }, [formatNumber(agent.humanMessages, state.lang)]),
+        h('td', { class: 'num' }, [formatNumber(agent.internalNotes, state.lang)]),h('td', { class: 'num' }, [formatNumber(agent.firstResponses, state.lang)]),
+        h('td', { class: 'num' }, [duration(state, agent.firstResponseAverageSeconds)]),h('td', { class: 'num' }, [duration(state, agent.firstResponseMedianSeconds)]),
+        h('td', { class: 'num' }, [formatNumber(agent.resolutions, state.lang)]),h('td', { class: 'num' }, [duration(state, agent.resolutionAverageSeconds)]),
+        h('td', { class: 'num' }, [duration(state, agent.resolutionMedianSeconds)]),h('td', { class: 'num' }, [formatNumber(agent.reassignments, state.lang)]),
+      ]))),
+    ])]),
+  ], { flush: true });
+}
+
+function renderChannels(state: AppState): HTMLElement {
+  const resource = state.live.operationalReport;
+  const report = resource.status === 'ready' ? resource.value : null;
+  return page('analytics', analyticsHeader(state, operationsFilterBar(state, report, resource.status === 'loading')),
+    resource.status === 'idle' || resource.status === 'loading' ? [skeleton(state, 3)]
+      : resource.status === 'error' ? [errorState(state, resource.error, 'live-report-reload')]
+        : report === null ? [] : [channelActivityReport(state, report)]);
+}
+
+function teamInboxLink(state: AppState, teamId: string, status?: 'open' | 'unreplied'): HTMLElement {
+  const filters = [
+    { key: 'team_id', operator: 'eq', value: teamId },
+    ...(status === 'open' ? [{ key: 'status', operator: 'eq', value: status }] : []),
+    ...(status === 'unreplied' ? [{ key: 'unreplied', operator: 'eq', value: true }] : []),
+  ];
+  return h('a', { class: 'btn btn--ghost btn--sm', href: formatHash({ screen: 'inbox', conversationId: null, params: { scope: 'all', filters: JSON.stringify(filters), lang: state.lang } }) }, [
+    status === undefined ? t(state, 'كل الحالي', 'All current') : status === 'open' ? t(state, 'المفتوح', 'Open') : t(state, 'بلا رد', 'Unreplied'),
+  ]);
+}
+
+function resolutionBody(state: AppState, report: ResolutionReport): readonly Child[] {
+  return [
+    h('section', { class: 'kpis kpis--4', 'aria-label': t(state, 'مقاييس الحل', 'Resolution measures') }, [
+      kpi(t(state, 'حلقات محلولة', 'Resolved episodes'), formatNumber(report.resolvedEpisodes, state.lang)),
+      kpi(t(state, 'المتوسط', 'Average'), duration(state, report.averageSeconds)),
+      kpi(t(state, 'الوسيط', 'Median'), duration(state, report.medianSeconds)),
+      kpi(t(state, 'حلقات أعيد فتحها', 'Reopened episodes'), formatNumber(report.reopenedEpisodes, state.lang)),
+    ]),
+    timingTable(state, t(state, 'حسب الوكيل', 'By agent'), report.byAgent, t(state, 'الوكيل', 'Agent')),
+    channelTimingTable(state, t(state, 'حسب القناة', 'By channel'), report.byChannel),
+    notice('plain', 'info', h('strong', {}, [t(state, 'تعريف إعادة الفتح. ', 'Reopen definition. ')]), t(state, 'تُحسب الحلقة المحلولة كإعادة فتح عندما يكون رقمها التسلسلي أكبر من 1 في المحادثة نفسها.', 'A resolved episode is counted as reopened when its sequence is greater than 1 in the same conversation.')),
+  ];
+}
+
+function timingBreakdown(state: AppState, title: string, rows: readonly { readonly label: string; readonly count: number }[]): HTMLElement {
+  return panel(title, [rows.length === 0
+    ? emptyState({ icon: 'clock', title: t(state, 'لا توجد استجابات مقاسة', 'No measured responses'), body: t(state, 'لا توجد حلقات استجابة ضمن النطاق المحدد.', 'There are no response episodes in the selected scope.') })
+    : h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+      h('thead', {}, [h('tr', {}, [h('th', { scope: 'col' }, [t(state, 'المدة', 'Duration')]), h('th', { scope: 'col', class: 'num' }, [t(state, 'العدد', 'Count')])])]),
+      h('tbody', {}, rows.map((row) => h('tr', {}, [h('th', { scope: 'row' }, [row.label]), h('td', { class: 'num' }, [formatNumber(row.count, state.lang)])]))),
+    ])])], { flush: true });
+}
+
+function timingTable(state: AppState, title: string, rows: readonly TimingReportRow[], identityLabel: string): HTMLElement {
+  return panel(title, [rows.length === 0
+    ? emptyState({ icon: 'people', title: t(state, 'لا توجد بيانات', 'No data'), body: t(state, 'لا توجد قياسات ضمن نطاق التقرير.', 'There are no measurements in this report scope.') })
+    : h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+      h('thead', {}, [h('tr', {}, [identityLabel, t(state, 'مقاس', 'Measured'), t(state, 'المتوسط', 'Average'), t(state, 'الوسيط', 'Median')].map((label, index) => h('th', { scope: 'col', class: index === 0 ? undefined : 'num' }, [label])))]),
+      h('tbody', {}, rows.map((row) => h('tr', { ...(row.membershipId === null ? {} : { 'data-agent-id': row.membershipId }) }, [
+        h('th', { scope: 'row' }, [isolated(row.name)]), h('td', { class: 'num' }, [formatNumber(row.measured, state.lang)]),
+        h('td', { class: 'num' }, [duration(state, row.averageSeconds)]), h('td', { class: 'num' }, [duration(state, row.medianSeconds)]),
+      ]))),
+    ])])], { flush: true });
+}
+
+function channelTimingTable(state: AppState, title: string, rows: readonly TimingChannelReportRow[]): HTMLElement {
+  return panel(title, [rows.length === 0
+    ? emptyState({ icon: 'inbox', title: t(state, 'لا توجد بيانات قنوات', 'No channel data'), body: t(state, 'لا توجد قياسات حسب القناة في هذا النطاق.', 'There are no channel measurements in this scope.') })
+    : h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+      h('thead', {}, [h('tr', {}, [t(state, 'القناة', 'Channel'), t(state, 'مقاس', 'Measured'), t(state, 'المتوسط', 'Average'), t(state, 'الوسيط', 'Median')].map((label, index) => h('th', { scope: 'col', class: index === 0 ? undefined : 'num' }, [label])))]),
+      h('tbody', {}, rows.map((row) => h('tr', { 'data-channel': row.channel }, [
+        h('th', { scope: 'row' }, [phrase(state, CHANNEL_NAMES, row.channel)]), h('td', { class: 'num' }, [formatNumber(row.measured, state.lang)]),
+        h('td', { class: 'num' }, [duration(state, row.averageSeconds)]), h('td', { class: 'num' }, [duration(state, row.medianSeconds)]),
+      ]))),
+    ])])], { flush: true });
 }
 
 function renderAssignments(state: AppState): HTMLElement {
@@ -112,13 +291,18 @@ function renderOperations(state: AppState): HTMLElement {
   const report = resource.status === 'ready' ? resource.value : null;
   const busy = resource.status === 'loading';
   const filterBar = operationsFilterBar(state, report, busy);
+  const reportBody = report === null ? [] : state.analyticsView === 'agents'
+    ? [agentActivity(state, report), agentDetail(state, report)]
+    : state.analyticsView === 'channels'
+      ? [channelActivityReport(state, report)]
+      : operationsBody(state, report);
   return page('analytics', analyticsHeader(state, filterBar), [
     resource.status === 'idle' || resource.status === 'loading'
       ? skeleton(state, 4)
       : resource.status === 'error'
         ? errorState(state, resource.error, 'live-report-reload')
         : null,
-    ...(report === null ? [] : operationsBody(state, report)),
+    ...reportBody,
   ]);
 }
 
@@ -232,7 +416,8 @@ function channelActivityReport(state: AppState, report: OperationalReport): HTML
   const columns = [
     t(state, 'القناة', 'Channel'), t(state, 'نشط الآن', 'Active now'), t(state, 'جديد', 'New'),
     t(state, 'تم التعامل', 'Handled'), t(state, 'رسائل بشرية', 'Human messages'),
-    t(state, 'متوسط أول رد', 'Avg. first response'), t(state, 'متوسط الحل', 'Avg. resolution'),
+    t(state, 'متوسط أول رد', 'Avg. first response'), t(state, 'وسيط أول رد', 'Median first response'),
+    t(state, 'الحلول', 'Resolved'), t(state, 'متوسط الحل', 'Avg. resolution'), t(state, 'وسيط الحل', 'Median resolution'),
   ];
   return panel(t(state, 'الأداء حسب القناة', 'Channel performance'), [
     report.channels.length === 0
@@ -240,13 +425,20 @@ function channelActivityReport(state: AppState, report: OperationalReport): HTML
       : h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
         h('thead', {}, [h('tr', {}, columns.map((label, index) => h('th', { scope: 'col', class: index === 0 ? undefined : 'num' }, [label])))]),
         h('tbody', {}, report.channels.map((row) => h('tr', { 'data-channel': row.channel }, [
-          h('th', { scope: 'row' }, [phrase(state, CHANNEL_NAMES, row.channel)]),
+          h('th', { scope: 'row' }, [phrase(state, CHANNEL_NAMES, row.channel), h('div', { class: 'filterbar__actions' }, [channelInboxLink(state, row.channel)])]),
           h('td', { class: 'num' }, [formatNumber(row.currentActive, state.lang)]), h('td', { class: 'num' }, [formatNumber(row.newConversations, state.lang)]),
           h('td', { class: 'num' }, [formatNumber(row.handledConversations, state.lang)]), h('td', { class: 'num' }, [formatNumber(row.humanMessages, state.lang)]),
-          h('td', { class: 'num' }, [duration(state, row.firstResponseAverageSeconds)]), h('td', { class: 'num' }, [duration(state, row.resolutionAverageSeconds)]),
+          h('td', { class: 'num' }, [duration(state, row.firstResponseAverageSeconds)]), h('td', { class: 'num' }, [duration(state, row.firstResponseMedianSeconds)]),
+          h('td', { class: 'num' }, [formatNumber(row.resolutions, state.lang)]), h('td', { class: 'num' }, [duration(state, row.resolutionAverageSeconds)]),
+          h('td', { class: 'num' }, [duration(state, row.resolutionMedianSeconds)]),
         ]))),
       ])]),
   ], { flush: true });
+}
+
+function channelInboxLink(state: AppState, channel: string): HTMLElement {
+  const filters = [{ key: 'channel', operator: 'eq', value: channel }];
+  return h('a', { class: 'btn btn--ghost btn--sm', href: formatHash({ screen: 'inbox', conversationId: null, params: { scope: 'all', filters: JSON.stringify(filters), lang: state.lang } }) }, [t(state, 'عرض في الوارد', 'View in Inbox')]);
 }
 
 /** The supervisor banner carries an opaque membership ID into this view. */
@@ -285,12 +477,14 @@ function agentDetail(state: AppState, report: OperationalReport): Child {
       reportInboxLink(state, agent.membershipId, 'open'),
       reportInboxLink(state, agent.membershipId, 'unreplied'),
       reportInboxLink(state, agent.membershipId, 'high'),
+      reportInboxLink(state, agent.membershipId, 'all'),
     ]),
   ]);
 }
 
-function reportInboxLink(state: AppState, membershipId: string, kind: 'open' | 'unreplied' | 'high'): HTMLElement {
+function reportInboxLink(state: AppState, membershipId: string, kind: 'all' | 'open' | 'unreplied' | 'high'): HTMLElement {
   const labels = {
+    all: t(state, 'كل الحالي', 'All current'),
     open: t(state, 'فتح المحادثات المفتوحة', 'Open conversations'),
     unreplied: t(state, 'غير المردود عليها', 'Unreplied'),
     high: t(state, 'الأولوية المرتفعة', 'High priority'),
@@ -329,7 +523,7 @@ function agentActivity(state: AppState, report: OperationalReport): HTMLElement 
       h('th', { scope: 'col', class: 'num' }, [t(state, 'إعادات إسناد', 'Reassignments')]),
     ])]),
     h('tbody', {}, report.agents.map((agent) => h('tr', { 'data-agent-id': agent.membershipId }, [
-      h('td', {}, [h('strong', {}, [agent.name]), h('span', { class: 'table__secondary' }, [agent.email])]),
+      h('td', {}, [h('a', { href: formatHash({ screen: 'analytics', conversationId: null, params: { ...routeParamsFor(state), view: 'agents', agent: agent.membershipId, agentFilter: agent.membershipId } }) }, [h('strong', {}, [isolated(agent.name)])]), h('span', { class: 'table__secondary', dir: 'ltr' }, [isolated(agent.email)])]),
       h('td', { class: 'num' }, [formatNumber(agent.currentAssigned, state.lang)]), h('td', { class: 'num' }, [formatNumber(agent.assignedInPeriod, state.lang)]),
       h('td', { class: 'num' }, [formatNumber(agent.handledConversations, state.lang)]), h('td', { class: 'num' }, [formatNumber(agent.humanMessages, state.lang)]),
       h('td', { class: 'num' }, [formatNumber(agent.internalNotes, state.lang)]), h('td', { class: 'num' }, [formatNumber(agent.firstResponses, state.lang)]),
@@ -681,12 +875,22 @@ function campaignTable(state: AppState, report: CampaignReport): HTMLElement {
                   ]),
             ]),
             h('td', {}, [stamp(state, campaign.fresh_through)]),
-            h('td', {}, [button({ label: t(state, 'فتح', 'Open'), act: 'campaign-open', arg: campaign.id, small: true, variant: 'ghost', title: t(state, `فتح ${campaign.name}`, `Open ${campaign.name}`) })]),
+            h('td', {}, [h('div', { class: 'filterbar__actions' }, [
+              button({ label: t(state, 'فتح', 'Open'), act: 'campaign-open', arg: campaign.id, small: true, variant: 'ghost', title: t(state, `فتح ${campaign.name}`, `Open ${campaign.name}`) }),
+              campaignInboxLink(state, campaign.id),
+            ])]),
           ]);
         })),
       ]),
     ]),
   ], { flush: true });
+}
+
+function campaignInboxLink(state: AppState, campaignId: string): HTMLElement {
+  const filters = [{ key: 'campaign_id', operator: 'eq', value: campaignId }];
+  return h('a', { class: 'btn btn--ghost btn--sm', href: formatHash({ screen: 'inbox', conversationId: null, params: { scope: 'all', filters: JSON.stringify(filters), lang: state.lang } }) }, [
+    t(state, 'المحادثات المنسوبة', 'Attributed conversations'),
+  ]);
 }
 
 function costs(state: AppState, report: CampaignReport): HTMLElement | null {

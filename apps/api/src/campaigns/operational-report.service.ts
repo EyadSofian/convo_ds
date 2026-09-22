@@ -45,7 +45,7 @@ export class OperationalReportingService {
   constructor(@Inject(AuthorizationService) private readonly authorization: AuthorizationService) {}
 
   async report(session: AuthenticatedSession, tenantId: string, filters: OperationalReportFilters): Promise<OperationalReport> {
-    return this.authorization.authorized(session, tenantId, 'report.read', async ({ sql, principal }) => {
+    return this.authorization.authorizedOwnReport(session, tenantId, async ({ sql, principal }) => {
       // The directory is shared with Supervisor View. It represents people the
       // reporting principal can inspect, not everyone who happens to have an
       // event row in the selected time range.
@@ -280,8 +280,9 @@ export class OperationalReportingService {
             'resolutions',resolutions,'resolutionAverageSeconds',resolution_average_seconds,'resolutionMedianSeconds',resolution_median_seconds,'reassignments',reassignments
           )) FROM agent_rows WHERE ($4::uuid IS NULL OR membership_id::uuid=$4::uuid)),'[]'::jsonb)
         ) AS report FROM first_response_timing fr CROSS JOIN resolution_timing rt`, values)).rows[0];
-      if (row === undefined) throw new Error('operational report returned no row');
-      return { ...row.report, filters: {
+      // The report query terminates in aggregate CTEs without GROUP BY, so it
+      // always returns one row even when no conversations match.
+      return { ...row!.report, filters: {
         from: filters.fromAt?.toISOString() ?? null, to: filters.toExclusiveAt?.toISOString() ?? null,
         agentId: filters.agentId, teamId: filters.teamId, channel: filters.channel,
         connectionId: filters.connectionId, labelId: filters.labelId, campaignId: filters.campaignId,

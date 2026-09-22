@@ -67,6 +67,8 @@ import { CampaignPlannerService } from './campaigns/campaign-planner.service.js'
 import { CampaignReportingService } from './campaigns/reporting.service.js';
 import { OperationalReportingService } from './campaigns/operational-report.service.js';
 import { AssignmentReportService } from './campaigns/assignment-report.service.js';
+import { LifecycleReportService } from './campaigns/lifecycle-report.service.js';
+import { TeamReportService } from './campaigns/team-report.service.js';
 import { CampaignReportExportService } from './campaigns/report-export.service.js';
 import { SegmentController } from './segments/segment.controller.js';
 import { SegmentService } from './segments/segment.service.js';
@@ -199,6 +201,8 @@ export class ApiModule {
         CampaignReportingService,
         OperationalReportingService,
         AssignmentReportService,
+        LifecycleReportService,
+        TeamReportService,
         CampaignReportExportService,
         ConversationService,
         LifecycleService,

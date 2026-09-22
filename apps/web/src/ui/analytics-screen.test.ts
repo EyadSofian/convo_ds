@@ -2,7 +2,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest';
-import type { CampaignReport, CampaignReportExport, OperationalReport } from '../api/campaigns';
+import type { CampaignReport, CampaignReportExport, OperationalReport, TeamReportRow } from '../api/campaigns';
 import { createState, NO_ANALYTICS_FILTERS } from '../state';
 import { parseHash } from '../router.js';
 import type { AppState } from '../state';
@@ -118,7 +118,7 @@ describe('the filter bar', () => {
 
   it('renders server-backed operational filters and historical response buckets', () => {
     const state = screen();
-    state.analyticsView = 'operations';
+    state.analyticsView = 'overview';
     state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
     state.live.teams = { status: 'ready', loadedAt: 1, value: [{ id: 'team-1', name: 'Support', member_count: 1, archived: false, members: [] }] };
     state.live.workspaceLabels = { status: 'ready', loadedAt: 1, value: [{ id: 'label-1', name: 'VIP', color: '#123456', state: 'active', version: 1 }] };
@@ -130,6 +130,7 @@ describe('the filter bar', () => {
     expect(bar.textContent).toContain('VIP ×');
     expect(root.textContent).toContain('First-response distribution');
     expect(root.textContent).toContain('5–15m');
+    state.analyticsView = 'agents';
     state.route = { ...state.route, params: { agent: '00000000-0000-4000-8000-000000000001' } };
     const detailed = renderAnalytics(state);
     const drilldown = detailed.querySelector('a[href*="/inbox"]') as HTMLAnchorElement;
@@ -143,7 +144,7 @@ describe('the filter bar', () => {
 describe('operational analytics', () => {
   it('uses the operational API projection and labels its durable evidence', () => {
     const state = screen();
-    state.analyticsView = 'operations';
+    state.analyticsView = 'overview';
     state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
     const root = renderAnalytics(state);
     expect(root.querySelector('[data-operations-report-ready]')).not.toBeNull();
@@ -152,6 +153,38 @@ describe('operational analytics', () => {
     expect(root.textContent).toContain('recorded actors');
     expect(root.querySelector('[data-act="live-report-export"]')).toBeNull();
     expect(root.querySelector('[data-act="analytics-view"][data-arg="campaigns"]')).not.toBeNull();
+  });
+
+  it('renders the UUID-keyed agent report as a focused surface with timing and workload drilldowns', () => {
+    const state = screen();
+    state.analyticsView = 'agents';
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
+    const root = renderAnalytics(state);
+    expect(root.querySelector('[data-agent-id="00000000-0000-4000-8000-000000000001"]')).not.toBeNull();
+    expect(root.textContent).toContain('Median response');
+    expect(root.textContent).toContain('Mona Agent');
+    expect(root.textContent).not.toContain('Current team grouping.');
+  });
+
+  it('renders only team report identities and canonical team drill-down filters', () => {
+    const state = screen();
+    state.analyticsView = 'teams';
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
+    const row: TeamReportRow = {
+      teamId: '00000000-0000-4000-8000-000000000010', name: 'Support', activeAgentCount: 2,
+      currentActive: 5, currentOpen: 3, currentPending: 1, currentSnoozed: 1,
+      handledConversations: 4, humanMessages: 9, firstResponses: 2, firstResponseAverageSeconds: 60,
+      firstResponseMedianSeconds: 55, resolutions: 1, resolutionAverageSeconds: 400, resolutionMedianSeconds: 400,
+    };
+    state.live.teamReport = { status: 'ready', loadedAt: 1, value: [row] };
+    const root = renderAnalytics(state);
+    expect(root.querySelector('[data-team-id="00000000-0000-4000-8000-000000000010"]')).not.toBeNull();
+    expect(root.textContent).toContain('Current team grouping');
+    expect(root.textContent).toContain('Median resolution');
+    const link = root.querySelector('a[href*="/inbox"]') as HTMLAnchorElement;
+    expect(JSON.parse(parseHash(link.getAttribute('href') ?? '').params.filters ?? '[]')).toEqual([
+      { key: 'team_id', operator: 'eq', value: row.teamId },
+    ]);
   });
 });
 
@@ -183,6 +216,40 @@ describe('assignment analytics', () => {
     const root = renderAnalytics(state);
     expect(root.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect(root.querySelector('[data-assignment-id]')).toBeNull();
+  });
+});
+
+describe('lifecycle analytics', () => {
+  it('renders measured response timing, all populated buckets, and attributed agents', () => {
+    const state = screen();
+    state.analyticsView = 'responses';
+    state.live.responseReport = { status: 'ready', loadedAt: 1, value: {
+      measured: 1, averageSeconds: 420, medianSeconds: 420,
+      buckets: [{ bucket: '5–15m', count: 1 }],
+      byAgent: [{ membershipId: 'member-a', name: 'Ahmed', measured: 1, averageSeconds: 420, medianSeconds: 420 }],
+      byChannel: [{ channel: 'whatsapp', measured: 1, averageSeconds: 420, medianSeconds: 420 }],
+    } };
+    const root = renderAnalytics(state);
+    expect(root.textContent).toContain('Measured responses');
+    expect(root.textContent).toContain('5–15m');
+    expect(root.textContent).toContain('Ahmed');
+    expect(root.textContent).toContain('WhatsApp');
+    expect(root.querySelector('[data-arg="responses"][aria-pressed="true"]')).not.toBeNull();
+  });
+
+  it('renders resolution episodes with explicit unattributed evidence and reopen definition', () => {
+    const state = screen();
+    state.analyticsView = 'resolutions';
+    state.live.resolutionReport = { status: 'ready', loadedAt: 1, value: {
+      resolvedEpisodes: 2, averageSeconds: 300, medianSeconds: 300, reopenedEpisodes: 1,
+      byAgent: [{ membershipId: null, name: 'Unattributed', measured: 2, averageSeconds: 300, medianSeconds: 300 }],
+      byChannel: [],
+    } };
+    const root = renderAnalytics(state);
+    expect(root.textContent).toContain('Resolved episodes');
+    expect(root.textContent).toContain('Reopened episodes');
+    expect(root.textContent).toContain('Unattributed');
+    expect(root.textContent).toContain('sequence is greater than 1');
   });
 });
 
@@ -291,6 +358,10 @@ describe('the report', () => {
     expect(rows[0]?.textContent).toContain('85.8%');
     expect(rows[0]?.querySelector('.badge--danger')?.textContent).toBe('19');
     expect(rows[0]?.querySelector('[data-act="campaign-open"]')?.getAttribute('data-arg')).toBe('c-1');
+    const campaignDrilldown = rows[0]?.querySelector('a[href*="/inbox"]') as HTMLAnchorElement;
+    expect(JSON.parse(parseHash(campaignDrilldown.getAttribute('href') ?? '').params.filters ?? '[]')).toEqual([
+      { key: 'campaign_id', operator: 'eq', value: 'c-1' },
+    ]);
     expect(rows[1]?.textContent).toContain('Not started');
     expect(rows[1]?.textContent).toContain('—');
     expect(renderAnalytics(screen(report({ campaigns: [] }))).textContent).toContain('No campaigns in this scope');

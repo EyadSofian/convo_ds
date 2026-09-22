@@ -9,6 +9,9 @@ covered by tests. No report accepts arbitrary SQL/JSON predicates.
 - Tenant isolation and the caller's readable conversation scope are applied
   before aggregation. A report principal is never replaced by the selected
   agent's principal.
+- An `own` `report.read` grant authorizes only the caller's own report; the
+  report query still applies that caller's own-readable conversation scope to
+  every aggregate and identity directory.
 - Date ranges use the metric's event timestamp and a half-open interval:
   `timestamp >= from AND timestamp < toExclusive`.
 - Human outbound events are rows with a non-null `author_membership`, excluding
@@ -40,6 +43,7 @@ covered by tests. No report accepts arbitrary SQL/JSON predicates.
 | Resolution | `conversation_episodes.closed_at` | `closed_by_membership_id`; null actor is unattributed | Current team membership of the proven closer | Episode conversation connection / channel | Current label only | Durable attribution only | Episode conversation current values only if explicitly presented as current dimensions |
 | Reassignment | `conversation_audit.at` | Ownership-changing event target; reassignment additionally requires non-null prior owner and a different target | Current team membership grouping only | Conversation associated with the event | Current label only | Durable attribution only | Current conversation state only if separately labelled |
 | Assignment log | `conversation_audit.at` | Target/actor are separate columns; filter semantics must name which role is selected | No historical team attribution without event-time membership evidence | Conversation's connection / channel | Current label only | Durable attribution only | Event conversation current values only if disclosed |
+| Teams report | Current workload at request time; historical activity uses its event timestamp | Current assignee for workload; human author / proven episode actor for activity | Team members **now**, explicitly labelled Current team grouping | Conversation's current connection / channel | Current conversation label | Durable conversation attribution, not causal credit | Current conversation values |
 
 ## Entity filter validation
 
@@ -59,7 +63,17 @@ covered by tests. No report accepts arbitrary SQL/JSON predicates.
   `campaign_conversation_attributions`. It does not imply campaign causality.
 - `priority` and `status` are closed enums, never free-form predicates.
 - Out-of-scope and cross-tenant entity IDs use generic validation/not-found
-  behavior and must not disclose whether an entity exists elsewhere.
+behavior and must not disclose whether an entity exists elsewhere.
+
+The dedicated Teams report returns only team identities visible through the
+report principal's tenant/team/Inbox scope. A scoped manager never receives
+other tenant team names with zeroed metrics. Its `activeAgentCount` is the
+number of active, reportable memberships currently on the team. Historical
+message and episode activity is grouped by current `team_members`; this is a
+present-day grouping and cannot be interpreted as the team that owned the work
+when the event occurred. Current backlog remains grouped by
+`conversations.team_id` at query time. Team → Inbox links filter by the
+canonical `team_id` field.
 
 Unsupported filters are rejected rather than silently ignored. Filter support
 is added per metric only with server-side predicates and scope/security tests.

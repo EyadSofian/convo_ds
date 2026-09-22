@@ -9,6 +9,8 @@ import { CampaignService } from './campaign.service.js';
 import { CampaignReportingService } from './reporting.service.js';
 import { OperationalReportingService, parseOperationalReportFilters } from './operational-report.service.js';
 import { AssignmentReportService, parseAssignmentReportQuery } from './assignment-report.service.js';
+import { LifecycleReportService } from './lifecycle-report.service.js';
+import { TeamReportService } from './team-report.service.js';
 
 @Controller()
 export class CampaignController {
@@ -18,6 +20,8 @@ export class CampaignController {
     @Inject(CampaignReportingService) private readonly reporting: CampaignReportingService,
     @Inject(OperationalReportingService) private readonly operationalReporting: OperationalReportingService,
     @Inject(AssignmentReportService) private readonly assignments: AssignmentReportService,
+    @Inject(LifecycleReportService) private readonly lifecycleReports: LifecycleReportService,
+    @Inject(TeamReportService) private readonly teamReports: TeamReportService,
     @Inject(CampaignReportExportService) private readonly exports: CampaignReportExportService,
   ) {}
 
@@ -45,6 +49,27 @@ export class CampaignController {
     const session = await this.auth.authenticate(request.headers.cookie);
     const result = await this.assignments.page(session, tenantId, parseAssignmentReportQuery(query));
     return pageEnvelope(result.items, result.nextCursor, request.id);
+  }
+
+  @Get('tenants/:tenantId/reports/responses')
+  async responseReport(@Param('tenantId') tenantId: string, @Query() query: unknown, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const report = await this.lifecycleReports.response(session, tenantId, parseOperationalReportFilters(query));
+    return { data: report, request_id: request.id };
+  }
+
+  @Get('tenants/:tenantId/reports/resolutions')
+  async resolutionReport(@Param('tenantId') tenantId: string, @Query() query: unknown, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const report = await this.lifecycleReports.resolution(session, tenantId, parseOperationalReportFilters(query));
+    return { data: report, request_id: request.id };
+  }
+
+  @Get('tenants/:tenantId/reports/teams')
+  async teamReport(@Param('tenantId') tenantId: string, @Query() query: unknown, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const report = await this.teamReports.report(session, tenantId, parseOperationalReportFilters(query));
+    return { data: report, request_id: request.id };
   }
 
   @Post('tenants/:tenantId/reports/campaigns/exports')
