@@ -1,5 +1,5 @@
 {
-  "measured_at": "2026-09-22T13:57:43.284Z",
+  "measured_at": "2026-09-22T15:33:58.337Z",
   "environment": {
     "note": "Local developer machine. Client and server share a host, so network latency is zero. Not a production capacity measurement.",
     "node": "v22.23.2",
@@ -15,281 +15,281 @@
   "runs": [
     {
       "concurrency": 10,
-      "durationMs": 10004,
-      "totalRequests": 20364,
+      "durationMs": 10002,
+      "totalRequests": 18864,
       "totalErrors": 0,
-      "requestsPerSecond": 2035.59,
+      "requestsPerSecond": 1886.02,
       "errorRate": 0,
       "scenarios": [
         {
           "scenario": "conversation-list",
-          "samples": 5030,
+          "samples": 4641,
           "errors": 0,
-          "p50": 5.49,
-          "p95": 9.37,
-          "p99": 12.93,
-          "max": 38.81,
-          "mean": 5.97
+          "p50": 6.33,
+          "p95": 8.65,
+          "p99": 10.69,
+          "max": 37.91,
+          "mean": 6.46
         },
         {
           "scenario": "conversation-open",
-          "samples": 2932,
+          "samples": 2697,
           "errors": 0,
-          "p50": 6.2,
-          "p95": 10.82,
-          "p99": 14.9,
-          "max": 43.21,
-          "mean": 6.82
+          "p50": 7.27,
+          "p95": 9.86,
+          "p99": 11.96,
+          "max": 42.04,
+          "mean": 7.42
         },
         {
           "scenario": "message-timeline",
-          "samples": 3053,
+          "samples": 2815,
           "errors": 0,
-          "p50": 5.96,
-          "p95": 10.32,
-          "p99": 14.29,
-          "max": 41.24,
-          "mean": 6.55
+          "p50": 6.99,
+          "p95": 9.47,
+          "p99": 11.79,
+          "max": 40.83,
+          "mean": 7.11
         },
         {
           "scenario": "contact-search",
-          "samples": 1089,
+          "samples": 1017,
           "errors": 0,
-          "p50": 8.48,
-          "p95": 13.77,
-          "p99": 18.3,
-          "max": 43.01,
-          "mean": 9.18
+          "p50": 9.59,
+          "p95": 12.68,
+          "p99": 15.94,
+          "max": 40.6,
+          "mean": 9.83
         },
         {
           "scenario": "session-check",
-          "samples": 3625,
+          "samples": 3314,
           "errors": 0,
-          "p50": 2.53,
-          "p95": 4.38,
-          "p99": 6.03,
-          "max": 26.35,
-          "mean": 2.76
+          "p50": 2.86,
+          "p95": 4.51,
+          "p99": 5.45,
+          "max": 25.11,
+          "mean": 3.02
         },
         {
           "scenario": "readiness",
-          "samples": 4635,
+          "samples": 4380,
           "errors": 0,
-          "p50": 2.02,
-          "p95": 3.43,
-          "p99": 4.64,
-          "max": 23.67,
-          "mean": 2.16
+          "p50": 2.16,
+          "p95": 3.49,
+          "p99": 4.4,
+          "max": 21.71,
+          "mean": 2.28
         }
       ]
     },
     {
       "concurrency": 25,
-      "durationMs": 10008,
-      "totalRequests": 17266,
+      "durationMs": 10019,
+      "totalRequests": 12345,
       "totalErrors": 0,
-      "requestsPerSecond": 1725.22,
+      "requestsPerSecond": 1232.16,
       "errorRate": 0,
       "scenarios": [
         {
           "scenario": "conversation-list",
-          "samples": 4628,
+          "samples": 3283,
           "errors": 0,
-          "p50": 16.47,
-          "p95": 25.12,
-          "p99": 30.6,
-          "max": 38.01,
-          "mean": 17.29
+          "p50": 19.27,
+          "p95": 45.69,
+          "p99": 66.82,
+          "max": 123.67,
+          "mean": 24.4
         },
         {
           "scenario": "conversation-open",
-          "samples": 2372,
+          "samples": 1685,
           "errors": 0,
-          "p50": 19.91,
-          "p95": 30.57,
-          "p99": 37.86,
-          "max": 58.87,
-          "mean": 21.09
+          "p50": 23.22,
+          "p95": 57.06,
+          "p99": 79.5,
+          "max": 117.35,
+          "mean": 29.72
         },
         {
           "scenario": "message-timeline",
-          "samples": 2518,
+          "samples": 1788,
           "errors": 0,
-          "p50": 18.83,
-          "p95": 28.63,
-          "p99": 36.01,
-          "max": 59,
-          "mean": 19.86
+          "p50": 21.84,
+          "p95": 52.8,
+          "p99": 81.54,
+          "max": 124.26,
+          "mean": 28
         },
         {
           "scenario": "contact-search",
-          "samples": 1298,
+          "samples": 933,
           "errors": 0,
-          "p50": 21.99,
-          "p95": 32.92,
-          "p99": 39.97,
-          "max": 64.93,
-          "mean": 23.13
+          "p50": 25.6,
+          "p95": 59.75,
+          "p99": 87.01,
+          "max": 113.6,
+          "mean": 32.18
         },
         {
           "scenario": "session-check",
-          "samples": 2776,
+          "samples": 1988,
           "errors": 0,
-          "p50": 6.89,
-          "p95": 10.74,
-          "p99": 13.05,
-          "max": 16.92,
-          "mean": 7.21
+          "p50": 8.1,
+          "p95": 19.38,
+          "p99": 29.28,
+          "max": 55.35,
+          "mean": 10.07
         },
         {
           "scenario": "readiness",
-          "samples": 3674,
+          "samples": 2668,
           "errors": 0,
-          "p50": 5.17,
-          "p95": 8.11,
-          "p99": 9.85,
-          "max": 13.81,
-          "mean": 5.44
+          "p50": 6.23,
+          "p95": 14.03,
+          "p99": 21.08,
+          "max": 36.25,
+          "mean": 7.5
         }
       ]
     },
     {
       "concurrency": 50,
-      "durationMs": 10019,
-      "totalRequests": 18208,
+      "durationMs": 10026,
+      "totalRequests": 13339,
       "totalErrors": 0,
-      "requestsPerSecond": 1817.35,
+      "requestsPerSecond": 1330.44,
       "errorRate": 0,
       "scenarios": [
         {
           "scenario": "conversation-list",
-          "samples": 5577,
+          "samples": 4069,
           "errors": 0,
-          "p50": 28.88,
-          "p95": 40.47,
-          "p99": 49.85,
-          "max": 64.47,
-          "mean": 30.51
+          "p50": 38.45,
+          "p95": 66.69,
+          "p99": 72.74,
+          "max": 108.55,
+          "mean": 41.84
         },
         {
           "scenario": "conversation-open",
-          "samples": 2949,
+          "samples": 2148,
           "errors": 0,
-          "p50": 32.09,
-          "p95": 44.71,
-          "p99": 54.62,
-          "max": 70.32,
-          "mean": 33.95
+          "p50": 42.68,
+          "p95": 73.5,
+          "p99": 79.75,
+          "max": 89.85,
+          "mean": 46.64
         },
         {
           "scenario": "message-timeline",
-          "samples": 3053,
+          "samples": 2225,
           "errors": 0,
-          "p50": 31.05,
-          "p95": 43.57,
-          "p99": 52.75,
-          "max": 67.45,
-          "mean": 32.78
+          "p50": 41.48,
+          "p95": 70.61,
+          "p99": 76.75,
+          "max": 88.03,
+          "mean": 45.02
         },
         {
           "scenario": "contact-search",
-          "samples": 1927,
+          "samples": 1442,
           "errors": 0,
-          "p50": 34.81,
-          "p95": 46.69,
-          "p99": 56.54,
-          "max": 73.58,
-          "mean": 36.36
+          "p50": 45.03,
+          "p95": 74.93,
+          "p99": 85.66,
+          "max": 93.58,
+          "mean": 48.64
         },
         {
           "scenario": "session-check",
-          "samples": 1819,
+          "samples": 1325,
           "errors": 0,
-          "p50": 15.83,
-          "p95": 22.52,
-          "p99": 27.85,
-          "max": 35.87,
-          "mean": 16.5
+          "p50": 20.77,
+          "p95": 37.62,
+          "p99": 43.03,
+          "max": 56.05,
+          "mean": 22.67
         },
         {
           "scenario": "readiness",
-          "samples": 2883,
+          "samples": 2130,
           "errors": 0,
-          "p50": 9.99,
-          "p95": 14.75,
-          "p99": 18.59,
-          "max": 28.36,
-          "mean": 10.41
+          "p50": 13.03,
+          "p95": 23.33,
+          "p99": 28.66,
+          "max": 53.14,
+          "mean": 14.1
         }
       ]
     },
     {
       "concurrency": 100,
       "durationMs": 10044,
-      "totalRequests": 17903,
+      "totalRequests": 15669,
       "totalErrors": 0,
-      "requestsPerSecond": 1782.46,
+      "requestsPerSecond": 1560.04,
       "errorRate": 0,
       "scenarios": [
         {
           "scenario": "conversation-list",
-          "samples": 5117,
+          "samples": 4471,
           "errors": 0,
-          "p50": 60.73,
-          "p95": 88.55,
-          "p99": 104.82,
-          "max": 116.09,
-          "mean": 64.66
+          "p50": 69.66,
+          "p95": 105.27,
+          "p99": 126.68,
+          "max": 139.69,
+          "mean": 73.98
         },
         {
           "scenario": "conversation-open",
-          "samples": 2944,
+          "samples": 2575,
           "errors": 0,
-          "p50": 63.83,
-          "p95": 93.25,
-          "p99": 109.38,
-          "max": 121.59,
-          "mean": 68.11
+          "p50": 72.7,
+          "p95": 110.37,
+          "p99": 133.57,
+          "max": 143.23,
+          "mean": 77.84
         },
         {
           "scenario": "message-timeline",
-          "samples": 2987,
+          "samples": 2608,
           "errors": 0,
-          "p50": 62.77,
-          "p95": 92.17,
-          "p99": 107.05,
-          "max": 118,
-          "mean": 67.09
+          "p50": 72.05,
+          "p95": 110.89,
+          "p99": 128.61,
+          "max": 144.5,
+          "mean": 76.85
         },
         {
           "scenario": "contact-search",
-          "samples": 1855,
+          "samples": 1636,
           "errors": 0,
-          "p50": 65.99,
-          "p95": 94.73,
-          "p99": 111.69,
-          "max": 125.09,
-          "mean": 70.28
+          "p50": 75.36,
+          "p95": 113.43,
+          "p99": 135.21,
+          "max": 143.98,
+          "mean": 79.71
         },
         {
           "scenario": "session-check",
-          "samples": 1792,
+          "samples": 1569,
           "errors": 0,
-          "p50": 37.04,
-          "p95": 51.83,
-          "p99": 64.95,
-          "max": 80.05,
-          "mean": 39.12
+          "p50": 42.02,
+          "p95": 66.17,
+          "p99": 76.59,
+          "max": 88.85,
+          "mean": 44.68
         },
         {
           "scenario": "readiness",
-          "samples": 3208,
+          "samples": 2810,
           "errors": 0,
-          "p50": 20.87,
-          "p95": 29.73,
-          "p99": 38.93,
-          "max": 49.2,
-          "mean": 21.83
+          "p50": 23.43,
+          "p95": 38.01,
+          "p99": 47.58,
+          "max": 55.75,
+          "mean": 24.93
         }
       ]
     }
