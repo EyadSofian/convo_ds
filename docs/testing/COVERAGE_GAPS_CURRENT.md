@@ -8,9 +8,9 @@ integration and property files passed):
 
 | Metric | Covered | Total | Result |
 | --- | ---: | ---: | --- |
-| Lines/statements | 27,892 | 28,501 | 97.86% (gate: 100%) |
-| Functions | 2,057 | 2,119 | 97.07% (gate: 100%) |
-| Branches | 10,000 | 10,267 | 97.39% (gate: 100%) |
+| Lines/statements | 27,917 | 28,501 | 97.95% (gate: 100%) |
+| Functions | 2,066 | 2,119 | 97.49% (gate: 100%) |
+| Branches | 10,029 | 10,287 | 97.49% (gate: 100%) |
 
 The report/lifecycle/team services, the covered API validation boundaries, and
 the new supervisor/reporting correctness paths are covered. The remaining gaps
@@ -24,7 +24,6 @@ snapshot; rows are removed when a file becomes fully covered.
 
 | File | Uncovered lines | Uncovered functions | Uncovered branches |
 | --- | --- | --- | --- |
-| `apps/api/src/automations/automation.service.ts` | — | — | 98 |
 | `apps/api/src/conversations/conversation.controller.ts` | — | — | 82 |
 | `apps/api/src/conversations/conversation.service.ts` | — | — | 373, 409, 468 |
 | `apps/api/src/conversations/inbox-query-compiler.ts` | 78-79, 101-102, 107-108, 125-126 | — | 52, 58, 65, 77, 83, 100, 106, 111, 114, 118-119, 123-124, 130-132, 135 |
@@ -34,9 +33,6 @@ snapshot; rows are removed when a file becomes fully covered.
 | `apps/web/src/app.ts` | 718 | — | 717, 719 |
 | `apps/web/src/prepaint-language.ts` | — | — | 21 |
 | `apps/web/src/state.ts` | 289-290, 307, 309-310, 318, 321-323 | `isUuid@321` | 286, 288, 299, 301, 306, 308, 313-317 |
-| `apps/web/src/api/automations.ts` | 118-119 | `deleteDraft@117` | 128 |
-| `apps/web/src/api/campaigns.ts` | — | — | 320, 325, 330 |
-| `apps/web/src/api/conversations.ts` | 194-195, 198-199, 202-210 | `supervisorAgents@193`, `supervisorWorkload@197`, `supervisorList@201` | 184-185, 187, 190 |
 | `apps/web/src/api/metadata.ts` | 63-64, 67-68 | `updateLabel@62`, `retireLabel@66` | — |
 | `apps/web/src/api/saved-views.ts` | 34-35, 38-39, 42-43 | `create@33`, `update@37`, `retire@41` | — |
 | `apps/web/src/live/actions.ts` | — | — | 166 |

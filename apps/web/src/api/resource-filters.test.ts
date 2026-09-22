@@ -9,12 +9,14 @@ function client() {
   const page = vi.fn().mockResolvedValue({ ok: true, data: { data: [], nextCursor: null, hasMore: false } });
   const post = vi.fn().mockResolvedValue({ ok: true, data: {} });
   const patch = vi.fn().mockResolvedValue({ ok: true, data: {} });
+  const del = vi.fn().mockResolvedValue({ ok: true, data: {} });
   return {
-    value: { get, page, post, patch } as unknown as ApiClient,
+    value: { get, page, post, patch, delete: del } as unknown as ApiClient,
     get,
     page,
     post,
     patch,
+    del,
   };
 }
 
@@ -72,5 +74,17 @@ describe('resource query clients', () => {
       '/tenants/tenant/contacts/contact/metadata',
       { body: { version: 3, fields: [] } },
     );
+  });
+
+  it('covers metadata label mutations and include-retired loading', async () => {
+    const fake = client();
+    const api = new MetadataApi(fake.value);
+    await api.labels('tenant');
+    await api.labels('tenant', true);
+    await api.updateLabel('tenant', 'label', { version: 2, name: 'VIP', color: '#123456' });
+    await api.retireLabel('tenant', 'label', 3);
+    expect(fake.get).toHaveBeenLastCalledWith('/tenants/tenant/labels?includeRetired=true');
+    expect(fake.patch).toHaveBeenLastCalledWith('/tenants/tenant/labels/label', { body: { version: 2, name: 'VIP', color: '#123456' } });
+    expect(fake.del).toHaveBeenCalledWith('/tenants/tenant/labels/label', { body: { version: 3 } });
   });
 });
