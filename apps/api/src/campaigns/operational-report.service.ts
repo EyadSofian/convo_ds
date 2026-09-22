@@ -26,7 +26,7 @@ export class OperationalReportingService {
         WITH params AS (SELECT $1::timestamptz AS from_at,$2::timestamptz AS to_at),
         conversation_scope AS (
           SELECT c.*,n.kind FROM conversations c JOIN channel_connections n ON n.id=c.connection_id CROSS JOIN params p
-           WHERE c.status<>'archived' AND ${scope} AND (p.from_at IS NULL OR c.created_at>=p.from_at) AND (p.to_at IS NULL OR c.created_at<p.to_at)
+           WHERE ${scope} AND (p.from_at IS NULL OR c.created_at>=p.from_at) AND (p.to_at IS NULL OR c.created_at<p.to_at)
         ),
         current_backlog AS (
           SELECT c.*,n.kind FROM conversations c JOIN channel_connections n ON n.id=c.connection_id WHERE ${scope} AND c.status IN ('open','pending','snoozed')

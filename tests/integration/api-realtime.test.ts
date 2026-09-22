@@ -2280,6 +2280,33 @@ describe('supervisor inbox lens', () => {
     expect(scopedAgents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(false);
     expect(ownerAgents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(true);
   });
+
+  it('keeps an archived conversation in its historical creation volume but out of backlog', async () => {
+    const peer = '15557000912';
+    const before = await send(api, owner, 'GET', '/reports/operations');
+    expect(before.statusCode, before.payload).toBe(200);
+    const baselineOpen = (before.json() as { data: { conversations: { open: number } } }).data.conversations.open;
+    await customerWrites(INBOX_A, peer, 'أرشفة بعد الإنشاء', 'wamid.rt-supervisor-archived');
+    const conversationId = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE peer_identity=$1', [peer],
+    ))).rows[0]!.id;
+    const current = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationId}/transitions`, {
+      version: (current.json() as { data: { version: number } }).data.version, command: 'resolve', resolution: 'انتهى الاختبار',
+    })).statusCode).toBe(200);
+    const resolved = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationId}/transitions`, {
+      version: (resolved.json() as { data: { version: number } }).data.version, command: 'archive',
+    })).statusCode).toBe(200);
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      "UPDATE conversations SET created_at='2026-09-01T12:00:00.000Z' WHERE id=$1", [conversationId],
+    ));
+    const report = await send(api, owner, 'GET', '/reports/operations?from=2026-09-01&to=2026-09-01');
+    expect(report.statusCode, report.payload).toBe(200);
+    const data = (report.json() as { data: { conversations: { new: number; open: number } } }).data;
+    expect(data.conversations.new).toBe(1);
+    expect(data.conversations.open).toBe(baselineOpen);
+  });
 });
 
 describe('the conversation lifecycle', () => {
