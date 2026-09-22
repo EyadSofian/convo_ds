@@ -64,6 +64,27 @@ export class ConversationController {
     return pageEnvelope(page.items, page.nextCursor, request.id);
   }
 
+  @Get('tenants/:tenantId/supervisor/agents')
+  async supervisorAgents(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return pageEnvelope(await this.conversations.supervisorAgents(session, tenantId), null, request.id);
+  }
+
+  @Get('tenants/:tenantId/supervisor/conversations')
+  async supervisorList(
+    @Param('tenantId') tenantId: string,
+    @Query('agent') agent: string | undefined,
+    @Query() query: Record<string, string | string[] | undefined>,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const agentMembershipId = optionalUuid(agent, 'agent');
+    if (agentMembershipId === null) throw queryError('agent', 'Choose an agent.');
+    const { agent: _agent, ...inboxQuery } = query;
+    const page = await this.conversations.supervisorList(session, tenantId, agentMembershipId, parseInboxQuery(inboxQuery));
+    return pageEnvelope(page.items, page.nextCursor, request.id);
+  }
+
   /** The Unassigned queue, as projected cards. Never a transcript. */
   @Get('tenants/:tenantId/conversations/unassigned')
   async unassigned(

@@ -2207,6 +2207,40 @@ describe('a stream that ends badly', () => {
 });
 
 /** Reads the authority digest back out of a cursor this build issued. */
+describe('supervisor inbox lens', () => {
+  const peer = '15557000910';
+  let conversationId: string;
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'متابعة للمشرف', 'wamid.rt-supervisor-1');
+    conversationId = (await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity=$1', [peer]),
+    )).rows[0]!.id;
+    const current = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationId}/assignments`, {
+      version: (current.json() as { data: { version: number } }).data.version,
+      assigneeMembershipId: agentAMembershipId,
+    })).statusCode).toBe(200);
+  });
+
+  it('shows a scoped supervisor only agents with visible assigned work', async () => {
+    const directory = await send(api, supervisor, 'GET', '/supervisor/agents');
+    expect(directory.statusCode, directory.payload).toBe(200);
+    const agents = (directory.json() as { data: { membershipId: string; name: string; email: string; teams: string[] }[] }).data;
+    expect(agents).toEqual(expect.arrayContaining([expect.objectContaining({ membershipId: agentAMembershipId, email: 'agent-a@realtime.test' })]));
+    expect(agents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(false);
+  });
+
+  it('keeps the supervisor principal and applies the chosen-agent filter server-side', async () => {
+    const response = await send(api, supervisor, 'GET', `/supervisor/conversations?agent=${agentAMembershipId}&queue=mine`);
+    expect(response.statusCode, response.payload).toBe(200);
+    const rows = (response.json() as { data: { id: string; assigneeMembershipId: string }[] }).data;
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ id: conversationId, assigneeMembershipId: agentAMembershipId })]));
+    const denied = await send(api, agentA, 'GET', '/supervisor/agents');
+    expect(denied.statusCode).toBe(403);
+  });
+});
+
 describe('the conversation lifecycle', () => {
   const peer = '15557000500';
   let conversationId: string;

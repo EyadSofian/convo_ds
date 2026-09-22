@@ -34,7 +34,7 @@ import type { TimelinePage } from './timeline.js';
 import { MetadataService } from '../metadata/metadata.service.js';
 import type { EntityMetadata } from '../metadata/metadata.service.js';
 import { OpaqueCursorCodec } from '../pagination.js';
-import { compileInboxQuery } from './inbox-query-compiler.js';
+import { compileInboxQuery, readableScope } from './inbox-query-compiler.js';
 import { validateInboxQuery } from './inbox-query-validation.js';
 
 export type { ConversationDetail, ConversationRow } from './record.js';
@@ -51,6 +51,7 @@ export interface ConversationListRow extends ConversationDetail, EntityMetadata 
   readonly unread: boolean;
 }
 export interface ConversationListPage { readonly items: readonly ConversationListRow[]; readonly nextCursor: string | null; }
+export interface SupervisorAgent { readonly membershipId: string; readonly name: string; readonly email: string; readonly teams: readonly string[]; }
 
 /**
  * Conversations: the thing an inbox is a list of.
@@ -79,6 +80,11 @@ export interface ConversationListPage { readonly items: readonly ConversationLis
  * a week later is not a working pointer into somebody's messages.
  */
 const CURSOR_TTL_SECONDS = 3600;
+
+function assertSupervisor(principal: import('@convo/domain').Principal): void {
+  const reach = reachFor(principal, 'conversation.read');
+  if (reach === 'none' || reach === 'own') throw denied();
+}
 
 @Injectable()
 export class ConversationService {
@@ -411,6 +417,43 @@ export class ConversationService {
       }
       const last=pageRows.at(-1);return{items,nextCursor:rows.rows.length>query.limit&&last!==undefined?codec.encode(binding,{value:last.cursor_value,id:last.id},900):null};
     });
+  }
+
+  /**
+   * Read-only supervisor lens. It never changes the principal or masquerades
+   * as the selected member: the ordinary Inbox query is still compiled with
+   * the supervisor's own scopes, then additionally limited to the agent.
+   */
+  async supervisorList(session: AuthenticatedSession, tenantId: string, agentMembershipId: string, query: InboxQuery): Promise<ConversationListPage> {
+    await this.requireSupervisor(session, tenantId);
+    return this.list(session, tenantId, { ...query, queue: 'all', filters: [...query.filters, { key: 'assigned_agent_id', operator: 'eq', value: agentMembershipId }] });
+  }
+
+  /** Returns only people who currently own work the supervisor can read. */
+  async supervisorAgents(session: AuthenticatedSession, tenantId: string): Promise<readonly SupervisorAgent[]> {
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      assertSupervisor(principal);
+      const values: unknown[] = [];
+      const add = (value: unknown): string => { values.push(value); return `$${values.length}`; };
+      const scope = readableScope(principal, add);
+      const rows = await sql.query<{ membership_id: string; name: string; email: string; teams: readonly string[] }>(
+        `SELECT m.id::text AS membership_id, m.display_name AS name, u.email::text AS email,
+                coalesce(array_agg(DISTINCT t.name) FILTER (WHERE t.archived_at IS NULL), '{}') AS teams
+           FROM memberships m JOIN users u ON u.id=m.user_id
+           LEFT JOIN team_members tm ON tm.membership_id=m.id
+           LEFT JOIN teams t ON t.id=tm.team_id
+          WHERE m.status='active' AND EXISTS (
+            SELECT 1 FROM conversations c JOIN channel_connections n ON n.id=c.connection_id
+             WHERE c.assignee_membership_id=m.id AND c.status <> 'archived' AND ${scope}
+          )
+          GROUP BY m.id,m.display_name,u.email ORDER BY lower(m.display_name),m.id`, values,
+      );
+      return rows.rows.map((row) => ({ membershipId: row.membership_id, name: row.name, email: row.email, teams: row.teams }));
+    });
+  }
+
+  private async requireSupervisor(session: AuthenticatedSession, tenantId: string): Promise<void> {
+    await this.authorization.withPrincipal(session, tenantId, async ({ principal }) => { assertSupervisor(principal); });
   }
 
   /**

@@ -142,7 +142,7 @@ function searchPredicate(search: string, add: (value: unknown) => string): strin
   return `(c.id::text = ${id} OR c.peer_identity ILIKE ${text} ESCAPE '\\' OR EXISTS (SELECT 1 FROM contacts search_contact WHERE search_contact.id = c.contact_id AND search_contact.search_name ILIKE ${text} ESCAPE '\\') OR EXISTS (SELECT 1 FROM contact_identities search_identity WHERE search_identity.contact_id = c.contact_id AND search_identity.external_id ILIKE ${text} ESCAPE '\\'))`;
 }
 
-function readableScope(principal: Principal, add: (value: unknown) => string): string {
+export function readableScope(principal: Principal, add: (value: unknown) => string): string {
   const grant = principal.grants['conversation.read'] ?? 'none';
   if (grant === 'tenant') return 'TRUE';
   const teams = principal.scopes.filter((scope) => scope.type === 'team').map((scope) => scope.id);
