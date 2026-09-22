@@ -117,6 +117,7 @@ function automationCard(state: AppState, automation: Automation): HTMLElement {
     ]),
     h('div', { class: 'automation-row__actions' }, [
       mayEdit ? h('a', { class: 'btn btn--sm', href: formatHash({ screen: 'automations', conversationId: null, params: routeParamsWithLanguage(state, { view: 'mine', edit: automation.id }) }) }, [icon('edit', 14), h('span', { class: 'btn__label' }, [t(state, 'تحرير', 'Edit')])]) : null,
+      automation.state === 'draft' && mayEdit ? button({ label: t(state, 'حذف المسودة', 'Delete draft'), icon: 'close', act: 'live-automation-delete', arg: automation.id, variant: 'ghost', small: true, busy: state.live.busy === `automation-delete:${automation.id}` }) : null,
       automation.state !== 'archived' ? button({ label: human(action), icon: action === 'pause' ? 'pause' : 'play', act: 'live-automation-transition', arg: `${automation.id}:${action}`, small: true, busy: state.live.busy === `automation-${action}:${automation.id}` }) : null,
     ]),
   ]);

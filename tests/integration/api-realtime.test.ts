@@ -2438,8 +2438,9 @@ describe('the conversation lifecycle', () => {
     expect(first.statusCode).toBe(202);
 
     const after = await send(api, owner, 'GET', `/conversations/${conversationId}/episodes`);
-    const stamped = (after.json() as { data: { firstResponseAt: string | null }[] }).data.at(-1);
+    const stamped = (after.json() as { data: { firstResponseAt: string | null; firstResponseByMembershipId: string | null }[] }).data.at(-1);
     expect(stamped?.firstResponseAt).not.toBeNull();
+    expect(stamped?.firstResponseByMembershipId).not.toBeNull();
 
     await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
       messageType: 'text',
@@ -2452,6 +2453,9 @@ describe('the conversation lifecycle', () => {
     // every first-response report a measure of the last message instead.
     expect((again.json() as { data: { firstResponseAt: string | null }[] }).data.at(-1)?.firstResponseAt).toBe(
       stamped?.firstResponseAt,
+    );
+    expect((again.json() as { data: { firstResponseByMembershipId: string | null }[] }).data.at(-1)?.firstResponseByMembershipId).toBe(
+      stamped?.firstResponseByMembershipId,
     );
   });
 
@@ -2488,6 +2492,7 @@ describe('the conversation lifecycle', () => {
     const episodes = await episodesOf();
     expect(episodes[0]?.closedAt).not.toBeNull();
     expect(episodes[0]?.resolution).toBe('تم التسجيل');
+    expect((episodes[0] as unknown as { closedByMembershipId: string | null }).closedByMembershipId).not.toBeNull();
 
     // Resolving is not reading. The cursor is untouched, so an unread customer
     // message is still unread.
@@ -2711,7 +2716,7 @@ describe('the conversation lifecycle', () => {
   }
 
   async function episodesOf(): Promise<
-    readonly { seq: number; openedBy: string; closedAt: string | null; resolution: string | null; firstInboundAt: string | null }[]
+    readonly { seq: number; openedBy: string; closedAt: string | null; closedByMembershipId: string | null; resolution: string | null; firstInboundAt: string | null }[]
   > {
     const response = await send(api, owner, 'GET', `/conversations/${conversationId}/episodes`);
     return (
@@ -2720,6 +2725,7 @@ describe('the conversation lifecycle', () => {
           seq: number;
           openedBy: string;
           closedAt: string | null;
+          closedByMembershipId: string | null;
           resolution: string | null;
           firstInboundAt: string | null;
         }[];

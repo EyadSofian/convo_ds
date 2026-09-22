@@ -94,6 +94,9 @@ export class AutomationsApi {
   transition(tenantId: string, automation: Automation, action: 'activate' | 'pause' | 'resume' | 'archive'): Promise<ApiResult<Automation>> {
     return this.client.post(`/tenants/${tenantId}/automations/${automation.id}/${action}`, { body: { version: automation.version } });
   }
+  deleteDraft(tenantId: string, automation: Automation): Promise<ApiResult<{ readonly id: string }>> {
+    return this.client.delete(`/tenants/${tenantId}/automations/${automation.id}`, { body: { version: automation.version } });
+  }
 }
 
 export function disconnectedAutomationsApi(): AutomationsApi {

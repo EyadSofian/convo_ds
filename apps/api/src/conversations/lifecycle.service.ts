@@ -96,7 +96,9 @@ export interface EpisodeRow {
   readonly openedBy: string;
   readonly firstInboundAt: Date | null;
   readonly firstResponseAt: Date | null;
+  readonly firstResponseByMembershipId: string | null;
   readonly closedAt: Date | null;
+  readonly closedByMembershipId: string | null;
   readonly resolution: string | null;
 }
 
@@ -164,7 +166,14 @@ export class LifecycleService {
 
       const version = await this.write(sql, conversationId, expectedVersion, outcome, command);
       await recordParticipation(sql, tenantId, conversationId, principal.membershipId);
-      await this.applyEpisodeEffects(sql, tenantId, conversationId, outcome, command);
+      await this.applyEpisodeEffects(
+        sql,
+        tenantId,
+        conversationId,
+        outcome,
+        command,
+        principal.membershipId,
+      );
       await this.announce(sql, tenantId, detail, outcome, version, principal.membershipId);
 
       return requireRow(
@@ -239,7 +248,7 @@ export class LifecycleService {
       ]);
     }
     if (has(outcome, 'start_new_episode')) {
-      await closeEpisode(sql, conversation.id, null, inbound.occurredAt);
+      await closeEpisode(sql, conversation.id, null, inbound.occurredAt, null);
       await openEpisode(sql, tenantId, conversation.id, 'customer_inbound', inbound.occurredAt);
     }
     // The episode's own first inbound, set once: a second message in the same
@@ -268,12 +277,17 @@ export class LifecycleService {
     sql: SqlExecutor,
     conversationId: string,
     at: Date,
+    membershipId: string,
   ): Promise<void> {
     await sql.query(
       `UPDATE conversation_episodes
-          SET first_response_at = coalesce(first_response_at, $2)
+          SET first_response_at = coalesce(first_response_at, $2),
+              first_response_by_membership_id = CASE
+                WHEN first_response_at IS NULL THEN $3
+                ELSE first_response_by_membership_id
+              END
         WHERE conversation_id = $1 AND closed_at IS NULL`,
-      [conversationId, at],
+      [conversationId, at, membershipId],
     );
   }
 
@@ -313,11 +327,14 @@ export class LifecycleService {
         opened_by: string;
         first_inbound_at: Date | null;
         first_response_at: Date | null;
+        first_response_by_membership_id: string | null;
         closed_at: Date | null;
+        closed_by_membership_id: string | null;
         resolution: string | null;
       }>(
         `SELECT id::text, seq, opened_at, opened_by, first_inbound_at, first_response_at,
-                closed_at, resolution
+                first_response_by_membership_id::text, closed_at,
+                closed_by_membership_id::text, resolution
            FROM conversation_episodes
           WHERE conversation_id = $1
           ORDER BY seq`,
@@ -330,7 +347,9 @@ export class LifecycleService {
         openedBy: row.opened_by,
         firstInboundAt: row.first_inbound_at,
         firstResponseAt: row.first_response_at,
+        firstResponseByMembershipId: row.first_response_by_membership_id,
         closedAt: row.closed_at,
+        closedByMembershipId: row.closed_by_membership_id,
         resolution: row.resolution,
       }));
     });
@@ -510,16 +529,17 @@ export class LifecycleService {
     conversationId: string,
     outcome: LifecycleOutcome,
     command: LifecycleCommand,
+    actorMembershipId: string,
   ): Promise<void> {
     // `record_resolution` appears in exactly the `agent_resolves` rows, so the
     // command is always a resolve here. Narrowing on the command rather than
     // carrying a `: null` for a case the table cannot produce keeps the two
     // facts in one condition instead of two that could drift apart.
     if (has(outcome, 'record_resolution') && command.kind === 'resolve') {
-      await closeEpisode(sql, conversationId, command.resolution, new Date());
+      await closeEpisode(sql, conversationId, command.resolution, new Date(), actorMembershipId);
     }
     if (has(outcome, 'start_new_episode')) {
-      await closeEpisode(sql, conversationId, null, new Date());
+      await closeEpisode(sql, conversationId, null, new Date(), null);
       await openEpisode(sql, tenantId, conversationId, 'agent_reopen', new Date());
     }
   }
@@ -608,12 +628,14 @@ async function closeEpisode(
   conversationId: string,
   resolution: string | null,
   at: Date,
+  actorMembershipId: string | null,
 ): Promise<void> {
   await sql.query(
     `UPDATE conversation_episodes
-        SET closed_at = greatest($3, opened_at), resolution = $2
+        SET closed_at = greatest($3, opened_at), resolution = $2,
+            closed_by_membership_id = $4
       WHERE conversation_id = $1 AND closed_at IS NULL`,
-    [conversationId, resolution, at],
+    [conversationId, resolution, at, actorMembershipId],
   );
 }
 

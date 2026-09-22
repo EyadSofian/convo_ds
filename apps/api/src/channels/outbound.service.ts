@@ -199,7 +199,7 @@ export class OutboundService {
         if (conversationId !== null) {
           // The first response is the first: `noteResponse` coalesces, so a
           // second reply cannot move the number a report is computed from.
-          await this.lifecycle.noteResponse(sql, conversationId, new Date());
+          await this.lifecycle.noteResponse(sql, conversationId, new Date(), principal.membershipId);
         }
 
         return requireRow(await readMessages(sql, messageId), 'the message vanished');

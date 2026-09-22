@@ -3,7 +3,7 @@ import type { ApiError, ApiResult } from '../api/client.js';
 import type { Automation, AutomationRun, AutomationTemplate, AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { addAutomationStep, createBlankAutomation, loadAutomationsScreen, mappingType, removeAutomationStep, saveAutomation, scheduleOf, transitionAutomation, useAutomationTemplate } from './automation-actions.js';
+import { addAutomationStep, createBlankAutomation, deleteAutomationDraft, loadAutomationsScreen, mappingType, removeAutomationStep, saveAutomation, scheduleOf, transitionAutomation, useAutomationTemplate } from './automation-actions.js';
 
 const WORKFLOW = { version: 1 as const, trigger: { type: 'manual', config: {} }, target: { type: 'matching_conditions', config: {} }, steps: [{ id: 'step_1', type: 'create_internal_notification', config: {} }], safety: { approvalRequired: true, duplicateWindowSeconds: 1 } };
 const AUTOMATION: Automation = { id:'a-1',name:'Welcome',description:null,templateKey:null,state:'draft',workflow:WORKFLOW,timezone:'UTC',nextRunAt:null,lastRunAt:null,version:1 };
@@ -15,13 +15,20 @@ function setup(result:ApiResult<Automation>=ok(AUTOMATION), tenant:string|null='
   const state=createState(new Date('2026-09-17T00:00:00Z')); state.lang='en';
   state.live.session={status:'signed_in',email:'x@y.z',memberships:[],tenantId:tenant};
   state.live.automationTemplates={status:'ready',value:[TEMPLATE],loadedAt:1}; state.live.automations={status:'ready',value:[AUTOMATION],loadedAt:1}; state.live.whatsappTemplates={status:'ready',value:[],loadedAt:1};
-  const api={templates:vi.fn().mockResolvedValue(ok([TEMPLATE])),whatsappTemplates:vi.fn().mockResolvedValue(ok([])),list:vi.fn().mockResolvedValue(ok([AUTOMATION])),runs:vi.fn().mockResolvedValue(ok([] as AutomationRun[])),useTemplate:vi.fn().mockResolvedValue(result),create:vi.fn().mockResolvedValue(result),update:vi.fn().mockResolvedValue(result),transition:vi.fn().mockResolvedValue(result)} as unknown as AutomationsApi;
+  const api={templates:vi.fn().mockResolvedValue(ok([TEMPLATE])),whatsappTemplates:vi.fn().mockResolvedValue(ok([])),list:vi.fn().mockResolvedValue(ok([AUTOMATION])),runs:vi.fn().mockResolvedValue(ok([] as AutomationRun[])),useTemplate:vi.fn().mockResolvedValue(result),create:vi.fn().mockResolvedValue(result),update:vi.fn().mockResolvedValue(result),transition:vi.fn().mockResolvedValue(result),deleteDraft:vi.fn().mockResolvedValue(ok({id:AUTOMATION.id}))} as unknown as AutomationsApi;
   Object.defineProperty(state.live,'automationsApi',{value:api});
   const context:LiveContext={state,live:state.live,refresh:vi.fn(),now:()=>1,newKey:()=> 'unique-key',endSession:vi.fn(),switchWorkspace:vi.fn()};
   return {state,context,api};
 }
 
 describe('automation actions',()=>{
+  it('deletes a draft through the server then refetches only its list',async()=>{
+    const s=setup(); expect(await deleteAutomationDraft(s.context,AUTOMATION.id)).toBe(true);
+    expect(s.api.deleteDraft).toHaveBeenCalledWith('t',AUTOMATION);
+    expect(s.api.list).toHaveBeenCalledTimes(1);
+    expect(s.api.runs).not.toHaveBeenCalled();
+    expect(s.state.live.automations).toMatchObject({status:'ready',value:[AUTOMATION]});
+  });
   it('loads all three resources and preserves a refusal',async()=>{
     const ready=setup(); await loadAutomationsScreen(ready.context); expect(ready.state.live.automations.status).toBe('ready');
     const refused=setup(); vi.mocked(refused.api.runs).mockResolvedValueOnce({ok:false,error:ERROR}); await loadAutomationsScreen(refused.context); expect(refused.state.live.automationRuns).toEqual({status:'error',error:ERROR}); expect(refused.state.live.error).toBe(ERROR);

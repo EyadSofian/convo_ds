@@ -140,6 +140,41 @@ export async function transitionAutomation(context: LiveContext, argument: strin
   return mutate(context, `automation-${action}:${id}`, (tenantId) => context.live.automationsApi.transition(tenantId, automation, action), copy(context, 'تم تحديث حالة الأتمتة.', 'Automation state updated.'));
 }
 
+/**
+ * A draft has no side effects, but deletion is still server-authorized and
+ * version-fenced. Refreshing just the definition list keeps run evidence on
+ * screen and avoids pretending a local removal was committed.
+ */
+export async function deleteAutomationDraft(context: LiveContext, automationId: string): Promise<boolean> {
+  const automation = rowsOf(context.live.automations).find((entry) => entry.id === automationId);
+  if (automation === undefined || automation.state !== 'draft') return false;
+  context.live.busy = `automation-delete:${automationId}`;
+  context.live.error = null;
+  context.refresh();
+  return forTenant(context, false, async (tenantId) => {
+    const result = await context.live.automationsApi.deleteDraft(tenantId, automation);
+    context.live.busy = null;
+    if (!result.ok) {
+      context.live.error = result.error;
+      context.refresh();
+      return false;
+    }
+    const refreshed = await context.live.automationsApi.list(tenantId);
+    if (!refreshed.ok) {
+      context.live.error = refreshed.error;
+      context.refresh();
+      return false;
+    }
+    context.live.automations = fromResult(refreshed, context.now());
+    if (context.state.route.params['edit'] === automationId) {
+      context.state.route = { screen: 'automations', conversationId: null, params: { view: 'mine' } };
+    }
+    pushToast(context.state, copy(context, 'تم حذف المسودة.', 'Draft deleted.'));
+    context.refresh();
+    return true;
+  });
+}
+
 async function updateWorkflow(context: LiveContext, automation: Automation, steps: readonly AutomationStep[], message: string): Promise<boolean> {
   const input: AutomationInput = { name: automation.name, description: automation.description, timezone: automation.timezone, workflow: { ...automation.workflow, steps } };
   return mutate(context, `automation-steps:${automation.id}`, (tenantId) => context.live.automationsApi.update(tenantId, automation.id, automation.version, input), message);

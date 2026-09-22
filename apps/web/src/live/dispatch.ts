@@ -55,6 +55,7 @@ import {
 import {
   addAutomationStep,
   createBlankAutomation,
+  deleteAutomationDraft,
   loadAutomationsScreen,
   removeAutomationStep,
   saveAutomation,
@@ -471,6 +472,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-automation-add-step': async (context, arg) => addAutomationStep(context, arg),
   'live-automation-remove-step': async (context, arg) => removeAutomationStep(context, arg),
   'live-automation-transition': async (context, arg) => transitionAutomation(context, arg),
+  'live-automation-delete': async (context, arg) => deleteAutomationDraft(context, arg),
 
   'live-campaign-create': async (context) => {
     const name = form(context, 'campaignName');
