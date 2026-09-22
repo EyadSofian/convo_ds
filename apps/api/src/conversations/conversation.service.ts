@@ -429,23 +429,35 @@ export class ConversationService {
     return this.list(session, tenantId, { ...query, queue: 'all', filters: [...query.filters, { key: 'assigned_agent_id', operator: 'eq', value: agentMembershipId }] });
   }
 
-  /** Returns only people who currently own work the supervisor can read. */
+  /**
+   * Returns the active agents this supervisor may inspect, including zero-work
+   * agents. A current visible assignment is one defensible relationship, but
+   * not the only one: a scoped lead may also inspect an active member who is
+   * explicitly in one of the lead's teams or Inbox scopes. We never substitute
+   * the selected person's permissions for the supervisor's own authorization.
+   */
   async supervisorAgents(session: AuthenticatedSession, tenantId: string): Promise<readonly SupervisorAgent[]> {
     return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
       assertSupervisor(principal);
       const values: unknown[] = [];
       const add = (value: unknown): string => { values.push(value); return `$${values.length}`; };
       const scope = readableScope(principal, add);
+      const teams = principal.scopes.filter((entry) => entry.type === 'team').map((entry) => entry.id);
+      const inboxes = principal.scopes.filter((entry) => entry.type === 'inbox').map((entry) => entry.id);
+      const tenantReach = principal.grants['conversation.read'] === 'tenant' || principal.scopes.some((entry) => entry.type === 'tenant');
+      const relationship = tenantReach ? 'TRUE' : `(
+        EXISTS (SELECT 1 FROM team_members agent_team WHERE agent_team.membership_id=m.id AND agent_team.team_id=ANY(${add(teams)}::uuid[]))
+        OR EXISTS (SELECT 1 FROM membership_scopes agent_inbox WHERE agent_inbox.membership_id=m.id AND agent_inbox.scope_type='inbox' AND agent_inbox.scope_id=ANY(${add(inboxes)}::uuid[]))
+        OR EXISTS (SELECT 1 FROM conversations c WHERE c.assignee_membership_id=m.id AND c.status <> 'archived' AND ${scope})
+      )`;
       const rows = await sql.query<{ membership_id: string; name: string; email: string; teams: readonly string[] }>(
         `SELECT m.id::text AS membership_id, m.display_name AS name, u.email::text AS email,
                 coalesce(array_agg(DISTINCT t.name) FILTER (WHERE t.archived_at IS NULL), '{}') AS teams
            FROM memberships m JOIN users u ON u.id=m.user_id
+           JOIN role_permissions read_grant ON read_grant.role_id=m.role_id AND read_grant.permission_key='conversation.read'
            LEFT JOIN team_members tm ON tm.membership_id=m.id
            LEFT JOIN teams t ON t.id=tm.team_id
-          WHERE m.status='active' AND EXISTS (
-            SELECT 1 FROM conversations c JOIN channel_connections n ON n.id=c.connection_id
-             WHERE c.assignee_membership_id=m.id AND c.status <> 'archived' AND ${scope}
-          )
+          WHERE m.status='active' AND ${relationship}
           GROUP BY m.id,m.display_name,u.email ORDER BY lower(m.display_name),m.id`, values,
       );
       return rows.rows.map((row) => ({ membershipId: row.membership_id, name: row.name, email: row.email, teams: row.teams }));

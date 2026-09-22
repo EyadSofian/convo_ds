@@ -2223,11 +2223,12 @@ describe('supervisor inbox lens', () => {
     })).statusCode).toBe(200);
   });
 
-  it('shows a scoped supervisor only agents with visible assigned work', async () => {
+  it('shows a scoped supervisor zero-work agents in the same readable inbox', async () => {
     const directory = await send(api, supervisor, 'GET', '/supervisor/agents');
     expect(directory.statusCode, directory.payload).toBe(200);
     const agents = (directory.json() as { data: { membershipId: string; name: string; email: string; teams: string[] }[] }).data;
     expect(agents).toEqual(expect.arrayContaining([expect.objectContaining({ membershipId: agentAMembershipId, email: 'agent-a@realtime.test' })]));
+    expect(agents).toEqual(expect.arrayContaining([expect.objectContaining({ membershipId: secondAgentAMembershipId, email: 'agent-a2@realtime.test' })]));
     expect(agents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(false);
   });
 
