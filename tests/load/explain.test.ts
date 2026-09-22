@@ -119,11 +119,12 @@ function queries(tenantId: string): readonly [string, string, unknown[]][] {
       [null],
     ],
     [
-      'conversation list — recent first',
+      'conversation list — normal Inbox recent first',
       `SELECT id::text, peer_identity, status, last_activity_at
          FROM conversations
         WHERE tenant_id = $1
-        ORDER BY last_activity_at DESC
+          AND status <> 'archived'
+        ORDER BY last_activity_at DESC, id DESC
         LIMIT 50`,
       [tenantId],
     ],
