@@ -29,4 +29,18 @@ describe('AutomationsApi', () => {
     expect((await api.runs('t')).ok).toBe(false);
     expect((await api.create('t', INPUT)).ok).toBe(false);
   });
+
+  it('omits the query marker when every optional query value is empty', async () => {
+    const calls: string[] = [];
+    const fetch: FetchLike = (path) => {
+      calls.push(path);
+      return Promise.resolve(new Response(JSON.stringify({ data: [], nextCursor: null, hasMore: false }), { status: 200 }));
+    };
+    const api = new AutomationsApi(new ApiClient({ baseUrl: '/api/v1', fetch, readCsrfToken: () => null }));
+    // The public query type requires a numeric page size. This malformed value
+    // is only used to exercise the serializer's empty-query branch; the API
+    // never receives it from production state.
+    await api.list('t', { search: '', state: '', sort: '' as never, cursor: null, limit: '' as never });
+    expect(calls).toEqual(['/api/v1/tenants/t/automations']);
+  });
 });

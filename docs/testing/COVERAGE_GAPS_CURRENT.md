@@ -8,9 +8,9 @@ integration and property files passed):
 
 | Metric | Covered | Total | Result |
 | --- | ---: | ---: | --- |
-| Lines/statements | 28,012 | 28,501 | 98.28% (gate: 100%) |
-| Functions | 2,073 | 2,120 | 97.78% (gate: 100%) |
-| Branches | 10,119 | 10,370 | 97.57% (gate: 100%) |
+| Lines/statements | 28,097 | 28,501 | 98.58% (gate: 100%) |
+| Functions | 2,078 | 2,120 | 98.01% (gate: 100%) |
+| Branches | 10,178 | 10,425 | 97.63% (gate: 100%) |
 
 The report/lifecycle/team services, the covered API validation boundaries, and
 the new supervisor/reporting correctness paths are covered. The remaining gaps
@@ -31,19 +31,16 @@ snapshot; rows are removed when a file becomes fully covered.
 | `apps/api/src/conversations/inbox-query-validation.ts` | — | — | 25, 29, 36, 47-48, 57 |
 | `apps/web/src/prepaint-language.ts` | — | — | 21 |
 | `apps/web/src/state.ts` | — | — | 299, 301, 315 |
-| `apps/web/src/api/automations.ts` | — | — | 128 |
-| `apps/web/src/live/actions.ts` | — | — | 166 |
 | `apps/web/src/live/automation-actions.ts` | 55-59, 96-100, 226-229, 232-233 | `setAutomationRunsQuery@96` | 41, 49, 54, 71, 218, 225, 231, 273, 277-278 |
 | `apps/web/src/live/campaign-actions.ts` | 120-121 | — | 65, 90, 100, 105-106, 109, 119, 132-133, 145-146, 151, 158, 164, 170 |
 | `apps/web/src/live/dispatch.ts` | 203-205, 207-209, 211-220, 513-516, 518-522, 525-526, 683-692, 694-696, 700-703, 739-741, 748-754, 766-772, 775-779, 782-786, 1009-1014, 1017-1024, 1027-1031, 1034-1044, 1289, 1292-1304, 1315-1319, 1323-1328, 1332, 1334, 1345-1350 | `asAutomationState@203`, `asAutomationSort@207`, `validLabelColor@211`, plus dispatch handlers at 512-1350 | 383, 386, 758, 1311, 1314, 1320, 1322, 1330-1331, 1333, 1336, 1341 |
 | `apps/web/src/live/inbox-actions.ts` | 49-50, 52-66, 93-102, 105-126, 158-164, 481, 483-484, 508-517 | `loadSupervisorAgents@93`, `loadSupervisorInbox@105`, `refreshSupervisorWorkload@508` | 48, 51, 77-78, 89, 152, 157-158, 165, 480, 482 |
 | `apps/web/src/live/inbox-lists.ts` | 27 | — | 26 |
-| `apps/web/src/live/inbox-query.ts` | — | — | 9, 13, 19, 38 |
 | `apps/web/src/live/metadata-actions.ts` | 30-56, 58-67, 69-77, 79-87 | `createAndAssignLabel@30`, `updateLabel@69`, `retireLabel@79` | — |
-| `apps/web/src/live/saved-view-actions.ts` | 8-10, 22-40, 42-66, 68-88, 90-110, 112-114 | `t@8`, `applySavedView@22`, `saveCurrentInboxView@42`, `retireSavedView@90`, `isVisibility@112` | 14 |
+| `apps/web/src/live/saved-view-actions.ts` | 30, 51-54, 65, 94 | — | 9, 24, 29-30, 44, 50-54, 64-65, 66, 93-94, 113 |
 | `apps/web/src/ui/analytics-screen.ts` | 168, 286-287, 295, 297, 301, 303, 318, 424 | — | 86-87, 89-90, 111, 113, 121-122, 124-125, 128, 158, 167, 187, 189-191, 255, 259-260, 274, 276, 278, 284-285, 291, 294, 296, 300, 302, 312-313, 315-317, 319, 329, 331, 333, 340, 344, 423, 449, 451, 502, 511, 516 |
 | `apps/web/src/ui/automations-screen.ts` | — | — | 106, 247 |
-| `apps/web/src/ui/dialogs.ts` | 117 | — | 63, 67, 88, 93, 116, 124, 127, 135, 145 |
+| `apps/web/src/ui/dialogs.ts` | 117 | — | 63, 67, 88, 93, 116-117, 124, 127, 135, 145 |
 | `apps/web/src/ui/live-inbox.ts` | 152, 238-244, 253, 264-265, 280-285, 297, 347-355, 360-363, 366-368, 370-377, 385, 387-399, 404-421, 425-429, 451, 458-459, 468, 470-481 | `supervisorMetric@280`, `row@345`, `customFieldOperators@360`, `customFieldValueControl@370`, `pickerOptions@404`, `pendingValue@468`, `savedViewsMenu@470` | 118, 151, 201, 203, 237, 252, 254-258, 262-264, 268-271, 294-296, 299, 301, 309, 311, 313, 326, 342, 346, 383-384, 386, 400, 424, 436, 442, 447-448, 450, 453, 457, 460-463, 688, 712 |
 | `apps/web/src/ui/metadata-section.ts` | 79, 89 | — | 78, 88, 95 |
 | `apps/web/src/ui/settings-screen.ts` | — | — | 77 |
