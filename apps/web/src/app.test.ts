@@ -504,6 +504,25 @@ describe('screens and preferences', () => {
     expect(after.length).toBe(before + 1);
     expect(after.at(-1)?.path).toContain('channel=whatsapp');
   });
+
+  it('loads automation data when the same-screen tab or draft route changes', async () => {
+    const api = signedIn(new FakeApi(), [membership(TENANT, 'Digital School', [...ADMIN, 'automation.read'])]);
+    const { host } = start('#/settings', api);
+    await settle();
+    host.go('#/automations?view=templates');
+    await settle();
+    expect(api.called(`GET /tenants/${TENANT}/automation-templates`)).toBe(true);
+
+    host.go('#/automations?view=mine');
+    await settle();
+    expect(api.called(`GET /tenants/${TENANT}/automations`)).toBe(true);
+
+    const beforeEdit = api.calls.filter((call) => call.path.startsWith(`/tenants/${TENANT}/automations?`)).length;
+    host.go('#/automations?view=mine&edit=33333333-3333-4333-8333-333333333333');
+    await settle();
+    const afterEdit = api.calls.filter((call) => call.path.startsWith(`/tenants/${TENANT}/automations?`)).length;
+    expect(afterEdit).toBe(beforeEdit + 1);
+  });
 });
 
 describe('layers, focus and the keyboard', () => {

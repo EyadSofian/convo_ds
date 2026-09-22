@@ -12,6 +12,11 @@ div.inbox
             svg
               path
             span.btn__label
+        button.btn.btn--ghost.btn--sm [live-supervisor-open]
+          svg
+            path
+            circle
+          span.btn__label
         select.select [live-inbox-sort]
           option
           option

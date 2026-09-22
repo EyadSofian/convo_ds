@@ -50,13 +50,19 @@ export interface DialogState {
 export interface AnalyticsFilters {
   readonly from: string;
   readonly to: string;
+  readonly agentId: string;
+  readonly teamId: string;
   readonly channel: string;
+  readonly connectionId: string;
+  readonly labelId: string;
   readonly campaignId: string;
+  readonly priority: string;
+  readonly status: string;
 }
 
 export type AnalyticsView = 'campaigns' | 'operations';
 
-export const NO_ANALYTICS_FILTERS: AnalyticsFilters = { from: '', to: '', channel: '', campaignId: '' };
+export const NO_ANALYTICS_FILTERS: AnalyticsFilters = { from: '', to: '', agentId: '', teamId: '', channel: '', connectionId: '', labelId: '', campaignId: '', priority: '', status: '' };
 
 export interface AppState {
   lang: Lang;
@@ -194,8 +200,14 @@ export function routeParamsFor(state: AppState): Record<string, string> {
     const filters = state.analyticsFilters;
     if (filters.from !== '') params.from = filters.from;
     if (filters.to !== '') params.to = filters.to;
+    if (filters.agentId !== '') params.agentFilter = filters.agentId;
+    if (filters.teamId !== '') params.team = filters.teamId;
     if (filters.channel !== '') params.channel = filters.channel;
+    if (filters.connectionId !== '') params.connection = filters.connectionId;
+    if (filters.labelId !== '') params.label = filters.labelId;
     if (filters.campaignId !== '') params.campaign = filters.campaignId;
+    if (filters.priority !== '') params.priority = filters.priority;
+    if (filters.status !== '') params.status = filters.status;
     // Agent-detail navigation is identity based. It is deliberately not a
     // display name, because names are neither unique nor stable identifiers.
     const agent = state.route.params.agent;
@@ -249,8 +261,14 @@ export function applyRoute(state: AppState, route: Route): void {
     state.analyticsFilters = {
       from: params.from ?? '',
       to: params.to ?? '',
+      agentId: params.agentFilter ?? '',
+      teamId: params.team ?? '',
       channel: params.channel ?? '',
+      connectionId: params.connection ?? '',
+      labelId: params.label ?? '',
       campaignId: params.campaign ?? '',
+      priority: params.priority ?? '',
+      status: params.status ?? '',
     };
   }
 }

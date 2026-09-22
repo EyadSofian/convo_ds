@@ -2,6 +2,7 @@ import type { CampaignReport, CampaignReportExport, CampaignReportTrendDay, Oper
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, formatNumber, numberFormat } from '../format.js';
+import { formatHash } from '../router.js';
 import { icon } from '../icons.js';
 import type { AppState } from '../state.js';
 import { campaignStateBadge } from './campaigns-screen.js';
@@ -70,9 +71,46 @@ function analyticsHeader(state: AppState, filters: HTMLElement): HTMLElement {
 function renderOperations(state: AppState): HTMLElement {
   const resource = state.live.operationalReport;
   const report = resource.status === 'ready' ? resource.value : null;
-  const filters = state.analyticsFilters;
   const busy = resource.status === 'loading';
-  const filterBar = h('div', { class: 'filterbar', role: 'search', 'aria-label': t(state, 'نطاق تقرير التشغيل', 'Operational report scope') }, [
+  const filterBar = operationsFilterBar(state, report, busy);
+  return page('analytics', analyticsHeader(state, filterBar), [
+    resource.status === 'idle' || resource.status === 'loading'
+      ? skeleton(state, 4)
+      : resource.status === 'error'
+        ? errorState(state, resource.error, 'live-report-reload')
+        : null,
+    ...(report === null ? [] : operationsBody(state, report)),
+  ]);
+}
+
+function operationsFilterBar(state: AppState, report: OperationalReport | null, busy: boolean): HTMLElement {
+  const filters = state.analyticsFilters;
+  const teams = state.live.teams.status === 'ready' ? state.live.teams.value.filter((team) => !team.archived) : [];
+  const connections = state.live.connections.status === 'ready' ? state.live.connections.value : [];
+  const labelSource = state.live.workspaceLabels.status === 'ready' ? state.live.workspaceLabels.value : state.live.labels.status === 'ready' ? state.live.labels.value : [];
+  const labels = labelSource.filter((label) => label.state === 'active');
+  const campaigns = state.live.campaigns.status === 'ready' ? state.live.campaigns.value : state.live.reportCampaigns;
+  const selectedTenant = state.live.session.status === 'signed_in' ? state.live.session.tenantId : null;
+  const agents = report?.agentOptions ?? (state.live.operationalAgentOptions?.tenantId === selectedTenant
+    ? state.live.operationalAgentOptions.agents
+    : report?.agents ?? (state.live.supervisorAgents.status === 'ready' ? state.live.supervisorAgents.value : []));
+  const options = <T extends { readonly id: string; readonly name: string }>(items: readonly T[], all: string) => [
+    { value: '', label: all }, ...items.map((item) => ({ value: item.id, label: item.name })),
+  ];
+  const activeChips: HTMLElement[] = [];
+  const chip = (id: keyof typeof filters, value: string, label: string): void => {
+    if (value === '') return;
+    activeChips.push(button({ label: `${label} ×`, act: 'live-report-filter', arg: `${id}:`, small: true, variant: 'ghost' }));
+  };
+  chip('agentId', filters.agentId, agents.find((agent) => agent.membershipId === filters.agentId)?.name ?? t(state, 'الوكيل المحدد', 'Selected agent'));
+  chip('teamId', filters.teamId, teams.find((team) => team.id === filters.teamId)?.name ?? t(state, 'الفريق المحدد', 'Selected team'));
+  chip('channel', filters.channel, phrase(state, CHANNEL_NAMES, filters.channel));
+  chip('connectionId', filters.connectionId, connections.find((connection) => connection.id === filters.connectionId)?.display_name ?? t(state, 'صندوق الوارد المحدد', 'Selected Inbox'));
+  chip('labelId', filters.labelId, labels.find((label) => label.id === filters.labelId)?.name ?? t(state, 'الوسم المحدد', 'Selected label'));
+  chip('campaignId', filters.campaignId, campaigns.find((campaign) => campaign.id === filters.campaignId)?.name ?? t(state, 'الحملة المحددة', 'Selected campaign'));
+  chip('priority', filters.priority, enumLabel(state, { low: ['منخفضة','Low'], normal: ['عادية','Normal'], high: ['مرتفعة','High'], urgent: ['عاجلة','Urgent'] }, filters.priority));
+  chip('status', filters.status, enumLabel(state, { open: ['مفتوحة','Open'], pending: ['بانتظار العميل','Pending'], snoozed: ['مؤجلة','Snoozed'], resolved: ['تم حلها','Resolved'], archived: ['مؤرشفة','Archived'] }, filters.status));
+  return h('div', { class: 'filterbar', role: 'search', 'aria-label': t(state, 'نطاق تقرير التشغيل', 'Operational report scope') }, [
     h('div', { class: 'filterbar__fields' }, [
       h('label', { class: 'field field--compact' }, [
         h('span', { class: 'field__label' }, [t(state, 'من', 'From')]),
@@ -82,20 +120,31 @@ function renderOperations(state: AppState): HTMLElement {
         h('span', { class: 'field__label' }, [t(state, 'إلى', 'To')]),
         h('input', { class: 'input', type: 'date', value: filters.to, min: filters.from === '' ? undefined : filters.from, 'data-act': 'live-report-filter', 'data-form': 'to', disabled: busy }),
       ]),
+      h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'الوكيل', 'Agent')]), selectControl({ value: filters.agentId, act: 'live-report-filter', form: 'agentId', disabled: busy, options: [{ value: '', label: t(state, 'كل الوكلاء', 'All agents') }, ...agents.map((agent) => ({ value: agent.membershipId, label: agent.name }))] })]),
+      h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'الفريق', 'Team')]), selectControl({ value: filters.teamId, act: 'live-report-filter', form: 'teamId', disabled: busy || teams.length === 0, options: options(teams, t(state, 'كل الفرق', 'All teams')) })]),
+      h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'القناة', 'Channel')]), selectControl({ value: filters.channel, act: 'live-report-filter', form: 'channel', disabled: busy, options: [{ value: '', label: t(state, 'كل القنوات', 'All channels') }, ...Object.keys(CHANNEL_NAMES).map((kind) => ({ value: kind, label: phrase(state, CHANNEL_NAMES, kind) }))] })]),
     ]),
+    h('details', { class: 'filterbar__more', open: filters.connectionId !== '' || filters.labelId !== '' || filters.campaignId !== '' || filters.priority !== '' || filters.status !== '' }, [
+      h('summary', {}, [t(state, '+ فلاتر أخرى', '+ More filters')]),
+      h('div', { class: 'filterbar__fields' }, [
+      h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'صندوق الوارد', 'Inbox')]), selectControl({ value: filters.connectionId, act: 'live-report-filter', form: 'connectionId', disabled: busy || connections.length === 0, options: [{ value: '', label: t(state, 'كل الصناديق', 'All Inboxes') }, ...connections.map((connection) => ({ value: connection.id, label: connection.display_name }))] })]),
+      h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'الوسم الحالي', 'Current label')]), selectControl({ value: filters.labelId, act: 'live-report-filter', form: 'labelId', disabled: busy || labels.length === 0, options: options(labels, t(state, 'كل الوسوم', 'All labels')) })]),
+      h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'الحملة', 'Campaign')]), selectControl({ value: filters.campaignId, act: 'live-report-filter', form: 'campaignId', disabled: busy || campaigns.length === 0, options: options(campaigns, t(state, 'كل الحملات', 'All campaigns')) })]),
+      h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'الأولوية', 'Priority')]), selectControl({ value: filters.priority, act: 'live-report-filter', form: 'priority', disabled: busy, options: [{ value: '', label: t(state, 'كل الأولويات', 'All priorities') }, ...['low','normal','high','urgent'].map((value) => ({ value, label: enumLabel(state, { low: ['منخفضة','Low'], normal: ['عادية','Normal'], high: ['مرتفعة','High'], urgent: ['عاجلة','Urgent'] }, value) }))] })]),
+      h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'الحالة', 'Status')]), selectControl({ value: filters.status, act: 'live-report-filter', form: 'status', disabled: busy, options: [{ value: '', label: t(state, 'كل الحالات', 'All statuses') }, ...['open','pending','snoozed','resolved','archived'].map((value) => ({ value, label: enumLabel(state, { open: ['مفتوحة','Open'], pending: ['بانتظار العميل','Pending'], snoozed: ['مؤجلة','Snoozed'], resolved: ['تم حلها','Resolved'], archived: ['مؤرشفة','Archived'] }, value) }))] })]),
+      ]),
+    ]),
+    activeChips.length === 0 ? null : h('div', { class: 'filterbar__chips', 'aria-label': t(state, 'الفلاتر النشطة', 'Active filters') }, activeChips),
     h('div', { class: 'filterbar__actions' }, [
-      (filters.from !== '' || filters.to !== '') ? button({ label: t(state, 'مسح التصفية', 'Clear filters'), act: 'live-report-filter-clear', small: true, variant: 'ghost' }) : null,
+      Object.values(filters).some((value) => value !== '') ? button({ label: t(state, 'مسح التصفية', 'Clear filters'), act: 'live-report-filter-clear', small: true, variant: 'ghost' }) : null,
       button({ label: t(state, 'تحديث', 'Refresh'), icon: 'refresh', act: 'live-report-reload', small: true, busy }),
     ]),
   ]);
-  return page('analytics', analyticsHeader(state, filterBar), [
-    resource.status === 'idle' || resource.status === 'loading'
-      ? skeleton(state, 4)
-      : resource.status === 'error'
-        ? errorState(state, resource.error, 'live-report-reload')
-        : null,
-    ...(report === null ? [] : operationsBody(state, report)),
-  ]);
+}
+
+function enumLabel(state: AppState, labels: Readonly<Record<string, readonly [string,string]>>, value: string): string {
+  const words = labels[value];
+  return words === undefined ? value : t(state, words[0], words[1]);
 }
 
 function duration(state: AppState, seconds: number | null): string {
@@ -112,16 +161,25 @@ function operationsBody(state: AppState, report: OperationalReport): readonly Ch
     ]),
     h('section', { class: 'kpis kpis--5', 'aria-label': t(state, 'مؤشرات التشغيل', 'Operational measures') }, [
       kpi(t(state, 'العمل المفتوح', 'Open workload'), formatNumber(report.conversations.open, state.lang)),
+      kpi(t(state, 'غير معيّن', 'Unassigned'), formatNumber(report.conversations.unassigned, state.lang)),
       kpi(t(state, 'جديد في الفترة', 'New in period'), formatNumber(report.conversations.new, state.lang)),
+      kpi(t(state, 'إسنادات في الفترة', 'Assignments in period'), formatNumber(report.conversations.assignedInPeriod, state.lang)),
       kpi(t(state, 'تم الحل', 'Resolved'), formatNumber(report.conversations.resolved, state.lang)),
+    ]),
+    h('section', { class: 'kpis kpis--5', 'aria-label': t(state, 'نشاط التشغيل', 'Operational activity') }, [
+      kpi(t(state, 'رسائل بشرية', 'Human messages'), formatNumber(report.conversations.humanMessages, state.lang)),
+      kpi(t(state, 'ملاحظات داخلية', 'Internal notes'), formatNumber(report.conversations.internalNotes, state.lang)),
+      kpi(t(state, 'إعادات إسناد', 'Reassignments'), formatNumber(report.conversations.reassignments, state.lang)),
       kpi(t(state, 'متوسط أول رد', 'Avg. first response'), duration(state, report.timing.firstResponseAverageSeconds), { foot: t(state, `الوسيط ${duration(state, report.timing.firstResponseMedianSeconds)} · ${formatNumber(report.timing.firstResponseMeasured, state.lang)} محادثة`, `Median ${duration(state, report.timing.firstResponseMedianSeconds)} · ${formatNumber(report.timing.firstResponseMeasured, state.lang)} conversations`) }),
-      kpi(t(state, 'متوسط الحل', 'Avg. resolution'), duration(state, report.timing.resolutionAverageSeconds), { foot: t(state, `الوسيط ${duration(state, report.timing.resolutionMedianSeconds)} · ${formatNumber(report.timing.resolutionMeasured, state.lang)} حل`, `Median ${duration(state, report.timing.resolutionMedianSeconds)} · ${formatNumber(report.timing.resolutionMeasured, state.lang)} resolutions`) }),
+      kpi(t(state, 'متوسط زمن الحل', 'Avg. resolution'), duration(state, report.timing.resolutionAverageSeconds), { foot: t(state, `الوسيط ${duration(state, report.timing.resolutionMedianSeconds)} · ${formatNumber(report.timing.resolutionMeasured, state.lang)} حل`, `Median ${duration(state, report.timing.resolutionMedianSeconds)} · ${formatNumber(report.timing.resolutionMeasured, state.lang)} resolutions`) }),
     ]),
     h('div', { class: 'report-grid report-grid--3' }, [
       operationsBreakdown(state, t(state, 'العمل المفتوح حسب الحالة', 'Open workload by status'), t(state, 'الحالة', 'Status'), report.conversations.backlogByStatus),
       operationsBreakdown(state, t(state, 'العمل المفتوح حسب القناة', 'Open workload by channel'), t(state, 'القناة', 'Channel'), report.conversations.backlogByChannel),
       operationsBreakdown(state, t(state, 'العمل المفتوح حسب الفريق', 'Open workload by team'), t(state, 'الفريق', 'Team'), report.conversations.backlogByTeam),
+      operationsBreakdown(state, t(state, 'توزيع زمن أول رد', 'First-response distribution'), t(state, 'المدة', 'Duration'), report.responseBuckets.map((row) => ({ count: row.count, team: row.bucket }))),
     ]),
+    channelActivityReport(state, report),
     h('div', { class: 'report-grid' }, [
       workload(state, report),
       agentActivity(state, report),
@@ -129,6 +187,27 @@ function operationsBody(state: AppState, report: OperationalReport): readonly Ch
     agentDetail(state, report),
     notice('plain', 'info', h('strong', {}, [t(state, 'تعريف القياس. ', 'Measurement definition. ')]), t(state, 'متوسط أول رد وحل المحادثة يُحسبان من حلقات المحادثة الدائمة التي تحمل دليلاً على منفّذ الإجراء. السجل التاريخي بلا منفّذ لا يُنسب إلى أي وكيل.', 'First-response and resolution averages use durable conversation episodes with recorded actors. Historical episodes without an actor are not attributed to an agent.')),
   ];
+}
+
+function channelActivityReport(state: AppState, report: OperationalReport): HTMLElement {
+  const columns = [
+    t(state, 'القناة', 'Channel'), t(state, 'نشط الآن', 'Active now'), t(state, 'جديد', 'New'),
+    t(state, 'تم التعامل', 'Handled'), t(state, 'رسائل بشرية', 'Human messages'),
+    t(state, 'متوسط أول رد', 'Avg. first response'), t(state, 'متوسط الحل', 'Avg. resolution'),
+  ];
+  return panel(t(state, 'الأداء حسب القناة', 'Channel performance'), [
+    report.channels.length === 0
+      ? emptyState({ icon: 'inbox', title: t(state, 'لا توجد بيانات قنوات', 'No channel data'), body: t(state, 'ستظهر القنوات عندما توجد محادثات مقروءة ضمن النطاق.', 'Channels appear when readable conversations exist in scope.') })
+      : h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+        h('thead', {}, [h('tr', {}, columns.map((label, index) => h('th', { scope: 'col', class: index === 0 ? undefined : 'num' }, [label])))]),
+        h('tbody', {}, report.channels.map((row) => h('tr', { 'data-channel': row.channel }, [
+          h('th', { scope: 'row' }, [phrase(state, CHANNEL_NAMES, row.channel)]),
+          h('td', { class: 'num' }, [formatNumber(row.currentActive, state.lang)]), h('td', { class: 'num' }, [formatNumber(row.newConversations, state.lang)]),
+          h('td', { class: 'num' }, [formatNumber(row.handledConversations, state.lang)]), h('td', { class: 'num' }, [formatNumber(row.humanMessages, state.lang)]),
+          h('td', { class: 'num' }, [duration(state, row.firstResponseAverageSeconds)]), h('td', { class: 'num' }, [duration(state, row.resolutionAverageSeconds)]),
+        ]))),
+      ])]),
+  ], { flush: true });
 }
 
 /** The supervisor banner carries an opaque membership ID into this view. */
@@ -140,13 +219,50 @@ function agentDetail(state: AppState, report: OperationalReport): Child {
   return panel(t(state, `تفاصيل ${agent.name}`, `${agent.name} detail`), [
     h('p', { class: 'table__secondary' }, [agent.email, agent.teams.length === 0 ? '' : ` · ${agent.teams.join(' · ')}`]),
     h('section', { class: 'kpis kpis--5', 'aria-label': t(state, 'مقاييس الوكيل', 'Agent measures') }, [
-      kpi(t(state, 'نشط الآن', 'Active now'), formatNumber(agent.currentAssigned, state.lang)),
+      kpi(t(state, 'مُسند الآن', 'Current assigned'), formatNumber(agent.currentAssigned, state.lang)),
+      kpi(t(state, 'مفتوح', 'Open'), formatNumber(agent.currentOpen, state.lang)),
+      kpi(t(state, 'بانتظار العميل', 'Pending'), formatNumber(agent.currentPending, state.lang)),
+      kpi(t(state, 'مؤجل', 'Snoozed'), formatNumber(agent.currentSnoozed, state.lang)),
+      kpi(t(state, 'بلا رد بشري', 'Unreplied'), formatNumber(agent.currentUnreplied, state.lang)),
+    ]),
+    h('section', { class: 'kpis kpis--5', 'aria-label': t(state, 'نشاط الوكيل خلال الفترة', 'Agent activity in period') }, [
+      kpi(t(state, 'إسنادات', 'Assignments'), formatNumber(agent.assignedInPeriod, state.lang)),
       kpi(t(state, 'تم التعامل', 'Handled'), formatNumber(agent.handledConversations, state.lang)),
       kpi(t(state, 'رسائل بشرية', 'Human messages'), formatNumber(agent.humanMessages, state.lang)),
+      kpi(t(state, 'ملاحظات', 'Notes'), formatNumber(agent.internalNotes, state.lang)),
+      kpi(t(state, 'إعادات إسناد', 'Reassignments'), formatNumber(agent.reassignments, state.lang)),
+    ]),
+    h('section', { class: 'kpis kpis--4', 'aria-label': t(state, 'أزمنة الأداء', 'Response and resolution times') }, [
+      kpi(t(state, 'أول رد', 'First responses'), formatNumber(agent.firstResponses, state.lang)),
       kpi(t(state, 'متوسط أول رد', 'Avg. first response'), duration(state, agent.firstResponseAverageSeconds), { foot: t(state, `الوسيط ${duration(state, agent.firstResponseMedianSeconds)}`, `Median ${duration(state, agent.firstResponseMedianSeconds)}`) }),
+      kpi(t(state, 'حلقات محلولة', 'Resolved episodes'), formatNumber(agent.resolutions, state.lang)),
       kpi(t(state, 'متوسط الحل', 'Avg. resolution'), duration(state, agent.resolutionAverageSeconds), { foot: t(state, `الوسيط ${duration(state, agent.resolutionMedianSeconds)}`, `Median ${duration(state, agent.resolutionMedianSeconds)}`) }),
     ]),
+    h('div', { class: 'report-grid' }, [
+      operationsBreakdown(state, t(state, 'الحمل الحالي حسب الحالة', 'Current workload by status'), t(state, 'الحالة', 'Status'), agent.currentByStatus),
+      operationsBreakdown(state, t(state, 'الحمل الحالي حسب القناة', 'Current workload by channel'), t(state, 'القناة', 'Channel'), agent.currentByChannel),
+    ]),
+    h('div', { class: 'filterbar__actions', 'aria-label': t(state, 'فتح محادثات الوكيل', 'Open agent conversations') }, [
+      reportInboxLink(state, agent.membershipId, 'open'),
+      reportInboxLink(state, agent.membershipId, 'unreplied'),
+      reportInboxLink(state, agent.membershipId, 'high'),
+    ]),
   ]);
+}
+
+function reportInboxLink(state: AppState, membershipId: string, kind: 'open' | 'unreplied' | 'high'): HTMLElement {
+  const labels = {
+    open: t(state, 'فتح المحادثات المفتوحة', 'Open conversations'),
+    unreplied: t(state, 'غير المردود عليها', 'Unreplied'),
+    high: t(state, 'الأولوية المرتفعة', 'High priority'),
+  };
+  const filters = [
+    { key: 'assigned_agent_id', operator: 'eq', value: membershipId },
+    ...(kind === 'open' ? [{ key: 'status', operator: 'eq', value: 'open' }] : []),
+    ...(kind === 'unreplied' ? [{ key: 'unreplied', operator: 'eq', value: true }] : []),
+    ...(kind === 'high' ? [{ key: 'priority', operator: 'eq', value: 'high' }] : []),
+  ];
+  return h('a', { class: 'btn btn--ghost btn--sm', href: formatHash({ screen: 'inbox', conversationId: null, params: { scope: 'all', filters: JSON.stringify(filters), lang: state.lang } }) }, [labels[kind]]);
 }
 
 function operationsBreakdown(state: AppState, title: string, label: string, rows: readonly { readonly count: number; readonly status?: string; readonly channel?: string; readonly team?: string }[]): HTMLElement {

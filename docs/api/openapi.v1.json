@@ -1477,6 +1477,33 @@
         }
       }
     },
+    "/tenants/{tenantId}/supervisor/agents": {
+      "get": {
+        "operationId": "listSupervisorAgents",
+        "summary": "List agents visible to the supervisor",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }],
+        "responses": { "200": { "description": "Scoped active agent directory" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/supervisor/conversations": {
+      "get": {
+        "operationId": "listSupervisorConversations",
+        "summary": "Read conversations in an agent workload using the supervisor's own scope",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "name": "agent", "in": "query", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Cursor-paginated scoped conversation page" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/supervisor/workload": {
+      "get": {
+        "operationId": "getSupervisorWorkload",
+        "summary": "Read current scoped workload for one agent",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "name": "agent", "in": "query", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Current workload, scoped by the supervisor principal" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
     "/tenants/{tenantId}/conversations/{conversationId}": {
       "get": {
         "operationId": "getConversation",
@@ -6197,6 +6224,28 @@
         "description": "Every figure is computed over one scope. With no query the scope is every campaign the caller may report on. `from` and `to` are inclusive UTC calendar days compared against each execution launch instant; `channel` and `campaignId` select campaigns. The applied scope is echoed in `filters`."
       }
     },
+    "/tenants/{tenantId}/reports/operations": {
+      "get": {
+        "operationId": "getOperationalReport",
+        "summary": "Read scope-safe operational and agent performance measures",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "from", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "agentId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "teamId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "channel", "in": "query", "required": false, "schema": { "$ref": "#/components/schemas/ChannelKind" } },
+          { "name": "connectionId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "labelId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "campaignId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "priority", "in": "query", "required": false, "schema": { "type": "string", "enum": ["low", "normal", "high", "urgent"] } },
+          { "name": "status", "in": "query", "required": false, "schema": { "type": "string", "enum": ["open", "pending", "snoozed", "resolved", "archived"] } }
+        ],
+        "responses": { "200": { "description": "Operational report computed within caller-readable conversation scope" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
     "/tenants/{tenantId}/campaigns/{campaignId}/retry": {
       "post": {
         "operationId": "retryCampaignFailures",
@@ -6555,6 +6604,7 @@
       "post": { "operationId": "createAutomation", "summary": "Create a custom draft automation", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } }, "responses": { "201": { "description": "Draft automation created" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
     },
     "/tenants/{tenantId}/automations/{id}": {
+      "delete": { "operationId": "deleteAutomationDraft", "summary": "Delete a never-run automation draft", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["version"], "properties": { "version": { "type": "integer", "minimum": 1 } } } } } }, "responses": { "200": { "description": "Draft deleted" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } },
       "patch": { "operationId": "updateAutomation", "summary": "Update an editable automation with version fencing", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } }, "responses": { "200": { "description": "Automation updated" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
     },
     "/tenants/{tenantId}/automations/{id}/{act}": {

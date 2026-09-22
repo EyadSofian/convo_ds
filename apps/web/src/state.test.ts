@@ -112,7 +112,7 @@ describe('URL round-trip', () => {
 
   it('encodes the analytics scope on the analytics screen only', () => {
     const state = createState(NOW);
-    state.analyticsFilters = { from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaignId: 'c-1' };
+    state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaignId: 'c-1' };
     expect(routeParamsFor(state)).toEqual({});
     state.route = { ...state.route, screen: 'analytics' };
     expect(routeParamsFor(state)).toEqual({ from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaign: 'c-1' });
@@ -170,9 +170,9 @@ describe('URL round-trip', () => {
   it('reads the analytics scope back, and empties what is absent', () => {
     const state = createState(NOW);
     applyRoute(state, parseHash('#/analytics?from=2026-09-01&channel=instagram&campaign=c-9'));
-    expect(state.analyticsFilters).toEqual({ from: '2026-09-01', to: '', channel: 'instagram', campaignId: 'c-9' });
+    expect(state.analyticsFilters).toEqual({ ...NO_ANALYTICS_FILTERS, from: '2026-09-01', channel: 'instagram', campaignId: 'c-9' });
     applyRoute(state, parseHash('#/analytics?to=2026-09-10'));
-    expect(state.analyticsFilters).toEqual({ from: '', to: '2026-09-10', channel: '', campaignId: '' });
+    expect(state.analyticsFilters).toEqual({ ...NO_ANALYTICS_FILTERS, to: '2026-09-10' });
   });
 
   it('does not let an omitted or invalid route language erase the current preference', () => {

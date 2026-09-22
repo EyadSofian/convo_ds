@@ -62,10 +62,32 @@ export async function loadOperationalReport(context: LiveContext): Promise<void>
   const tenantId = currentTenantId(context.live);
   if (tenantId === null) return;
   context.live.operationalReport = LOADING;
+  const optionsLoads: Promise<void>[] = [];
+  if (context.live.teams.status === 'idle') {
+    context.live.teams = LOADING;
+    optionsLoads.push(context.live.api.teams(tenantId).then((result) => { context.live.teams = fromResult(result, context.now()); }));
+  }
+  if (context.live.connections.status === 'idle') {
+    context.live.connections = LOADING;
+    optionsLoads.push(context.live.channels.connections(tenantId).then((result) => { context.live.connections = fromResult(result, context.now()); }));
+  }
+  if (context.live.workspaceLabels.status === 'idle') {
+    context.live.workspaceLabels = LOADING;
+    optionsLoads.push(context.live.metadataApi.labels(tenantId, true).then((result) => { context.live.workspaceLabels = fromResult(result, context.now()); }));
+  }
+  if (context.live.campaigns.status === 'idle') {
+    context.live.campaigns = LOADING;
+    optionsLoads.push(context.live.campaignsApi.list(tenantId).then((result) => { context.live.campaigns = fromResult(result, context.now()); }));
+  }
   context.refresh();
-  const { from, to } = context.state.analyticsFilters;
-  const result = await context.live.campaignsApi.operationsReport(tenantId, { from, to });
+  const [result] = await Promise.all([
+    context.live.campaignsApi.operationsReport(tenantId, context.state.analyticsFilters),
+    ...optionsLoads,
+  ]);
   context.live.operationalReport = fromResult(result, context.now());
+  if (result.ok && context.state.analyticsFilters.agentId === '') {
+    context.live.operationalAgentOptions = { tenantId, agents: result.data.agents };
+  }
   context.refresh();
 }
 

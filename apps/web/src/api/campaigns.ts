@@ -133,11 +133,17 @@ export interface CampaignReportExport {
 /** Current operational workload and durable episode timings, calculated by the API. */
 export interface OperationalReport {
   readonly generatedAt: string;
-  readonly filters: { readonly from: string | null; readonly to: string | null };
+  readonly filters: { readonly from: string | null; readonly to: string | null; readonly agentId: string | null; readonly teamId: string | null; readonly channel: string | null; readonly connectionId: string | null; readonly labelId: string | null; readonly campaignId: string | null; readonly priority: string | null; readonly status: string | null };
+  readonly agentOptions: readonly { readonly membershipId: string; readonly name: string; readonly teams: readonly string[] }[];
   readonly conversations: {
     readonly open: number;
+    readonly unassigned: number;
     readonly new: number;
     readonly resolved: number;
+    readonly assignedInPeriod: number;
+    readonly humanMessages: number;
+    readonly internalNotes: number;
+    readonly reassignments: number;
     readonly backlogByStatus: readonly { readonly status: string; readonly count: number }[];
     readonly backlogByChannel: readonly { readonly channel: string; readonly count: number }[];
     readonly backlogByTeam: readonly { readonly team: string; readonly count: number }[];
@@ -151,9 +157,19 @@ export interface OperationalReport {
     readonly resolutionAverageSeconds: number | null;
     readonly resolutionMedianSeconds: number | null;
   };
+  readonly responseBuckets: readonly { readonly bucket: string; readonly count: number }[];
+  readonly channels: readonly {
+    readonly channel: string; readonly currentActive: number; readonly newConversations: number;
+    readonly handledConversations: number; readonly humanMessages: number;
+    readonly firstResponses: number; readonly firstResponseAverageSeconds: number | null; readonly firstResponseMedianSeconds: number | null;
+    readonly resolutions: number; readonly resolutionAverageSeconds: number | null; readonly resolutionMedianSeconds: number | null;
+  }[];
   readonly agents: readonly {
     readonly membershipId: string; readonly name: string; readonly email: string; readonly teams: readonly string[];
     readonly currentAssigned: number; readonly currentOpen: number; readonly currentPending: number; readonly currentSnoozed: number;
+    readonly currentUnreplied: number; readonly currentUrgent: number; readonly currentHigh: number;
+    readonly currentByStatus: readonly { readonly status: string; readonly count: number }[];
+    readonly currentByChannel: readonly { readonly channel: string; readonly count: number }[];
     readonly assignedInPeriod: number; readonly handledConversations: number; readonly humanMessages: number; readonly internalNotes: number;
     readonly firstResponses: number; readonly firstResponseAverageSeconds: number | null; readonly firstResponseMedianSeconds: number | null;
     readonly resolutions: number; readonly resolutionAverageSeconds: number | null; readonly resolutionMedianSeconds: number | null;
@@ -164,6 +180,14 @@ export interface OperationalReport {
 export interface OperationalReportFilterInput {
   readonly from: string;
   readonly to: string;
+  readonly agentId: string;
+  readonly teamId: string;
+  readonly channel: string;
+  readonly connectionId: string;
+  readonly labelId: string;
+  readonly campaignId: string;
+  readonly priority: string;
+  readonly status: string;
 }
 
 export interface CreateCampaignInput {
@@ -235,6 +259,14 @@ export class CampaignsApi {
     const query = new URLSearchParams();
     if (filters.from !== '') query.set('from', filters.from);
     if (filters.to !== '') query.set('to', filters.to);
+    if (filters.agentId !== '') query.set('agentId', filters.agentId);
+    if (filters.teamId !== '') query.set('teamId', filters.teamId);
+    if (filters.channel !== '') query.set('channel', filters.channel);
+    if (filters.connectionId !== '') query.set('connectionId', filters.connectionId);
+    if (filters.labelId !== '') query.set('labelId', filters.labelId);
+    if (filters.campaignId !== '') query.set('campaignId', filters.campaignId);
+    if (filters.priority !== '') query.set('priority', filters.priority);
+    if (filters.status !== '') query.set('status', filters.status);
     const suffix = query.size === 0 ? '' : `?${query.toString()}`;
     return this.client.get(`/tenants/${tenantId}/reports/operations${suffix}`);
   }

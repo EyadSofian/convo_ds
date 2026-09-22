@@ -156,7 +156,7 @@ describe('campaign actions', () => {
     expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'from:2026-09-01')).toBe(true);
     expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'to:2026-09-09')).toBe(true);
     expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'channel:whatsapp')).toBe(true);
-    expect(vi.mocked(ready.campaigns.report).mock.calls.at(-1)?.[1]).toEqual({ from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaignId: 'campaign-2' });
+    expect(vi.mocked(ready.campaigns.report).mock.calls.at(-1)?.[1]).toEqual({ ...NO_ANALYTICS_FILTERS, from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaignId: 'campaign-2' });
     await LIVE_ACTIONS['live-report-filter-clear']?.(ready.context, '');
     expect(ready.state.analyticsFilters).toEqual(NO_ANALYTICS_FILTERS);
 

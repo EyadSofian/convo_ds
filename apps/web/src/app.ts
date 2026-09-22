@@ -808,10 +808,20 @@ export function mount(options: MountOptions): AppHandle {
     const firstDraw = !drawn;
     drawn = true;
     const previousScreen = state.route.screen;
+    const previousRoute = state.route;
     applyRoute(state, route);
     if (!firstDraw && route.screen === 'analytics' && previousScreen === 'analytics') {
       // Back and forward through filter changes re-read the report they name.
       loadedScreen = null;
+    }
+    if (!firstDraw && route.screen === 'automations' && previousScreen === 'automations') {
+      // Automation tabs and draft links are distinct server-backed resources.
+      // A same-screen query change must load its list/editor data just like a
+      // top-level navigation, otherwise the screen remains on its prior
+      // skeleton/resource and the URL lies about the selected view.
+      const viewChanged = previousRoute.params['view'] !== route.params['view'];
+      const draftChanged = previousRoute.params['edit'] !== route.params['edit'];
+      if (viewChanged || draftChanged) loadedScreen = null;
     }
     syncUrl();
     refresh();

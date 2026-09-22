@@ -3,7 +3,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { CampaignReport, CampaignReportExport, OperationalReport } from '../api/campaigns';
-import { createState } from '../state';
+import { createState, NO_ANALYTICS_FILTERS } from '../state';
+import { parseHash } from '../router.js';
 import type { AppState } from '../state';
 import { exportView, renderAnalytics } from './analytics-screen';
 
@@ -61,18 +62,24 @@ function exportJob(overrides: Partial<CampaignReportExport> = {}): CampaignRepor
 
 function operations(): OperationalReport {
   return {
-    generatedAt: NOW.toISOString(), filters: { from: null, to: null },
+    generatedAt: NOW.toISOString(), filters: { from: null, to: null, agentId: null, teamId: null, channel: null, connectionId: null, labelId: null, campaignId: null, priority: null, status: null },
+    agentOptions: [{ membershipId: '00000000-0000-4000-8000-000000000001', name: 'Mona Agent', teams: ['Support'] }],
     conversations: {
-      open: 7, new: 4, resolved: 3,
+      open: 7, unassigned: 1, new: 4, resolved: 3, assignedInPeriod: 5, humanMessages: 12, internalNotes: 2, reassignments: 1,
       backlogByStatus: [{ status: 'open', count: 5 }, { status: 'pending', count: 2 }],
       backlogByChannel: [{ channel: 'website_chat', count: 7 }],
       backlogByTeam: [{ team: 'Support', count: 7 }],
       assignmentWorkload: [{ name: 'Mona Agent', count: 7 }],
     },
     timing: { firstResponseMeasured: 4, firstResponseAverageSeconds: 75, firstResponseMedianSeconds: 70, resolutionMeasured: 3, resolutionAverageSeconds: 300, resolutionMedianSeconds: 280 },
+    responseBuckets: [{ bucket: '<5m', count: 1 }, { bucket: '5–15m', count: 2 }, { bucket: '>60m', count: 1 }],
+    channels: [{ channel: 'website_chat', currentActive: 7, newConversations: 4, handledConversations: 3, humanMessages: 5, firstResponses: 4, firstResponseAverageSeconds: 75, firstResponseMedianSeconds: 70, resolutions: 3, resolutionAverageSeconds: 300, resolutionMedianSeconds: 280 }],
     agents: [{
       membershipId: '00000000-0000-4000-8000-000000000001', name: 'Mona Agent', email: 'mona@example.test', teams: ['Support'],
       currentAssigned: 7, currentOpen: 5, currentPending: 2, currentSnoozed: 0,
+      currentUnreplied: 1, currentUrgent: 0, currentHigh: 1,
+      currentByStatus: [{ status: 'open', count: 5 }, { status: 'pending', count: 2 }],
+      currentByChannel: [{ channel: 'website_chat', count: 7 }],
       assignedInPeriod: 4, handledConversations: 3, humanMessages: 5, internalNotes: 2,
       firstResponses: 4, firstResponseAverageSeconds: 75, firstResponseMedianSeconds: 70,
       resolutions: 3, resolutionAverageSeconds: 300, resolutionMedianSeconds: 280, reassignments: 1,
@@ -94,7 +101,7 @@ describe('the filter bar', () => {
 
   it('keeps a chosen channel selectable after the report narrows, and offers to clear', () => {
     const state = screen(report({ channels: [] }));
-    state.analyticsFilters = { from: '2026-09-01', to: '2026-09-09', channel: 'messenger', campaignId: '' };
+    state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, from: '2026-09-01', to: '2026-09-09', channel: 'messenger' };
     const bar = renderAnalytics(state).querySelector('.filterbar') as HTMLElement;
     expect(Array.from(bar.querySelectorAll('select')[0]?.querySelectorAll('option') ?? []).map((option) => option.getAttribute('value'))).toEqual(['', 'messenger']);
     expect((bar.querySelector('input[type="date"]') as HTMLInputElement).getAttribute('max')).toBe('2026-09-09');
@@ -107,6 +114,29 @@ describe('the filter bar', () => {
     expect(root.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect((root.querySelector('select') as HTMLSelectElement).disabled).toBe(true);
     expect((root.querySelector('[data-act="live-report-export"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('renders server-backed operational filters and historical response buckets', () => {
+    const state = screen();
+    state.analyticsView = 'operations';
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
+    state.live.teams = { status: 'ready', loadedAt: 1, value: [{ id: 'team-1', name: 'Support', member_count: 1, archived: false, members: [] }] };
+    state.live.workspaceLabels = { status: 'ready', loadedAt: 1, value: [{ id: 'label-1', name: 'VIP', color: '#123456', state: 'active', version: 1 }] };
+    state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, agentId: '00000000-0000-4000-8000-000000000001', labelId: 'label-1' };
+    const root = renderAnalytics(state);
+    const bar = root.querySelector('.filterbar') as HTMLElement;
+    expect(bar.querySelectorAll('select').length).toBeGreaterThanOrEqual(8);
+    expect(bar.textContent).toContain('Mona Agent ×');
+    expect(bar.textContent).toContain('VIP ×');
+    expect(root.textContent).toContain('First-response distribution');
+    expect(root.textContent).toContain('5–15m');
+    state.route = { ...state.route, params: { agent: '00000000-0000-4000-8000-000000000001' } };
+    const detailed = renderAnalytics(state);
+    const drilldown = detailed.querySelector('a[href*="/inbox"]') as HTMLAnchorElement;
+    expect(JSON.parse(parseHash(drilldown.getAttribute('href') ?? '').params.filters ?? '[]')).toEqual([
+      { key: 'assigned_agent_id', operator: 'eq', value: '00000000-0000-4000-8000-000000000001' },
+      { key: 'status', operator: 'eq', value: 'open' },
+    ]);
   });
 });
 
@@ -274,7 +304,7 @@ describe('the export', () => {
 
   it('says what the file does not follow when the period or channel is narrowed', () => {
     const state = screen();
-    state.analyticsFilters = { from: '', to: '', channel: 'whatsapp', campaignId: '' };
+    state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, channel: 'whatsapp' };
     state.live.campaignReportExport = { status: 'ready', loadedAt: 1, value: exportJob() };
     expect(renderAnalytics(state).textContent).toContain('period and channel are not applied');
   });

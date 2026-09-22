@@ -80,6 +80,8 @@ describe('migrate', () => {
       '0033_account_security_events.sql',
       '0034_campaign_conversation_attribution.sql',
       '0035_conversation_episode_actor_evidence.sql',
+      '0036_conversation_event_binding.sql',
+      '0037_conversation_identity_history_index.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);

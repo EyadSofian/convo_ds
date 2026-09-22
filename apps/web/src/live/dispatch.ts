@@ -644,7 +644,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-report-filter': async (context, arg) => {
     const { id, value } = splitArg(arg);
     const filters = context.state.analyticsFilters;
-    if (!(id === 'from' || id === 'to' || id === 'channel' || id === 'campaignId') || filters[id] === value) return false;
+    if (!(id === 'from' || id === 'to' || id === 'agentId' || id === 'teamId' || id === 'channel' || id === 'connectionId' || id === 'labelId' || id === 'campaignId' || id === 'priority' || id === 'status') || filters[id] === value) return false;
     context.state.analyticsFilters = { ...filters, [id]: value };
     await loadAnalyticsReport(context);
     return true;

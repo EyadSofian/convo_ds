@@ -225,6 +225,7 @@ export interface LiveState {
   campaignRecipients: Resource<readonly CampaignRecipient[]>;
   campaignReport: Resource<CampaignReport>;
   operationalReport: Resource<OperationalReport>;
+  operationalAgentOptions: { readonly tenantId: string; readonly agents: OperationalReport['agents'] } | null;
   /** The campaigns the Analytics campaign filter can offer. */
   reportCampaigns: readonly { readonly id: string; readonly name: string }[];
   campaignReportExport: Resource<CampaignReportExport>;
@@ -330,6 +331,7 @@ export function createLiveState(
     campaignRecipients: IDLE,
     campaignReport: IDLE,
     operationalReport: IDLE,
+    operationalAgentOptions: null,
     reportCampaigns: [],
     campaignReportExport: IDLE,
     automationTemplates: IDLE,

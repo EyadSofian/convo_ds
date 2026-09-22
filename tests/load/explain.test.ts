@@ -164,6 +164,15 @@ function queries(seeded: { readonly conversationIds: readonly string[] }, eviden
       [evidence.membershipIds[0]],
     ],
     [
+      'channel performance — bounded human message attribution',
+      `SELECT n.kind,count(*)::int AS human_messages,count(DISTINCT c.id)::int AS handled
+         FROM outbound_messages o JOIN conversations c ON ${conversationEventBoundary('c','o','o.created_at')}
+         JOIN channel_connections n ON n.id=c.connection_id
+        WHERE ${qualifyingHumanOutbound('o')}
+        GROUP BY n.kind`,
+      [],
+    ],
+    [
       'contact search — infix LIKE only',
       `SELECT id::text, display_name FROM contacts
         WHERE deleted_at IS NULL AND search_name LIKE '%' || $1 || '%'

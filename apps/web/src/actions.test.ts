@@ -313,7 +313,7 @@ describe('channels', () => {
 
 describe('campaigns and reports', () => {
   it('opens a campaign’s report narrowed to that campaign', () => {
-    app.state.analyticsFilters = { from: '2026-01-01', to: '', channel: 'whatsapp', campaignId: '' };
+    app.state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, from: '2026-01-01', channel: 'whatsapp' };
     runAction('campaign-report', app.context, 'c-7');
     expect(app.state.analyticsFilters).toEqual({ ...NO_ANALYTICS_FILTERS, campaignId: 'c-7' });
     expect(app.navigations.at(-1)).toEqual({ screen: 'analytics', conversationId: null });

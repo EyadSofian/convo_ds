@@ -2324,6 +2324,8 @@ describe('supervisor inbox lens', () => {
     expect(before.statusCode, before.payload).toBe(200);
     const beforeAgent = (before.json() as { data: { agents: { membershipId: string; humanMessages: number; handledConversations: number }[] } }).data.agents
       .find((row) => row.membershipId === agentAMembershipId)!;
+    const filteredBefore = await send(api, owner, 'GET', `/reports/operations?agentId=${agentAMembershipId}&connectionId=${inboxA}&channel=whatsapp&status=open`);
+    expect(filteredBefore.statusCode, filteredBefore.payload).toBe(200);
 
     await customerWrites(INBOX_A, peer, 'المحادثة الأولى', 'wamid.rt-bound-a-in');
     const conversationA = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
@@ -2404,6 +2406,44 @@ describe('supervisor inbox lens', () => {
       .find((row) => row.membershipId === agentAMembershipId)!;
     expect(afterAgent.humanMessages - beforeAgent.humanMessages).toBe(2);
     expect(afterAgent.handledConversations - beforeAgent.handledConversations).toBe(2);
+    const filteredAfter = await send(api, owner, 'GET', `/reports/operations?agentId=${agentAMembershipId}&connectionId=${inboxA}&channel=whatsapp&status=open`);
+    expect(filteredAfter.statusCode, filteredAfter.payload).toBe(200);
+    const filteredData = (filteredAfter.json() as { data: { agents: { membershipId: string; humanMessages: number; handledConversations: number }[] } }).data;
+    expect(filteredData.agents).toHaveLength(1);
+    expect(filteredData.agents[0]).toMatchObject({
+      membershipId: agentAMembershipId,
+      humanMessages: ((filteredBefore.json() as { data: { agents: { humanMessages: number }[] } }).data.agents[0]?.humanMessages ?? 0) + 1,
+    });
+    expect((await send(api, owner, 'GET', '/reports/operations?priority=critical')).statusCode).toBe(400);
+    expect((await send(api, owner, 'GET', '/reports/operations?agentId=not-a-uuid')).statusCode).toBe(400);
+    expect((await send(api, owner, 'GET', '/reports/operations?unknown=value')).statusCode).toBe(400);
+
+    const teams = await withTenant(api.pool, api.tenantId, async (client) => {
+      const rows = await client.query<{ id: string }>(
+        `INSERT INTO teams (tenant_id,name) VALUES ($1,'Boundary Team A'),($1,'Boundary Team B') RETURNING id::text`, [api.tenantId],
+      );
+      return rows.rows.map((row) => row.id);
+    });
+    const [teamA, teamB] = teams;
+    expect(teamA).toBeDefined(); expect(teamB).toBeDefined();
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      await client.query('INSERT INTO team_members (tenant_id,team_id,membership_id) VALUES ($1,$2,$3),($1,$4,$5)', [api.tenantId, teamA, agentAMembershipId, teamB, agentBMembershipId]);
+      await client.query('UPDATE conversations SET team_id=$2 WHERE id=$1', [conversationA, teamA]);
+      await client.query('UPDATE conversations SET team_id=$2 WHERE id=$1', [conversationB, teamB]);
+    });
+    const teamManagerAId = await addMember(api, 'boundary-team-a@realtime.test', 'supervisor', [{ type: 'team', id: teamA! }]);
+    const teamManagerBId = await addMember(api, 'boundary-team-b@realtime.test', 'supervisor', [{ type: 'team', id: teamB! }]);
+    void teamManagerAId; void teamManagerBId;
+    const teamManagerA = await login(api, 'boundary-team-a@realtime.test', MEMBER_PASSWORD);
+    const teamManagerB = await login(api, 'boundary-team-b@realtime.test', MEMBER_PASSWORD);
+    const readableA = await send(api, teamManagerA, 'GET', '/reports/operations');
+    const readableB = await send(api, teamManagerB, 'GET', '/reports/operations');
+    expect(readableA.statusCode, readableA.payload).toBe(200);
+    expect(readableB.statusCode, readableB.payload).toBe(200);
+    expect((readableA.json() as { data: { conversations: { humanMessages: number } } }).data.conversations.humanMessages).toBe(1);
+    expect((readableB.json() as { data: { conversations: { humanMessages: number } } }).data.conversations.humanMessages).toBe(1);
+    expect((readableA.json() as { data: { agentOptions: { membershipId: string }[] } }).data.agentOptions.map((row) => row.membershipId)).toContain(agentAMembershipId);
+    expect((readableA.json() as { data: { agentOptions: { membershipId: string }[] } }).data.agentOptions.map((row) => row.membershipId)).not.toContain(agentBMembershipId);
   });
 
   it('scopes operational aggregates through the supervisor readable inbox scope', async () => {
@@ -2428,6 +2468,8 @@ describe('supervisor inbox lens', () => {
     const ownerAgents = (ownerReport.json() as { data: { agents: { membershipId: string }[] } }).data.agents;
     expect(scopedAgents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(false);
     expect(ownerAgents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(true);
+    expect((await send(api, supervisor, 'GET', `/reports/operations?agentId=${agentBMembershipId}`)).statusCode).toBe(404);
+    expect((await send(api, supervisor, 'GET', `/reports/operations?connectionId=${inboxB}`)).statusCode).toBe(404);
   });
 
   it('keeps an archived conversation in its historical creation volume but out of backlog', async () => {

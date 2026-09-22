@@ -1,39 +1,43 @@
 main.app__screen
   div.page.page--analytics
     div.page__inner
-      div.filterbar
-        div.filterbar__fields
-          label.field.field--compact
-            span.field__label
-            input.input [live-report-filter]
-          label.field.field--compact
-            span.field__label
-            input.input [live-report-filter]
-          label.field.field--compact
-            span.field__label
-            select.select [live-report-filter]
-              option
-              option
-              option
-          label.field.field--compact
-            span.field__label
-            select.select [live-report-filter]
-              option
-              option
-              option
-        div.filterbar__actions
-          button.btn.btn--sm [live-report-reload]
-            svg
-              path
-              path
-              path
-            span.btn__label
-          button.btn.btn--primary.btn--sm [live-report-export]
-            svg
-              path
-              path
-              path
-            span.btn__label
+      div.stack.stack--sm
+        div.segmented
+          button.segmented__item [analytics-view]
+          button.segmented__item [analytics-view]
+        div.filterbar
+          div.filterbar__fields
+            label.field.field--compact
+              span.field__label
+              input.input [live-report-filter]
+            label.field.field--compact
+              span.field__label
+              input.input [live-report-filter]
+            label.field.field--compact
+              span.field__label
+              select.select [live-report-filter]
+                option
+                option
+                option
+            label.field.field--compact
+              span.field__label
+              select.select [live-report-filter]
+                option
+                option
+                option
+          div.filterbar__actions
+            button.btn.btn--sm [live-report-reload]
+              svg
+                path
+                path
+                path
+              span.btn__label
+            button.btn.btn--primary.btn--sm [live-report-export]
+              svg
+                path
+                path
+                path
+              span.btn__label
       p.freshness
         svg
           circle

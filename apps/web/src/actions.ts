@@ -1,7 +1,7 @@
 import { SCREENS } from './router';
 import type { ScreenId } from './router';
 import type { AppState } from './state';
-import { clampListWidth } from './state';
+import { clampListWidth, NO_ANALYTICS_FILTERS } from './state';
 
 /**
  * Every interactive control in the UI carries `data-act` (+ optional `data-arg`)
@@ -227,7 +227,7 @@ const setNav: ActionHandler = (context, arg) => {
 
 /** From a campaign to its report: Analytics, narrowed to that campaign. */
 const campaignReport: ActionHandler = (context, arg) => {
-  context.state.analyticsFilters = { from: '', to: '', channel: '', campaignId: arg };
+  context.state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, campaignId: arg };
   context.navigate('analytics', null);
 };
 

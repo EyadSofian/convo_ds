@@ -102,8 +102,9 @@ describe('CampaignsApi', () => {
       fetch: (path) => { calls.push(String(path)); return Promise.resolve(new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'content-type': 'application/json' } })); },
       readCsrfToken: () => 'csrf',
     }));
-    await api.operationsReport('tenant-1', { from: '', to: '' });
-    await api.operationsReport('tenant-1', { from: '2026-09-01', to: '2026-09-09' });
+    const emptyFilters = { agentId: '', teamId: '', channel: '', connectionId: '', labelId: '', campaignId: '', priority: '', status: '' };
+    await api.operationsReport('tenant-1', { ...emptyFilters, from: '', to: '' });
+    await api.operationsReport('tenant-1', { ...emptyFilters, from: '2026-09-01', to: '2026-09-09' });
     expect(calls).toEqual([
       '/api/v1/tenants/tenant-1/reports/operations',
       '/api/v1/tenants/tenant-1/reports/operations?from=2026-09-01&to=2026-09-09',

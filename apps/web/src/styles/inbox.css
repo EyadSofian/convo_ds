@@ -776,7 +776,7 @@
     /* Names remain in the neutral foreground; the colour is an indicator, not
        a white-on-user-HEX contrast gamble. The double outline keeps both very
        light and very dark custom colours visible against every surface. */
-    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 28%), 0 0 0 1px var(--surface-1);
+    box-shadow: inset 0 0 0 1px var(--label-swatch-outline), 0 0 0 1px var(--surface-1);
   }
 
   .inbox-supervisor-banner {

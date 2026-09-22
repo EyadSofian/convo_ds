@@ -43,7 +43,7 @@ describe('compileInboxQuery', () => {
   it('keeps human outbound evidence distinct from automation sends', () => {
     const compiled = compileInboxQuery({ ...base, filters: [{ key: 'unreplied', operator: 'eq', value: true }] }, principal, new Map());
     expect(compiled.where).toContain('outbound.author_membership IS NOT NULL');
-    expect(compiled.where).toContain("inbound.kind = 'message'");
+    expect(compiled.where).toMatch(/inbound\.kind\s*=\s*'message'/);
   });
 
   it('normalizes scalar membership filters to UUID arrays', () => {
