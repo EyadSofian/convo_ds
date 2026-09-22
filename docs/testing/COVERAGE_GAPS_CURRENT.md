@@ -8,9 +8,9 @@ integration and property files passed):
 
 | Metric | Covered | Total | Result |
 | --- | ---: | ---: | --- |
-| Lines/statements | 28,167 | 28,501 | 98.82% (gate: 100%) |
-| Functions | 2,084 | 2,120 | 98.30% (gate: 100%) |
-| Branches | 10,213 | 10,465 | 97.59% (gate: 100%) |
+| Lines/statements | 28,177 | 28,501 | 98.86% (gate: 100%) |
+| Functions | 2,085 | 2,120 | 98.34% (gate: 100%) |
+| Branches | 10,232 | 10,477 | 97.66% (gate: 100%) |
 
 The report/lifecycle/team services, the covered API validation boundaries, and
 the new supervisor/reporting correctness paths are covered. The remaining gaps
@@ -31,7 +31,7 @@ snapshot; rows are removed when a file becomes fully covered.
 | `apps/api/src/conversations/inbox-query-validation.ts` | — | — | 25, 29, 36, 47-48, 57 |
 | `apps/web/src/prepaint-language.ts` | — | — | 21 |
 | `apps/web/src/state.ts` | — | — | 299, 301, 315 |
-| `apps/web/src/live/automation-actions.ts` | 55-59, 96-100, 226-229, 232-233 | `setAutomationRunsQuery@96` | 41, 49, 54, 71, 218, 225, 231, 273, 277-278 |
+| `apps/web/src/live/automation-actions.ts` | 226-229, 232-233 | — | 41, 49, 225-229, 231-233, 277 |
 | `apps/web/src/live/campaign-actions.ts` | 120-121 | — | 65, 90, 100, 105-106, 109, 119, 132-133, 145-146, 151, 158, 164, 170 |
 | `apps/web/src/live/dispatch.ts` | 203-205, 207-209, 211-220, 513-516, 518-522, 525-526, 683-692, 694-696, 700-703, 739-741, 748-754, 766-772, 775-779, 782-786, 1009-1014, 1017-1024, 1027-1031, 1034-1044, 1289, 1292-1304, 1315-1319, 1323-1328, 1332, 1334, 1345-1350 | `asAutomationState@203`, `asAutomationSort@207`, `validLabelColor@211`, plus dispatch handlers at 512-1350 | 383, 386, 758, 1311, 1314, 1320, 1322, 1330-1331, 1333, 1336, 1341 |
 | `apps/web/src/live/inbox-actions.ts` | 49-66, 158-164, 481, 483-484 | — | 89, 122, 152, 157-158, 165, 480-481, 482-484 |

@@ -3,7 +3,7 @@ import type { ApiError, ApiResult, PagedData } from '../api/client.js';
 import type { Automation, AutomationRun, AutomationTemplate, AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { addAutomationStep, createBlankAutomation, deleteAutomationDraft, loadAutomationPage, loadAutomationRunsPage, loadAutomationsScreen, mappingType, removeAutomationStep, saveAutomation, scheduleOf, setAutomationQuery, transitionAutomation, useAutomationTemplate } from './automation-actions.js';
+import { addAutomationStep, createBlankAutomation, deleteAutomationDraft, loadAutomationPage, loadAutomationRunsPage, loadAutomationsScreen, mappingType, removeAutomationStep, saveAutomation, scheduleOf, setAutomationQuery, setAutomationRunsQuery, transitionAutomation, useAutomationTemplate } from './automation-actions.js';
 
 const WORKFLOW = { version: 1 as const, trigger: { type: 'manual', config: {} }, target: { type: 'matching_conditions', config: {} }, steps: [{ id: 'step_1', type: 'create_internal_notification', config: {} }], safety: { approvalRequired: true, duplicateWindowSeconds: 1 } };
 const AUTOMATION: Automation = { id:'a-1',name:'Welcome',description:null,templateKey:null,state:'draft',workflow:WORKFLOW,timezone:'UTC',nextRunAt:null,lastRunAt:null,version:1 };
@@ -81,6 +81,56 @@ describe('automation actions',()=>{
   it('refuses removal of the last step and additions at the engine bound',async()=>{
     const s=setup(); expect(await removeAutomationStep(s.context,'a-1:step_1')).toBe(false);
     const many={...AUTOMATION,workflow:{...WORKFLOW,steps:Array.from({length:50},(_,i)=>({id:`s_${i}`,type:'delay' as const,config:{}}))}}; s.state.live.automations={status:'ready',value:[many],loadedAt:1}; expect(await addAutomationStep(s.context,'a-1')).toBe(false);
+  });
+
+  it('loads templates, editor WhatsApp templates, and reports refusal states', async () => {
+    const templates = setup();
+    templates.state.route = { screen: 'automations', conversationId: null, params: { view: 'templates' } };
+    await loadAutomationsScreen(templates.context);
+    expect(templates.state.live.automationTemplates).toMatchObject({ status: 'ready', value: [TEMPLATE] });
+    const editor = setup();
+    editor.state.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1' } };
+    await loadAutomationsScreen(editor.context);
+    expect(editor.api.whatsappTemplates).toHaveBeenCalledWith('t');
+    const refused = setup();
+    refused.state.route = { screen: 'automations', conversationId: null, params: { view: 'templates' } };
+    vi.mocked(refused.api.templates).mockResolvedValueOnce({ ok: false, error: ERROR });
+    await loadAutomationsScreen(refused.context);
+    expect(refused.state.live.error).toEqual(ERROR);
+  });
+
+  it('handles pages, query resets, and refusals without crossing tabs', async () => {
+    const pageFailure = setup();
+    vi.mocked(pageFailure.api.list).mockResolvedValueOnce({ ok: false, error: ERROR });
+    await loadAutomationPage(pageFailure.context, true);
+    expect(pageFailure.state.live.automations).toEqual({ status: 'error', error: ERROR });
+    const runs = setup();
+    vi.mocked(runs.api.runs).mockResolvedValueOnce({ ok: false, error: ERROR });
+    await loadAutomationRunsPage(runs.context, true);
+    expect(runs.state.live.automationRuns).toEqual({ status: 'error', error: ERROR });
+    await setAutomationRunsQuery(runs.context, { limit: 50 });
+    expect(runs.api.runs).toHaveBeenCalledWith('t', { limit: 50, cursor: null });
+    runs.state.live.automationRunsNextCursor = null;
+    await loadAutomationRunsPage(runs.context, false);
+    expect(runs.api.runs).toHaveBeenCalledTimes(2);
+    const absent = setup(ok(AUTOMATION), null);
+    await setAutomationRunsQuery(absent.context, { limit: 25 });
+    expect(absent.api.runs).not.toHaveBeenCalled();
+  });
+
+  it('keeps committed mutations scoped to matching queries and tenants', async () => {
+    const absent = setup(ok(AUTOMATION), null);
+    expect(await useAutomationTemplate(absent.context, 'welcome')).toBe(false);
+    expect(await createBlankAutomation(absent.context, 'No tenant')).toBe(false);
+    const filtered = setup();
+    filtered.state.live.automationQuery = { search: 'does-not-match', state: 'draft', sort: 'updated_desc', limit: 25 };
+    expect(await useAutomationTemplate(filtered.context, 'welcome')).toBe(true);
+    expect(filtered.state.live.automations).toMatchObject({ status: 'ready', value: [] });
+    const notDraft = setup();
+    notDraft.state.live.automations = { status: 'ready', value: [{ ...AUTOMATION, state: 'active' }], loadedAt: 1 };
+    expect(await deleteAutomationDraft(notDraft.context, 'a-1')).toBe(false);
+    const noTenantDelete = setup(ok(AUTOMATION), null);
+    expect(await deleteAutomationDraft(noTenantDelete.context, 'a-1')).toBe(false);
   });
 });
 
