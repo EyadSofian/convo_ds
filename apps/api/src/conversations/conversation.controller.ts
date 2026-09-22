@@ -86,6 +86,18 @@ export class ConversationController {
     return pageEnvelope(page.items, page.nextCursor, request.id);
   }
 
+  @Get('tenants/:tenantId/supervisor/workload')
+  async supervisorWorkload(
+    @Param('tenantId') tenantId: string,
+    @Query('agent') agent: string | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const agentMembershipId = optionalUuid(agent, 'agent');
+    if (agentMembershipId === null) throw queryError('agent', 'Choose an agent.');
+    return { data: await this.conversations.supervisorWorkload(session, tenantId, agentMembershipId), request_id: request.id };
+  }
+
   /** The Unassigned queue, as projected cards. Never a transcript. */
   @Get('tenants/:tenantId/conversations/unassigned')
   async unassigned(

@@ -2241,6 +2241,18 @@ describe('supervisor inbox lens', () => {
     expect(denied.statusCode).toBe(403);
   });
 
+  it('reports current selected-agent workload through the supervisor scope only', async () => {
+    const workload = await send(api, supervisor, 'GET', `/supervisor/workload?agent=${agentAMembershipId}`);
+    expect(workload.statusCode, workload.payload).toBe(200);
+    const data = (workload.json() as { data: { agent: { membershipId: string }; current: { assigned: number; open: number }; byStatus: { status: string; count: number }[] } }).data;
+    expect(data.agent.membershipId).toBe(agentAMembershipId);
+    expect(data.current.assigned).toBeGreaterThanOrEqual(1);
+    expect(data.current.open).toBeGreaterThanOrEqual(1);
+    expect(data.byStatus).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'open' })]));
+    const outsideScope = await send(api, supervisor, 'GET', `/supervisor/workload?agent=${agentBMembershipId}`);
+    expect(outsideScope.statusCode).toBe(404);
+  });
+
   it('aggregates operational timing from durable episodes and actor evidence', async () => {
     expect((await send(api, agentA, 'POST', `/conversations/${conversationId}/messages`, {
       messageType: 'text', text: 'سأتابع الطلب', trafficClass: 'interactive', clientMessageId: 'supervisor-report-reply',

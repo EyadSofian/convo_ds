@@ -34,7 +34,7 @@ import type { TimelinePage } from './timeline.js';
 import { MetadataService } from '../metadata/metadata.service.js';
 import type { EntityMetadata } from '../metadata/metadata.service.js';
 import { OpaqueCursorCodec } from '../pagination.js';
-import { compileInboxQuery } from './inbox-query-compiler.js';
+import { compileInboxQuery, readableScope } from './inbox-query-compiler.js';
 import { validateInboxQuery } from './inbox-query-validation.js';
 import { assertSupervisor, requireScopedSupervisorAgent, scopedSupervisorAgents } from './supervisor-directory.js';
 
@@ -53,6 +53,12 @@ export interface ConversationListRow extends ConversationDetail, EntityMetadata 
 }
 export interface ConversationListPage { readonly items: readonly ConversationListRow[]; readonly nextCursor: string | null; }
 export interface SupervisorAgent { readonly membershipId: string; readonly name: string; readonly email: string; readonly teams: readonly string[]; }
+export interface SupervisorWorkload {
+  readonly agent: SupervisorAgent;
+  readonly current: { readonly assigned: number; readonly open: number; readonly pending: number; readonly snoozed: number; readonly unreplied: number; readonly urgent: number; readonly high: number };
+  readonly byStatus: readonly { readonly status: string; readonly count: number }[];
+  readonly byChannel: readonly { readonly channel: string; readonly count: number }[];
+}
 
 /**
  * Conversations: the thing an inbox is a list of.
@@ -423,6 +429,40 @@ export class ConversationService {
   async supervisorList(session: AuthenticatedSession, tenantId: string, agentMembershipId: string, query: InboxQuery): Promise<ConversationListPage> {
     await this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => requireScopedSupervisorAgent(sql, principal, agentMembershipId));
     return this.list(session, tenantId, { ...query, queue: 'all', filters: [...query.filters, { key: 'assigned_agent_id', operator: 'eq', value: agentMembershipId }] });
+  }
+
+  /** Current workload for a selected visible agent, constrained by the supervisor's scope. */
+  async supervisorWorkload(session: AuthenticatedSession, tenantId: string, agentMembershipId: string): Promise<SupervisorWorkload> {
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const agent = await requireScopedSupervisorAgent(sql, principal, agentMembershipId);
+      const values: unknown[] = [agentMembershipId];
+      const add = (value: unknown): string => { values.push(value); return `$${values.length}`; };
+      const scope = readableScope(principal, add);
+      const result = await sql.query<{ workload: Omit<SupervisorWorkload, 'agent'> }>(`
+        WITH current_scope AS (
+          SELECT c.status,c.priority,n.kind,c.connection_id,c.peer_identity
+            FROM conversations c JOIN channel_connections n ON n.id=c.connection_id
+           WHERE c.assignee_membership_id=$1::uuid AND c.status <> 'archived' AND ${scope}
+        ), counts AS (
+          SELECT count(*)::int AS assigned,
+                 count(*) FILTER (WHERE status='open')::int AS open,
+                 count(*) FILTER (WHERE status='pending')::int AS pending,
+                 count(*) FILTER (WHERE status='snoozed')::int AS snoozed,
+                 count(*) FILTER (WHERE priority='urgent')::int AS urgent,
+                 count(*) FILTER (WHERE priority='high')::int AS high,
+                 count(*) FILTER (WHERE (SELECT max(inbound.occurred_at) FROM inbound_events inbound WHERE inbound.connection_id=current_scope.connection_id AND inbound.peer_identity=current_scope.peer_identity AND inbound.kind='message') > COALESCE((SELECT max(outbound.created_at) FROM outbound_messages outbound WHERE outbound.connection_id=current_scope.connection_id AND outbound.peer_identity=current_scope.peer_identity AND outbound.author_membership IS NOT NULL), '-infinity'::timestamptz))::int AS unreplied
+            FROM current_scope
+        )
+        SELECT jsonb_build_object(
+          'current',jsonb_build_object('assigned',assigned,'open',open,'pending',pending,'snoozed',snoozed,'unreplied',unreplied,'urgent',urgent,'high',high),
+          'byStatus',coalesce((SELECT jsonb_agg(jsonb_build_object('status',status,'count',count) ORDER BY status) FROM (SELECT status,count(*)::int AS count FROM current_scope GROUP BY status) x),'[]'::jsonb),
+          'byChannel',coalesce((SELECT jsonb_agg(jsonb_build_object('channel',kind,'count',count) ORDER BY kind) FROM (SELECT kind,count(*)::int AS count FROM current_scope GROUP BY kind) x),'[]'::jsonb)
+        ) AS workload FROM counts`, values,
+      );
+      const workload = result.rows[0]?.workload;
+      if (workload === undefined) throw new Error('supervisor workload returned no row');
+      return { agent, ...workload };
+    });
   }
 
   /**

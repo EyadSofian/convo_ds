@@ -75,6 +75,12 @@ export interface DirectoryAgent {
   readonly assigned: boolean;
 }
 export interface SupervisorAgent { readonly membershipId: string; readonly name: string; readonly email: string; readonly teams: readonly string[]; }
+export interface SupervisorWorkload {
+  readonly agent: SupervisorAgent;
+  readonly current: { readonly assigned: number; readonly open: number; readonly pending: number; readonly snoozed: number; readonly unreplied: number; readonly urgent: number; readonly high: number };
+  readonly byStatus: readonly { readonly status: string; readonly count: number }[];
+  readonly byChannel: readonly { readonly channel: string; readonly count: number }[];
+}
 
 export interface Handoff {
   readonly id: string;
@@ -186,6 +192,10 @@ export class ConversationsApi {
 
   supervisorAgents(tenantId: string): Promise<ApiResult<readonly SupervisorAgent[]>> {
     return this.client.get(`/tenants/${tenantId}/supervisor/agents`);
+  }
+
+  supervisorWorkload(tenantId: string, agentMembershipId: string): Promise<ApiResult<SupervisorWorkload>> {
+    return this.client.get(`/tenants/${tenantId}/supervisor/workload?agent=${encodeURIComponent(agentMembershipId)}`);
   }
 
   async supervisorList(tenantId: string, agentMembershipId: string, inboxQuery: InboxQuery): Promise<ApiResult<ConversationPage>> {
