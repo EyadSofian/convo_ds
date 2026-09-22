@@ -8,9 +8,9 @@ integration and property files passed):
 
 | Metric | Covered | Total | Result |
 | --- | ---: | ---: | --- |
-| Lines/statements | 28,124 | 28,501 | 98.67% (gate: 100%) |
-| Functions | 2,081 | 2,120 | 98.16% (gate: 100%) |
-| Branches | 10,192 | 10,444 | 97.58% (gate: 100%) |
+| Lines/statements | 28,167 | 28,501 | 98.82% (gate: 100%) |
+| Functions | 2,084 | 2,120 | 98.30% (gate: 100%) |
+| Branches | 10,213 | 10,465 | 97.59% (gate: 100%) |
 
 The report/lifecycle/team services, the covered API validation boundaries, and
 the new supervisor/reporting correctness paths are covered. The remaining gaps
@@ -34,8 +34,7 @@ snapshot; rows are removed when a file becomes fully covered.
 | `apps/web/src/live/automation-actions.ts` | 55-59, 96-100, 226-229, 232-233 | `setAutomationRunsQuery@96` | 41, 49, 54, 71, 218, 225, 231, 273, 277-278 |
 | `apps/web/src/live/campaign-actions.ts` | 120-121 | — | 65, 90, 100, 105-106, 109, 119, 132-133, 145-146, 151, 158, 164, 170 |
 | `apps/web/src/live/dispatch.ts` | 203-205, 207-209, 211-220, 513-516, 518-522, 525-526, 683-692, 694-696, 700-703, 739-741, 748-754, 766-772, 775-779, 782-786, 1009-1014, 1017-1024, 1027-1031, 1034-1044, 1289, 1292-1304, 1315-1319, 1323-1328, 1332, 1334, 1345-1350 | `asAutomationState@203`, `asAutomationSort@207`, `validLabelColor@211`, plus dispatch handlers at 512-1350 | 383, 386, 758, 1311, 1314, 1320, 1322, 1330-1331, 1333, 1336, 1341 |
-| `apps/web/src/live/inbox-actions.ts` | 49-50, 52-66, 93-102, 105-126, 158-164, 481, 483-484, 508-517 | `loadSupervisorAgents@93`, `loadSupervisorInbox@105`, `refreshSupervisorWorkload@508` | 48, 51, 77-78, 89, 152, 157-158, 165, 480, 482 |
-| `apps/web/src/live/inbox-lists.ts` | 27 | — | 26 |
+| `apps/web/src/live/inbox-actions.ts` | 49-66, 158-164, 481, 483-484 | — | 89, 122, 152, 157-158, 165, 480-481, 482-484 |
 | `apps/web/src/live/metadata-actions.ts` | 39-67 | — | 38, 73, 83 |
 | `apps/web/src/live/saved-view-actions.ts` | 30, 51-54, 65, 94 | — | 9, 24, 29-30, 44, 50-54, 64-65, 66, 93-94, 113 |
 | `apps/web/src/ui/analytics-screen.ts` | 168, 286-287, 295, 297, 301, 303, 318, 424 | — | 86-87, 89-90, 111, 113, 121-122, 124-125, 128, 158, 167, 187, 189-191, 255, 259-260, 274, 276, 278, 284-285, 291, 294, 296, 300, 302, 312-313, 315-317, 319, 329, 331, 333, 340, 344, 423, 449, 451, 502, 511, 516 |
