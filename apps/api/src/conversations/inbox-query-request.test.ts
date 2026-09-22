@@ -43,13 +43,14 @@ describe('parseInboxQuery', () => {
       { limit: '0' }, { limit: '101' }, { limit: '1.5' }, { limit: 'abc' }, { limit: ['10'] },
       { cursor: '' }, { cursor: 'bad' }, { cursor: 'x'.repeat(4097) }, { search: ['x'] },
       { unknown: 'value' },
-    ]) expect(() => parseInboxQuery(query)).toThrow();
+    ]) expect(() => parseInboxQuery(query), JSON.stringify(query)).toThrow();
   });
 
   it('validates custom field shape, operators and date boundaries', () => {
     expect(parseInboxQuery(filter({ key: 'custom_field', fieldId: id, operator: 'is_set' }))).toMatchObject({ filters: [{ fieldId: id, operator: 'is_set' }] });
     expect(parseInboxQuery(filter({ key: 'status', operator: 'in', value: ['open', 'pending'] }))).toMatchObject({ filters: [{ value: ['open', 'pending'] }] });
     expect(parseInboxQuery(filter({ key: 'custom_field', fieldId: id, operator: 'eq', value: false }))).toMatchObject({ filters: [{ value: false }] });
+    expect(parseInboxQuery(filter({ key: 'custom_field', fieldId: id, operator: 'eq', value: 'present' }))).toMatchObject({ filters: [{ value: 'present' }] });
     for (const value of [
       { key: 'custom_field', operator: 'eq', value: 'x' },
       { key: 'custom_field', fieldId: 'bad', operator: 'eq', value: 'x' },
@@ -63,5 +64,37 @@ describe('parseInboxQuery', () => {
       { key: 'created_at', operator: 'eq', value: '2026-02-30' },
     ]) expect(() => parseInboxQuery(filter(value))).toThrow();
     expect(parseInboxQuery(filter({ key: 'created_at', operator: 'after', value: '2026-02-28T12:00:00Z' }))).toMatchObject({ filters: [{ value: '2026-02-28T12:00:00Z' }] });
+  });
+
+  it('rejects malformed filters and query arrays at the HTTP boundary', () => {
+    for (const query of [
+      { filter: ['null'] }, { filter: 'null' }, { filter: '[]' }, { filter: '{' },
+      { filter: JSON.stringify({ key: 'status', operator: 'eq' }) },
+      { filter: JSON.stringify({ key: 7, operator: 'eq', value: 'open' }) },
+      { filter: JSON.stringify({ key: 'status', operator: 'is_set', value: 'open' }) },
+      { filter: JSON.stringify({ key: 'status', operator: 'eq', value: 'open', fieldId: id }) },
+      { filter: JSON.stringify({ key: 'custom_field', operator: 'eq', fieldId: 'bad', value: 'x' }) },
+      { filter: JSON.stringify({ key: 'custom_field', operator: 'in', fieldId: id, value: ['x'] }) },
+      { filter: JSON.stringify({ key: 'custom_field', operator: 'eq', fieldId: id, value: 'x'.repeat(501) }) },
+      { filter: JSON.stringify({ key: 'created_at', operator: 'after', value: '' }) },
+      { filter: JSON.stringify({ key: 'created_at', operator: 'after', value: '2026-02-30' }) },
+      { filter: JSON.stringify({ key: 'unread', operator: 'eq', value: 'true' }) },
+      { filter: JSON.stringify({ key: 'status', operator: 'in', value: ['open', ...Array.from({ length: 20 }, () => 'pending')] }) },
+      { filter: Array.from({ length: 21 }, () => JSON.stringify({ key: 'status', operator: 'eq', value: 'open' })) },
+      { search: 'x'.repeat(201) }, { limit: '101' }, { limit: '0' },
+    ]) {
+      let rejected = false;
+      try { parseInboxQuery(query); } catch { rejected = true; }
+      expect(rejected, `expected rejection for ${JSON.stringify(query)}`).toBe(true);
+    }
+    expect(parseInboxQuery({ filter: JSON.stringify({ key: 'unread', operator: 'eq', value: false }) }).filters).toEqual([
+      { key: 'unread', operator: 'eq', value: false },
+    ]);
+    for (const [key, value] of [['priority', 'urgent'], ['channel', 'whatsapp'], ['assignment_state', 'assigned']] as const) {
+      expect(parseInboxQuery({ filter: JSON.stringify({ key, operator: 'eq', value }) }).filters).toMatchObject([{ key, value }]);
+    }
+    expect(parseInboxQuery({ filter: JSON.stringify({ key: 'assignment_state', operator: 'eq', value: 'unassigned' }) }).filters).toMatchObject([
+      { key: 'assignment_state', value: 'unassigned' },
+    ]);
   });
 });

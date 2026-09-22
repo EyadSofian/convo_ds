@@ -47,4 +47,32 @@ describe('ConversationService Inbox boundaries', () => {
       expect(second.items).toHaveLength(1);
     }
   });
+
+  it('rejects a malformed keyset cursor before querying the Inbox', async () => {
+    const { service, sql } = harness([]);
+    await expect(service.list({ userId: 'user' } as never, tenantId, { ...base, cursor: 'invalid.cursor' }))
+      .rejects.toMatchObject({ status: 400 });
+    expect(sql.query).not.toHaveBeenCalled();
+  });
+
+  it('fails closed if returned Inbox rows disagree with the caller scope', async () => {
+    const scoped: Principal = {
+      ...principal,
+      grants: { 'conversation.read': 'scoped' },
+      scopes: [{ type: 'team', id: '66666666-6666-4666-8666-666666666666' }],
+    };
+    const { service } = harness([raw(idA, '2026-09-22T10:00:00.000Z')], scoped);
+    await expect(service.list({ userId: 'user' } as never, tenantId, base)).rejects.toThrow('Inbox SQL authorization scope disagreed');
+  });
+
+  it('fails closed when the supervisor workload query unexpectedly returns no row', async () => {
+    const agent = { membership_id: member, name: 'Agent', email: 'agent@example.test', teams: [] };
+    const sql = { query: vi.fn(async <T>(text: string) => text.includes('FROM memberships m')
+      ? { rows: [agent] as T[], rowCount: 1 }
+      : { rows: [], rowCount: 0 }) } as unknown as SqlExecutor;
+    const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal, tenantId })) } as unknown as AuthorizationService;
+    const metadata = { conversationMetadataBatch: vi.fn(async () => new Map()) } as unknown as MetadataService;
+    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata);
+    await expect(service.supervisorWorkload({ userId: 'user' } as never, tenantId, member)).rejects.toThrow('supervisor workload returned no row');
+  });
 });

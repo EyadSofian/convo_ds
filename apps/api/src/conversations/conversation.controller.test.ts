@@ -42,6 +42,7 @@ describe('ConversationController query boundaries', () => {
   it('requires a valid supervisor agent UUID and preserves the query vocabulary', async () => {
     const { instance, conversations } = controller();
     await expect(instance.supervisorWorkload(id, undefined, request)).rejects.toMatchObject({ status: 400 });
+    await expect(instance.supervisorList(id, undefined, {}, request)).rejects.toMatchObject({ status: 400 });
     await expect(instance.supervisorList(id, 'bad', {}, request)).rejects.toMatchObject({ status: 400 });
     await expect(instance.supervisorList(id, id, { queue: 'all', sort: 'activity_desc', limit: '1' }, request)).resolves.toMatchObject({ data: [] });
     expect(conversations.supervisorList).toHaveBeenCalledWith(expect.anything(), id, id, expect.objectContaining({ queue: 'all', limit: 1 }));

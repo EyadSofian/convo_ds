@@ -34,7 +34,7 @@ function parseFilter(raw:string):InboxFilter{
  return {...(customFieldId===undefined?{}:{fieldId:customFieldId}),key:definition.key,operator,...(parsed===undefined?{}:{value:parsed})};
 }
 function parseValue(type:string,input:unknown,key:string,operator:string):string|boolean|readonly string[]{
- if(type==='custom_field') return customValue(input,operator);
+ if(type==='custom_field') return customValue(input);
  const list=operator==='in'||operator==='not_in'; if(list){if(!Array.isArray(input)||input.length===0||input.length>20)return fail();return input.map(v=>scalar(type,v,key));}
  if(type==='boolean'){if(typeof input!=='boolean')return fail();return input;}
  if(typeof input!=='string')return fail();return scalar(type,input,key);
@@ -48,12 +48,7 @@ function scalar(type:string,value:unknown,key:string):string{
  }
  if(type==='date'&&(!DATE.test(value)||!validDate(value)))return fail(); return value;
 }
-function customValue(input: unknown, operator: string): string | boolean | readonly string[] {
- const list = operator === 'in' || operator === 'not_in';
- if (list) {
-   if (!Array.isArray(input) || input.length === 0 || input.length > 20 || !input.every((value) => typeof value === 'string' && value.length > 0 && value.length <= 500)) return fail();
-   return input as readonly string[];
- }
+function customValue(input: unknown): string | boolean {
  if (typeof input === 'boolean') return input;
  if (typeof input !== 'string' || input.length === 0 || input.length > 500) return fail();
  return input;

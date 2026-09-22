@@ -16,7 +16,10 @@ export async function validateInboxQuery(sql: SqlExecutor, query: InboxQuery): P
   await assertReferences(sql, query.filters, 'connection_id', 'channel_connections');
   await assertReferences(sql, query.filters, 'label_id', 'labels');
 
-  const ids = [...new Set(query.filters.filter((filter) => filter.key === 'custom_field').map((filter) => filter.fieldId ?? ''))];
+  const customFilters = query.filters.filter((filter) => filter.key === 'custom_field');
+  const fieldIds = customFilters.map((filter) => filter.fieldId).filter((id): id is string => id !== undefined);
+  if (fieldIds.length !== customFilters.length) throw invalidQuery();
+  const ids = [...new Set(fieldIds)];
   if (ids.length === 0) return new Map();
   const fields = await sql.query<{ id: string; type: CustomFieldType }>(
     "SELECT id::text, type FROM custom_fields WHERE target = 'conversation' AND id = ANY($1::uuid[])",
@@ -24,9 +27,8 @@ export async function validateInboxQuery(sql: SqlExecutor, query: InboxQuery): P
   );
   if (fields.rows.length !== ids.length) throw invalidQuery();
   const byId = new Map(fields.rows.map((field) => [field.id, field] as const));
-  for (const filter of query.filters) {
-    if (filter.key !== 'custom_field') continue;
-    const field = byId.get(filter.fieldId ?? '');
+  for (const filter of customFilters) {
+    const field = byId.get(filter.fieldId as string);
     if (field === undefined || !validCustomFilter(field.type, filter)) throw invalidQuery();
   }
   return byId;

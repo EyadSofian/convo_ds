@@ -48,4 +48,58 @@ describe('Inbox saved-view adapter', () => {
       status: 'unsupported', code: 'unsupported_condition', field: 'collaborator_id',
     });
   });
+
+  it('preserves nested ALL groups and rejects nested ANY or unmappable predicates', () => {
+    expect(adaptSavedViewToInboxFilters({ version: 1, root: { kind: 'group', match: 'all', conditions: [
+      { kind: 'group', match: 'all', conditions: [{ kind: 'predicate', field: 'status', operator: 'eq', value: 'open' }] },
+    ] } })).toEqual({ status: 'supported', filters: [{ key: 'status', operator: 'eq', value: 'open' }] });
+    expect(adaptSavedViewToInboxFilters({ version: 1, root: { kind: 'group', match: 'all', conditions: [
+      { kind: 'group', match: 'any', conditions: [{ kind: 'predicate', field: 'status', operator: 'eq', value: 'open' }] },
+    ] } })).toEqual({ status: 'unsupported', code: 'unsupported_condition', field: 'group.any' });
+    expect(adaptSavedViewToInboxFilters({ version: 1, root: { kind: 'group', match: 'all', conditions: [
+      { kind: 'predicate', field: 'unassigned', operator: 'eq', value: 'wrong-type' },
+    ] } })).toEqual({ status: 'unsupported', code: 'unsupported_condition', field: 'unassigned' });
+    expect(adaptSavedViewToInboxFilters({ version: 1, root: { kind: 'group', match: 'all', conditions: [
+      { kind: 'predicate', field: 'unknown', operator: 'eq', value: 'open' },
+    ] } })).toEqual({ status: 'unsupported', code: 'unsupported_condition', field: 'unknown' });
+    expect(adaptSavedViewToInboxFilters({ version: 1, root: { kind: 'group', match: 'all', conditions: [
+      { kind: 'predicate', field: 'unassigned', operator: 'eq', value: false },
+    ] } })).toEqual({ status: 'supported', filters: [{ key: 'assignment_state', operator: 'eq', value: 'assigned' }] });
+    expect(adaptSavedViewToInboxFilters({ version: 1, root: { kind: 'group', match: 'all', conditions: [
+      { kind: 'predicate', field: 'last_message_at', operator: 'after', value: '2026-01-01' },
+    ] } })).toEqual({ status: 'supported', filters: [{ key: 'last_activity_at', operator: 'after', value: '2026-01-01' }] });
+  });
+
+  it('rejects empty, valueless and malformed Inbox filters on saved-view conversion', () => {
+    expect(inboxFiltersToSavedViewDocument([])).toEqual({ status: 'unsupported', code: 'unsupported_condition', field: 'empty' });
+    expect(inboxFiltersToSavedViewDocument([{ key: 'custom_field', operator: 'eq', value: 'x' }])).toEqual({
+      status: 'unsupported', code: 'unsupported_condition', field: 'custom_field',
+    });
+    expect(inboxFiltersToSavedViewDocument([{ key: 'custom_field', fieldId: ID, operator: 'is_set', value: 'unexpected' }])).toEqual({
+      status: 'supported', document: { version: 1, root: { kind: 'group', match: 'all', conditions: [
+        { kind: 'predicate', field: `custom.${ID}`, operator: 'is_set', value: 'unexpected' },
+      ] } },
+    });
+    expect(inboxFiltersToSavedViewDocument([{ key: 'custom_field', fieldId: ID, operator: 'eq', value: 'gold' }])).toMatchObject({
+      status: 'supported', document: { root: { conditions: [{ field: `custom.${ID}`, value: 'gold' }] } },
+    });
+    expect(inboxFiltersToSavedViewDocument([{ key: 'assignment_state', operator: 'eq', value: 'unknown' }])).toEqual({
+      status: 'unsupported', code: 'unsupported_condition', field: 'assignment_state',
+    });
+    expect(inboxFiltersToSavedViewDocument([{ key: 'last_activity_at', operator: 'after', value: '2026-01-01' }])).toMatchObject({
+      status: 'supported', document: { root: { conditions: [{ field: 'last_message_at' }] } },
+    });
+    expect(adaptSavedViewToInboxFilters({ version: 1, root: { kind: 'group', match: 'all', conditions: [
+      { kind: 'predicate', field: `custom.${ID}`, operator: 'is_set', value: 'unexpected' },
+    ] } })).toEqual({ status: 'unsupported', code: 'unsupported_condition', field: `custom.${ID}` });
+    expect(adaptSavedViewToInboxFilters({ version: 1, root: { kind: 'group', match: 'all', conditions: [
+      { kind: 'predicate', field: 'priority', operator: 'eq' },
+    ] } })).toEqual({ status: 'unsupported', code: 'unsupported_condition', field: 'priority' });
+    expect(adaptSavedViewToInboxFilters({ version: 1, root: { kind: 'group', match: 'all', conditions: [
+      { kind: 'predicate', field: 'priority', operator: 'eq', value: 1 },
+    ] } })).toEqual({ status: 'unsupported', code: 'unsupported_condition', field: 'priority' });
+    expect(adaptSavedViewToInboxFilters({ version: 1, root: { kind: 'group', match: 'all', conditions: [
+      { kind: 'predicate', field: 'priority', operator: 'eq', value: ['open', 1] },
+    ] } })).toEqual({ status: 'unsupported', code: 'unsupported_condition', field: 'priority' });
+  });
 });

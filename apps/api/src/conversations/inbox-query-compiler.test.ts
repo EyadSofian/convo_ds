@@ -134,4 +134,61 @@ describe('compileInboxQuery', () => {
     expect(readableScope(none, () => '$1')).toBe('FALSE');
     expect(() => compileInboxQuery({ ...base, filters: [{ key: 'custom_field', fieldId: label, operator: 'bad', value: 'x' }] }, principal, new Map([[label, { id: label, type: 'number' as const }]])).where).toThrow();
   });
+
+  it('compiles each validated list, date, text, membership and label operator', () => {
+    const cases: Array<[InboxQuery['filters'][number], string]> = [
+      [{ key: 'status', operator: 'eq', value: 'open' }, 'c.status ='],
+      [{ key: 'priority', operator: 'in', value: ['high', 'urgent'] }, 'c.priority = ANY'],
+      [{ key: 'channel', operator: 'not_in', value: ['whatsapp'] }, 'n.kind <> ALL'],
+      [{ key: 'connection_id', operator: 'eq', value: label }, 'c.connection_id ='],
+      [{ key: 'team_id', operator: 'in', value: [label] }, 'c.team_id = ANY'],
+      [{ key: 'assigned_agent_id', operator: 'not_in', value: [member] }, 'c.assignee_membership_id <> ALL'],
+      [{ key: 'assignment_state', operator: 'eq', value: 'unassigned' }, 'c.assignee_membership_id IS NULL'],
+      [{ key: 'label_id', operator: 'in', value: [label] }, 'cardinality('],
+      [{ key: 'label_id', operator: 'not_in', value: label }, 'NOT EXISTS'],
+      [{ key: 'created_at', operator: 'before', value: '2026-01-01' }, 'c.created_at <'],
+      [{ key: 'created_at', operator: 'after', value: '2026-01-01' }, 'c.created_at >'],
+      [{ key: 'waiting_since', operator: 'after', value: '2026-01-01' }, 'c.waiting_since >'],
+      [{ key: 'customer_name', operator: 'eq', value: 'Ahmed' }, 'customer.id ='],
+      [{ key: 'customer_phone', operator: 'contains', value: '1555' }, ') ILIKE'],
+      [{ key: 'collaborator_id', operator: 'eq', value: member }, 'collaborator.membership_id = ANY'],
+      [{ key: 'participant_id', operator: 'not_in', value: [member] }, 'participant.membership_id = ANY'],
+      [{ key: 'handoff_target_id', operator: 'eq', value: member }, 'handoff.to_membership_id = ANY'],
+      [{ key: 'campaign_id', operator: 'in', value: [label, member] }, 'campaign_id = ANY'],
+    ];
+    for (const [filter, expected] of cases) {
+      expect(compileInboxQuery({ ...base, filters: [filter] }, principal, new Map()).where).toContain(expected);
+    }
+  });
+
+  it('compiles every validated custom-field comparison and value type', () => {
+    const cases: Array<[string, 'boolean' | 'number' | 'date' | 'single_select' | 'text' | 'email' | 'phone', string, string | boolean]> = [
+      [label, 'boolean', 'eq', true], [label, 'boolean', 'neq', false],
+      [member, 'number', 'eq', '1'], [member, 'number', 'neq', '1'], [member, 'number', 'gt', '1'],
+      [member, 'number', 'gte', '1'], [member, 'number', 'lt', '1'], [member, 'number', 'lte', '1'],
+      [label, 'date', 'eq', '2026-01-01'], [label, 'date', 'neq', '2026-01-01'],
+      [label, 'date', 'before', '2026-01-01'], [label, 'date', 'after', '2026-01-01'],
+      [label, 'date', 'gt', '2026-01-01'], [label, 'date', 'gte', '2026-01-01'],
+      [label, 'date', 'lt', '2026-01-01'], [label, 'date', 'lte', '2026-01-01'],
+      [label, 'single_select', 'eq', 'VIP'], [label, 'single_select', 'neq', 'VIP'],
+      [label, 'text', 'eq', 'VIP'], [label, 'text', 'neq', 'VIP'], [label, 'text', 'contains', 'VIP'],
+      [label, 'email', 'eq', 'a@example.com'], [label, 'phone', 'contains', '1555'],
+    ];
+    for (const [fieldId, type, operator, value] of cases) {
+      const compiled = compileInboxQuery({ ...base, filters: [{ key: 'custom_field', fieldId, operator, value } as InboxQuery['filters'][number]] }, principal, new Map([[fieldId, { id: fieldId, type }]]));
+      expect(compiled.where).toContain('custom.search_value');
+    }
+    const campaign = compileInboxQuery({ ...base, filters: [{ key: 'campaign_id', operator: 'in', value: [label] }] }, principal, new Map());
+    expect(campaign.params).toEqual([[label]]);
+  });
+
+  it('fails closed for compiler inputs that violate prior validation invariants', () => {
+    expect(() => compileInboxQuery({ ...base, filters: [{ key: 'status', operator: 'unexpected', value: 'open' } as never] }, principal, new Map())).toThrow('Unexpected validated list operator');
+    expect(() => compileInboxQuery({ ...base, filters: [{ key: 'created_at', operator: 'eq', value: '2026-01-01' } as never] }, principal, new Map())).toThrow('Unexpected validated date operator');
+    expect(() => compileInboxQuery({ ...base, filters: [{ key: 'customer_name', operator: 'before', value: '2026-01-01' } as never] }, principal, new Map())).toThrow('Unexpected validated text operator');
+    expect(() => compileInboxQuery({ ...base, filters: [{ key: 'custom_field', fieldId: label, operator: 'eq', value: 'x' }] }, principal, new Map())).toThrow('must be validated');
+    expect(() => compileInboxQuery({ ...base, filters: [{ key: 'custom_field', operator: 'eq', value: 'x' } as never] }, principal, new Map())).toThrow('must be validated');
+    expect(() => compileInboxQuery({ ...base, filters: [{ key: 'custom_field', fieldId: label, operator: 'eq', value: 'x' }] }, principal, new Map([[label, { id: label, type: 'unsupported' as never }]]))).toThrow('Unsupported validated custom field type');
+    expect(compileInboxQuery({ ...base, filters: [{ key: 'custom_field', fieldId: label, operator: 'is_set' }] }, principal, new Map([[label, { id: label, type: 'text' }]])).where).toContain('custom.field_id');
+  });
 });
