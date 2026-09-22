@@ -308,7 +308,7 @@ function inboxFilters(state: AppState, live: LiveState): HTMLElement {
     h('input', { class: 'input input--sm', type: 'search', value: search, placeholder: t(state, 'ابحث عن فلتر', 'Find a filter'), 'data-act': 'form-toggle', 'data-form': 'inboxFilterCatalogueSearch' }),
     ...(selected === undefined ? [h('p', { class: 'empty-copy' }, [t(state, 'لا يوجد فلتر مطابق.', 'No matching filter.')])] : [
       row(t(state, 'الحقل', 'Field'), selectControl({ act: 'form-toggle', form: 'inboxFilterKey', value: selected.key, options: definitions.map((definition) => ({ value: definition.key, label: filterLabel(state, definition) })) })),
-      row(t(state, 'المطابقة', 'Match'), selectControl({ act: 'form-toggle', form: 'inboxFilterOperator', value: operators.includes(operator) ? operator : operators[0]!, options: operators.map((value) => ({ value, label: operatorLabel(state, value) })) })),
+      row(t(state, 'المطابقة', 'Match'), selectControl({ act: 'form-toggle', form: 'inboxFilterOperator', value: operator, options: operators.map((value) => ({ value, label: operatorLabel(state, value) })) })),
       filterValueEditor(state, live, selected, operator),
       button({ label: t(state, 'إضافة فلتر', 'Add filter'), act: 'live-inbox-filter-apply', variant: 'primary', small: true, disabled: live.busy !== null || (selected.key === 'custom_field' && selectedField === undefined) }),
     ]),
@@ -386,7 +386,7 @@ function valueControl(state: AppState, live: LiveState, definition: InboxFilterD
   if (definition.valueType === 'label_id' && (state.dialogForm['inboxFilterOperator'] === 'in' || state.dialogForm['inboxFilterOperator'] === 'not_in')) {
     const selected = new Set(value.split(',').filter(Boolean));
     return h('div', { class: 'inbox-filter-picker', role: 'group', 'aria-label': t(state, 'اختر التصنيفات', 'Choose labels') }, [
-      ...(picked ?? []).map((option) => button({
+      ...picked!.map((option) => button({
         label: option.label,
         act: 'live-inbox-filter-value-toggle',
         arg: option.value,
@@ -429,11 +429,11 @@ function enumOptions(state: AppState, key: string): readonly { readonly value: s
 }
 
 function filterLabel(state: AppState, definition: InboxFilterDefinition): string {
-  const labels: Record<string, readonly [string, string]> = {
+  const labels: Readonly<Record<InboxFilterDefinition['key'], readonly [string, string]>> = {
     status: ['الحالة', 'Status'], assignment_state: ['الإسناد', 'Assignment'], assigned_agent_id: ['الوكيل', 'Agent'], team_id: ['الفريق', 'Team'], channel: ['القناة', 'Channel'], connection_id: ['الاتصال', 'Connection'], label_id: ['التصنيف', 'Label'], priority: ['الأولوية', 'Priority'], unread: ['القراءة', 'Read state'], unreplied: ['بانتظار رد', 'Awaiting reply'], created_at: ['تاريخ الإنشاء', 'Created'], last_activity_at: ['آخر نشاط', 'Last activity'], waiting_since: ['بانتظار منذ', 'Waiting since'], customer_name: ['اسم العميل', 'Customer name'], customer_phone: ['هاتف العميل', 'Customer phone'], collaborator_id: ['متعاون', 'Collaborator'], participant_id: ['مشارك', 'Participant'], handoff_target_id: ['تحويل إلى', 'Handoff target'], campaign_id: ['الحملة', 'Campaign'], custom_field: ['حقل مخصص', 'Custom field'],
   };
   const label = labels[definition.key];
-  return label === undefined ? definition.key : t(state, label[0], label[1]);
+  return t(state, label[0], label[1]);
 }
 
 function operatorLabel(state: AppState, operator: string): string {

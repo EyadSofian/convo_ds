@@ -5,6 +5,8 @@ import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { createField, createLabel, createAndAssignLabel, retireLabel, updateLabel } from './metadata-actions.js';
 
+vi.mock('./inbox-actions.js', () => ({ refreshOpenConversation: vi.fn() }));
+
 const ERROR: ApiError = { code: 'refused', message: 'No', requestId: 'r', status: 409, details: [] };
 const LABEL: Label = { id: 'label-1', name: 'VIP', color: '#123456', state: 'active', version: 2 };
 const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
@@ -47,20 +49,63 @@ describe('metadata actions', () => {
 
   it('updates and retires labels in the workspace catalogue', async () => {
     const app = setup();
+    app.state.live.workspaceLabels = { status: 'ready', value: [LABEL, { ...LABEL, id: 'label-other' }], loadedAt: 1 };
     expect(await updateLabel(app.context, LABEL, 'VIP+', '#654321')).toBe(true);
-    expect(app.state.live.workspaceLabels).toMatchObject({ status: 'ready', value: [{ id: 'label-1', name: 'VIP+' }] });
+    expect(app.state.live.workspaceLabels).toMatchObject({ status: 'ready', value: [{ id: 'label-1', name: 'VIP+' }, { id: 'label-other' }] });
     expect(await retireLabel(app.context, LABEL)).toBe(true);
-    expect(app.state.live.workspaceLabels).toMatchObject({ status: 'ready', value: [{ id: 'label-1', state: 'retired' }] });
+    expect(app.state.live.workspaceLabels).toMatchObject({ status: 'ready', value: [{ id: 'label-1', state: 'retired' }, { id: 'label-other' }] });
     const refused = setup();
     vi.mocked(refused.metadata.updateLabel).mockResolvedValueOnce(fail());
     expect(await updateLabel(refused.context, LABEL, 'No', '#000000')).toBe(false);
     vi.mocked(refused.metadata.retireLabel).mockResolvedValueOnce(fail());
     expect(await retireLabel(refused.context, LABEL)).toBe(false);
+
+    const withoutCatalogue = setup();
+    withoutCatalogue.state.live.workspaceLabels = { status: 'idle' };
+    expect(await updateLabel(withoutCatalogue.context, LABEL, 'Restored', '#abcdef')).toBe(true);
+    expect(withoutCatalogue.state.live.workspaceLabels).toMatchObject({ status: 'ready', value: [{ id: LABEL.id, name: 'VIP+' }] });
+    withoutCatalogue.state.live.workspaceLabels = { status: 'idle' };
+    expect(await retireLabel(withoutCatalogue.context, LABEL)).toBe(true);
+    expect(withoutCatalogue.state.live.workspaceLabels).toMatchObject({ status: 'ready', value: [{ id: LABEL.id, state: 'retired' }] });
   });
 
   it('rejects inline assignment without a loaded entity version', async () => {
     const app = setup();
     expect(await createAndAssignLabel(app.context, 'conversation', 'missing', 'VIP', '#123456')).toBe(false);
     expect(app.metadata.createLabel).not.toHaveBeenCalled();
+  });
+
+  it('creates once, assigns only the server-returned label, and handles assignment refusal', async () => {
+    const success = setup();
+    success.state.live.openConversation = { status: 'ready', value: { id: 'conversation-1', version: 7 } as never, loadedAt: 1 };
+    vi.mocked(success.metadata.conversation).mockResolvedValueOnce(ok({ id: 'conversation-1', version: 8 } as never));
+    expect(await createAndAssignLabel(success.context, 'conversation', 'conversation-1', 'Urgent', '#aa33ff')).toBe(true);
+    expect(success.metadata.createLabel).toHaveBeenCalledTimes(1);
+    expect(success.metadata.conversation).toHaveBeenCalledWith('tenant-1', 'conversation-1', {
+      version: 7, addLabels: [LABEL.id], removeLabels: [],
+    });
+
+    const refused = setup();
+    refused.state.live.openConversation = { status: 'ready', value: { id: 'conversation-1', version: 7 } as never, loadedAt: 1 };
+    vi.mocked(refused.metadata.conversation).mockResolvedValueOnce(fail());
+    expect(await createAndAssignLabel(refused.context, 'conversation', 'conversation-1', 'Urgent', '#aa33ff')).toBe(false);
+    expect(refused.metadata.createLabel).toHaveBeenCalledTimes(1);
+    expect(refused.state.live.error).toEqual(ERROR);
+    expect(refused.state.toasts.at(-1)?.text).toContain('label was created but could not be assigned');
+    expect(refused.metadata.labels).toHaveBeenCalled();
+
+    const createRefused = setup();
+    createRefused.state.live.openConversation = { status: 'ready', value: { id: 'conversation-1', version: 7 } as never, loadedAt: 1 };
+    vi.mocked(createRefused.metadata.createLabel).mockResolvedValueOnce(fail());
+    expect(await createAndAssignLabel(createRefused.context, 'conversation', 'conversation-1', 'Urgent', '#aa33ff')).toBe(false);
+    expect(createRefused.metadata.conversation).not.toHaveBeenCalled();
+
+    const contactRefused = setup();
+    contactRefused.state.live.openContact = { status: 'ready', value: { id: 'contact-1', version: 4 } as never, loadedAt: 1 };
+    vi.mocked(contactRefused.metadata.contact).mockResolvedValueOnce(fail());
+    expect(await createAndAssignLabel(contactRefused.context, 'contact', 'contact-1', 'Urgent', '#aa33ff')).toBe(false);
+    expect(contactRefused.metadata.contact).toHaveBeenCalledWith('tenant-1', 'contact-1', {
+      version: 4, addLabels: [LABEL.id], removeLabels: [],
+    });
   });
 });

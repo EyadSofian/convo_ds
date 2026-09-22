@@ -40,6 +40,9 @@ describe('saved view actions', () => {
     await loadSavedViews(loaded.context);
     expect(loaded.api.list).toHaveBeenCalledWith('tenant-1');
     expect(loaded.state.live.savedViews).toMatchObject({ status: 'ready', value: [VIEW] });
+    vi.mocked(loaded.api.list).mockResolvedValueOnce(ok([]));
+    await loadSavedViews(loaded.context);
+    expect(loaded.state.live.savedViews).toMatchObject({ status: 'ready', value: [] });
   });
 
   it('refuses missing or unsafe views and applies supported filters', async () => {
@@ -49,6 +52,9 @@ describe('saved view actions', () => {
     legacy.state.live.savedViews = { status: 'ready', value: [{ ...VIEW, conditions: { version: 1, root: { kind: 'group', match: 'all', conditions: [{ kind: 'predicate', field: 'campaign_name', operator: 'eq', value: 'legacy' }] } } }], loadedAt: 1 };
     expect(await applySavedView(legacy.context, VIEW.id)).toBe(false);
     expect(legacy.state.toasts.at(-1)?.text).toContain('Campaign filter');
+    legacy.state.live.savedViews = { status: 'ready', value: [{ ...VIEW, conditions: { version: 1, root: { kind: 'group', match: 'any', conditions: [{ kind: 'predicate', field: 'priority', operator: 'eq', value: 'high' }] } } as SavedView['conditions'] }], loadedAt: 1 };
+    expect(await applySavedView(legacy.context, VIEW.id)).toBe(false);
+    expect(legacy.state.toasts.at(-1)?.text).toContain('cannot be applied safely');
     const supported = setup(null);
     expect(await applySavedView(supported.context, VIEW.id)).toBe(true);
     expect(supported.state.live.selectedSavedViewId).toBe(VIEW.id);
@@ -57,6 +63,19 @@ describe('saved view actions', () => {
   });
 
   it('creates and updates server-backed views with validation and refusal handling', async () => {
+    const noTenant = setup(null);
+    noTenant.state.dialogForm = { savedViewName: 'Private', savedViewVisibility: 'private' };
+    noTenant.state.live.inboxQuery = { ...noTenant.state.live.inboxQuery, filters: [{ key: 'priority', operator: 'eq', value: 'high' }] };
+    expect(await saveCurrentInboxView(noTenant.context, 'create')).toBe(false);
+    expect(noTenant.api.create).not.toHaveBeenCalled();
+
+    const unsupported = setup();
+    unsupported.state.lang = 'ar';
+    unsupported.state.dialogForm = { savedViewName: 'Legacy', savedViewVisibility: 'private' };
+    unsupported.state.live.inboxQuery = { ...unsupported.state.live.inboxQuery, filters: [{ key: 'unsupported', operator: 'eq', value: 'x' } as never] };
+    expect(await saveCurrentInboxView(unsupported.context, 'create')).toBe(false);
+    expect(unsupported.state.toasts.at(-1)?.text).toContain('أضف فلترًا مدعومًا');
+
     const invalid = setup();
     expect(await saveCurrentInboxView(invalid.context, 'create')).toBe(false);
     invalid.state.dialogForm = { savedViewName: 'High', savedViewVisibility: 'team', savedViewTeamId: 'team-1' };
@@ -75,6 +94,25 @@ describe('saved view actions', () => {
     vi.mocked(refused.api.create).mockResolvedValueOnce(fail());
     expect(await saveCurrentInboxView(refused.context, 'create')).toBe(false);
     expect(refused.state.live.error).toEqual(ERROR);
+    const invalidVisibility = setup();
+    invalidVisibility.state.dialogForm = { savedViewName: 'Bad visibility', savedViewVisibility: 'organization' };
+    invalidVisibility.state.live.inboxQuery = { ...invalidVisibility.state.live.inboxQuery, filters: [{ key: 'priority', operator: 'eq', value: 'high' }] };
+    expect(await saveCurrentInboxView(invalidVisibility.context, 'create')).toBe(false);
+    expect(invalidVisibility.api.create).not.toHaveBeenCalled();
+    const missingUpdate = setup();
+    missingUpdate.state.dialogForm = { savedViewName: 'Missing', savedViewVisibility: 'private' };
+    missingUpdate.state.live.inboxQuery = { ...missingUpdate.state.live.inboxQuery, filters: [{ key: 'priority', operator: 'eq', value: 'high' }] };
+    expect(await saveCurrentInboxView(missingUpdate.context, 'update')).toBe(false);
+    const loadingUpdate = setup();
+    loadingUpdate.state.live.savedViews = { status: 'loading' };
+    loadingUpdate.state.dialogForm = { savedViewName: 'High', savedViewVisibility: 'private' };
+    loadingUpdate.state.live.inboxQuery = { ...loadingUpdate.state.live.inboxQuery, filters: [{ key: 'priority', operator: 'eq', value: 'high' }] };
+    expect(await saveCurrentInboxView(loadingUpdate.context, 'update')).toBe(false);
+    const workspace = setup();
+    workspace.state.dialogForm = { savedViewName: 'Workspace', savedViewVisibility: 'workspace' };
+    workspace.state.live.inboxQuery = { ...workspace.state.live.inboxQuery, filters: [{ key: 'priority', operator: 'eq', value: 'high' }] };
+    expect(await saveCurrentInboxView(workspace.context, 'create')).toBe(true);
+    expect(workspace.api.create).toHaveBeenCalledWith('tenant-1', expect.objectContaining({ visibility: 'workspace', teamId: null }));
   });
 
   it('retires a view and clears the selected id only after success', async () => {
@@ -88,5 +126,10 @@ describe('saved view actions', () => {
     expect(await retireSavedView(refused.context, VIEW.id)).toBe(false);
     expect(refused.state.live.error).toEqual(ERROR);
     expect(await retireSavedView(refused.context, 'missing')).toBe(false);
+    const noTenant = setup(null);
+    expect(await retireSavedView(noTenant.context, VIEW.id)).toBe(false);
+    noTenant.state.live.savedViews = { status: 'loading' };
+    expect(await applySavedView(noTenant.context, VIEW.id)).toBe(false);
+    expect(await retireSavedView(noTenant.context, VIEW.id)).toBe(false);
   });
 });

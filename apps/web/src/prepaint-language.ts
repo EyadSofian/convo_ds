@@ -18,7 +18,9 @@ function languageInHash(hash: string): Lang | null {
   if (queryAt === -1) return null;
   for (const part of hash.slice(queryAt + 1).split('&')) {
     const [rawKey, rawValue = ''] = part.split('=', 2);
-    if (decode(rawKey ?? '') !== 'lang') continue;
+    // String#split always produces an element at index 0, including for an
+    // empty query segment; no undefined fallback is needed here.
+    if (decode(rawKey!) !== 'lang') continue;
     const value = decode(rawValue);
     return value === 'en' || value === 'ar' ? value : null;
   }

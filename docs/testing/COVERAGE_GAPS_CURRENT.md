@@ -1,59 +1,21 @@
-# Current coverage gap register
+# Current coverage gate
 
-This is a temporary engineering register for the existing 100% V8 gate. It is
-not a justification for lowering thresholds or adding broad exclusions.
-
-Snapshot from the latest `pnpm test:coverage` on 2026-09-22 (all unit,
-integration and property tests passed; the command exits nonzero only because
-the unchanged 100% gate is not yet met):
+Fresh `pnpm test:coverage` result on 2026-09-22:
 
 | Metric | Covered | Total | Result |
-| --- | ---: | ---: | --- |
-| Lines/statements | 28,187 | 28,498 | 98.90% (gate: 100%) |
-| Functions | 2,085 | 2,120 | 98.35% (gate: 100%) |
-| Branches | 10,321 | 10,508 | 98.22% (gate: 100%) |
+| --- | ---: | ---: | ---: |
+| Statements | 28,497 | 28,497 | 100% |
+| Functions | 2,120 | 2,120 | 100% |
+| Branches | 10,941 | 10,941 | 100% |
 
-The Batch 1 conversation controller/service, Inbox compiler/parser/semantic
-validation, and saved-view adapter are now fully covered. The semantic
-validator also rejects an absent custom-field ID before issuing SQL, instead of
-binding an empty string to a UUID array. No threshold or coverage exclusion was
-changed. Remaining gaps are listed below.
+Remaining gaps: none.
 
-## Gap register
+Coverage thresholds remain unchanged. No coverage exclusions or ignore
+directives were added. The existing process-entry exclusions are unchanged.
 
-The locations below are regenerated from `coverage/coverage-final.json` for this
-snapshot; rows are removed when a file becomes fully covered.
-
-| File | Uncovered lines | Uncovered functions | Uncovered branches |
-| --- | --- | --- | --- |
-| `apps/web/src/prepaint-language.ts` | — | — | 21 |
-| `apps/web/src/state.ts` | — | — | 299, 301 |
-| `apps/web/src/live/automation-actions.ts` | 226-229, 232-233 | — | 41, 49, 225, 231, 277 |
-| `apps/web/src/live/campaign-actions.ts` | 120-121 | — | 65, 90, 100, 105-106, 109, 119, 132-133, 145-146, 151, 158, 164, 170 |
-| `apps/web/src/live/dispatch.ts` | 203-205, 207-209, 211-220, 513-516, 518-522, 525-526, 683-692, 694-696, 700-703, 739-741, 748-754, 766-772, 775-779, 782-786, 1009-1014, 1017-1024, 1027-1031, 1034-1044, 1289, 1292-1304, 1315-1319, 1323-1328, 1332, 1334, 1345-1350 | `asAutomationState@203`, `asAutomationSort@207`, `validLabelColor@211`, `live-automation-delete-confirm@512`, `live-automation-filter@517`, `live-automation-load-more@523`, `live-automation-runs-filter@524`, `live-automation-runs-load-more@527`, `live-assignments-more@671`, supervisor handlers at 678-696, saved-view handlers at 730-736, inbox and label handlers at 738-1044, `scheduleInboxSearch@1289`, `customFieldOperators@1345` | 383, 386, 758, 1311, 1314, 1320, 1322, 1330-1331, 1333, 1336, 1341 |
-| `apps/web/src/live/inbox-actions.ts` | 49-50, 52-66, 158-164, 481, 483-484 | — | 89, 122, 152, 157-158, 165, 480, 482 |
-| `apps/web/src/live/metadata-actions.ts` | 39-56, 58-67 | — | 38, 73, 83 |
-| `apps/web/src/live/saved-view-actions.ts` | 30, 51-54, 65, 94 | — | 9, 24, 29, 44, 50, 64, 66, 93, 113 |
-| `apps/web/src/ui/analytics-screen.ts` | 168, 286-287, 295, 297, 301, 303, 318, 424 | — | 86-87, 89-90, 111, 113, 121-122, 124-125, 128, 158, 167, 187, 189-191, 255, 259-260, 274, 276, 278, 284-285, 291, 294, 296, 300, 302, 312-313, 315-317, 319, 329, 331, 333, 340, 344, 423, 449, 451, 502, 511, 516 |
-| `apps/web/src/ui/automations-screen.ts` | — | — | 106, 247 |
-| `apps/web/src/ui/dialogs.ts` | 117 | — | 63, 67, 88, 93, 116, 124, 127, 135, 145 |
-| `apps/web/src/ui/live-inbox.ts` | 152, 238-244, 253, 264-265, 280-285, 297, 347-355, 360-363, 366-368, 370-377, 385, 387-399, 404-421, 425-429, 451, 458-459, 468, 470-481 | `supervisorMetric@280`, `row@345`, `customFieldOperators@360`, `customFieldValueControl@370`, `pickerOptions@404`, `pendingValue@468`, `savedViewsMenu@470` | 118, 151, 201, 203, 237, 252, 254-258, 262-264, 268-271, 294-296, 299, 301, 309, 311, 313, 326, 342, 346, 383-384, 386, 400, 424, 436, 442, 447-448, 450, 453, 457, 460-463, 688, 712 |
-| `apps/web/src/ui/metadata-section.ts` | 79, 89 | — | 78, 88, 95 |
-| `apps/web/src/ui/settings-screen.ts` | — | — | 77 |
-
-## Classification and policy
-
-- **A** means real product behavior: add a focused feature or integration test.
-- **B** means a defensive/error path: exercise the real boundary with a
-  malformed request, provider/database error, or authorization failure.
-- **C** means a rendered loading/error/empty/responsive branch: add a UI unit or
-  browser assertion.
-- No current gap is being classified as an exclusion. If a branch is proven
-  unreachable, simplify the implementation and retain a test for the resulting
-  behavior; do not add an undocumented ignore marker.
-
-## Completion rule
-
-The milestone is not coverage-complete until a fresh `pnpm test:coverage`
-reports 100% lines, statements, functions and branches. Thresholds and the
-existing process-entry exclusions remain unchanged.
+The final uncovered UI cases were covered with focused rendered tests. Two
+redundant fallbacks were removed where their input had already been narrowed by
+the surrounding code: an operator fallback after operator normalization, and
+unreachable Agent/Channel selection paths in the Overview renderer. Custom
+boolean filter forms now retain their actual custom-field type when building a
+query, correcting the boolean-value mapping at that same public form boundary.

@@ -101,6 +101,10 @@ describe('settings', () => {
     expect(root.querySelector('[data-arg="workspace-label:active"]')).not.toBeNull();
     expect(root.querySelector('[data-arg="retire-label:active"]')).not.toBeNull();
     expect(root.textContent).toContain('Kept for history');
+    state.live.workspaceLabels = { status: 'loading' };
+    expect(renderSettings(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+    state.live.workspaceLabels = { status: 'idle' };
+    expect(renderSettings(state).querySelector('[aria-busy="true"]')).not.toBeNull();
     state.live.workspaceLabels = { status: 'ready', loadedAt: 1, value: [] };
     expect(renderSettings(state).textContent).toContain('No active labels');
     state.live.workspaceLabels = { status: 'error', error: { code: 'x', message: 'Denied', requestId: 'labels-1', status: 500, details: [] } };

@@ -221,6 +221,10 @@ describe('URL round-trip', () => {
     expect(apply({ key: 'status', operator: 'eq', value: 'open' })).toEqual([]);
     expect(apply(null)).toEqual([]);
     expect(apply([])).toEqual([]);
+    expect(apply([null])).toEqual([]);
+    expect(apply([[]])).toEqual([]);
+    expect(apply([{ operator: 'eq' }])).toEqual([]);
+    expect(apply([{ key: 'status' }])).toEqual([]);
     expect(apply([{ key: 'status', operator: 'not-supported', value: 'open' }])).toEqual([]);
     expect(apply([{ key: 'status', operator: 'eq' }])).toEqual([]);
     expect(apply([{ key: 'custom_field', operator: 'eq', value: 'x' }])).toEqual([]);

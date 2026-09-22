@@ -138,6 +138,70 @@ describe('the filter bar', () => {
       { key: 'assigned_agent_id', operator: 'eq', value: '00000000-0000-4000-8000-000000000001' },
       { key: 'status', operator: 'eq', value: 'open' },
     ]);
+
+    const withoutOptions = { ...operations() } as unknown as Omit<OperationalReport, 'agentOptions'> & { agentOptions?: OperationalReport['agentOptions'] };
+    delete withoutOptions.agentOptions;
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: withoutOptions as OperationalReport };
+    state.live.operationalAgentOptions = { tenantId: 't', agents: operations().agents };
+    expect(renderAnalytics(state).querySelector('.filterbar')?.textContent).toContain('Mona Agent ×');
+  });
+
+  it('uses visible fallbacks for stale report filters and every picker source state', () => {
+    const state = screen();
+    state.analyticsView = 'overview';
+    const data = { ...operations() } as unknown as Omit<OperationalReport, 'agentOptions'> & { agentOptions?: OperationalReport['agentOptions'] };
+    delete data.agentOptions;
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: data as OperationalReport };
+    state.live.teams = { status: 'ready', loadedAt: 1, value: [] };
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [] };
+    state.live.workspaceLabels = { status: 'loading' };
+    state.live.labels = { status: 'ready', loadedAt: 1, value: [] };
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [] };
+    state.live.operationalAgentOptions = { tenantId: 'another-tenant', agents: [] };
+    state.live.supervisorAgents = { status: 'ready', loadedAt: 1, value: [] };
+    state.analyticsFilters = {
+      ...NO_ANALYTICS_FILTERS,
+      from: '2026-09-01', to: '2026-09-09', agentId: 'missing-agent', teamId: 'missing-team',
+      channel: 'unknown-channel', connectionId: 'missing-connection', labelId: 'missing-label',
+      campaignId: 'missing-campaign', priority: 'future-priority', status: 'future-status',
+    };
+    const bar = renderAnalytics(state).querySelector('.filterbar') as HTMLElement;
+    expect(bar.textContent).toContain('Selected agent ×');
+    expect(bar.textContent).toContain('Selected team ×');
+    expect(bar.textContent).toContain('Selected Inbox ×');
+    expect(bar.textContent).toContain('Selected label ×');
+    expect(bar.textContent).toContain('Selected campaign ×');
+    expect((bar.querySelector('[data-form="from"]') as HTMLInputElement).max).toBe('2026-09-09');
+    expect((bar.querySelector('[data-form="to"]') as HTMLInputElement).min).toBe('2026-09-01');
+
+    state.live.session = { status: 'signed_out', error: null };
+    state.live.supervisorAgents = { status: 'idle' };
+    state.live.operationalAgentOptions = null;
+    expect(renderAnalytics(state).querySelector('.filterbar')).not.toBeNull();
+  });
+
+  it('resolves selected filter chips from live directories and falls back to supervisor agents', () => {
+    const state = screen();
+    state.analyticsView = 'overview';
+    const data = { ...operations() } as unknown as Omit<OperationalReport, 'agentOptions'> & { agentOptions?: OperationalReport['agentOptions'] };
+    delete data.agentOptions;
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: data as OperationalReport };
+    state.live.teams = { status: 'ready', loadedAt: 1, value: [{ id: 'team-x', name: 'Sales', member_count: 1, archived: false, members: [] }] };
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [{ id: 'connection-x', display_name: 'Admissions' } as never] };
+    state.live.workspaceLabels = { status: 'ready', loadedAt: 1, value: [{ id: 'label-x', name: 'Priority', color: '#123456', state: 'active', version: 1 }] };
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{ id: 'campaign-x', name: 'Welcome' } as never] };
+    state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, teamId: 'team-x', connectionId: 'connection-x', labelId: 'label-x', campaignId: 'campaign-x' };
+    const resolved = renderAnalytics(state).querySelector('.filterbar') as HTMLElement;
+    expect(resolved.textContent).toContain('Sales ×');
+    expect(resolved.textContent).toContain('Admissions ×');
+    expect(resolved.textContent).toContain('Priority ×');
+    expect(resolved.textContent).toContain('Welcome ×');
+
+    state.live.operationalReport = { status: 'error', error: { code: 'internal', message: 'Unavailable', requestId: 'agent-directory-fallback', status: 500, details: [] } };
+    state.live.operationalAgentOptions = null;
+    state.live.supervisorAgents = { status: 'ready', loadedAt: 1, value: [{ membershipId: 'supervisor-agent', name: 'Ahmed', email: 'ahmed@example.test', teams: [] }] };
+    state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, agentId: 'supervisor-agent' };
+    expect(renderAnalytics(state).querySelector('.filterbar')?.textContent).toContain('Ahmed ×');
   });
 });
 
@@ -196,6 +260,12 @@ describe('assignment analytics', () => {
       id: 'audit-1', timestamp: NOW.toISOString(), conversationId: 'conversation-1', customer: 'Mona', action: 'handoff',
       previousAssignee: { membershipId: 'member-a', displayName: 'Ahmed' },
       assignedTo: { membershipId: 'member-b', displayName: 'Sara' }, actor: null,
+    }, {
+      id: 'audit-2', timestamp: NOW.toISOString(), conversationId: 'conversation-2', customer: null, action: 'claim',
+      previousAssignee: null, assignedTo: { membershipId: 'member-c', displayName: 'Noor' }, actor: { membershipId: 'member-c', displayName: 'Noor' },
+    }, {
+      id: 'audit-3', timestamp: NOW.toISOString(), conversationId: 'conversation-3', customer: null, action: 'assign',
+      previousAssignee: null, assignedTo: { membershipId: 'member-d', displayName: 'Lina' }, actor: null,
     }] };
     state.live.assignmentNextCursor = 'opaque-cursor';
     const root = renderAnalytics(state);
@@ -204,6 +274,8 @@ describe('assignment analytics', () => {
     expect(root.textContent).toContain('Ahmed');
     expect(root.textContent).toContain('Sara');
     expect(root.textContent).toContain('System');
+    expect(root.textContent).toContain('Claim');
+    expect(root.textContent).toContain('Assign');
     expect(root.querySelector('th[scope="col"]')?.textContent).toBe('Time');
     expect(root.querySelector('[data-act="live-inbox-open"][data-arg="conversation-1"]')).not.toBeNull();
     expect(root.querySelector('[data-act="live-assignments-more"]')).not.toBeNull();
@@ -276,6 +348,17 @@ describe('lifecycle analytics', () => {
 });
 
 describe('focused operational report screens', () => {
+  it('renders overview loading and failure states without stale report content', () => {
+    const state = screen();
+    state.analyticsView = 'overview';
+    state.live.operationalReport = { status: 'idle' };
+    expect(renderAnalytics(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+    state.live.operationalReport = { status: 'error', error: { code: 'internal', message: 'Failed', requestId: 'overview-error', status: 500, details: [] } };
+    const failed = renderAnalytics(state);
+    expect(failed.textContent).toContain('overview-error');
+    expect(failed.querySelector('[data-operations-report-ready]')).toBeNull();
+  });
+
   it('renders the channel report with zero-safe timing values and drill-down rows', () => {
     const state = screen();
     state.analyticsView = 'channels';
@@ -289,6 +372,15 @@ describe('focused operational report screens', () => {
     ]);
   });
 
+  it('renders channel loading and failure states', () => {
+    const state = screen();
+    state.analyticsView = 'channels';
+    state.live.operationalReport = { status: 'loading' };
+    expect(renderAnalytics(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+    state.live.operationalReport = { status: 'error', error: { code: 'internal', message: 'Failed', requestId: 'channel-error', status: 500, details: [] } };
+    expect(renderAnalytics(state).textContent).toContain('channel-error');
+  });
+
   it('renders report loading and error states for the focused agent screen', () => {
     const state = screen();
     state.analyticsView = 'agents';
@@ -296,6 +388,103 @@ describe('focused operational report screens', () => {
     expect(renderAnalytics(state).querySelector('[aria-busy="true"]')).not.toBeNull();
     state.live.operationalReport = { status: 'error', error: { code: 'internal', message: 'Failed', requestId: 'r-11', status: 500, details: [] } };
     expect(renderAnalytics(state).textContent).toContain('r-11');
+  });
+
+  it('renders response and resolution filters against a loaded operational directory', () => {
+    const state = screen();
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
+    state.analyticsView = 'responses';
+    state.live.responseReport = { status: 'ready', loadedAt: 1, value: {
+      measured: 0, averageSeconds: null, medianSeconds: null, buckets: [], byAgent: [], byChannel: [],
+    } };
+    expect(renderAnalytics(state).textContent).toContain('No data');
+    state.analyticsView = 'resolutions';
+    state.live.resolutionReport = { status: 'ready', loadedAt: 1, value: {
+      resolvedEpisodes: 0, averageSeconds: null, medianSeconds: null, reopenedEpisodes: 0, byAgent: [], byChannel: [],
+    } };
+    expect(renderAnalytics(state).textContent).toContain('No data');
+    state.analyticsView = 'teams';
+    state.live.teamReport = { status: 'idle' };
+    expect(renderAnalytics(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+  });
+
+  it('renders empty and refused states across bounded report screens', () => {
+    const state = screen();
+    state.analyticsView = 'teams';
+    state.live.teamReport = { status: 'ready', loadedAt: 1, value: [] };
+    expect(renderAnalytics(state).textContent).toContain('No teams are visible');
+    state.live.teamReport = { status: 'error', error: { code: 'internal', message: 'Failed', requestId: 'team-error', status: 500, details: [] } };
+    expect(renderAnalytics(state).textContent).toContain('team-error');
+
+    state.analyticsView = 'assignments';
+    state.live.assignmentReport = { status: 'ready', loadedAt: 1, value: [] };
+    expect(renderAnalytics(state).textContent).toContain('No assignments in this scope');
+    state.live.assignmentReport = { status: 'error', error: { code: 'internal', message: 'Failed', requestId: 'assignment-error', status: 500, details: [] } };
+    expect(renderAnalytics(state).textContent).toContain('assignment-error');
+
+    state.analyticsView = 'responses';
+    state.live.responseReport = { status: 'loading' };
+    expect(renderAnalytics(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+    state.live.responseReport = { status: 'error', error: { code: 'internal', message: 'Failed', requestId: 'response-error', status: 500, details: [] } };
+    expect(renderAnalytics(state).textContent).toContain('response-error');
+    state.analyticsView = 'resolutions';
+    state.live.resolutionReport = { status: 'loading' };
+    expect(renderAnalytics(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+
+    state.analyticsView = 'agents';
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: { ...operations(), agents: [] } };
+    expect(renderAnalytics(state).textContent).toContain('No reportable agent identities');
+    state.route = { ...state.route, params: { agent: 'not-in-scope' } };
+    expect(renderAnalytics(state).textContent).toContain('no longer within this report scope');
+
+    state.analyticsView = 'channels';
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: { ...operations(), channels: [] } };
+    expect(renderAnalytics(state).textContent).toContain('No channel data');
+  });
+
+  it('keeps the assignment toolbar busy while loading another page', () => {
+    const state = screen();
+    state.analyticsView = 'assignments';
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
+    state.live.assignmentReport = { status: 'ready', loadedAt: 1, value: [] };
+    state.live.assignmentLoadingMore = true;
+    expect(renderAnalytics(state).querySelector('[data-act="live-report-reload"]')?.getAttribute('aria-busy')).toBe('true');
+    state.live.assignmentLoadingMore = false;
+    state.live.operationalReport = { status: 'error', error: { code: 'internal', message: 'Unavailable', requestId: 'no-operational-filter-data', status: 500, details: [] } };
+    expect((renderAnalytics(state).querySelector('input[data-form="from"]') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('renders agent details without an empty team suffix', () => {
+    const state = screen();
+    state.analyticsView = 'agents';
+    const data = operations();
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: { ...data, agents: [{ ...data.agents[0]!, teams: [] }] } };
+    state.route = { ...state.route, params: { agent: data.agents[0]!.membershipId } };
+    const detail = renderAnalytics(state).querySelector('.panel') as HTMLElement;
+    expect(detail.textContent).toContain('mona@example.test');
+    expect(detail.textContent).not.toContain('mona@example.test ·');
+  });
+
+  it('renders overview with empty groupings and preserves zero-safe detail links', () => {
+    const state = screen();
+    state.analyticsView = 'overview';
+    const base = operations();
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: {
+      ...base,
+      agents: [], channels: base.channels, responseBuckets: [],
+      conversations: { ...base.conversations, backlogByStatus: [], backlogByChannel: [], backlogByTeam: [], assignmentWorkload: [] },
+    } };
+    const root = renderAnalytics(state);
+    expect(root.textContent).toContain('No open workload');
+    expect(root.textContent).toContain('Agent activity');
+    expect(root.querySelector('a[href*="/inbox"]')).not.toBeNull();
+    const high = root.querySelector('a[href*="/inbox"]') as HTMLAnchorElement;
+    expect(high).not.toBeNull();
+
+    const unselected = screen();
+    unselected.analyticsView = 'agents';
+    unselected.live.operationalReport = { status: 'ready', loadedAt: 1, value: base };
+    expect(renderAnalytics(unselected).textContent).not.toContain('Mona Agent detail');
   });
 });
 

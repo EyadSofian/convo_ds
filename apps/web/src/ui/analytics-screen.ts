@@ -155,7 +155,7 @@ function renderAgents(state: AppState): HTMLElement {
   return page('analytics', analyticsHeader(state, operationsFilterBar(state, report, resource.status === 'loading')),
     resource.status === 'idle' || resource.status === 'loading' ? [skeleton(state, 3)]
       : resource.status === 'error' ? [errorState(state, resource.error, 'live-report-reload')]
-        : report === null ? [] : [agentPerformanceTable(state, report), agentDetail(state, report)]);
+        : [agentPerformanceTable(state, resource.value), agentDetail(state, resource.value)]);
 }
 
 function agentPerformanceTable(state: AppState, report: OperationalReport): HTMLElement {
@@ -188,7 +188,7 @@ function renderChannels(state: AppState): HTMLElement {
   return page('analytics', analyticsHeader(state, operationsFilterBar(state, report, resource.status === 'loading')),
     resource.status === 'idle' || resource.status === 'loading' ? [skeleton(state, 3)]
       : resource.status === 'error' ? [errorState(state, resource.error, 'live-report-reload')]
-        : report === null ? [] : [channelActivityReport(state, report)]);
+        : [channelActivityReport(state, resource.value)]);
 }
 
 function teamInboxLink(state: AppState, teamId: string, status?: 'open' | 'unreplied'): HTMLElement {
@@ -291,11 +291,10 @@ function renderOperations(state: AppState): HTMLElement {
   const report = resource.status === 'ready' ? resource.value : null;
   const busy = resource.status === 'loading';
   const filterBar = operationsFilterBar(state, report, busy);
-  const reportBody = report === null ? [] : state.analyticsView === 'agents'
-    ? [agentActivity(state, report), agentDetail(state, report)]
-    : state.analyticsView === 'channels'
-      ? [channelActivityReport(state, report)]
-      : operationsBody(state, report);
+  // Focused Agent and Channel routes have their own renderers above; this
+  // function is reached only for Overview, so do not keep unreachable view
+  // selection fallbacks here.
+  const reportBody = report === null ? [] : operationsBody(state, report);
   return page('analytics', analyticsHeader(state, filterBar), [
     resource.status === 'idle' || resource.status === 'loading'
       ? skeleton(state, 4)

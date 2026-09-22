@@ -35,6 +35,14 @@ describe('automation actions',()=>{
     const refused=setup(); refused.state.route={screen:'automations',conversationId:null,params:{view:'runs'}}; vi.mocked(refused.api.runs).mockResolvedValueOnce({ok:false,error:ERROR}); await loadAutomationsScreen(refused.context); expect(refused.state.live.automationRuns).toEqual({status:'error',error:ERROR}); expect(refused.state.live.error).toBe(ERROR);
     const absent=setup(ok(AUTOMATION),null); await loadAutomationsScreen(absent.context); expect(absent.api.list).not.toHaveBeenCalled();
   });
+  it('surfaces a failed WhatsApp-template read while opening an existing builder', async () => {
+    const app = setup();
+    app.state.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: AUTOMATION.id } };
+    vi.mocked(app.api.whatsappTemplates).mockResolvedValueOnce({ ok: false, error: ERROR });
+    await loadAutomationsScreen(app.context);
+    expect(app.state.live.whatsappTemplates).toEqual({ status: 'error', error: ERROR });
+    expect(app.state.live.error).toEqual(ERROR);
+  });
   it('keeps the server query and appends only the next cursor page', async () => {
     const s = setup();
     vi.mocked(s.api.list).mockResolvedValueOnce(page([AUTOMATION], 'opaque-next')).mockResolvedValueOnce(page([{ ...AUTOMATION, id: 'a-2', name: 'Later' }]));
@@ -131,6 +139,29 @@ describe('automation actions',()=>{
     expect(await deleteAutomationDraft(notDraft.context, 'a-1')).toBe(false);
     const noTenantDelete = setup(ok(AUTOMATION), null);
     expect(await deleteAutomationDraft(noTenantDelete.context, 'a-1')).toBe(false);
+  });
+
+  it('deletes only after confirmation, resets an open editor route, and preserves a refusal', async () => {
+    const editing = setup();
+    editing.state.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1' } };
+    expect(await deleteAutomationDraft(editing.context, 'a-1')).toBe(true);
+    expect(editing.state.route.params).toEqual({ view: 'mine' });
+
+    const refused = setup();
+    vi.mocked(refused.api.deleteDraft).mockResolvedValueOnce({ ok: false, error: ERROR });
+    expect(await deleteAutomationDraft(refused.context, 'a-1')).toBe(false);
+    expect(refused.state.live.error).toEqual(ERROR);
+    expect(refused.state.live.automations).toMatchObject({ status: 'ready', value: [AUTOMATION] });
+  });
+
+  it('does not request a page without a cursor and excludes mutations outside the selected state', async () => {
+    const s = setup();
+    s.state.live.automationNextCursor = null;
+    await loadAutomationPage(s.context, false);
+    expect(s.api.list).not.toHaveBeenCalled();
+    s.state.live.automationQuery = { search: '', state: 'active', sort: 'updated_desc', limit: 25 };
+    expect(await useAutomationTemplate(s.context, 'welcome')).toBe(true);
+    expect(s.state.live.automations).toMatchObject({ status: 'ready', value: [] });
   });
 });
 

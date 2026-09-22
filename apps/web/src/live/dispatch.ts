@@ -1310,10 +1310,12 @@ function inboxFilterFromForm(context: LiveContext): InboxFilter | null {
   const definition = INBOX_FILTER_CATALOGUE.find((entry) => entry.key === key);
   if (definition === undefined) return null;
   let operator = requestedOperator;
+  let customFieldType: string | undefined;
   const fieldId = form(context, 'inboxFilterFieldId');
   if (definition.key === 'custom_field') {
     const field = rowsOf(context.live.customFields).find((candidate) => candidate.id === fieldId && candidate.target === 'conversation' && candidate.state === 'active');
     if (field === undefined) return null;
+    customFieldType = field.type;
     const operators = customFieldOperators(field.type);
     operator = operators.includes(requestedOperator) ? requestedOperator : operators[0]!;
   }
@@ -1328,7 +1330,8 @@ function inboxFilterFromForm(context: LiveContext): InboxFilter | null {
   }
   const raw = form(context, 'inboxFilterValue');
   if (raw === '') return null;
-  const value = definition.valueType === 'boolean'
+  const valueType = definition.valueType === 'custom_field' ? customFieldType : definition.valueType;
+  const value = valueType === 'boolean'
     ? raw === 'true' ? true : raw === 'false' ? false : null
     : (operator === 'in' || operator === 'not_in')
       ? raw.split(',').map((entry) => entry.trim()).filter(Boolean)

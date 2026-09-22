@@ -66,6 +66,14 @@ describe('label safety dialogs', () => {
     expect(edit.querySelector('form')?.getAttribute('data-submit')).toBe('live-workspace-label-update');
     expect((edit.querySelector('input[pattern]') as HTMLInputElement).value).toBe('#123456');
     expect(open(state, 'inline-label', 'bad').querySelector('.notice--warning')).not.toBeNull();
+    state.dialogForm = {};
+    const entityFallback = open(state, 'workspace-label', 'label-1');
+    expect((entityFallback.querySelector('input[data-form="labelName"]') as HTMLInputElement).value).toBe('VIP');
+    expect((entityFallback.querySelector('input[type="color"]') as HTMLInputElement).value).toBe('#ABCDEF');
+    const missingLabel = open(state, 'workspace-label', 'gone');
+    expect(missingLabel.querySelector('form')?.getAttribute('data-submit')).toBe('live-workspace-label-create');
+    state.dialogForm = { labelColor: 'not-a-hex' };
+    expect((open(state, 'workspace-label').querySelector('input[type="color"]') as HTMLInputElement).value).toBe('#3B82F6');
   });
 
   it('renders saved-view visibility and safe automation delete states', () => {
@@ -76,6 +84,17 @@ describe('label safety dialogs', () => {
     const update = open(state, 'saved-inbox-view', 'update');
     expect(update.querySelector('[data-submit="live-inbox-saved-view-update"]')).not.toBeNull();
     expect(update.querySelector('[data-form="savedViewTeamId"]')).not.toBeNull();
+    const create = open(state, 'saved-inbox-view', 'create');
+    expect(create.querySelector('[data-submit="live-inbox-saved-view-create"]')).not.toBeNull();
+    state.live.selectedSavedViewId = 'missing';
+    state.dialogForm = {};
+    const privateDefault = open(state, 'saved-inbox-view', 'create');
+    expect((privateDefault.querySelector('[data-form="savedViewVisibility"]') as HTMLSelectElement).value).toBe('private');
+    state.live.selectedSavedViewId = 'view-1';
+    state.dialogForm = { savedViewVisibility: 'workspace' };
+    expect(open(state, 'saved-inbox-view', 'create').querySelector('[data-form="savedViewTeamId"]')).toBeNull();
+    state.dialogForm = { savedViewVisibility: 'team' };
+    expect(open(state, 'saved-inbox-view', 'create').querySelector('[data-form="savedViewTeamId"]')).not.toBeNull();
     const missingUpdate = open(state, 'saved-inbox-view', 'update');
     state.live.selectedSavedViewId = 'gone';
     expect(renderDialog(state)?.querySelector('[data-act="live-inbox-saved-view-update"]')?.hasAttribute('disabled')).toBe(true);
@@ -83,6 +102,10 @@ describe('label safety dialogs', () => {
     expect(open(state, 'automation-delete', 'a-1').textContent).toContain('has never run');
     expect(open(state, 'automation-delete', 'gone').querySelector('.notice--warning')).not.toBeNull();
     expect(missingUpdate).not.toBeNull();
+    state.live.savedViews = { status: 'idle' };
+    expect(open(state, 'saved-inbox-view', 'update').querySelector('[data-act="live-inbox-saved-view-update"]')?.hasAttribute('disabled')).toBe(true);
+    state.live.workspaceLabels = ready([{ id: 'label-1', name: 'VIP', color: '#EF4444', state: 'retired', version: 1 }], 1);
+    expect(open(state, 'retire-label', 'label-1').querySelector('.notice--warning')).not.toBeNull();
   });
 });
 
