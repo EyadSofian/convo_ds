@@ -69,8 +69,8 @@ function operations(): OperationalReport {
       backlogByTeam: [{ team: 'Support', count: 7 }],
       assignmentWorkload: [{ name: 'Mona Agent', count: 7 }],
     },
-    timing: { firstResponseMeasured: 4, firstResponseAverageSeconds: 75, resolutionMeasured: 3, resolutionAverageSeconds: 300 },
-    agents: [{ name: 'Mona Agent', firstResponses: 4, resolutions: 3 }],
+    timing: { firstResponseMeasured: 4, firstResponseAverageSeconds: 75, firstResponseMedianSeconds: 70, resolutionMeasured: 3, resolutionAverageSeconds: 300, resolutionMedianSeconds: 280 },
+    agents: [{ membershipId: '00000000-0000-4000-8000-000000000001', name: 'Mona Agent', email: 'mona@example.test', firstResponses: 4, resolutions: 3 }],
   };
 }
 

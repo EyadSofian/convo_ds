@@ -146,10 +146,12 @@ export interface OperationalReport {
   readonly timing: {
     readonly firstResponseMeasured: number;
     readonly firstResponseAverageSeconds: number | null;
+    readonly firstResponseMedianSeconds: number | null;
     readonly resolutionMeasured: number;
     readonly resolutionAverageSeconds: number | null;
+    readonly resolutionMedianSeconds: number | null;
   };
-  readonly agents: readonly { readonly name: string; readonly firstResponses: number; readonly resolutions: number }[];
+  readonly agents: readonly { readonly membershipId: string; readonly name: string; readonly email: string; readonly firstResponses: number; readonly resolutions: number }[];
 }
 
 export interface OperationalReportFilterInput {

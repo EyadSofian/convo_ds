@@ -2255,6 +2255,30 @@ describe('supervisor inbox lens', () => {
     expect(data.timing.resolutionMeasured).toBeGreaterThan(0);
     expect(data.agents.some((agent) => agent.firstResponses > 0)).toBe(true);
   });
+
+  it('scopes operational aggregates through the supervisor readable inbox scope', async () => {
+    const peerB = '15557000911';
+    await customerWrites(INBOX_B, peerB, 'هذا العمل خارج نطاق المشرف', 'wamid.rt-supervisor-scope-b');
+    const conversationB = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE peer_identity=$1', [peerB],
+    ))).rows[0]!.id;
+    const currentB = await send(api, owner, 'GET', `/conversations/${conversationB}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationB}/assignments`, {
+      version: (currentB.json() as { data: { version: number } }).data.version, assigneeMembershipId: agentBMembershipId,
+    })).statusCode).toBe(200);
+    expect((await send(api, agentB, 'POST', `/conversations/${conversationB}/messages`, {
+      messageType: 'text', text: 'متابعة المحاسبة', trafficClass: 'interactive', clientMessageId: 'supervisor-scope-b-reply',
+    })).statusCode).toBe(202);
+
+    const scoped = await send(api, supervisor, 'GET', '/reports/operations');
+    const ownerReport = await send(api, owner, 'GET', '/reports/operations');
+    expect(scoped.statusCode, scoped.payload).toBe(200);
+    expect(ownerReport.statusCode, ownerReport.payload).toBe(200);
+    const scopedAgents = (scoped.json() as { data: { agents: { membershipId: string }[] } }).data.agents;
+    const ownerAgents = (ownerReport.json() as { data: { agents: { membershipId: string }[] } }).data.agents;
+    expect(scopedAgents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(false);
+    expect(ownerAgents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(true);
+  });
 });
 
 describe('the conversation lifecycle', () => {

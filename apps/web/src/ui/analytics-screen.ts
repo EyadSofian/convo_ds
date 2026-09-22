@@ -114,8 +114,8 @@ function operationsBody(state: AppState, report: OperationalReport): readonly Ch
       kpi(t(state, 'العمل المفتوح', 'Open workload'), formatNumber(report.conversations.open, state.lang)),
       kpi(t(state, 'جديد في الفترة', 'New in period'), formatNumber(report.conversations.new, state.lang)),
       kpi(t(state, 'تم الحل', 'Resolved'), formatNumber(report.conversations.resolved, state.lang)),
-      kpi(t(state, 'متوسط أول رد', 'Avg. first response'), duration(state, report.timing.firstResponseAverageSeconds), { foot: t(state, `${formatNumber(report.timing.firstResponseMeasured, state.lang)} محادثة مقاسة`, `${formatNumber(report.timing.firstResponseMeasured, state.lang)} measured conversations`) }),
-      kpi(t(state, 'متوسط الحل', 'Avg. resolution'), duration(state, report.timing.resolutionAverageSeconds), { foot: t(state, `${formatNumber(report.timing.resolutionMeasured, state.lang)} حل مقاس`, `${formatNumber(report.timing.resolutionMeasured, state.lang)} measured resolutions`) }),
+      kpi(t(state, 'متوسط أول رد', 'Avg. first response'), duration(state, report.timing.firstResponseAverageSeconds), { foot: t(state, `الوسيط ${duration(state, report.timing.firstResponseMedianSeconds)} · ${formatNumber(report.timing.firstResponseMeasured, state.lang)} محادثة`, `Median ${duration(state, report.timing.firstResponseMedianSeconds)} · ${formatNumber(report.timing.firstResponseMeasured, state.lang)} conversations`) }),
+      kpi(t(state, 'متوسط الحل', 'Avg. resolution'), duration(state, report.timing.resolutionAverageSeconds), { foot: t(state, `الوسيط ${duration(state, report.timing.resolutionMedianSeconds)} · ${formatNumber(report.timing.resolutionMeasured, state.lang)} حل`, `Median ${duration(state, report.timing.resolutionMedianSeconds)} · ${formatNumber(report.timing.resolutionMeasured, state.lang)} resolutions`) }),
     ]),
     h('div', { class: 'report-grid report-grid--3' }, [
       operationsBreakdown(state, t(state, 'العمل المفتوح حسب الحالة', 'Open workload by status'), t(state, 'الحالة', 'Status'), report.conversations.backlogByStatus),
