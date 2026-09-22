@@ -97,6 +97,16 @@ describe('navigation', () => {
     expect(selectedId(app.state)).toBe('cv-1');
   });
 
+  it('changes the analytics report view only for supported report names', () => {
+    runAction('analytics-view', app.context, 'agents');
+    expect(app.state.analyticsView).toBe('agents');
+    expect(app.navigations.at(-1)).toEqual({ screen: 'analytics', conversationId: null });
+    const before = app.navigations.length;
+    runAction('analytics-view', app.context, 'not-a-report');
+    expect(app.navigations).toHaveLength(before);
+    expect(app.state.analyticsView).toBe('agents');
+  });
+
   it('collapses and expands the navigation, and sets it explicitly', () => {
     runAction('nav-collapse', app.context, '');
     expect(app.state.navCollapsed).toBe(false);

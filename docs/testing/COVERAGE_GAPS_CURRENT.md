@@ -8,9 +8,9 @@ integration and property files passed):
 
 | Metric | Covered | Total | Result |
 | --- | ---: | ---: | --- |
-| Lines/statements | 27,917 | 28,501 | 97.95% (gate: 100%) |
-| Functions | 2,066 | 2,119 | 97.49% (gate: 100%) |
-| Branches | 10,029 | 10,287 | 97.49% (gate: 100%) |
+| Lines/statements | 27,931 | 28,501 | 98.00% (gate: 100%) |
+| Functions | 2,068 | 2,119 | 97.59% (gate: 100%) |
+| Branches | 10,057 | 10,304 | 97.60% (gate: 100%) |
 
 The report/lifecycle/team services, the covered API validation boundaries, and
 the new supervisor/reporting correctness paths are covered. The remaining gaps
@@ -29,12 +29,9 @@ snapshot; rows are removed when a file becomes fully covered.
 | `apps/api/src/conversations/inbox-query-compiler.ts` | 78-79, 101-102, 107-108, 125-126 | — | 52, 58, 65, 77, 83, 100, 106, 111, 114, 118-119, 123-124, 130-132, 135 |
 | `apps/api/src/conversations/inbox-query-request.ts` | 54-56, 59-60 | — | 19, 25-26, 28, 39, 43, 46, 49, 53, 58, 63 |
 | `apps/api/src/conversations/inbox-query-validation.ts` | — | — | 25, 29, 36, 47-48, 57 |
-| `apps/web/src/actions.ts` | 235-238 | `analyticsView@234` | — |
-| `apps/web/src/app.ts` | 718 | — | 717, 719 |
 | `apps/web/src/prepaint-language.ts` | — | — | 21 |
-| `apps/web/src/state.ts` | 289-290, 307, 309-310, 318, 321-323 | `isUuid@321` | 286, 288, 299, 301, 306, 308, 313-317 |
-| `apps/web/src/api/metadata.ts` | 63-64, 67-68 | `updateLabel@62`, `retireLabel@66` | — |
-| `apps/web/src/api/saved-views.ts` | 34-35, 38-39, 42-43 | `create@33`, `update@37`, `retire@41` | — |
+| `apps/web/src/state.ts` | — | — | 299, 301, 315 |
+| `apps/web/src/api/automations.ts` | — | — | 128 |
 | `apps/web/src/live/actions.ts` | — | — | 166 |
 | `apps/web/src/live/automation-actions.ts` | 55-59, 96-100, 226-229, 232-233 | `setAutomationRunsQuery@96` | 41, 49, 54, 71, 218, 225, 231, 273, 277-278 |
 | `apps/web/src/live/campaign-actions.ts` | 120-121 | — | 65, 90, 100, 105-106, 109, 119, 132-133, 145-146, 151, 158, 164, 170 |

@@ -210,6 +210,40 @@ describe('URL round-trip', () => {
     applyRoute(state, parseHash('#/channels'));
     expect(state.inboxQueue).toBe('mine');
   });
+
+  it('rejects every malformed inbox filter shape before it reaches client state', () => {
+    const state = createState(NOW);
+    const apply = (filters: unknown): readonly unknown[] => {
+      const encoded = encodeURIComponent(JSON.stringify(filters));
+      applyRoute(state, parseHash(`#/inbox?filters=${encoded}`));
+      return state.live.inboxQuery.filters as readonly unknown[];
+    };
+    expect(apply({ key: 'status', operator: 'eq', value: 'open' })).toEqual([]);
+    expect(apply([{ key: 'status', operator: 'not-supported', value: 'open' }])).toEqual([]);
+    expect(apply([{ key: 'status', operator: 'eq' }])).toEqual([]);
+    expect(apply([{ key: 'custom_field', operator: 'eq', value: 'x' }])).toEqual([]);
+    expect(apply([{ key: 'status', operator: 'eq', fieldId: '11111111-1111-4111-8111-111111111111', value: 'open' }])).toEqual([]);
+    expect(apply([{ key: 'waiting_since', operator: 'is_set', value: true }])).toEqual([]);
+    expect(apply([{ key: 'waiting_since', operator: 'is_set' }])).toEqual([{ key: 'waiting_since', operator: 'is_set' }]);
+    expect(apply([{ key: 'priority', operator: 'eq', value: true }])).toEqual([]);
+    expect(apply([{ key: 'priority', operator: 'eq', value: ['high', 'urgent'] }])).toEqual([{ key: 'priority', operator: 'eq', value: ['high', 'urgent'] }]);
+    expect(apply([{ key: 'priority', operator: 'eq', value: [] }])).toEqual([]);
+    expect(apply([{ key: 'priority', operator: 'eq', value: ['high', 1] }])).toEqual([]);
+    expect(apply([{ key: 'custom_field', operator: 'eq', fieldId: '11111111-1111-4111-8111-111111111111', value: 'yes' }])).toEqual([{ key: 'custom_field', operator: 'eq', fieldId: '11111111-1111-4111-8111-111111111111', value: 'yes' }]);
+  });
+
+  it('rejects oversized, non-array and invalid JSON filter payloads', () => {
+    const state = createState(NOW);
+    applyRoute(state, parseHash(`#/inbox?filters=${'x'.repeat(6001)}`));
+    expect(state.live.inboxQuery.filters).toEqual([]);
+    applyRoute(state, parseHash(`#/inbox?filters=${encodeURIComponent(JSON.stringify({ key: 'status' }))}`));
+    expect(state.live.inboxQuery.filters).toEqual([]);
+    applyRoute(state, parseHash('#/inbox?filters=%7B'));
+    expect(state.live.inboxQuery.filters).toEqual([]);
+    const tooMany = Array.from({ length: 21 }, () => ({ key: 'status', operator: 'is_set' }));
+    applyRoute(state, parseHash(`#/inbox?filters=${encodeURIComponent(JSON.stringify(tooMany))}`));
+    expect(state.live.inboxQuery.filters).toEqual([]);
+  });
 });
 
 describe('screenTitle', () => {

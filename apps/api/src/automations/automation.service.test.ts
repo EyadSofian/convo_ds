@@ -32,6 +32,8 @@ describe('AutomationService defensive paths', () => {
     expect(resumed.items).toHaveLength(1);
     expect(resumed.nextCursor).toBeTruthy();
     await service.list(session, tenantId, { search: null, state: null, sort: 'name_desc', cursor: null, limit: 1 });
+    const updatedFirst = await service.list(session, tenantId, { search: null, state: null, sort: 'updated_desc', cursor: null, limit: 1 });
+    await service.list(session, tenantId, { search: null, state: null, sort: 'updated_desc', cursor: updatedFirst.nextCursor, limit: 1 });
 
     const emptyService = harness(async <T>(text: string) => text.includes('FROM automations') ? { rows: [] as T[], rowCount: 0 } : { rows: [], rowCount: 0 });
     const empty = await emptyService.service.list(session, tenantId, { search: 'none', state: 'archived', sort: 'updated_desc', cursor: null, limit: 25 });

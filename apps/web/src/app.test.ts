@@ -526,6 +526,21 @@ describe('screens and preferences', () => {
 });
 
 describe('layers, focus and the keyboard', () => {
+  it('traps Tab in the mobile Inbox filter popover', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const { root, app } = start('#/inbox', signedIn());
+    await settle();
+    app.state.openMenu = 'inbox-filters';
+    app.render();
+    const popover = root.querySelector('[data-trap="mobile-inbox-filters"]') as HTMLElement;
+    expect(popover).not.toBeNull();
+    const stops = Array.from(popover.querySelectorAll<HTMLElement>('input, select, button:not([disabled])'));
+    expect(stops.length).toBeGreaterThan(1);
+    (stops.at(-1) as HTMLElement).focus();
+    expect(press(root, 'Tab').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(stops[0]);
+  });
+
   it('opens the navigation drawer, keeps Tab inside it, and returns focus when Escape closes it', async () => {
     const { root, app } = start('#/settings', signedIn());
     await settle();

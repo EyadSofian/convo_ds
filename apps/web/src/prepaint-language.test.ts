@@ -25,4 +25,11 @@ describe('prepaintLanguage', () => {
   it('does not treat unrelated hash parameters as authority inputs', () => {
     expect(prepaintLanguage('#/inbox?tenant=other&role=owner&membership=x', 'en')).toBe('en');
   });
+
+  it('ignores malformed and repeated language parameters safely', () => {
+    expect(prepaintLanguage('#/inbox?%E0%A4=en&lang=ar', 'en')).toBe('ar');
+    expect(prepaintLanguage('#/inbox?lang=%E0%A4', 'en')).toBe('en');
+    expect(prepaintLanguage('#/inbox?lang=fr&lang=en', 'ar')).toBe('ar');
+    expect(prepaintLanguage('#/inbox?LANG=en', 'ar')).toBe('ar');
+  });
 });
