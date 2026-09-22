@@ -304,17 +304,19 @@ function customFieldOperators(type: string | undefined): readonly string[] {
 
 function customFieldValueControl(state: AppState, type: string, options: readonly string[], key: string): HTMLElement {
   const value = state.dialogForm[key] ?? '';
-  if (type === 'boolean') return selectControl({ act: 'form', form: key, value, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, { value: 'true', label: t(state, 'نعم', 'Yes') }, { value: 'false', label: t(state, 'لا', 'No') }] });
-  if (type === 'single_select') return selectControl({ act: 'form', form: key, value, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, ...options.map((option) => ({ value: option, label: option }))] });
+  const ariaLabel = t(state, 'قيمة الفلتر', 'Filter value');
+  if (type === 'boolean') return selectControl({ act: 'form', form: key, value, ariaLabel, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, { value: 'true', label: t(state, 'نعم', 'Yes') }, { value: 'false', label: t(state, 'لا', 'No') }] });
+  if (type === 'single_select') return selectControl({ act: 'form', form: key, value, ariaLabel, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, ...options.map((option) => ({ value: option, label: option }))] });
   const inputType = type === 'date' ? 'date' : type === 'number' ? 'number' : type === 'email' ? 'email' : type === 'phone' ? 'tel' : 'text';
-  return h('input', { class: 'input', type: inputType, value, placeholder: t(state, 'القيمة', 'Value'), 'data-act': 'form', 'data-form': key, dir: inputType === 'text' ? undefined : 'ltr' });
+  return h('input', { class: 'input', type: inputType, value, placeholder: t(state, 'القيمة', 'Value'), 'aria-label': ariaLabel, 'data-act': 'form', 'data-form': key, dir: inputType === 'text' ? undefined : 'ltr' });
 }
 
 function valueControl(state: AppState, live: LiveState, definition: InboxFilterDefinition, key: string): HTMLElement {
   const value = state.dialogForm[key] ?? '';
+  const ariaLabel = t(state, 'قيمة الفلتر', 'Filter value');
   const enumValues = enumOptions(state, definition.key);
-  if (definition.valueType === 'boolean') return selectControl({ act: 'form', form: key, value, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, { value: 'true', label: t(state, 'نعم', 'Yes') }, { value: 'false', label: t(state, 'لا', 'No') }] });
-  if (enumValues !== null) return selectControl({ act: 'form', form: key, value, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, ...enumValues] });
+  if (definition.valueType === 'boolean') return selectControl({ act: 'form', form: key, value, ariaLabel, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, { value: 'true', label: t(state, 'نعم', 'Yes') }, { value: 'false', label: t(state, 'لا', 'No') }] });
+  if (enumValues !== null) return selectControl({ act: 'form', form: key, value, ariaLabel, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, ...enumValues] });
   const picked = pickerOptions(live, definition);
   if (definition.valueType === 'label_id' && (state.dialogForm['inboxFilterOperator'] === 'in' || state.dialogForm['inboxFilterOperator'] === 'not_in')) {
     const selected = new Set(value.split(',').filter(Boolean));
@@ -329,8 +331,8 @@ function valueControl(state: AppState, live: LiveState, definition: InboxFilterD
       })),
     ]);
   }
-  if (picked !== null) return selectControl({ act: 'form', form: key, value, disabled: picked.length === 0, options: [{ value: '', label: picked.length === 0 ? t(state, 'لا توجد قيم متاحة', 'No available values') : t(state, 'اختر', 'Choose') }, ...picked] });
-  return h('input', { class: 'input', type: definition.valueType === 'date' ? 'date' : 'text', value, placeholder: t(state, 'القيمة', 'Value'), 'data-act': 'form', 'data-form': key, dir: definition.valueType === 'text' || definition.valueType === 'custom_field' ? undefined : 'ltr' });
+  if (picked !== null) return selectControl({ act: 'form', form: key, value, ariaLabel, disabled: picked.length === 0, options: [{ value: '', label: picked.length === 0 ? t(state, 'لا توجد قيم متاحة', 'No available values') : t(state, 'اختر', 'Choose') }, ...picked] });
+  return h('input', { class: 'input', type: definition.valueType === 'date' ? 'date' : 'text', value, placeholder: t(state, 'القيمة', 'Value'), 'aria-label': ariaLabel, 'data-act': 'form', 'data-form': key, dir: definition.valueType === 'text' || definition.valueType === 'custom_field' ? undefined : 'ltr' });
 }
 
 /** Converts server-backed resources into labels before they reach a picker. */
