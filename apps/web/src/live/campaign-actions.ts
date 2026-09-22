@@ -46,10 +46,12 @@ export async function loadCampaignsScreen(context: LiveContext): Promise<void> {
 export async function loadCampaignReport(context: LiveContext): Promise<void> {
   const tenantId = currentTenantId(context.live);
   if (tenantId === null) return;
+  const generation = beginAnalyticsRequest(context);
   const filters = context.state.analyticsFilters;
   context.live.campaignReport = LOADING;
   context.refresh();
   const result = await context.live.campaignsApi.report(tenantId, filters);
+  if (context.live.analyticsRequestGeneration !== generation) return;
   context.live.campaignReport = fromResult(result, context.now());
   if (result.ok && (filters.campaignId === '' || context.live.reportCampaigns.length === 0)) {
     context.live.reportCampaigns = result.data.campaigns.map((campaign) => ({ id: campaign.id, name: campaign.name }));
@@ -61,6 +63,7 @@ export async function loadCampaignReport(context: LiveContext): Promise<void> {
 export async function loadOperationalReport(context: LiveContext): Promise<void> {
   const tenantId = currentTenantId(context.live);
   if (tenantId === null) return;
+  const generation = beginAnalyticsRequest(context);
   context.live.operationalReport = LOADING;
   const optionsLoads: Promise<void>[] = [];
   if (context.live.teams.status === 'idle') {
@@ -84,6 +87,7 @@ export async function loadOperationalReport(context: LiveContext): Promise<void>
     context.live.campaignsApi.operationsReport(tenantId, context.state.analyticsFilters),
     ...optionsLoads,
   ]);
+  if (context.live.analyticsRequestGeneration !== generation) return;
   context.live.operationalReport = fromResult(result, context.now());
   if (result.ok && context.state.analyticsFilters.agentId === '') {
     context.live.operationalAgentOptions = { tenantId, agents: result.data.agents };
@@ -91,8 +95,48 @@ export async function loadOperationalReport(context: LiveContext): Promise<void>
   context.refresh();
 }
 
+export async function loadAssignmentReport(context: LiveContext, append = false): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  const invocation = ++context.live.assignmentRequestGeneration;
+  // The existing scoped report response supplies the picker directory and
+  // filter catalogues; the assignment rows themselves always come from their
+  // own bounded, keyset-paginated endpoint.
+  if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
+  if (context.live.assignmentRequestGeneration !== invocation) return;
+  const generation = beginAnalyticsRequest(context);
+  const cursor = append ? context.live.assignmentNextCursor : null;
+  if (append && cursor === null) return;
+  context.live.assignmentLoadingMore = append;
+  if (!append) {
+    context.live.assignmentReport = LOADING;
+    context.live.assignmentNextCursor = null;
+  }
+  context.refresh();
+  const result = await context.live.campaignsApi.assignmentsReport(tenantId, context.state.analyticsFilters, cursor, 50);
+  if (context.live.analyticsRequestGeneration !== generation || context.live.assignmentRequestGeneration !== invocation) return;
+  context.live.assignmentLoadingMore = false;
+  if (!result.ok) {
+    context.live.assignmentReport = failed(result.error);
+    context.live.assignmentNextCursor = null;
+  } else {
+    const previous = append && context.live.assignmentReport.status === 'ready' ? context.live.assignmentReport.value : [];
+    context.live.assignmentReport = { status: 'ready', value: [...previous, ...result.data.data], loadedAt: context.now() };
+    context.live.assignmentNextCursor = result.data.nextCursor;
+  }
+  context.refresh();
+}
+
 export function loadAnalyticsReport(context: LiveContext): Promise<void> {
-  return context.state.analyticsView === 'operations' ? loadOperationalReport(context) : loadCampaignReport(context);
+  if (context.state.analyticsView === 'operations') return loadOperationalReport(context);
+  if (context.state.analyticsView === 'assignments') return loadAssignmentReport(context);
+  return loadCampaignReport(context);
+}
+
+function beginAnalyticsRequest(context: LiveContext): number {
+  const generation = context.live.analyticsRequestGeneration + 1;
+  context.live.analyticsRequestGeneration = generation;
+  return generation;
 }
 
 export async function createCampaignReportExport(context: LiveContext): Promise<boolean> {

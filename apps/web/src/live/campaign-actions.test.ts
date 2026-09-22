@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Campaign, CampaignReport, CampaignReportExport, CampaignRetry, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
+import type { AssignmentReportRow, Campaign, CampaignReport, CampaignReportExport, CampaignRetry, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
 import type { ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import { createState, NO_ANALYTICS_FILTERS } from '../state.js';
@@ -12,6 +12,7 @@ import {
   createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
+  loadAssignmentReport,
   loadCampaignReport,
   loadCampaignsScreen,
   refreshCampaignReportExport,
@@ -78,6 +79,8 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     testSend: vi.fn().mockResolvedValue(ok(TEST_SEND)),
     recipients: vi.fn().mockResolvedValue(ok([])),
     report: vi.fn().mockResolvedValue(ok(REPORT)),
+    operationsReport: vi.fn().mockResolvedValue(ok({ agents: [], agentOptions: [] })),
+    assignmentsReport: vi.fn().mockResolvedValue(ok({ data: [], nextCursor: null, hasMore: false })),
     createReportExport: vi.fn().mockResolvedValue(ok(EXPORT)),
     reportExport: vi.fn().mockResolvedValue(ok({ ...EXPORT, state: 'completed' })),
   } as unknown as CampaignsApi;
@@ -170,6 +173,72 @@ describe('campaign actions', () => {
     vi.mocked(ready.campaigns.report).mockResolvedValueOnce(fail());
     await LIVE_ACTIONS['live-report-reload']?.(ready.context, '');
     expect(ready.state.live.campaignReport).toEqual({ status: 'error', error: ERROR });
+  });
+
+  it('loads assignment pages independently and appends only the requested cursor page', async () => {
+    const ready = setup();
+    ready.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    vi.mocked(ready.campaigns.assignmentsReport).mockResolvedValueOnce(ok({ data: [{
+      id: 'assignment-1', timestamp: NOW.toISOString(), conversationId: 'conversation-1', customer: 'Mona', action: 'claim',
+      previousAssignee: null, assignedTo: { membershipId: 'member-1', displayName: 'Ahmed' }, actor: null,
+    }], nextCursor: 'cursor-2', hasMore: true }));
+    await loadAssignmentReport(ready.context);
+    expect(ready.campaigns.assignmentsReport).toHaveBeenCalledWith('tenant-1', NO_ANALYTICS_FILTERS, null, 50);
+    expect(ready.state.live.assignmentReport).toMatchObject({ status: 'ready', value: [{ id: 'assignment-1' }] });
+    expect(ready.state.live.assignmentNextCursor).toBe('cursor-2');
+
+    vi.mocked(ready.campaigns.assignmentsReport).mockResolvedValueOnce(ok({ data: [{
+      id: 'assignment-2', timestamp: NOW.toISOString(), conversationId: 'conversation-2', customer: null, action: 'assign',
+      previousAssignee: null, assignedTo: { membershipId: 'member-2', displayName: 'Sara' }, actor: null,
+    }], nextCursor: null, hasMore: false }));
+    await loadAssignmentReport(ready.context, true);
+    expect(ready.campaigns.assignmentsReport).toHaveBeenLastCalledWith('tenant-1', NO_ANALYTICS_FILTERS, 'cursor-2', 50);
+    expect(ready.state.live.assignmentReport).toMatchObject({ status: 'ready', value: [{ id: 'assignment-1' }, { id: 'assignment-2' }] });
+    expect(ready.state.live.assignmentNextCursor).toBeNull();
+  });
+
+  it('loads the selected assignment tab and preserves its report URL state', async () => {
+    const ready = setup();
+    ready.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    ready.state.route = { ...ready.state.route, params: { lang: 'en', agent: 'membership-1' } };
+    await expect(LIVE_ACTIONS['analytics-view']?.(ready.context, 'assignments')).resolves.toBe(true);
+    expect(ready.state.analyticsView).toBe('assignments');
+    expect(ready.state.route.params).toEqual({ lang: 'en', agent: 'membership-1', view: 'assignments' });
+    expect(ready.campaigns.assignmentsReport).toHaveBeenCalledOnce();
+  });
+
+  it('does not let an older assignments response overwrite the current filter request', async () => {
+    const ready = setup();
+    ready.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    let resolveFirst: ((result: ApiResult<{ data: readonly AssignmentReportRow[]; nextCursor: string | null; hasMore: boolean }>) => void) | undefined;
+    const staleRow: AssignmentReportRow = { id: 'stale', timestamp: NOW.toISOString(), conversationId: 'c-stale', customer: null, action: 'claim', previousAssignee: null, assignedTo: { membershipId: 'member', displayName: 'Ahmed' }, actor: null };
+    const latestRow: AssignmentReportRow = { ...staleRow, id: 'latest', conversationId: 'c-latest' };
+    vi.mocked(ready.campaigns.assignmentsReport)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce(ok({ data: [latestRow], nextCursor: null, hasMore: false }));
+    const first = loadAssignmentReport(ready.context);
+    ready.state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, from: '2026-09-01' };
+    await loadAssignmentReport(ready.context);
+    resolveFirst?.(ok({ data: [staleRow], nextCursor: null, hasMore: false }));
+    await first;
+    expect(ready.state.live.assignmentReport).toMatchObject({ status: 'ready', value: [latestRow] });
+  });
+
+  it('prevents an older report filter response replacing the latest selected filters', async () => {
+    const ready = setup();
+    let resolveFirst: ((result: ApiResult<CampaignReport>) => void) | undefined;
+    let resolveSecond: ((result: ApiResult<CampaignReport>) => void) | undefined;
+    vi.mocked(ready.campaigns.report)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    const first = loadCampaignReport(ready.context);
+    ready.state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, from: '2026-09-01' };
+    const second = loadCampaignReport(ready.context);
+    resolveSecond?.(ok({ ...REPORT, generated_at: 'newer' } as CampaignReport));
+    await second;
+    resolveFirst?.(ok({ ...REPORT, generated_at: 'older' } as CampaignReport));
+    await first;
+    expect(ready.state.live.campaignReport).toMatchObject({ status: 'ready', value: { generated_at: 'newer' } });
   });
 
   it('queues a test only after the server commits and keeps a refusal in the dialog', async () => {

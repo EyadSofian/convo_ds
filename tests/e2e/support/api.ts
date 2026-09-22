@@ -525,6 +525,16 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     if (path.endsWith('/reports/campaigns')) {
       return json(route, { data: campaignReport(), request_id: 'e2e' });
     }
+    if (path.endsWith('/reports/operations')) {
+      return json(route, { data: { agentOptions: [], agents: [] }, request_id: 'e2e' });
+    }
+    if (path.endsWith('/reports/assignments')) {
+      const secondPage = new URL(route.request().url()).searchParams.has('cursor');
+      const item = secondPage
+        ? { id: 'audit-2', timestamp: '2026-09-08T09:00:00.000Z', conversationId: CONVERSATION, customer: 'Mona Khalil', action: 'assign', previousAssignee: null, assignedTo: { membershipId: MEMBERSHIP, displayName: 'Ahmed Fouad' }, actor: null }
+        : { id: 'audit-1', timestamp: '2026-09-09T09:00:00.000Z', conversationId: CONVERSATION, customer: 'Mona Khalil', action: 'claim', previousAssignee: null, assignedTo: { membershipId: MEMBERSHIP, displayName: 'Ahmed Fouad' }, actor: { membershipId: MEMBERSHIP, displayName: 'Ahmed Fouad' } };
+      return json(route, { data: [item], page: { next_cursor: secondPage ? null : 'e2e-cursor-page-2', has_more: !secondPage }, request_id: 'e2e' });
+    }
     if (path.endsWith('/automation-templates')) {
       return json(route, paged(automationTemplates()));
     }

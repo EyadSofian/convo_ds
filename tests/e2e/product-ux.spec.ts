@@ -43,6 +43,7 @@ test.describe('focused product UX repairs', () => {
 
     await page.locator('.nav__item[data-arg="settings"]').click();
     await expect(page.locator('.settings-section')).toHaveCount(4);
+    await expect(page.locator('.settings-section').first()).toBeVisible();
     const settingsWidth = await page.locator('.settings-section').first().boundingBox();
     expect(settingsWidth?.width).toBeCloseTo(pageWidth?.width ?? 0, 0);
   });

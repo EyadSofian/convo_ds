@@ -175,6 +175,14 @@ describe('URL round-trip', () => {
     expect(state.analyticsFilters).toEqual({ ...NO_ANALYTICS_FILTERS, to: '2026-09-10' });
   });
 
+  it('round-trips assignment reports and their safe filter dimensions in the URL', () => {
+    const state = createState(NOW);
+    applyRoute(state, parseHash('#/analytics?view=assignments&lang=en&from=2026-09-01&agentFilter=00000000-0000-4000-8000-000000000001&channel=whatsapp'));
+    expect(state.analyticsView).toBe('assignments');
+    expect(state.analyticsFilters).toMatchObject({ from: '2026-09-01', agentId: '00000000-0000-4000-8000-000000000001', channel: 'whatsapp' });
+    expect(routeParamsFor(state)).toMatchObject({ view: 'assignments', lang: 'en', from: '2026-09-01', agentFilter: '00000000-0000-4000-8000-000000000001', channel: 'whatsapp' });
+  });
+
   it('does not let an omitted or invalid route language erase the current preference', () => {
     const state = createState(NOW);
     state.lang = 'en';

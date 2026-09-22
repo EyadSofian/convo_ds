@@ -204,6 +204,7 @@ describe('pinned OpenAPI contract', () => {
       "testSendCampaign",
       "getCampaignReport",
       "getOperationalReport",
+      "getAssignmentReport",
       "retryCampaignFailures",
       "createCampaignReportExport",
       "getCampaignReportExport",

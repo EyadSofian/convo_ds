@@ -589,4 +589,28 @@ test.describe('Analytics', () => {
     await expect(page.locator('[data-export]')).toHaveAttribute('data-export', 'expired');
     await expect(page.locator('[data-export-ready]')).toHaveCount(0);
   });
+
+  test('opens the paginated Assignments report, loads its next page, and fits on a phone', async ({ page }) => {
+    await openScreen(page, 'analytics');
+    await page.route('**/reports/operations*', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { agentOptions: [], agents: [] }, request_id: 'e2e' }),
+    }));
+    await page.route('**/reports/assignments*', (route) => {
+      const secondPage = new URL(route.request().url()).searchParams.has('cursor');
+      const item = secondPage
+        ? { id: 'audit-2', timestamp: '2026-09-08T09:00:00.000Z', conversationId: 'conversation-1', customer: 'Mona Khalil', action: 'assign', previousAssignee: null, assignedTo: { membershipId: 'member-1', displayName: 'Ahmed Fouad' }, actor: null }
+        : { id: 'audit-1', timestamp: '2026-09-09T09:00:00.000Z', conversationId: 'conversation-1', customer: 'Mona Khalil', action: 'claim', previousAssignee: null, assignedTo: { membershipId: 'member-1', displayName: 'Ahmed Fouad' }, actor: { membershipId: 'member-1', displayName: 'Ahmed Fouad' } };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [item], page: { next_cursor: secondPage ? null : 'e2e-cursor-page-2', has_more: !secondPage }, request_id: 'e2e' }) });
+    });
+    await page.locator('[data-act="analytics-view"][data-arg="assignments"]').click();
+    await expect(page.locator('[data-assignment-id="audit-1"]')).toBeVisible();
+    await expect(page.locator('thead')).toContainText('المحادثة / العميل');
+    await page.locator('[data-act="live-assignments-more"]').click();
+    await expect(page.locator('[data-assignment-id="audit-2"]')).toBeVisible();
+    await expect(page.locator('[data-assignment-id]')).toHaveCount(2);
+    await page.setViewportSize({ width: 430, height: 900 });
+    expect(await overflowsHorizontally(page)).toBe(false);
+    await setDirection(page, 'rtl');
+    expect(await overflowsHorizontally(page)).toBe(false);
+  });
 });

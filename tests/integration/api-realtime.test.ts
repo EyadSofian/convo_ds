@@ -2272,6 +2272,78 @@ describe('supervisor inbox lens', () => {
     expect(data.agents).toEqual(expect.arrayContaining([expect.objectContaining({ membershipId: secondAgentAMembershipId, firstResponses: 0, resolutions: 0 })]));
   });
 
+  it('pages assignment events by immutable ownership changes with filter-bound cursors', async () => {
+    const peer = '15557000939';
+    await customerWrites(INBOX_A, peer, 'تعيين للاختبار', 'wamid.rt-assignment-report');
+    const id = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE peer_identity=$1', [peer],
+    ))).rows[0]!.id;
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`
+      INSERT INTO conversation_audit (tenant_id,conversation_id,actor_membership_id,act,from_value,to_value,at_version,at)
+      VALUES ($1,$2,NULL,'claim',NULL,$3,2,'2026-09-01T10:00:00Z'),
+             ($1,$2,NULL,'assign',$3,$4,3,'2026-09-01T11:00:00Z'),
+             ($1,$2,NULL,'handoff',$3,$4,4,'2026-09-01T12:00:00Z'),
+             ($1,$2,NULL,'handoff_requested',$4,$3,5,'2026-09-01T13:00:00Z'),
+             ($1,$2,NULL,'handoff_declined',$4,$3,6,'2026-09-01T14:00:00Z')`,
+    [api.tenantId, id, agentAMembershipId, agentBMembershipId]));
+
+    const first = await send(api, owner, 'GET', `/reports/assignments?agentId=${agentBMembershipId}&limit=1`);
+    expect(first.statusCode, first.payload).toBe(200);
+    const firstPage = first.json() as { data: { id: string; conversationId: string; action: string; assignedTo: { membershipId: string } }[]; page: { next_cursor: string | null; has_more: boolean } };
+    expect(firstPage.data).toHaveLength(1);
+    expect(firstPage.data[0]).toMatchObject({ conversationId: id, action: 'handoff', assignedTo: { membershipId: agentBMembershipId } });
+    expect(firstPage.page.has_more).toBe(true);
+    expect(firstPage.page.next_cursor).toBeTruthy();
+
+    const second = await send(api, owner, 'GET', `/reports/assignments?agentId=${agentBMembershipId}&limit=1&cursor=${encodeURIComponent(firstPage.page.next_cursor!)}`);
+    expect(second.statusCode, second.payload).toBe(200);
+    const secondPage = second.json() as { data: { id: string; action: string; assignedTo: { membershipId: string } }[]; page: { next_cursor: string | null; has_more: boolean } };
+    expect(secondPage.data).toHaveLength(1);
+    expect(secondPage.data[0]).toMatchObject({ conversationId: id, action: 'assign', assignedTo: { membershipId: agentBMembershipId } });
+    expect(secondPage.page.has_more).toBe(false);
+    // The filter selects the target, so the preceding claim to Agent A is
+    // excluded; ownership offer/decline rows are not assignment events.
+    expect((await send(api, owner, 'GET', `/reports/assignments?agentId=${agentBMembershipId}&limit=1&cursor=bad`)).statusCode).toBe(400);
+    expect((await send(api, owner, 'GET', `/reports/assignments?agentId=${agentAMembershipId}&limit=1&cursor=${encodeURIComponent(firstPage.page.next_cursor!)}`)).statusCode).toBe(400);
+    expect((await send(api, owner, 'GET', '/reports/assignments?limit=101')).statusCode).toBe(400);
+  });
+
+  it('applies Inbox-readable scope before assignment keyset limits', async () => {
+    const peerA = '15557000940';
+    const peerB = '15557000941';
+    await customerWrites(INBOX_A, peerA, 'داخل نطاق الصندوق', 'wamid.rt-assignment-scope-a');
+    await customerWrites(INBOX_B, peerB, 'خارج نطاق الصندوق', 'wamid.rt-assignment-scope-b');
+    const ids = await withTenant(api.pool, api.tenantId, async (client) => {
+      const rows = await client.query<{ peer_identity: string; id: string }>(
+        'SELECT peer_identity,id::text FROM conversations WHERE peer_identity=ANY($1::text[])', [[peerA, peerB]],
+      );
+      return new Map(rows.rows.map((row) => [row.peer_identity, row.id]));
+    });
+    const readableConversationId = ids.get(peerA)!;
+    const unreadableConversationId = ids.get(peerB)!;
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`
+      INSERT INTO conversation_audit (tenant_id,conversation_id,actor_membership_id,act,from_value,to_value,at_version,at)
+      VALUES ($1,$2,NULL,'claim',NULL,$4,20,'2026-08-25T10:00:00Z'),
+             ($1,$2,NULL,'assign',$4,$5,21,'2026-08-25T09:00:00Z'),
+             ($1,$3,NULL,'claim',NULL,$5,20,'2026-08-25T15:00:00Z'),
+             ($1,$3,NULL,'assign',$5,$4,21,'2026-08-25T14:00:00Z')`,
+    [api.tenantId, readableConversationId, unreadableConversationId, agentAMembershipId, agentBMembershipId]));
+    await addMember(api, 'assignment-inbox-reader@realtime.test', 'supervisor', [{ type: 'inbox', id: inboxA }]);
+    const inboxReader = await login(api, 'assignment-inbox-reader@realtime.test', MEMBER_PASSWORD);
+    const first = await send(api, inboxReader, 'GET', '/reports/assignments?from=2026-08-25&to=2026-08-25&limit=1');
+    expect(first.statusCode, first.payload).toBe(200);
+    const firstPage = first.json() as { data: { conversationId: string }[]; page: { next_cursor: string | null } };
+    expect(firstPage.data).toHaveLength(1);
+    expect(firstPage.data[0]?.conversationId).toBe(readableConversationId);
+    expect(firstPage.page.next_cursor).toBeTruthy();
+    const second = await send(api, inboxReader, 'GET', `/reports/assignments?from=2026-08-25&to=2026-08-25&limit=1&cursor=${encodeURIComponent(firstPage.page.next_cursor!)}`);
+    expect(second.statusCode, second.payload).toBe(200);
+    const secondPage = second.json() as { data: { conversationId: string }[]; page: { has_more: boolean } };
+    expect(secondPage.data).toHaveLength(1);
+    expect(secondPage.data[0]?.conversationId).toBe(readableConversationId);
+    expect(secondPage.page.has_more).toBe(false);
+  });
+
   it('keeps resolved and archived records out of the selected agent’s current workload', async () => {
     // A fresh, in-scope agent makes the projection deterministic even though
     // the wider realtime suite has already exercised agent A's live queue.

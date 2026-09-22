@@ -16,7 +16,7 @@ import type {
 import { INBOX_QUERY_DEFAULT, type InboxQuery } from '@convo/domain';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
-import type { Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport } from '../api/campaigns.js';
+import type { AssignmentReportRow, Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport } from '../api/campaigns.js';
 import { disconnectedCampaignsApi } from '../api/campaigns.js';
 import {
   DEFAULT_AUTOMATION_LIST_QUERY,
@@ -225,6 +225,12 @@ export interface LiveState {
   campaignRecipients: Resource<readonly CampaignRecipient[]>;
   campaignReport: Resource<CampaignReport>;
   operationalReport: Resource<OperationalReport>;
+  assignmentReport: Resource<readonly AssignmentReportRow[]>;
+  assignmentNextCursor: string | null;
+  assignmentLoadingMore: boolean;
+  assignmentRequestGeneration: number;
+  /** Monotonic guard so a slower response for an old filter cannot replace newer data. */
+  analyticsRequestGeneration: number;
   operationalAgentOptions: { readonly tenantId: string; readonly agents: OperationalReport['agents'] } | null;
   /** The campaigns the Analytics campaign filter can offer. */
   reportCampaigns: readonly { readonly id: string; readonly name: string }[];
@@ -331,6 +337,11 @@ export function createLiveState(
     campaignRecipients: IDLE,
     campaignReport: IDLE,
     operationalReport: IDLE,
+    assignmentReport: IDLE,
+    assignmentNextCursor: null,
+    assignmentLoadingMore: false,
+    assignmentRequestGeneration: 0,
+    analyticsRequestGeneration: 0,
     operationalAgentOptions: null,
     reportCampaigns: [],
     campaignReportExport: IDLE,

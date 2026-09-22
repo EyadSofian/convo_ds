@@ -155,6 +155,37 @@ describe('operational analytics', () => {
   });
 });
 
+describe('assignment analytics', () => {
+  it('renders a server-paged ownership log with a real conversation action and load-more state', () => {
+    const state = screen();
+    state.analyticsView = 'assignments';
+    state.live.assignmentReport = { status: 'ready', loadedAt: 1, value: [{
+      id: 'audit-1', timestamp: NOW.toISOString(), conversationId: 'conversation-1', customer: 'Mona', action: 'handoff',
+      previousAssignee: { membershipId: 'member-a', displayName: 'Ahmed' },
+      assignedTo: { membershipId: 'member-b', displayName: 'Sara' }, actor: null,
+    }] };
+    state.live.assignmentNextCursor = 'opaque-cursor';
+    const root = renderAnalytics(state);
+    expect(root.textContent).toContain('Ownership changes');
+    expect(root.textContent).toContain('Handoff');
+    expect(root.textContent).toContain('Ahmed');
+    expect(root.textContent).toContain('Sara');
+    expect(root.textContent).toContain('System');
+    expect(root.querySelector('th[scope="col"]')?.textContent).toBe('Time');
+    expect(root.querySelector('[data-act="live-inbox-open"][data-arg="conversation-1"]')).not.toBeNull();
+    expect(root.querySelector('[data-act="live-assignments-more"]')).not.toBeNull();
+  });
+
+  it('does not display stale assignment rows while the active filter query is loading', () => {
+    const state = screen();
+    state.analyticsView = 'assignments';
+    state.live.assignmentReport = { status: 'loading' };
+    const root = renderAnalytics(state);
+    expect(root.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(root.querySelector('[data-assignment-id]')).toBeNull();
+  });
+});
+
 describe('a failed report', () => {
   it('says what failed with its request id, and offers a retry', () => {
     const state = screen(null);

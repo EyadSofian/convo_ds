@@ -335,7 +335,7 @@ function currentConversationDimensions(conversation: string, channel: string): s
     AND (p.team_id IS NULL OR ${conversation}.team_id=p.team_id)`;
 }
 
-async function validateReportEntities(
+export async function validateReportEntities(
   sql: SqlExecutor,
   principal: Principal,
   filters: OperationalReportFilters,

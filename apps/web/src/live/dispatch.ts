@@ -46,6 +46,7 @@ import {
   createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
+  loadAssignmentReport,
   loadAnalyticsReport,
   loadCampaignsScreen,
   refreshCampaignReportExport,
@@ -378,6 +379,17 @@ export function metadataFieldValue(target: string, entityId: string, fieldId: st
 }
 
 export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
+  'analytics-view': async (context, arg) => {
+    if (arg !== 'campaigns' && arg !== 'operations' && arg !== 'assignments') return false;
+    context.state.analyticsView = arg;
+    const params = { ...context.state.route.params };
+    if (arg === 'campaigns') delete params.view;
+    else params.view = arg;
+    context.state.route = { ...context.state.route, params };
+    await loadAnalyticsReport(context);
+    return true;
+  },
+
   'live-request-recovery': async (context) => {
     if (context.live.busy !== null) return false;
     const email = form(context, 'recoveryEmail');
@@ -656,6 +668,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-report-reload': async (context) => loadAnalyticsReport(context),
+  'live-assignments-more': async (context) => loadAssignmentReport(context, true),
   'live-report-export': async (context) => createCampaignReportExport(context),
   'live-report-export-refresh': async (context) => refreshCampaignReportExport(context),
 

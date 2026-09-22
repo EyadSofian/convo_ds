@@ -6246,6 +6246,37 @@
         "responses": { "200": { "description": "Operational report computed within caller-readable conversation scope" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
+    "/tenants/{tenantId}/reports/assignments": {
+      "get": {
+        "operationId": "getAssignmentReport",
+        "summary": "List ownership-changing assignment events within caller-readable scope",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "from", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "agentId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" }, "description": "Assignment target membership UUID." },
+          { "name": "teamId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" }, "description": "Current team membership of the assignment target." },
+          { "name": "channel", "in": "query", "required": false, "schema": { "$ref": "#/components/schemas/ChannelKind" } },
+          { "name": "connectionId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "labelId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" }, "description": "Current conversation label." },
+          { "name": "campaignId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" }, "description": "Durable conversation attribution, not causal credit." },
+          { "name": "priority", "in": "query", "required": false, "schema": { "type": "string", "enum": ["low", "normal", "high", "urgent"] } },
+          { "name": "status", "in": "query", "required": false, "schema": { "type": "string", "enum": ["open", "pending", "snoozed", "resolved", "archived"] } },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 4096 }, "description": "Opaque cursor bound to tenant, filters, and descending timestamp/id order." },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } }
+        ],
+        "responses": {
+          "200": { "description": "A page of readable assignment events, filtered before keyset pagination." },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/campaigns/{campaignId}/retry": {
       "post": {
         "operationId": "retryCampaignFailures",

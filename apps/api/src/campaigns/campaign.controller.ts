@@ -8,6 +8,7 @@ import { CampaignReportExportService } from './report-export.service.js';
 import { CampaignService } from './campaign.service.js';
 import { CampaignReportingService } from './reporting.service.js';
 import { OperationalReportingService, parseOperationalReportFilters } from './operational-report.service.js';
+import { AssignmentReportService, parseAssignmentReportQuery } from './assignment-report.service.js';
 
 @Controller()
 export class CampaignController {
@@ -16,6 +17,7 @@ export class CampaignController {
     @Inject(CampaignService) private readonly campaigns: CampaignService,
     @Inject(CampaignReportingService) private readonly reporting: CampaignReportingService,
     @Inject(OperationalReportingService) private readonly operationalReporting: OperationalReportingService,
+    @Inject(AssignmentReportService) private readonly assignments: AssignmentReportService,
     @Inject(CampaignReportExportService) private readonly exports: CampaignReportExportService,
   ) {}
 
@@ -36,6 +38,13 @@ export class CampaignController {
   async operationsReport(@Param('tenantId') tenantId: string, @Query() query: unknown, @Req() request: FastifyRequest) {
     const session = await this.auth.authenticate(request.headers.cookie);
     return { data: await this.operationalReporting.report(session, tenantId, parseOperationalReportFilters(query)), request_id: request.id };
+  }
+
+  @Get('tenants/:tenantId/reports/assignments')
+  async assignmentReport(@Param('tenantId') tenantId: string, @Query() query: unknown, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const result = await this.assignments.page(session, tenantId, parseAssignmentReportQuery(query));
+    return pageEnvelope(result.items, result.nextCursor, request.id);
   }
 
   @Post('tenants/:tenantId/reports/campaigns/exports')

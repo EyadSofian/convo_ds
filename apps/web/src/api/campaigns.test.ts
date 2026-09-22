@@ -111,6 +111,29 @@ describe('CampaignsApi', () => {
     ]);
   });
 
+  it('requests assignment pages with the shared filters and preserves the opaque cursor', async () => {
+    const paths: string[] = [];
+    const api = new CampaignsApi(new ApiClient({
+      baseUrl: '/api/v1',
+      fetch: (path) => {
+        paths.push(String(path));
+        return Promise.resolve(new Response(JSON.stringify({ data: [], page: { next_cursor: 'opaque.next', has_more: true } }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        }));
+      },
+      readCsrfToken: () => 'csrf',
+    }));
+    const filters = { from: '2026-09-01', to: '2026-09-09', agentId: '', teamId: '00000000-0000-4000-8000-000000000001', channel: 'whatsapp', connectionId: '', labelId: '', campaignId: '', priority: '', status: '' };
+    const first = await api.assignmentsReport('tenant-1', filters, null, 1);
+    expect(first).toMatchObject({ ok: true, data: { data: [], nextCursor: 'opaque.next', hasMore: true } });
+    const second = await api.assignmentsReport('tenant-1', filters, 'opaque.next', 1);
+    expect(second.ok).toBe(true);
+    expect(paths).toEqual([
+      '/api/v1/tenants/tenant-1/reports/assignments?from=2026-09-01&to=2026-09-09&teamId=00000000-0000-4000-8000-000000000001&channel=whatsapp&limit=1',
+      '/api/v1/tenants/tenant-1/reports/assignments?from=2026-09-01&to=2026-09-09&teamId=00000000-0000-4000-8000-000000000001&channel=whatsapp&cursor=opaque.next&limit=1',
+    ]);
+  });
+
   it('has an honest disconnected default', async () => {
     const api = disconnectedCampaignsApi();
     const result = await api.list('tenant-1');

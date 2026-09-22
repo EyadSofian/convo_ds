@@ -5,6 +5,7 @@ main.app__screen
         div.segmented
           button.segmented__item [analytics-view]
           button.segmented__item [analytics-view]
+          button.segmented__item [analytics-view]
         div.filterbar
           div.filterbar__fields
             label.field.field--compact

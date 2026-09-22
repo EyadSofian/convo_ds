@@ -1,4 +1,4 @@
-import { API_BASE_URL, ApiClient, type ApiResult } from './client.js';
+import { API_BASE_URL, ApiClient, type ApiResult, type PagedData } from './client.js';
 
 export type CampaignState = 'draft' | 'validating' | 'ready' | 'scheduled' | 'running' |
   'pausing' | 'paused' | 'dispatch_completed' | 'cancelling' | 'cancelled' | 'failed';
@@ -190,6 +190,17 @@ export interface OperationalReportFilterInput {
   readonly status: string;
 }
 
+export interface AssignmentReportRow {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly conversationId: string;
+  readonly customer: string | null;
+  readonly action: 'claim' | 'assign' | 'handoff';
+  readonly previousAssignee: { readonly membershipId: string; readonly displayName: string } | null;
+  readonly assignedTo: { readonly membershipId: string; readonly displayName: string };
+  readonly actor: { readonly membershipId: string; readonly displayName: string } | null;
+}
+
 export interface CreateCampaignInput {
   readonly name: string;
   readonly objective: string | null;
@@ -256,19 +267,15 @@ export class CampaignsApi {
     return this.client.get(`/tenants/${tenantId}/reports/campaigns${suffix}`);
   }
   operationsReport(tenantId: string, filters: OperationalReportFilterInput): Promise<ApiResult<OperationalReport>> {
-    const query = new URLSearchParams();
-    if (filters.from !== '') query.set('from', filters.from);
-    if (filters.to !== '') query.set('to', filters.to);
-    if (filters.agentId !== '') query.set('agentId', filters.agentId);
-    if (filters.teamId !== '') query.set('teamId', filters.teamId);
-    if (filters.channel !== '') query.set('channel', filters.channel);
-    if (filters.connectionId !== '') query.set('connectionId', filters.connectionId);
-    if (filters.labelId !== '') query.set('labelId', filters.labelId);
-    if (filters.campaignId !== '') query.set('campaignId', filters.campaignId);
-    if (filters.priority !== '') query.set('priority', filters.priority);
-    if (filters.status !== '') query.set('status', filters.status);
+    const query = reportFilterQuery(filters);
     const suffix = query.size === 0 ? '' : `?${query.toString()}`;
     return this.client.get(`/tenants/${tenantId}/reports/operations${suffix}`);
+  }
+  assignmentsReport(tenantId: string, filters: OperationalReportFilterInput, cursor: string | null = null, limit = 50): Promise<ApiResult<PagedData<AssignmentReportRow>>> {
+    const query = reportFilterQuery(filters);
+    if (cursor !== null) query.set('cursor', cursor);
+    query.set('limit', String(limit));
+    return this.client.page(`/tenants/${tenantId}/reports/assignments?${query.toString()}`);
   }
   createReportExport(tenantId: string, campaignId: string | null, key: string): Promise<ApiResult<CampaignReportExport>> {
     return this.client.post(`/tenants/${tenantId}/reports/campaigns/exports`, {
@@ -278,6 +285,15 @@ export class CampaignsApi {
   reportExport(tenantId: string, exportId: string): Promise<ApiResult<CampaignReportExport>> {
     return this.client.get(`/tenants/${tenantId}/reports/campaigns/exports/${exportId}`);
   }
+}
+
+function reportFilterQuery(filters: OperationalReportFilterInput): URLSearchParams {
+  const query = new URLSearchParams();
+  for (const key of ['from','to','agentId','teamId','channel','connectionId','labelId','campaignId','priority','status'] as const) {
+    const value = filters[key];
+    if (value !== '') query.set(key, value);
+  }
+  return query;
 }
 
 export function disconnectedCampaignsApi(): CampaignsApi {

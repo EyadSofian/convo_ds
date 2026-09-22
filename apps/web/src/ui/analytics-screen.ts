@@ -1,4 +1,4 @@
-import type { CampaignReport, CampaignReportExport, CampaignReportTrendDay, OperationalReport } from '../api/campaigns.js';
+import type { AssignmentReportRow, CampaignReport, CampaignReportExport, CampaignReportTrendDay, OperationalReport } from '../api/campaigns.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, formatNumber, numberFormat } from '../format.js';
@@ -45,6 +45,7 @@ function stamp(state: AppState, iso: string): string {
 }
 
 export function renderAnalytics(state: AppState): HTMLElement {
+  if (state.analyticsView === 'assignments') return renderAssignments(state);
   if (state.analyticsView === 'operations') return renderOperations(state);
   const resource = state.live.campaignReport;
   const report = resource.status === 'ready' ? resource.value : null;
@@ -63,9 +64,47 @@ function analyticsHeader(state: AppState, filters: HTMLElement): HTMLElement {
     segmented([
       { value: 'campaigns', label: t(state, 'الحملات', 'Campaigns') },
       { value: 'operations', label: t(state, 'التشغيل', 'Operations') },
+      { value: 'assignments', label: t(state, 'الإسنادات', 'Assignments') },
     ], state.analyticsView, 'analytics-view', t(state, 'نوع التقرير', 'Report type')),
     filters,
   ]);
+}
+
+function renderAssignments(state: AppState): HTMLElement {
+  const resource = state.live.assignmentReport;
+  const rows = resource.status === 'ready' ? resource.value : [];
+  const bar = operationsFilterBar(state, state.live.operationalReport.status === 'ready' ? state.live.operationalReport.value : null,
+    resource.status === 'loading' || state.live.assignmentLoadingMore);
+  const body: Child[] = [];
+  if (resource.status === 'idle' || resource.status === 'loading') body.push(skeleton(state, 3));
+  else if (resource.status === 'error') body.push(errorState(state, resource.error, 'live-report-reload'));
+  else if (rows.length === 0) body.push(emptyState({ icon: 'people', title: t(state, 'لا توجد إسنادات في هذا النطاق', 'No assignments in this scope'), body: t(state, 'ستظهر هنا تغييرات الملكية المسجلة ضمن نطاق القراءة.', 'Ownership-changing events in your readable scope will appear here.') }));
+  else body.push(assignmentTable(state, rows));
+  if (resource.status === 'ready' && state.live.assignmentNextCursor !== null) {
+    body.push(button({ label: t(state, 'تحميل المزيد', 'Load more'), act: 'live-assignments-more', small: true, busy: state.live.assignmentLoadingMore }));
+  }
+  return page('analytics', analyticsHeader(state, bar), body);
+}
+
+function assignmentTable(state: AppState, rows: readonly AssignmentReportRow[]): HTMLElement {
+  const labels = [t(state, 'الوقت', 'Time'), t(state, 'المحادثة / العميل', 'Conversation / customer'), t(state, 'الإجراء', 'Action'), t(state, 'من', 'From'), t(state, 'إلى', 'To'), t(state, 'بواسطة', 'Actor')];
+  return panel(t(state, 'سجل تغييرات الملكية', 'Ownership changes'), [h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+    h('thead', {}, [h('tr', {}, labels.map((label) => h('th', { scope: 'col' }, [label])))]),
+    h('tbody', {}, rows.map((row) => h('tr', { 'data-assignment-id': row.id }, [
+      h('td', { dir: 'ltr' }, [stamp(state, row.timestamp)]),
+      h('td', {}, [button({ label: row.customer ?? t(state, 'فتح المحادثة', 'Open conversation'), act: 'live-inbox-open', arg: row.conversationId, small: true, variant: 'ghost' })]),
+      h('td', {}, [assignmentActionLabel(state, row.action)]),
+      h('td', {}, [row.previousAssignee?.displayName ?? t(state, 'غير معيّن', 'Unassigned')]),
+      h('td', {}, [row.assignedTo.displayName]),
+      h('td', {}, [row.actor?.displayName ?? t(state, 'النظام', 'System')]),
+    ]))),
+  ])])], { flush: true });
+}
+
+function assignmentActionLabel(state: AppState, action: AssignmentReportRow['action']): string {
+  if (action === 'claim') return t(state, 'استلام', 'Claim');
+  if (action === 'handoff') return t(state, 'تسليم ملكية', 'Handoff');
+  return t(state, 'إسناد', 'Assign');
 }
 
 function renderOperations(state: AppState): HTMLElement {
