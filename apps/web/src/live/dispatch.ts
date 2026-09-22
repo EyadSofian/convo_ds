@@ -33,7 +33,7 @@ import {
   setPriority,
   settleHandoff,
 } from './routing-actions.js';
-import { createField, createLabel, retireLabel, setEntityLabel, setFieldValue, updateLabel } from './metadata-actions.js';
+import { createAndAssignLabel, createField, createLabel, retireLabel, setEntityLabel, setFieldValue, updateLabel } from './metadata-actions.js';
 import { rowsOf } from './store.js';
 import { setSimpleFilter } from './inbox-query.js';
 import { INBOX_FILTER_CATALOGUE, INBOX_SORTS, type InboxFilter, type InboxSort } from '@convo/domain';
@@ -58,9 +58,13 @@ import {
   addAutomationStep,
   createBlankAutomation,
   deleteAutomationDraft,
+  loadAutomationPage,
+  loadAutomationRunsPage,
   loadAutomationsScreen,
   removeAutomationStep,
   saveAutomation,
+  setAutomationQuery,
+  setAutomationRunsQuery,
   transitionAutomation,
   useAutomationTemplate,
 } from './automation-actions.js';
@@ -193,6 +197,25 @@ export function splitArg(arg: string): { readonly id: string; readonly value: st
   return separator === -1
     ? { id: arg, value: '' }
     : { id: arg.slice(0, separator), value: arg.slice(separator + 1) };
+}
+
+function asAutomationState(value: string): '' | 'draft' | 'active' | 'paused' | 'archived' {
+  return value === 'draft' || value === 'active' || value === 'paused' || value === 'archived' ? value : '';
+}
+
+function asAutomationSort(value: string): 'updated_desc' | 'name_asc' | 'name_desc' {
+  return value === 'name_asc' || value === 'name_desc' ? value : 'updated_desc';
+}
+
+function validLabelColor(context: LiveContext): string | null {
+  const color = form(context, 'labelColor').trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(color)) {
+    delete context.state.formErrors['labelColor'];
+    return color.toUpperCase();
+  }
+  context.state.formErrors = { ...context.state.formErrors, labelColor: text(context, 'استخدم لون HEX مثل #3B82F6.', 'Use a HEX colour such as #3B82F6.') };
+  context.refresh();
+  return null;
 }
 
 /** The fields the transition forms own, cleared whenever one opens or closes. */
@@ -474,7 +497,22 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-automation-add-step': async (context, arg) => addAutomationStep(context, arg),
   'live-automation-remove-step': async (context, arg) => removeAutomationStep(context, arg),
   'live-automation-transition': async (context, arg) => transitionAutomation(context, arg),
-  'live-automation-delete': async (context, arg) => deleteAutomationDraft(context, arg),
+  'live-automation-delete-confirm': async (context, arg) => {
+    const deleted = await deleteAutomationDraft(context, arg);
+    if (deleted) context.state.dialog = null;
+    return deleted;
+  },
+  'live-automation-filter': async (context) => setAutomationQuery(context, {
+    search: (context.state.dialogForm['automationSearch'] ?? '').trim(),
+    state: asAutomationState(context.state.dialogForm['automationState'] ?? ''),
+    sort: asAutomationSort(context.state.dialogForm['automationSort'] ?? 'updated_desc'),
+    limit: 25,
+  }),
+  'live-automation-load-more': async (context) => loadAutomationPage(context, false),
+  'live-automation-runs-filter': async (context) => setAutomationRunsQuery(context, {
+    limit: context.state.dialogForm['automationRunsLimit'] === '50' ? 50 : 25,
+  }),
+  'live-automation-runs-load-more': async (context) => loadAutomationRunsPage(context, false),
 
   'live-campaign-create': async (context) => {
     const name = form(context, 'campaignName');
@@ -931,7 +969,9 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-workspace-label-create': async (context) => {
-    const ok = await createLabel(context, form(context, 'labelName'), form(context, 'labelColor') || '#3B82F6');
+    const color = validLabelColor(context);
+    if (color === null) return false;
+    const ok = await createLabel(context, form(context, 'labelName'), color);
     if (ok) { context.state.dialog = null; clearForm(context, ['labelName', 'labelColor']); }
     return ok;
   },
@@ -939,14 +979,31 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-workspace-label-update': async (context) => {
     const label = rowsOf(context.live.workspaceLabels).find((item) => item.id === context.state.dialog?.arg);
     if (label === undefined) return false;
-    const ok = await updateLabel(context, label, form(context, 'labelName'), form(context, 'labelColor'));
+    const color = validLabelColor(context);
+    if (color === null) return false;
+    const ok = await updateLabel(context, label, form(context, 'labelName'), color);
     if (ok) context.state.dialog = null;
     return ok;
   },
 
-  'live-workspace-label-retire': async (context, arg) => {
+  'live-workspace-label-retire-confirm': async (context, arg) => {
     const label = rowsOf(context.live.workspaceLabels).find((item) => item.id === arg);
-    return label === undefined ? false : retireLabel(context, label);
+    const retired = label === undefined ? false : await retireLabel(context, label);
+    if (retired) context.state.dialog = null;
+    return retired;
+  },
+
+  'live-inline-label-create': async (context, arg) => {
+    const [target, entityId] = arg.split('|');
+    if ((target !== 'contact' && target !== 'conversation') || entityId === undefined) return false;
+    const color = validLabelColor(context);
+    if (color === null) return false;
+    const created = await createAndAssignLabel(context, target, entityId, form(context, 'labelName'), color);
+    if (created) {
+      context.state.dialog = null;
+      clearForm(context, ['labelName', 'labelColor']);
+    }
+    return created;
   },
 
   'live-field-create': async (context) => {

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { Campaign } from '../api/campaigns';
 import type { ChannelConnection } from '../api/channels';
 import { createState } from '../state';
+import { ready } from '../live/store';
 import type { AppState } from '../state';
 import { renderDialog } from './dialogs';
 
@@ -38,6 +39,20 @@ describe('renderDialog', () => {
     const state = base();
     expect(renderDialog(state)).toBeNull();
     expect(open(state, 'nonsense').textContent).toContain('There is nothing to show here.');
+  });
+});
+
+describe('label safety dialogs', () => {
+  it('confirms retirement and gives an inline creation path a HEX preview', () => {
+    const state = base();
+    state.live.workspaceLabels = ready([{ id: 'label-1', name: 'VIP', color: '#EF4444', state: 'active', version: 1 }], 0);
+    const retire = open(state, 'retire-label', 'label-1');
+    expect(retire.textContent).toContain('will no longer be available for new assignments');
+    expect(retire.querySelector('[data-act="live-workspace-label-retire-confirm"]')?.getAttribute('data-arg')).toBe('label-1');
+    const inline = open(state, 'inline-label', 'conversation|conversation-1');
+    expect(inline.querySelector('[data-act="live-inline-label-create"]')).not.toBeNull();
+    expect(inline.querySelector('input[pattern="^#[0-9A-Fa-f]{6}$"]')).not.toBeNull();
+    expect(inline.textContent).toContain('Label preview');
   });
 });
 

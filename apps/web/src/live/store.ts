@@ -17,7 +17,17 @@ import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
 import type { Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport } from '../api/campaigns.js';
 import { disconnectedCampaignsApi } from '../api/campaigns.js';
-import type { Automation, AutomationRun, AutomationTemplate, AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
+import {
+  DEFAULT_AUTOMATION_LIST_QUERY,
+  DEFAULT_AUTOMATION_RUNS_QUERY,
+  type Automation,
+  type AutomationListQuery,
+  type AutomationRun,
+  type AutomationRunsQuery,
+  type AutomationTemplate,
+  type AutomationsApi,
+  type WhatsAppTemplate,
+} from '../api/automations.js';
 import { disconnectedAutomationsApi } from '../api/automations.js';
 import { disconnectedMetadataApi } from '../api/people.js';
 import { disconnectedSavedViewsApi } from '../api/people.js';
@@ -217,7 +227,13 @@ export interface LiveState {
   campaignReportExport: Resource<CampaignReportExport>;
   automationTemplates: Resource<readonly AutomationTemplate[]>;
   automations: Resource<readonly Automation[]>;
+  /** The server-side definition query currently shown in My Automations. */
+  automationQuery: Omit<AutomationListQuery, 'cursor'>;
+  automationNextCursor: string | null;
   automationRuns: Resource<readonly AutomationRun[]>;
+  /** The server-side query currently shown in Runs & Logs. */
+  automationRunsQuery: Omit<AutomationRunsQuery, 'cursor'>;
+  automationRunsNextCursor: string | null;
   whatsappTemplates: Resource<readonly WhatsAppTemplate[]>;
   selectedCampaignId: string | null;
   /** Single authoritative readable-Inbox query, shared by load and realtime. */
@@ -314,7 +330,11 @@ export function createLiveState(
     campaignReportExport: IDLE,
     automationTemplates: IDLE,
     automations: IDLE,
+    automationQuery: DEFAULT_AUTOMATION_LIST_QUERY,
+    automationNextCursor: null,
     automationRuns: IDLE,
+    automationRunsQuery: DEFAULT_AUTOMATION_RUNS_QUERY,
+    automationRunsNextCursor: null,
     whatsappTemplates: IDLE,
     selectedCampaignId: null,
     inboxQuery: INBOX_QUERY_DEFAULT,

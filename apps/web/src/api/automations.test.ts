@@ -14,7 +14,7 @@ describe('AutomationsApi', () => {
     await api.templates('t'); await api.whatsappTemplates('t'); await api.list('t'); await api.runs('t');
     await api.useTemplate('t', 'a/b', 'Copy'); await api.create('t', INPUT); await api.update('t', 'a-1', 2, INPUT); await api.transition('t', AUTOMATION, 'activate');
     expect(calls.map((call) => [call.init.method, call.path])).toEqual([
-      ['GET','/api/v1/tenants/t/automation-templates'],['GET','/api/v1/tenants/t/whatsapp-templates'],['GET','/api/v1/tenants/t/automations'],['GET','/api/v1/tenants/t/automation-runs'],
+      ['GET','/api/v1/tenants/t/automation-templates'],['GET','/api/v1/tenants/t/whatsapp-templates'],['GET','/api/v1/tenants/t/automations?sort=updated_desc&limit=25'],['GET','/api/v1/tenants/t/automation-runs?limit=25'],
       ['POST','/api/v1/tenants/t/automation-templates/a%2Fb/use'],['POST','/api/v1/tenants/t/automations'],['PATCH','/api/v1/tenants/t/automations/a-1'],['POST','/api/v1/tenants/t/automations/a-1/activate'],
     ]);
     expect(JSON.parse(String(calls[6]?.init.body))).toMatchObject({ version: 2, name: 'Welcome' });

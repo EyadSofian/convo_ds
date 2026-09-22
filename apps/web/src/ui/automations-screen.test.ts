@@ -24,7 +24,7 @@ describe('automation screen',()=>{
   const denied=state('templates',['automation.read']); expect(renderAutomations(denied).querySelector('[data-act="live-automation-use"]')).toBeNull();
  });
  it('shows empty and populated automation lists with state-aware actions',()=>{
-  const s=state('mine'); s.live.automations={status:'idle'}; expect(renderAutomations(s).querySelector('[aria-busy="true"]')).not.toBeNull(); s.live.automations={status:'ready',value:[],loadedAt:1}; expect(renderAutomations(s).textContent).toContain('No automations yet');
+  const s=state('mine'); s.live.automations={status:'idle'}; expect(renderAutomations(s).querySelector('[aria-busy="true"]')).not.toBeNull(); s.live.automations={status:'ready',value:[],loadedAt:1}; expect(renderAutomations(s).textContent).toContain('No matching automations');
   s.live.automations={status:'ready',value:[AUTOMATION,{...AUTOMATION,id:'a-2',state:'active',name:'Live'},{...AUTOMATION,id:'a-3',state:'paused',name:'Paused'},{...AUTOMATION,id:'a-4',state:'archived',name:'Old'}],loadedAt:1}; const root=renderAutomations(s); expect(root.textContent).toContain('Editable workflow'); expect(root.querySelector('[data-arg="a-2:pause"]')).not.toBeNull(); expect(root.querySelector('[data-arg="a-3:resume"]')).not.toBeNull(); expect(root.querySelector('[data-arg="a-4:activate"]')).toBeNull();
  });
  it('renders the sequential builder without exposing JSON',()=>{

@@ -1,38 +1,58 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ApiError, ApiResult } from '../api/client.js';
+import type { ApiError, ApiResult, PagedData } from '../api/client.js';
 import type { Automation, AutomationRun, AutomationTemplate, AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { addAutomationStep, createBlankAutomation, deleteAutomationDraft, loadAutomationsScreen, mappingType, removeAutomationStep, saveAutomation, scheduleOf, transitionAutomation, useAutomationTemplate } from './automation-actions.js';
+import { addAutomationStep, createBlankAutomation, deleteAutomationDraft, loadAutomationPage, loadAutomationRunsPage, loadAutomationsScreen, mappingType, removeAutomationStep, saveAutomation, scheduleOf, setAutomationQuery, transitionAutomation, useAutomationTemplate } from './automation-actions.js';
 
 const WORKFLOW = { version: 1 as const, trigger: { type: 'manual', config: {} }, target: { type: 'matching_conditions', config: {} }, steps: [{ id: 'step_1', type: 'create_internal_notification', config: {} }], safety: { approvalRequired: true, duplicateWindowSeconds: 1 } };
 const AUTOMATION: Automation = { id:'a-1',name:'Welcome',description:null,templateKey:null,state:'draft',workflow:WORKFLOW,timezone:'UTC',nextRunAt:null,lastRunAt:null,version:1 };
 const TEMPLATE: AutomationTemplate = { key:'welcome',category:'sales',name:'Welcome',description:'Say hello',preset:WORKFLOW };
 const ERROR: ApiError = { code:'refused',message:'No',requestId:'r',status:409,details:[] };
 const ok = <T>(data:T):ApiResult<T> => ({ok:true,data});
+const page = <T>(data: readonly T[], nextCursor: string | null = null): ApiResult<PagedData<T>> => ok({ data, nextCursor, hasMore: nextCursor !== null });
 
 function setup(result:ApiResult<Automation>=ok(AUTOMATION), tenant:string|null='t') {
   const state=createState(new Date('2026-09-17T00:00:00Z')); state.lang='en';
   state.live.session={status:'signed_in',email:'x@y.z',memberships:[],tenantId:tenant};
   state.live.automationTemplates={status:'ready',value:[TEMPLATE],loadedAt:1}; state.live.automations={status:'ready',value:[AUTOMATION],loadedAt:1}; state.live.whatsappTemplates={status:'ready',value:[],loadedAt:1};
-  const api={templates:vi.fn().mockResolvedValue(ok([TEMPLATE])),whatsappTemplates:vi.fn().mockResolvedValue(ok([])),list:vi.fn().mockResolvedValue(ok([AUTOMATION])),runs:vi.fn().mockResolvedValue(ok([] as AutomationRun[])),useTemplate:vi.fn().mockResolvedValue(result),create:vi.fn().mockResolvedValue(result),update:vi.fn().mockResolvedValue(result),transition:vi.fn().mockResolvedValue(result),deleteDraft:vi.fn().mockResolvedValue(ok({id:AUTOMATION.id}))} as unknown as AutomationsApi;
+  const api={templates:vi.fn().mockResolvedValue(ok([TEMPLATE])),whatsappTemplates:vi.fn().mockResolvedValue(ok([])),list:vi.fn().mockResolvedValue(page([AUTOMATION])),runs:vi.fn().mockResolvedValue(page([] as AutomationRun[])),useTemplate:vi.fn().mockResolvedValue(result),create:vi.fn().mockResolvedValue(result),update:vi.fn().mockResolvedValue(result),transition:vi.fn().mockResolvedValue(result),deleteDraft:vi.fn().mockResolvedValue(ok({id:AUTOMATION.id}))} as unknown as AutomationsApi;
   Object.defineProperty(state.live,'automationsApi',{value:api});
   const context:LiveContext={state,live:state.live,refresh:vi.fn(),now:()=>1,newKey:()=> 'unique-key',endSession:vi.fn(),switchWorkspace:vi.fn()};
   return {state,context,api};
 }
 
 describe('automation actions',()=>{
-  it('deletes a draft through the server then refetches only its list',async()=>{
+  it('deletes a draft through the server and removes only the committed list row',async()=>{
     const s=setup(); expect(await deleteAutomationDraft(s.context,AUTOMATION.id)).toBe(true);
     expect(s.api.deleteDraft).toHaveBeenCalledWith('t',AUTOMATION);
-    expect(s.api.list).toHaveBeenCalledTimes(1);
+    expect(s.api.list).not.toHaveBeenCalled();
     expect(s.api.runs).not.toHaveBeenCalled();
-    expect(s.state.live.automations).toMatchObject({status:'ready',value:[AUTOMATION]});
+    expect(s.state.live.automations).toMatchObject({status:'ready',value:[]});
   });
-  it('loads all three resources and preserves a refusal',async()=>{
-    const ready=setup(); await loadAutomationsScreen(ready.context); expect(ready.state.live.automations.status).toBe('ready');
-    const refused=setup(); vi.mocked(refused.api.runs).mockResolvedValueOnce({ok:false,error:ERROR}); await loadAutomationsScreen(refused.context); expect(refused.state.live.automationRuns).toEqual({status:'error',error:ERROR}); expect(refused.state.live.error).toBe(ERROR);
+  it('loads only the visible tab and preserves its refusal',async()=>{
+    const ready=setup(); ready.state.route={screen:'automations',conversationId:null,params:{view:'mine'}}; await loadAutomationsScreen(ready.context); expect(ready.state.live.automations.status).toBe('ready'); expect(ready.api.templates).not.toHaveBeenCalled(); expect(ready.api.runs).not.toHaveBeenCalled();
+    const refused=setup(); refused.state.route={screen:'automations',conversationId:null,params:{view:'runs'}}; vi.mocked(refused.api.runs).mockResolvedValueOnce({ok:false,error:ERROR}); await loadAutomationsScreen(refused.context); expect(refused.state.live.automationRuns).toEqual({status:'error',error:ERROR}); expect(refused.state.live.error).toBe(ERROR);
     const absent=setup(ok(AUTOMATION),null); await loadAutomationsScreen(absent.context); expect(absent.api.list).not.toHaveBeenCalled();
+  });
+  it('keeps the server query and appends only the next cursor page', async () => {
+    const s = setup();
+    vi.mocked(s.api.list).mockResolvedValueOnce(page([AUTOMATION], 'opaque-next')).mockResolvedValueOnce(page([{ ...AUTOMATION, id: 'a-2', name: 'Later' }]));
+    await setAutomationQuery(s.context, { search: 'wel', state: 'draft', sort: 'updated_desc', limit: 25 });
+    await loadAutomationPage(s.context, false);
+    expect(s.api.list).toHaveBeenNthCalledWith(1, 't', { search: 'wel', state: 'draft', sort: 'updated_desc', limit: 25, cursor: null });
+    expect(s.api.list).toHaveBeenNthCalledWith(2, 't', { search: 'wel', state: 'draft', sort: 'updated_desc', limit: 25, cursor: 'opaque-next' });
+    expect(s.state.live.automations).toMatchObject({ status: 'ready', value: [AUTOMATION, expect.objectContaining({ id: 'a-2' })] });
+    expect(s.api.runs).not.toHaveBeenCalled();
+  });
+  it('appends run history without rereading definitions', async () => {
+    const s = setup();
+    const run = { id: 'r-1' } as AutomationRun;
+    vi.mocked(s.api.runs).mockResolvedValueOnce(page([run], 'runs-next')).mockResolvedValueOnce(page([{ id: 'r-2' } as AutomationRun]));
+    await loadAutomationRunsPage(s.context, true);
+    await loadAutomationRunsPage(s.context, false);
+    expect(s.state.live.automationRuns).toMatchObject({ status: 'ready', value: [run, expect.objectContaining({ id: 'r-2' })] });
+    expect(s.api.list).not.toHaveBeenCalled();
   });
   it('creates from a preset and from scratch only after the server commits',async()=>{
     const s=setup(); expect(await useAutomationTemplate(s.context,'welcome')).toBe(true); expect(s.api.useTemplate).toHaveBeenCalledWith('t','welcome',expect.stringContaining('Welcome'));
@@ -183,15 +203,12 @@ describe('saving a step that sends a WhatsApp template', () => {
 });
 
 describe('which refusal reaches the operator when several resources fail', () => {
-  it('reports the first, in load order', async () => {
-    // The API method names, in the order the ternary chain consults them.
-    for (const failing of ['templates', 'list', 'runs', 'whatsappTemplates'] as const) {
-      const s = setup();
-      const mocks = s.api as unknown as Record<string, ReturnType<typeof vi.fn>>;
-      mocks[failing]?.mockResolvedValueOnce({ ok: false, error: ERROR });
-      await loadAutomationsScreen(s.context);
-      expect(s.state.live.error).toBe(ERROR);
-    }
+  it('reports the refusal for the resource the operator requested', async () => {
+    const s = setup();
+    s.state.route={screen:'automations',conversationId:null,params:{view:'templates'}};
+    vi.mocked(s.api.templates).mockResolvedValueOnce({ ok: false, error: ERROR });
+    await loadAutomationsScreen(s.context);
+    expect(s.state.live.error).toBe(ERROR);
   });
 });
 

@@ -26,8 +26,9 @@ export class AutomationService {
   list(session: AuthenticatedSession, tenantId: string, query: AutomationListQuery): Promise<AutomationPage> { return this.authorization.authorized(session,tenantId,'automation.read',async({sql}) => {
     const binding = pageBinding(tenantId, query, 'automations'); const codec = new OpaqueCursorCodec(this.config.secrets.idempotencyHash);
     const decoded = decode(codec, query.cursor, binding); const values: unknown[] = []; const add = (value: unknown): string => { values.push(value); return `$${values.length}`; };
-    const terms = ["state <> 'archived'"];
-    if (query.state !== null) terms.push(`state = ${add(query.state)}`);
+    // Archived definitions stay out of the operational default, but a caller
+    // that deliberately filters for them can review durable history.
+    const terms: string[] = query.state === null ? ["state <> 'archived'"] : [`state = ${add(query.state)}`];
     if (query.search !== null) terms.push(`lower(name) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\'`);
     const sort = automationSort(query.sort); if (decoded !== null) terms.push(cursorCondition(sort, add(decoded.value), add(decoded.id)));
     const rows = await sql.query<RawAutomation & { cursor_value: string }>(`SELECT ${COLUMNS}, ${sort.cursor} AS cursor_value FROM automations WHERE ${terms.join(' AND ')} ORDER BY ${sort.order} LIMIT ${add(query.limit + 1)}`, values);

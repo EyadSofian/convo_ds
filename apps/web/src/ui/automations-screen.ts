@@ -101,8 +101,26 @@ function automationsView(state: AppState): Child {
   const resource = state.live.automations;
   if (resource.status === 'idle' || resource.status === 'loading') return skeleton(state, 5);
   if (resource.status === 'error') return errorState(state, resource.error, 'live-automations-reload');
-  if (resource.value.length === 0) return panel(t(state, 'أتمتتي', 'My Automations'), [emptyState({ icon: 'macro', title: t(state, 'لا توجد أتمتة بعد', 'No automations yet'), body: t(state, 'اختر قالبًا أو ابدأ من الصفر.', 'Choose a template or build from scratch.') })]);
-  return h('div', { class: 'automation-list' }, resource.value.map((automation) => automationCard(state, automation)));
+  const controls = automationFilters(state);
+  if (resource.value.length === 0) return panel(t(state, 'أتمتتي', 'My Automations'), [controls, emptyState({ icon: 'macro', title: t(state, 'لا توجد أتمتة مطابقة', 'No matching automations'), body: t(state, 'غيّر البحث أو الحالة، أو أنشئ مسودة من القوالب.', 'Change the search or state, or create a draft from Templates.') })]);
+  return h('div', { class: 'automation-list' }, [controls, ...resource.value.map((automation) => automationCard(state, automation)), state.live.automationNextCursor === null ? null : h('div', { class: 'automation-list__more' }, [button({ label: t(state, 'تحميل المزيد', 'Load more'), act: 'live-automation-load-more', small: true, busy: state.live.busy === 'automation-load-more' })])]);
+}
+
+function automationFilters(state: AppState): HTMLElement {
+  const query = state.live.automationQuery;
+  return h('form', { class: 'toolbar automation-list__filters', 'data-submit': 'live-automation-filter', novalidate: true }, [
+    h('input', { class: 'input', type: 'search', placeholder: t(state, 'ابحث بالاسم', 'Search by name'), value: state.dialogForm['automationSearch'] ?? query.search, 'data-act': 'form', 'data-form': 'automationSearch' }),
+    h('select', { class: 'select', 'data-act': 'form', 'data-form': 'automationState' }, [
+      h('option', { value: '', selected: (state.dialogForm['automationState'] ?? query.state) === '' }, [t(state, 'كل الحالات النشطة', 'All active states')]),
+      ...(['draft', 'active', 'paused', 'archived'] as const).map((value) => h('option', { value, selected: (state.dialogForm['automationState'] ?? query.state) === value }, [human(value)])),
+    ]),
+    h('select', { class: 'select', 'data-act': 'form', 'data-form': 'automationSort' }, [
+      h('option', { value: 'updated_desc', selected: (state.dialogForm['automationSort'] ?? query.sort) === 'updated_desc' }, [t(state, 'آخر تحديث', 'Recently updated')]),
+      h('option', { value: 'name_asc', selected: (state.dialogForm['automationSort'] ?? query.sort) === 'name_asc' }, [t(state, 'الاسم أ–ي', 'Name A–Z')]),
+      h('option', { value: 'name_desc', selected: (state.dialogForm['automationSort'] ?? query.sort) === 'name_desc' }, [t(state, 'الاسم ي–أ', 'Name Z–A')]),
+    ]),
+    button({ label: t(state, 'تطبيق', 'Apply'), act: 'live-automation-filter', small: true }),
+  ]);
 }
 
 function automationCard(state: AppState, automation: Automation): HTMLElement {
@@ -117,7 +135,7 @@ function automationCard(state: AppState, automation: Automation): HTMLElement {
     ]),
     h('div', { class: 'automation-row__actions' }, [
       mayEdit ? h('a', { class: 'btn btn--sm', href: formatHash({ screen: 'automations', conversationId: null, params: routeParamsWithLanguage(state, { view: 'mine', edit: automation.id }) }) }, [icon('edit', 14), h('span', { class: 'btn__label' }, [t(state, 'تحرير', 'Edit')])]) : null,
-      automation.state === 'draft' && mayEdit ? button({ label: t(state, 'حذف المسودة', 'Delete draft'), icon: 'close', act: 'live-automation-delete', arg: automation.id, variant: 'ghost', small: true, busy: state.live.busy === `automation-delete:${automation.id}` }) : null,
+      automation.state === 'draft' && mayEdit ? button({ label: t(state, 'حذف المسودة', 'Delete draft'), icon: 'close', act: 'dialog', arg: `automation-delete:${automation.id}`, variant: 'ghost', small: true, busy: state.live.busy === `automation-delete:${automation.id}` }) : null,
       automation.state !== 'archived' ? button({ label: human(action), icon: action === 'pause' ? 'pause' : 'play', act: 'live-automation-transition', arg: `${automation.id}:${action}`, small: true, busy: state.live.busy === `automation-${action}:${automation.id}` }) : null,
     ]),
   ]);
@@ -224,8 +242,17 @@ function runsView(state: AppState): Child {
   const resource = state.live.automationRuns;
   if (resource.status === 'idle' || resource.status === 'loading') return skeleton(state, 5);
   if (resource.status === 'error') return errorState(state, resource.error, 'live-automations-reload');
-  if (resource.value.length === 0) return panel(t(state, 'التشغيل والسجلات', 'Runs & Logs'), [emptyState({ icon: 'history', title: t(state, 'لا توجد عمليات تشغيل', 'No runs yet'), body: t(state, 'ستظهر هنا عمليات الاختبار والإنتاج، منفصلة عن الحملات.', 'Test and production runs will appear here, separate from campaigns.') })]);
-  return panel(t(state, 'آخر عمليات التشغيل', 'Recent runs'), [runsTable(state, resource.value)], { flush: true });
+  const controls = runsFilters(state);
+  if (resource.value.length === 0) return panel(t(state, 'التشغيل والسجلات', 'Runs & Logs'), [controls, emptyState({ icon: 'history', title: t(state, 'لا توجد عمليات تشغيل', 'No runs yet'), body: t(state, 'ستظهر هنا عمليات الاختبار والإنتاج، منفصلة عن الحملات.', 'Test and production runs will appear here, separate from campaigns.') })]);
+  return panel(t(state, 'آخر عمليات التشغيل', 'Recent runs'), [controls, runsTable(state, resource.value), state.live.automationRunsNextCursor === null ? null : h('div', { class: 'automation-list__more' }, [button({ label: t(state, 'تحميل المزيد', 'Load more'), act: 'live-automation-runs-load-more', small: true })])], { flush: true });
+}
+
+function runsFilters(state: AppState): HTMLElement {
+  const limit = state.dialogForm['automationRunsLimit'] ?? String(state.live.automationRunsQuery.limit);
+  return h('form', { class: 'toolbar automation-list__filters', 'data-submit': 'live-automation-runs-filter', novalidate: true }, [
+    h('label', { class: 'field field--inline' }, [h('span', { class: 'field__label' }, [t(state, 'لكل صفحة', 'Per page')]), h('select', { class: 'select', 'data-act': 'form', 'data-form': 'automationRunsLimit' }, ['25', '50'].map((value) => h('option', { value, selected: value === limit }, [value])))]),
+    button({ label: t(state, 'تطبيق', 'Apply'), act: 'live-automation-runs-filter', small: true }),
+  ]);
 }
 
 function runsTable(state: AppState, runs: readonly AutomationRun[]): HTMLElement { return h('div', { class: 'tablewrap' }, [h('table', { class: 'table' }, [h('thead', {}, [h('tr', {}, [t(state,'وقت التشغيل','Run date'),t(state,'المشغّل','Trigger'),t(state,'الجمهور','Audience'),t(state,'أُرسلت','Sent'),t(state,'سُلّمت','Delivered'),t(state,'فشلت','Failed'),t(state,'الحالة','Status')].map((label) => h('th', { scope: 'col' }, [label])))]), h('tbody', {}, runs.map((run) => h('tr', {}, [h('td', {}, [dateFormat(state.lang,{dateStyle:'medium',timeStyle:'short'}).format(new Date(run.scheduled_for))]), h('td', {}, [human(run.trigger_type), run.mode === 'test' ? badge('TEST','warning') : null]), h('td', {}, [formatNumber(run.audience_count,state.lang)]), h('td', {}, [formatNumber(run.sent_count,state.lang)]), h('td', {}, [formatNumber(run.delivered_count,state.lang)]), h('td', {}, [formatNumber(run.failed_count,state.lang)]), h('td', {}, [badge(human(run.status), run.status === 'completed' ? 'success' : run.status === 'failed' ? 'danger' : 'accent', {dot:true})])])))] )]); }

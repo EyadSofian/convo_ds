@@ -70,7 +70,7 @@ function labelsPanel(state: AppState): HTMLElement {
       h('td', {}, [h('span', { class: 'badge', style: `--label-color:${label.color};border-color:${label.color}` }, [label.color])]),
       h('td', {}, [label.name]),
       h('td', {}, [badge(label.state === 'active' ? t(state, 'نشط', 'Active') : t(state, 'متوقف', 'Retired'), label.state === 'active' ? 'success' : 'neutral')]),
-      h('td', {}, [label.state === 'active' ? h('div', { class: 'button-row' }, [button({ label: t(state, 'تعديل', 'Edit'), act: 'dialog', arg: `workspace-label:${label.id}`, small: true, variant: 'ghost' }), button({ label: t(state, 'إيقاف', 'Retire'), act: 'live-workspace-label-retire', arg: label.id, small: true, variant: 'danger', busy: state.live.busy === `metadata:retire-label:${label.id}` })]) : h('span', { class: 'muted' }, [t(state, 'محفوظ للتاريخ', 'Kept for history')])]),
+      h('td', {}, [label.state === 'active' ? h('div', { class: 'button-row' }, [button({ label: t(state, 'تعديل', 'Edit'), act: 'dialog', arg: `workspace-label:${label.id}`, small: true, variant: 'ghost' }), button({ label: t(state, 'إيقاف', 'Retire'), act: 'dialog', arg: `retire-label:${label.id}`, small: true, variant: 'danger', busy: state.live.busy === `metadata:retire-label:${label.id}` })]) : h('span', { class: 'muted' }, [t(state, 'محفوظ للتاريخ', 'Kept for history')])]),
     ]))),
   ])]);
   return panel(t(state, 'تصنيفات مساحة العمل', 'Workspace labels'), [

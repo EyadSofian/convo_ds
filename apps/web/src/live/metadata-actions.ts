@@ -26,6 +26,46 @@ export async function createLabel(
   });
 }
 
+/** Creates a label, then attaches the server-returned label to the current record. */
+export async function createAndAssignLabel(
+  context: LiveContext,
+  target: FieldTarget,
+  entityId: string,
+  name: string,
+  color: string,
+): Promise<boolean> {
+  const version = versionOf(context, target, entityId);
+  if (version === null) return false;
+  return forTenant(context, false, async (tenantId) => {
+    context.live.busy = `metadata:${target}:${entityId}`;
+    context.live.error = null;
+    context.refresh();
+    const created = await context.live.metadataApi.createLabel(tenantId, name, color);
+    if (!created.ok) {
+      context.live.busy = null;
+      context.live.error = created.error;
+      pushToast(context.state, created.error.message, 'danger');
+      context.refresh();
+      return false;
+    }
+    const input = { version, addLabels: [created.data.id], removeLabels: [] };
+    const assigned = target === 'contact'
+      ? await context.live.metadataApi.contact(tenantId, entityId, input)
+      : await context.live.metadataApi.conversation(tenantId, entityId, input);
+    context.live.busy = null;
+    if (!assigned.ok) {
+      // Creation is durable, attachment was not. Never show an invented chip.
+      context.live.error = assigned.error;
+      pushToast(context.state, t(context, 'أُنشئ التصنيف لكن تعذّر إسناده؛ حدّث السجل وحاول مرة أخرى.', 'The label was created but could not be assigned; refresh the record and try again.'), 'warning');
+      await loadMetadataCatalog(context);
+      return false;
+    }
+    await Promise.all([loadMetadataCatalog(context), refreshEntity(context, tenantId, target, entityId)]);
+    pushToast(context.state, t(context, 'أُنشئ التصنيف وأُضيف للسجل.', 'Label created and assigned.'));
+    return true;
+  });
+}
+
 export async function updateLabel(context: LiveContext, label: Label, name: string, color: string): Promise<boolean> {
   return mutate(context, `metadata:update-label:${label.id}`, async (tenantId) => {
     const result = await context.live.metadataApi.updateLabel(tenantId, label.id, { version: label.version, name, color });

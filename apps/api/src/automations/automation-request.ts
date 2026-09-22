@@ -13,7 +13,7 @@ export function parseVersioned(input: unknown): { readonly version: number; read
 export type AutomationSort = 'name_asc' | 'name_desc' | 'updated_desc';
 export interface AutomationListQuery {
   readonly search: string | null;
-  readonly state: 'draft' | 'active' | 'paused' | null;
+  readonly state: 'draft' | 'active' | 'paused' | 'archived' | null;
   readonly sort: AutomationSort;
   readonly cursor: string | null;
   readonly limit: number;
@@ -29,7 +29,7 @@ export function parseAutomationListQuery(input: unknown): AutomationListQuery {
   const cursor = one(query['cursor']);
   const limit = number(query['limit'], 25, 100);
   if (search !== undefined && (search.length > 160 || search.trim() === '')) throw invalid([]);
-  if (state !== undefined && !['draft', 'active', 'paused'].includes(state)) throw invalid([]);
+  if (state !== undefined && !['draft', 'active', 'paused', 'archived'].includes(state)) throw invalid([]);
   if (!['name_asc', 'name_desc', 'updated_desc'].includes(sort)) throw invalid([]);
   if (cursor !== undefined && (cursor === '' || cursor.length > 4096)) throw invalid([]);
   return { search: search?.trim() || null, state: state as AutomationListQuery['state'] ?? null, sort: sort as AutomationSort, cursor: cursor ?? null, limit };

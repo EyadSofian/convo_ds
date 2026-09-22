@@ -2,6 +2,7 @@ import type { EntityMetadata, FieldTarget } from '../api/metadata.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { metadataFieldValue } from '../live/dispatch.js';
+import { hasPermission } from '../live/ability.js';
 import { rowsOf } from '../live/store.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
@@ -72,6 +73,9 @@ export function metadataSection(
             ],
           }),
         ),
+    hasPermission(live, 'catalog.manage')
+      ? button({ label: t(state, 'تصنيف جديد', 'New label'), icon: 'plus', act: 'dialog', arg: `inline-label:${target}|${entity.id}`, variant: 'ghost', small: true, disabled: busy })
+      : null,
     fields.length === 0
       ? null
       : h('div', { class: 'metadata__fields' }, fields.map((definition) => {
