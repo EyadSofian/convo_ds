@@ -28,11 +28,49 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'invite') return invite(state);
   if (dialog.kind === 'change-password') return changePasswordDialog(state);
   if (dialog.kind === 'ownership-offer') return ownershipOffer(state, dialog.arg);
+  if (dialog.kind === 'saved-inbox-view') return savedInboxView(state, dialog.arg);
   return dialogShell(
     state,
     t(state, 'غير متاح', 'Not available'),
     [h('p', {}, [t(state, 'لا يوجد محتوى لهذه النافذة.', 'There is nothing to show here.')])],
     [closeButton(state)],
+  );
+}
+
+function savedInboxView(state: AppState, mode: string): HTMLElement {
+  const editing = mode === 'update';
+  const selected = state.live.savedViews.status === 'ready'
+    ? state.live.savedViews.value.find((view) => view.id === state.live.selectedSavedViewId)
+    : undefined;
+  const form = state.dialogForm;
+  const visibility = form['savedViewVisibility'] ?? selected?.visibility ?? 'private';
+  const teams = rowsOf(state.live.teams).filter((team) => !team.archived);
+  const busy = state.live.busy === 'saved-view-create' || state.live.busy === `saved-view-update:${selected?.id ?? ''}`;
+  return dialogShell(
+    state,
+    editing ? t(state, 'تحديث العرض المحفوظ', 'Update saved view') : t(state, 'حفظ عرض', 'Save view'),
+    [
+      inlineError(state, state.live.error),
+      h('form', { class: 'form-grid', 'data-submit': editing ? 'live-inbox-saved-view-update' : 'live-inbox-saved-view-create', novalidate: true }, [
+        textInput('savedViewName', form['savedViewName'] ?? selected?.name ?? '', t(state, 'اسم العرض', 'View name'), { required: true }),
+        field(t(state, 'الوصول', 'Visibility'), selectControl({ act: 'form', form: 'savedViewVisibility', value: visibility, options: [
+          { value: 'private', label: t(state, 'خاص بي', 'Private') },
+          { value: 'team', label: t(state, 'الفريق', 'Team') },
+          { value: 'workspace', label: t(state, 'مساحة العمل', 'Workspace') },
+        ] })),
+        visibility === 'team'
+          ? field(t(state, 'الفريق', 'Team'), selectControl({ act: 'form', form: 'savedViewTeamId', value: form['savedViewTeamId'] ?? selected?.teamId ?? '', options: [
+            { value: '', label: t(state, 'اختر فريقًا', 'Choose a team') },
+            ...teams.map((team) => ({ value: team.id, label: team.name })),
+          ] }))
+          : null,
+        h('p', { class: 'field__hint' }, [t(state, 'سيُحفظ الفلتر الحالي فقط. الأرشيف خارج الـInbox التشغيلي.', 'Only the current filters are saved. Archived conversations stay outside the operational Inbox.')]),
+      ]),
+    ],
+    [
+      closeButton(state),
+      button({ label: editing ? t(state, 'تحديث', 'Update') : t(state, 'حفظ', 'Save'), act: editing ? 'live-inbox-saved-view-update' : 'live-inbox-saved-view-create', variant: 'primary', busy, disabled: editing && selected === undefined }),
+    ],
   );
 }
 

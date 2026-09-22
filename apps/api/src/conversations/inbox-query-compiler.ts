@@ -60,8 +60,14 @@ function predicate(filter: InboxFilter, customFields: ReadonlyMap<string, InboxC
     case 'collaborator_id': return membershipExists('conversation_collaborators', 'collaborator', 'membership_id', filter, add, 'collaborator.removed_at IS NULL');
     case 'participant_id': return membershipExists('conversation_participants', 'participant', 'membership_id', filter, add, 'TRUE');
     case 'handoff_target_id': return membershipExists('conversation_handoffs', 'handoff', 'to_membership_id', filter, add, "handoff.state = 'pending'");
+    case 'campaign_id': return campaignAttributionPredicate(filter, add);
     case 'custom_field': return customPredicate(filter, customFields.get(filter.fieldId ?? ''), add);
   }
+}
+
+function campaignAttributionPredicate(filter: InboxFilter, add: (value: unknown) => string): string {
+  const values = Array.isArray(filter.value) ? filter.value : [filter.value as string];
+  return `EXISTS (SELECT 1 FROM campaign_conversation_attributions attribution WHERE attribution.conversation_id = c.id AND attribution.campaign_id = ANY(${add(values)}::uuid[]))`;
 }
 
 function listOrOne(column: string, operator: string, one: () => string, many: () => string, cast: 'text' | 'uuid'): string {
@@ -106,7 +112,7 @@ function customPredicate(filter: InboxFilter, field: InboxCustomField | undefine
   const row = `(SELECT custom.value_json FROM conversation_custom_field_values custom WHERE custom.conversation_id = c.id AND custom.field_id = ${id}::uuid)`;
   if (filter.operator === 'is_set') return `${row} IS NOT NULL`;
   if (filter.operator === 'is_not_set') return `${row} IS NULL`;
-  if (field.type === 'boolean') return `${row} = ${add(JSON.stringify(filter.value === true))}::jsonb`;
+  if (field.type === 'boolean') return `${row} ${filter.operator === 'neq' ? '<>' : '='} ${add(JSON.stringify(filter.value === true))}::jsonb`;
   if (field.type === 'number') return `(${row} #>> '{}')::numeric ${comparison(filter.operator)} ${add(filter.value)}::numeric`;
   if (field.type === 'date') return `(${row} #>> '{}')::date ${comparison(filter.operator === 'before' ? 'lt' : filter.operator === 'after' ? 'gt' : filter.operator)} ${add(filter.value)}::date`;
   if (field.type === 'single_select') return `${row} ${filter.operator === 'neq' ? '<>' : '='} ${add(JSON.stringify(filter.value))}::jsonb`;

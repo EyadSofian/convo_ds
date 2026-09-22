@@ -7,6 +7,7 @@ import { ConversationsApi } from './api/conversations';
 import { MetadataApi } from './api/metadata';
 import { CampaignsApi } from './api/campaigns';
 import { AutomationsApi } from './api/automations';
+import { SavedViewsApi } from './api/saved-views';
 import {
   disconnectedApi,
   disconnectedChannelsApi,
@@ -338,13 +339,14 @@ export function mount(options: MountOptions): AppHandle {
   const metadata = client === null ? disconnectedMetadataApi() : new MetadataApi(client);
   const campaigns = client === null ? undefined : new CampaignsApi(client);
   const automations = client === null ? undefined : new AutomationsApi(client);
+  const savedViews = client === null ? undefined : new SavedViewsApi(client);
   /**
    * The clock the whole screen reads. When `now` is supplied it is the clock —
    * frozen, and used for relative times *and* for any instant an action
    * computes. In production nothing is supplied and this is `new Date()`.
    */
   const clock = (): Date => options.now ?? new Date();
-  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata, campaigns, automations));
+  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata, campaigns, automations, savedViews));
   const store = options.preferences ?? null;
   const stored = readPreferences(store);
   state.theme = stored.theme ?? ((options.prefersDark?.() ?? false) ? 'dark' : 'light');

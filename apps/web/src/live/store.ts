@@ -9,10 +9,9 @@ import type {
   Handoff,
   Note,
   QueueCard,
-  InboxQuery,
   TimelineMessage,
 } from '../api/conversations.js';
-import { DEFAULT_INBOX_QUERY } from '../api/conversations.js';
+import { INBOX_QUERY_DEFAULT, type InboxQuery } from '@convo/domain';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
 import type { Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi } from '../api/campaigns.js';
@@ -20,6 +19,8 @@ import { disconnectedCampaignsApi } from '../api/campaigns.js';
 import type { Automation, AutomationRun, AutomationTemplate, AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
 import { disconnectedAutomationsApi } from '../api/automations.js';
 import { disconnectedMetadataApi } from '../api/people.js';
+import { disconnectedSavedViewsApi } from '../api/people.js';
+import type { SavedView, SavedViewsApi } from '../api/saved-views.js';
 import type { RealtimeSubscription } from './realtime.js';
 import type {
   Invitation,
@@ -111,6 +112,7 @@ export interface LiveState {
   readonly metadataApi: MetadataApi;
   readonly campaignsApi: CampaignsApi;
   readonly automationsApi: AutomationsApi;
+  readonly savedViewsApi: SavedViewsApi;
   session: SessionState;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
@@ -213,6 +215,13 @@ export interface LiveState {
   selectedCampaignId: string | null;
   /** Single authoritative readable-Inbox query, shared by load and realtime. */
   inboxQuery: InboxQuery;
+  /** Text currently being typed before the debounced server search commits it. */
+  inboxSearchDraft: string;
+  /** Opaque continuation returned for the current readable Inbox query. */
+  inboxNextCursor: string | null;
+  /** Views loaded from the guarded API; never browser-local query presets. */
+  savedViews: Resource<readonly SavedView[]>;
+  selectedSavedViewId: string | null;
   contactFilters: { labelId: string; fieldId: string; fieldValue: string };
   busy: string | null;
   error: ApiError | null;
@@ -242,6 +251,7 @@ export function createLiveState(
   metadata: MetadataApi = disconnectedMetadataApi(),
   campaignsApi: CampaignsApi = disconnectedCampaignsApi(),
   automationsApi: AutomationsApi = disconnectedAutomationsApi(),
+  savedViewsApi: SavedViewsApi = disconnectedSavedViewsApi(),
 ): LiveState {
   return {
     api,
@@ -296,13 +306,18 @@ export function createLiveState(
     automationRuns: IDLE,
     whatsappTemplates: IDLE,
     selectedCampaignId: null,
-    inboxQuery: DEFAULT_INBOX_QUERY,
+    inboxQuery: INBOX_QUERY_DEFAULT,
+    inboxSearchDraft: '',
+    inboxNextCursor: null,
+    savedViews: IDLE,
+    selectedSavedViewId: null,
     contactFilters: { labelId: '', fieldId: '', fieldValue: '' },
     conversationsApi: conversations,
     contactsApi: contacts,
     metadataApi: metadata,
     campaignsApi,
     automationsApi,
+    savedViewsApi,
     busy: null,
     error: null,
     revision: 0,
@@ -325,6 +340,7 @@ export function renewLiveState(previous: LiveState): LiveState {
     previous.metadataApi,
     previous.campaignsApi,
     previous.automationsApi,
+    previous.savedViewsApi,
   );
 }
 

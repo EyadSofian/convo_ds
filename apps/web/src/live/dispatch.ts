@@ -11,6 +11,7 @@ import {
 import {
   claimConversation,
   loadInboxScreen,
+  loadMoreInbox,
   loadOlderMessages,
   openConversation,
   sendReply,
@@ -33,6 +34,8 @@ import {
 import { createField, createLabel, setEntityLabel, setFieldValue } from './metadata-actions.js';
 import { rowsOf } from './store.js';
 import { setSimpleFilter } from './inbox-query.js';
+import { INBOX_FILTER_CATALOGUE, INBOX_SORTS, type InboxFilter, type InboxSort } from '@convo/domain';
+import { applySavedView, retireSavedView, saveCurrentInboxView } from './saved-view-actions.js';
 import {
   approveCampaign,
   cloneCampaign,
@@ -641,6 +644,66 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
 
   'live-inbox-older': async (context) => loadOlderMessages(context),
 
+  'live-inbox-load-more': async (context) => loadMoreInbox(context),
+
+  'live-inbox-saved-view-apply': async (context, arg) => applySavedView(context, arg),
+
+  'live-inbox-saved-view-create': async (context) => saveCurrentInboxView(context, 'create'),
+
+  'live-inbox-saved-view-update': async (context) => saveCurrentInboxView(context, 'update'),
+
+  'live-inbox-saved-view-retire': async (context, arg) => retireSavedView(context, arg),
+
+  'live-inbox-search': (context, arg) => {
+    scheduleInboxSearch(context, arg);
+    return Promise.resolve();
+  },
+
+  // Label "any of" and "none of" values are chosen as visible names. This
+  // avoids both opaque-ID entry and the common mistake of treating `in` as an
+  // OR: the server's label predicate intentionally requires every selected
+  // label to be present.
+  'live-inbox-filter-value-toggle': (context, arg) => {
+    const selected = new Set((context.state.dialogForm['inboxFilterValue'] ?? '').split(',').filter(Boolean));
+    if (selected.has(arg)) selected.delete(arg);
+    else selected.add(arg);
+    context.state.dialogForm = { ...context.state.dialogForm, inboxFilterValue: [...selected].join(',') };
+    context.refresh();
+    return Promise.resolve();
+  },
+
+  'live-inbox-filter-apply': async (context) => {
+    const filter = inboxFilterFromForm(context);
+    if (filter === null) return false;
+    context.live.inboxQuery = { ...context.live.inboxQuery, filters: [...context.live.inboxQuery.filters, filter], cursor: null };
+    context.state.inboxQueue = 'mine';
+    context.state.dialogForm = {};
+    return loadInboxScreen(context);
+  },
+
+  'live-inbox-filter-remove': async (context, arg) => {
+    const index = Number(arg);
+    if (!Number.isInteger(index) || index < 0 || index >= context.live.inboxQuery.filters.length) return false;
+    context.live.inboxQuery = { ...context.live.inboxQuery, filters: context.live.inboxQuery.filters.filter((_, candidate) => candidate !== index), cursor: null };
+    context.live.selectedSavedViewId = null;
+    context.state.inboxQueue = 'mine';
+    return loadInboxScreen(context);
+  },
+
+  'live-inbox-filter-clear': async (context) => {
+    context.live.inboxQuery = { ...context.live.inboxQuery, filters: [], cursor: null };
+    context.live.selectedSavedViewId = null;
+    context.state.inboxQueue = 'mine';
+    return loadInboxScreen(context);
+  },
+
+  'live-inbox-sort': async (context, arg) => {
+    if (!(INBOX_SORTS as readonly string[]).includes(arg)) return false;
+    context.live.inboxQuery = { ...context.live.inboxQuery, sort: arg as InboxSort, cursor: null };
+    context.state.inboxQueue = 'mine';
+    return loadInboxScreen(context);
+  },
+
   /* ------------------------------------------------------------- lifecycle -- */
 
   /**
@@ -1100,6 +1163,72 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return settleOwnership(context, id, value);
   },
 };
+
+let inboxSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Debounced free-text search; filters are only committed after typing pauses. */
+function scheduleInboxSearch(context: LiveContext, value: string): void {
+  // Keep the controlled input stable through unrelated renders while the
+  // request is debounced. Search itself stays intentionally out of the URL.
+  context.live.inboxSearchDraft = value;
+  if (inboxSearchTimer !== null) clearTimeout(inboxSearchTimer);
+  inboxSearchTimer = setTimeout(() => {
+    inboxSearchTimer = null;
+    const search = value.trim().slice(0, 200);
+    context.live.inboxSearchDraft = search;
+    if (context.live.inboxQuery.search === (search === '' ? null : search)) return;
+    context.live.inboxQuery = { ...context.live.inboxQuery, search: search === '' ? null : search, cursor: null };
+    context.live.selectedSavedViewId = null;
+    context.state.inboxQueue = 'mine';
+    void loadInboxScreen(context);
+  }, 250);
+}
+
+/** Builds only a catalogue-defined filter. The API remains final validator. */
+function inboxFilterFromForm(context: LiveContext): InboxFilter | null {
+  const key = form(context, 'inboxFilterKey');
+  const requestedOperator = form(context, 'inboxFilterOperator');
+  const definition = INBOX_FILTER_CATALOGUE.find((entry) => entry.key === key);
+  if (definition === undefined) return null;
+  let operator = requestedOperator;
+  const fieldId = form(context, 'inboxFilterFieldId');
+  if (definition.key === 'custom_field') {
+    const field = rowsOf(context.live.customFields).find((candidate) => candidate.id === fieldId && candidate.target === 'conversation' && candidate.state === 'active');
+    if (field === undefined) return null;
+    const operators = customFieldOperators(field.type);
+    operator = operators.includes(requestedOperator) ? requestedOperator : operators[0]!;
+  }
+  if (!definition.operators.includes(operator)) return null;
+  const valuelessOperator = operator === 'is_set' || operator === 'is_not_set';
+  if (valuelessOperator) {
+    return {
+      key: definition.key,
+      operator,
+      ...(definition.key === 'custom_field' ? { fieldId } : {}),
+    };
+  }
+  const raw = form(context, 'inboxFilterValue');
+  if (raw === '') return null;
+  const value = definition.valueType === 'boolean'
+    ? raw === 'true' ? true : raw === 'false' ? false : null
+    : (operator === 'in' || operator === 'not_in')
+      ? raw.split(',').map((entry) => entry.trim()).filter(Boolean)
+      : raw;
+  if (value === null || Array.isArray(value) && value.length === 0) return null;
+  return {
+    key: definition.key,
+    operator,
+    value,
+    ...(definition.key === 'custom_field' ? { fieldId } : {}),
+  };
+}
+
+function customFieldOperators(type: string): readonly string[] {
+  if (type === 'boolean') return ['eq', 'neq', 'is_set', 'is_not_set'];
+  if (type === 'number' || type === 'date' || type === 'single_select') return ['eq', 'neq', 'is_set', 'is_not_set'];
+  if (type === 'text' || type === 'email' || type === 'phone') return ['eq', 'contains', 'is_set', 'is_not_set'];
+  return ['is_set', 'is_not_set'];
+}
 
 async function submitCredentialFlow(context: LiveContext, kind: 'invitation' | 'recovery'): Promise<boolean> {
   if (context.live.busy !== null) return false;

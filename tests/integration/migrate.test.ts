@@ -78,6 +78,7 @@ describe('migrate', () => {
       '0031_invitation_tenant_scope.sql',
       '0032_automation_execution.sql',
       '0033_account_security_events.sql',
+      '0034_campaign_conversation_attribution.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -110,6 +111,7 @@ describe('migrate', () => {
       'builtin_role_grants',
       'campaign_approvals',
       'campaign_audit',
+      'campaign_conversation_attributions',
       'campaign_executions',
       'campaign_recipients',
       'campaign_report_export_queue',

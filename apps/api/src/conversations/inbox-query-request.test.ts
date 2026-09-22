@@ -19,6 +19,14 @@ describe('parseInboxQuery', () => {
     expect(() => parseInboxQuery(filter({ key: 'team_id', operator: 'eq', value: 'not-a-uuid' }))).toThrow();
   });
 
+  it('accepts campaign IDs only through the closed attribution filter', () => {
+    expect(parseInboxQuery(filter({ key: 'campaign_id', operator: 'eq', value: id }))).toMatchObject({
+      filters: [{ key: 'campaign_id', operator: 'eq', value: id }],
+    });
+    expect(() => parseInboxQuery(filter({ key: 'campaign_id', operator: 'eq', value: 'Campaign Summer' }))).toThrow();
+    expect(() => parseInboxQuery(filter({ key: 'campaign_name', operator: 'eq', value: 'Campaign Summer' }))).toThrow();
+  });
+
   it('bounds search, cursor and limit', () => {
     expect(parseInboxQuery({ search: '  hello  ', limit: '100' })).toMatchObject({ search: 'hello', limit: 100 });
     expect(() => parseInboxQuery({ search: 'x'.repeat(201) })).toThrow();

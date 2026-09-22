@@ -1126,7 +1126,10 @@ describe('the transport the browser actually gets', () => {
       .on(`GET /tenants/${TENANT}/conversations?queue=mine`, {
         status: 200,
         body: { data: [] },
-      });
+      })
+      .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [] } })
+      .on(`GET /tenants/${TENANT}/campaigns`, { status: 200, body: { data: [] } })
+      .on(`GET /tenants/${TENANT}/saved-views?resource=conversations`, { status: 200, body: { data: [] } });
     handle = mount({
       root: mountRoot(),
       host: createHost('#/inbox'),
@@ -1136,8 +1139,9 @@ describe('the transport the browser actually gets', () => {
       openEventSource: () => ({ addEventListener: () => undefined, close: () => undefined }),
     });
     await settle();
-    // The two inbox lists plus the shared metadata catalogue, and no People or
-    // Channels lists: opening one server-backed screen must not fetch another's.
+    // The two inbox lists, durable saved views and the compact picker catalogues.
+    // These ID-backed values are fetched up front so operators never have to
+    // paste a raw identifier into an Inbox filter.
     expect(api.calls.map((call) => call.path)).toEqual([
       '/auth/session',
       '/me/memberships',
@@ -1145,6 +1149,11 @@ describe('the transport the browser actually gets', () => {
       `/tenants/${TENANT}/conversations?queue=mine`,
       `/tenants/${TENANT}/labels`,
       `/tenants/${TENANT}/custom-fields`,
+      `/tenants/${TENANT}/saved-views?resource=conversations`,
+      `/tenants/${TENANT}/people`,
+      `/tenants/${TENANT}/teams`,
+      `/tenants/${TENANT}/channels`,
+      `/tenants/${TENANT}/campaigns`,
     ]);
   });
 

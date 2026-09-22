@@ -340,6 +340,24 @@ describe('the queue', () => {
     expect(api.calls.length).toBe(before);
     expect(root.querySelector('.convrow--record')).not.toBeNull();
   });
+
+  it('appends one cursor page without duplicating a conversation already visible', async () => {
+    const second = '66666666-6666-4666-8666-666666666666';
+    const api = inboxApi()
+      .on(`GET /tenants/${TENANT}/conversations?queue=mine`, page([conversation()], 'next-page'))
+      .on(`GET /tenants/${TENANT}/conversations?queue=mine&cursor=next-page`, page([
+        conversation(),
+        conversation({ id: second, peerIdentity: '15550001111' }),
+      ]));
+    const { root } = await open(api);
+    click(root, '[data-act="live-inbox-queue"][data-arg="mine"]');
+    click(root, '[data-act="live-inbox-load-more"]');
+    await settle();
+
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations?queue=mine&cursor=next-page`)).toBe(1);
+    expect(root.querySelectorAll('.convrow--record')).toHaveLength(2);
+    expect(root.querySelector('[data-act="live-inbox-load-more"]')).toBeNull();
+  });
 });
 
 describe('claiming', () => {
@@ -735,13 +753,12 @@ describe('what the screen does with what it is given', () => {
     click(root, '[data-act="menu"][data-arg="inbox-filters"]');
     const popover = root.querySelector('.popover') as HTMLElement;
     expect(popover).not.toBeNull();
-    const selects = [...popover.querySelectorAll('select')];
-    expect(selects.map((select) => select.getAttribute('data-form'))).toEqual(['unread', 'priority', 'channel', 'labelId']);
-    // Archived labels are not offered as a filter.
-    expect([...(selects[3] as HTMLSelectElement).options].map((option) => option.textContent)).toEqual(['كل التصنيفات', 'VIP']);
-    const label = selects[3] as HTMLSelectElement;
-    label.value = 'l-1';
-    label.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(popover.querySelector('[data-form="inboxFilterKey"]')).not.toBeNull();
+    // The catalogue picker writes the same bounded form state the action reads.
+    // Driving the action directly keeps this test about the server query rather
+    // than browser select re-render timing, which is covered by UI tests.
+    app.state.dialogForm = { inboxFilterKey: 'label_id', inboxFilterOperator: 'eq', inboxFilterValue: 'l-1' };
+    app.dispatch('live-inbox-filter-apply');
     await settle();
     expect(app.state.live.inboxQuery.filters).toContainEqual({ key: 'label_id', operator: 'eq', value: 'l-1' });
     expect(api.countOf(`GET /tenants/${TENANT}/conversations/unassigned?label=l-1`)).toBe(1);

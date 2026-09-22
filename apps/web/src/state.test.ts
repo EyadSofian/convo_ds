@@ -136,7 +136,7 @@ describe('URL round-trip', () => {
     expect(state.route.conversationId).toBe('cv-4820');
   });
 
-  it('round-trips a structured inbox query without putting search text in the URL', () => {
+  it('round-trips a structured inbox query without exposing search text in the URL', () => {
     const state = createState(NOW);
     state.live.inboxQuery = {
       queue: 'all', sort: 'priority_desc', cursor: null, limit: 50, search: 'private customer words',
@@ -155,6 +155,16 @@ describe('URL round-trip', () => {
     applyRoute(state, parseHash('#/inbox?as=owner'));
     expect(routeParamsFor(state)).toEqual({});
     expect((state as unknown as Record<string, unknown>)['role']).toBeUndefined();
+  });
+
+  it('drops malformed or unsupported Inbox deep-link filters before they reach state', () => {
+    const state = createState(NOW);
+    const malformed = encodeURIComponent(JSON.stringify([{ key: 'campaign_name', operator: 'eq', value: 'mutable' }]));
+    applyRoute(state, parseHash(`#/inbox?sort=not-a-sort&filters=${malformed}`));
+    expect(state.live.inboxQuery).toMatchObject({ sort: 'activity_desc', filters: [] });
+    const valid = encodeURIComponent(JSON.stringify([{ key: 'campaign_id', operator: 'eq', value: '11111111-1111-4111-8111-111111111111' }]));
+    applyRoute(state, parseHash(`#/inbox?filters=${valid}`));
+    expect(state.live.inboxQuery.filters).toEqual([{ key: 'campaign_id', operator: 'eq', value: '11111111-1111-4111-8111-111111111111' }]);
   });
 
   it('reads the analytics scope back, and empties what is absent', () => {

@@ -51,4 +51,23 @@ describe('compileInboxQuery', () => {
     expect(compiled.where).toContain('participant.membership_id = ANY(');
     expect(compiled.params).toEqual([[member]]);
   });
+
+  it('filters on immutable campaign attribution rather than campaign names', () => {
+    const compiled = compileInboxQuery({ ...base, filters: [{ key: 'campaign_id', operator: 'eq', value: label }] }, principal, new Map());
+    expect(compiled.where).toContain('campaign_conversation_attributions attribution');
+    expect(compiled.where).toContain('attribution.campaign_id = ANY(');
+    expect(compiled.where).not.toContain('campaign_name');
+    expect(compiled.params).toEqual([[label]]);
+  });
+
+  it('honours a typed boolean custom-field inequality', () => {
+    const compiled = compileInboxQuery(
+      { ...base, filters: [{ key: 'custom_field', fieldId: label, operator: 'neq', value: true }] },
+      principal,
+      new Map([[label, { id: label, type: 'boolean' }]]),
+    );
+    expect(compiled.where).toContain('value_json');
+    expect(compiled.where).toContain('<>');
+    expect(compiled.params).toContain('true');
+  });
 });

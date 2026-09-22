@@ -122,6 +122,27 @@ export class ConversationService {
       // A thread never exists without an episode to account for it, or the
       // first report to ask "how long did this take" finds nothing to measure.
       await this.lifecycle.openFirstEpisode(sql, tenantId, created.id, openedBy, new Date());
+      if (openedBy === 'customer_inbound') {
+        // An archived conversation is historical evidence, not an active
+        // thread. A response after its archival boundary therefore belongs to
+        // this newly created conversation. Every qualifying campaign send is
+        // bound once; no campaign delivery can create a conversation itself.
+        await sql.query(
+          `UPDATE campaign_conversation_attributions attribution
+              SET conversation_id=$1,bound_at=now()
+            WHERE attribution.tenant_id=$2
+              AND attribution.connection_id=$3
+              AND attribution.peer_identity=$4
+              AND attribution.conversation_id IS NULL
+              AND attribution.sent_at <= (SELECT created_at FROM conversations WHERE id=$1)
+              AND attribution.sent_at >= COALESCE((
+                SELECT max(previous.archived_at) FROM conversations previous
+                 WHERE previous.tenant_id=$2 AND previous.connection_id=$3 AND previous.peer_identity=$4
+                   AND previous.status='archived' AND previous.id <> $1
+              ), '-infinity'::timestamptz)`,
+          [created.id, tenantId, connectionId, peerIdentity],
+        );
+      }
     }
     const rows = await sql.query<RawConversation>(
       `SELECT ${SELECT_COLUMNS} FROM conversations

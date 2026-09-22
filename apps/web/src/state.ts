@@ -5,8 +5,13 @@ import {
   disconnectedContactsApi,
   disconnectedConversationsApi,
 } from './api/people';
-import { DEFAULT_INBOX_QUERY } from './api/conversations';
-import type { InboxQueryFilter, InboxSort } from './api/conversations';
+import {
+  INBOX_FILTER_CATALOGUE,
+  INBOX_QUERY_DEFAULT,
+  INBOX_SORTS,
+  type InboxFilter,
+  type InboxSort,
+} from '@convo/domain';
 import type { LiveState } from './live/store';
 import { createLiveState } from './live/store';
 import type { Route, ScreenId } from './router';
@@ -224,7 +229,7 @@ export function applyRoute(state: AppState, route: Route): void {
     // else about it is local state any more.
     state.inboxQueue = params.queue === 'mine' ? 'mine' : 'unassigned';
     state.live.inboxQuery = {
-      ...DEFAULT_INBOX_QUERY,
+      ...INBOX_QUERY_DEFAULT,
       queue: params.scope === 'all' ? 'all' : 'mine',
       sort: isInboxSort(params.sort) ? params.sort : 'activity_desc',
       filters: routeFilters(params.filters),
@@ -241,10 +246,10 @@ export function applyRoute(state: AppState, route: Route): void {
 }
 
 function isInboxSort(value: string | undefined): value is InboxSort {
-  return value === 'activity_desc' || value === 'activity_asc' || value === 'created_desc' || value === 'created_asc' || value === 'waiting_desc' || value === 'priority_desc';
+  return typeof value === 'string' && (INBOX_SORTS as readonly string[]).includes(value);
 }
 
-function routeFilters(value: string | undefined): readonly InboxQueryFilter[] {
+function routeFilters(value: string | undefined): readonly InboxFilter[] {
   if (value === undefined || value.length > 6000) return [];
   try {
     const parsed: unknown = JSON.parse(value);
@@ -255,16 +260,36 @@ function routeFilters(value: string | undefined): readonly InboxQueryFilter[] {
   }
 }
 
-function isRouteFilter(value: unknown): value is InboxQueryFilter {
+/**
+ * Reject malformed or unsupported deep-link filters before they enter client
+ * state. This intentionally stays structural: the API compiler remains the
+ * authority for tenancy, database values and custom-field semantics.
+ */
+function isRouteFilter(value: unknown): value is InboxFilter {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const filter = value as Record<string, unknown>;
+  if (typeof filter['key'] !== 'string' || typeof filter['operator'] !== 'string') return false;
+  const definition = INBOX_FILTER_CATALOGUE.find((entry) => entry.key === filter['key']);
+  if (definition === undefined || !definition.operators.includes(filter['operator'])) return false;
+
+  const fieldId = filter['fieldId'];
+  if (definition.key === 'custom_field') {
+    if (typeof fieldId !== 'string' || !isUuid(fieldId)) return false;
+  } else if (fieldId !== undefined) {
+    return false;
+  }
+
   const filterValue = filter['value'];
-  const scalar = typeof filterValue === 'string' || typeof filterValue === 'boolean';
-  const list = Array.isArray(filterValue) && filterValue.length > 0 && filterValue.length <= 20 && filterValue.every((item) => typeof item === 'string');
-  return typeof filter['key'] === 'string' && filter['key'].length <= 64 &&
-    typeof filter['operator'] === 'string' && filter['operator'].length <= 24 &&
-    (filterValue === undefined || scalar || list) &&
-    (filter['fieldId'] === undefined || typeof filter['fieldId'] === 'string');
+  if (filter['operator'] === 'is_set' || filter['operator'] === 'is_not_set') return filterValue === undefined;
+  if (filterValue === undefined) return false;
+  if (definition.valueType === 'boolean') return typeof filterValue === 'boolean';
+  if (typeof filterValue === 'string') return filterValue.length > 0 && filterValue.length <= 500;
+  return Array.isArray(filterValue) && filterValue.length > 0 && filterValue.length <= 20 &&
+    filterValue.every((item) => typeof item === 'string' && item.length > 0 && item.length <= 500);
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 export function screenTitle(screen: ScreenId, lang: Lang): string {

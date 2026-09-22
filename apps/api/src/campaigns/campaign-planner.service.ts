@@ -16,6 +16,8 @@ interface QueueRow {
 
 interface RecipientRow {
   readonly id: string;
+  readonly campaign_id: string;
+  readonly execution_id: string;
   readonly external_id: string;
   readonly connection_id: string;
   readonly content: Readonly<Record<string, unknown>>;
@@ -72,7 +74,7 @@ export class CampaignPlannerService {
       if (!(await makeRunnable(sql, work))) return 1;
 
       const recipients = await sql.query<RecipientRow>(
-        `SELECT cr.id::text,i.external_id,c.connection_id::text,r.content,cr.rendered_variables,e.stop_version::text
+        `SELECT cr.id::text,e.campaign_id::text,e.id::text AS execution_id,i.external_id,c.connection_id::text,r.content,cr.rendered_variables,e.stop_version::text
            FROM campaign_recipients cr JOIN campaign_executions e ON e.id=cr.execution_id
            JOIN campaigns c ON c.id=e.campaign_id JOIN campaign_revisions r ON r.id=e.revision_id
            JOIN contact_identities i ON i.id=cr.identity_id
@@ -104,6 +106,24 @@ export class CampaignPlannerService {
           [messageId, tenantId, recipient.connection_id, recipient.external_id],
         );
         await sql.query(`UPDATE campaign_recipients SET command_id=$2,state='queued',updated_at=now() WHERE id=$1`, [recipient.id, messageId]);
+        // Outreach never calls ConversationService.ensure: a campaign send is
+        // not customer intent and must not manufacture inbox work. If a live
+        // conversation already exists, bind it; otherwise leave durable
+        // evidence for the next customer-created conversation to claim.
+        await sql.query(
+          `INSERT INTO campaign_conversation_attributions
+             (tenant_id,campaign_id,execution_id,recipient_id,outbound_message_id,connection_id,peer_identity,sent_at,conversation_id,bound_at)
+           SELECT $1,$2,$3,$4,outbound.id,$5,$6,outbound.created_at,live.id,
+                  CASE WHEN live.id IS NULL THEN NULL ELSE now() END
+             FROM outbound_messages outbound
+             LEFT JOIN LATERAL (
+               SELECT id FROM conversations
+                WHERE tenant_id=$1 AND connection_id=$5 AND peer_identity=$6 AND status <> 'archived'
+                ORDER BY created_at DESC LIMIT 1
+             ) live ON TRUE
+            WHERE outbound.tenant_id=$1 AND outbound.id=$7`,
+          [tenantId, recipient.campaign_id, recipient.execution_id, recipient.id, recipient.connection_id, recipient.external_id, messageId],
+        );
         planned += 1;
       }
 

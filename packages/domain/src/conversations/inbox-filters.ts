@@ -9,12 +9,12 @@ export const INBOX_FILTER_KEYS = [
   'status', 'assignment_state', 'assigned_agent_id', 'team_id', 'channel',
   'connection_id', 'label_id', 'priority', 'unread', 'unreplied', 'created_at',
   'last_activity_at', 'waiting_since', 'customer_name', 'customer_phone',
-  'collaborator_id', 'participant_id', 'handoff_target_id', 'custom_field',
+  'collaborator_id', 'participant_id', 'handoff_target_id', 'campaign_id', 'custom_field',
 ] as const;
 
 export type InboxFilterKey = (typeof INBOX_FILTER_KEYS)[number];
 export type InboxFilterGroup = 'assignment' | 'conversation' | 'customer' | 'channel' | 'labels' | 'dates' | 'collaboration' | 'custom_fields';
-export type InboxFilterValueType = 'enum' | 'membership_id' | 'team_id' | 'connection_id' | 'label_id' | 'boolean' | 'date' | 'text' | 'custom_field';
+export type InboxFilterValueType = 'enum' | 'membership_id' | 'team_id' | 'connection_id' | 'label_id' | 'campaign_id' | 'boolean' | 'date' | 'text' | 'custom_field';
 
 export interface InboxFilterDefinition {
   readonly key: InboxFilterKey;
@@ -47,6 +47,7 @@ export const INBOX_FILTER_CATALOGUE: readonly InboxFilterDefinition[] = [
   { key: 'collaborator_id', group: 'collaboration', valueType: 'membership_id', operators: ['eq', 'in'], compiler: 'collaborator', inbox: true, savedView: false, report: false },
   { key: 'participant_id', group: 'collaboration', valueType: 'membership_id', operators: ['eq', 'in'], compiler: 'participant', inbox: true, savedView: false, report: false },
   { key: 'handoff_target_id', group: 'collaboration', valueType: 'membership_id', operators: ['eq', 'in'], compiler: 'handoff_target', inbox: true, savedView: false, report: false },
+  { key: 'campaign_id', group: 'conversation', valueType: 'campaign_id', operators: ['eq', 'in'], compiler: 'campaign_attribution', inbox: true, savedView: true, report: true },
   { key: 'custom_field', group: 'custom_fields', valueType: 'custom_field', operators: ['eq', 'neq', 'contains', 'is_set', 'is_not_set'], compiler: 'typed_custom_field', inbox: true, savedView: true, report: false },
 ];
 

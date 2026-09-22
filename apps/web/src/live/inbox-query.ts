@@ -1,4 +1,4 @@
-import type { InboxQuery } from '../api/conversations.js';
+import type { InboxQuery } from '@convo/domain';
 
 export type SimpleInboxFilter = 'unread' | 'priority' | 'channel' | 'labelId';
 

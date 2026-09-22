@@ -3,8 +3,9 @@ import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { clockTime, dayLabel, initials, relativeTime } from '../format.js';
 import { icon } from '../icons.js';
+import { INBOX_FILTER_CATALOGUE, type InboxFilter, type InboxFilterDefinition } from '@convo/domain';
 import { routingAbility } from '../live/ability.js';
-import { activeFilterCount, simpleFilterValue } from '../live/inbox-query.js';
+import { activeFilterCount } from '../live/inbox-query.js';
 import { isDenial, rowsOf } from '../live/store.js';
 import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
@@ -157,7 +158,8 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
       h('div', { class: 'listhead__tools' }, [
         h('div', { class: 'menu-anchor' }, [
           button({
-            icon: 'filter',
+            label: t(state, 'إضافة فلتر', 'Add filter'),
+            icon: 'plus',
             act: 'menu',
             arg: 'inbox-filters',
             variant: 'ghost',
@@ -170,6 +172,27 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
             extraClass: activeFilters === 0 ? undefined : 'btn--active',
           }),
           state.openMenu === 'inbox-filters' ? inboxFilters(state, live) : null,
+        ]),
+        selectControl({
+          act: 'live-inbox-sort', value: live.inboxQuery.sort,
+          ariaLabel: t(state, 'ترتيب المحادثات', 'Sort conversations'),
+          options: [
+            { value: 'activity_desc', label: t(state, 'أحدث نشاط', 'Newest activity') },
+            { value: 'activity_asc', label: t(state, 'أقدم نشاط', 'Oldest activity') },
+            { value: 'created_desc', label: t(state, 'أحدث إنشاء', 'Newest created') },
+            { value: 'created_asc', label: t(state, 'أقدم إنشاء', 'Oldest created') },
+            { value: 'waiting_desc', label: t(state, 'الأطول انتظارًا', 'Waiting longest') },
+            { value: 'priority_desc', label: t(state, 'الأولوية', 'Priority') },
+          ],
+        }),
+        h('div', { class: 'menu-anchor' }, [
+          button({
+            icon: 'bookmark', act: 'menu', arg: 'inbox-saved-views', variant: 'ghost', small: true,
+            expanded: state.openMenu === 'inbox-saved-views', haspopup: 'dialog',
+            title: t(state, 'العروض المحفوظة', 'Saved views'),
+            extraClass: live.selectedSavedViewId === null ? undefined : 'btn--active',
+          }),
+          state.openMenu === 'inbox-saved-views' ? savedViewsMenu(state, live) : null,
         ]),
         button({
           icon: 'refresh',
@@ -190,6 +213,8 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
         }),
       ]),
     ]),
+    inboxSearch(state, live),
+    activeFilterChips(state, live),
     connectionNotice(state, live),
     listResizer(state),
     h('div', { class: 'zone__body', 'data-scroll': 'list' }, [
@@ -203,32 +228,188 @@ function countOf(resource: Resource<readonly unknown[]>): number | undefined {
 }
 
 function inboxFilters(state: AppState, live: LiveState): HTMLElement {
-  const filters = live.inboxQuery;
-  const labels = rowsOf(live.labels).filter((entry) => entry.state === 'active');
-  const common = { act: 'live-inbox-filter', disabled: live.busy !== null };
-  const row = (label: string, control: HTMLElement): HTMLElement =>
-    h('label', { class: 'field field--row' }, [h('span', { class: 'field__label' }, [label]), control]);
-  return h('div', { class: 'popover', role: 'group', 'data-overlay': 'popover', 'aria-label': t(state, 'تصفية المحادثات', 'Filter conversations') }, [
-    row(t(state, 'القراءة', 'Read state'), selectControl({ ...common, value: simpleFilterValue(filters, 'unread'), form: 'unread', options: [
-      { value: '', label: t(state, 'الكل', 'All') },
-      { value: 'true', label: t(state, 'غير مقروءة', 'Unread') },
-      { value: 'false', label: t(state, 'مقروءة', 'Read') },
-    ] })),
-    row(t(state, 'الأولوية', 'Priority'), selectControl({ ...common, value: simpleFilterValue(filters, 'priority'), form: 'priority', options: [
-      { value: '', label: t(state, 'كل الأولويات', 'Any priority') },
-      { value: 'urgent', label: t(state, 'عاجلة', 'Urgent') },
-      { value: 'high', label: t(state, 'مرتفعة', 'High') },
-      { value: 'normal', label: t(state, 'عادية', 'Normal') },
-      { value: 'low', label: t(state, 'منخفضة', 'Low') },
-    ] })),
-    row(t(state, 'القناة', 'Channel'), selectControl({ ...common, value: simpleFilterValue(filters, 'channel'), form: 'channel', options: [
-      { value: '', label: t(state, 'كل القنوات', 'Any channel') },
-      ...['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom'].map((value) => ({ value, label: phrase(state, CHANNEL_NAMES, value) })),
-    ] })),
-    row(t(state, 'التصنيف', 'Label'), selectControl({ ...common, value: simpleFilterValue(filters, 'labelId'), form: 'labelId', options: [
-      { value: '', label: t(state, 'كل التصنيفات', 'Any label') },
-      ...labels.map((entry) => ({ value: entry.id, label: entry.name })),
-    ] })),
+  const search = state.dialogForm['inboxFilterCatalogueSearch'] ?? '';
+  const definitions = INBOX_FILTER_CATALOGUE.filter((definition) => definition.inbox && filterLabel(state, definition).toLowerCase().includes(search.toLowerCase()));
+  const selectedKey = state.dialogForm['inboxFilterKey'] ?? definitions[0]?.key ?? '';
+  const selected = INBOX_FILTER_CATALOGUE.find((definition) => definition.key === selectedKey) ?? definitions[0];
+  const selectedField = selected?.key === 'custom_field'
+    ? rowsOf(live.customFields).find((field) => field.id === (state.dialogForm['inboxFilterFieldId'] ?? ''))
+    : undefined;
+  const operators = selected?.key === 'custom_field' ? customFieldOperators(selectedField?.type) : selected?.operators ?? [];
+  const requestedOperator = state.dialogForm['inboxFilterOperator'] ?? '';
+  const operator = operators.includes(requestedOperator) ? requestedOperator : operators[0] ?? '';
+  const row = (label: string, control: HTMLElement): HTMLElement => h('label', { class: 'field field--row' }, [h('span', { class: 'field__label' }, [label]), control]);
+  return h('div', { class: 'popover inbox-filter-popover', role: 'group', 'data-overlay': 'popover', 'aria-label': t(state, 'تصفية المحادثات', 'Filter conversations') }, [
+    h('input', { class: 'input input--sm', type: 'search', value: search, placeholder: t(state, 'ابحث عن فلتر', 'Find a filter'), 'data-act': 'form-toggle', 'data-form': 'inboxFilterCatalogueSearch' }),
+    ...(selected === undefined ? [h('p', { class: 'empty-copy' }, [t(state, 'لا يوجد فلتر مطابق.', 'No matching filter.')])] : [
+      row(t(state, 'الحقل', 'Field'), selectControl({ act: 'form-toggle', form: 'inboxFilterKey', value: selected.key, options: definitions.map((definition) => ({ value: definition.key, label: filterLabel(state, definition) })) })),
+      row(t(state, 'المطابقة', 'Match'), selectControl({ act: 'form-toggle', form: 'inboxFilterOperator', value: operators.includes(operator) ? operator : operators[0]!, options: operators.map((value) => ({ value, label: operatorLabel(state, value) })) })),
+      filterValueEditor(state, live, selected, operator),
+      button({ label: t(state, 'إضافة فلتر', 'Add filter'), act: 'live-inbox-filter-apply', variant: 'primary', small: true, disabled: live.busy !== null || (selected.key === 'custom_field' && selectedField === undefined) }),
+    ]),
+  ]);
+}
+
+function inboxSearch(state: AppState, live: LiveState): HTMLElement {
+  return h('div', { class: 'inbox-search' }, [
+    icon('search', 16),
+    h('input', {
+      class: 'inbox-search__input', type: 'search', value: live.inboxSearchDraft,
+      placeholder: t(state, 'ابحث بالاسم أو الهاتف أو المعرّف', 'Search name, phone or ID'),
+      'aria-label': t(state, 'بحث في المحادثات', 'Search conversations'), 'data-act': 'live-inbox-search',
+    }),
+    live.inboxSearchDraft === '' ? null : button({ icon: 'close', act: 'live-inbox-search', arg: '', variant: 'ghost', small: true, title: t(state, 'مسح البحث', 'Clear search') }),
+  ]);
+}
+
+function activeFilterChips(state: AppState, live: LiveState): Child {
+  if (live.inboxQuery.filters.length === 0) return null;
+  return h('div', { class: 'inbox-filter-chips', role: 'list', 'aria-label': t(state, 'الفلاتر المطبقة', 'Applied filters') }, [
+    ...live.inboxQuery.filters.map((filter, index) => h('span', { class: 'inbox-filter-chip', role: 'listitem' }, [
+      filterDescription(state, live, filter),
+      button({ icon: 'close', act: 'live-inbox-filter-remove', arg: String(index), variant: 'ghost', small: true, title: t(state, 'إزالة الفلتر', 'Remove filter') }),
+    ])),
+    button({ label: t(state, 'مسح الكل', 'Clear all'), act: 'live-inbox-filter-clear', variant: 'ghost', small: true }),
+  ]);
+}
+
+function filterValueEditor(state: AppState, live: LiveState, definition: InboxFilterDefinition, operator: string): HTMLElement | null {
+  if (operator === 'is_set' || operator === 'is_not_set') return null;
+  const form = state.dialogForm;
+  const key = 'inboxFilterValue';
+  const row = (label: string, control: HTMLElement): HTMLElement => h('label', { class: 'field field--row' }, [h('span', { class: 'field__label' }, [label]), control]);
+  if (definition.key === 'custom_field') {
+    const fields = rowsOf(live.customFields).filter((field) => field.target === 'conversation' && field.state === 'active');
+    const selectedField = fields.find((field) => field.id === (form['inboxFilterFieldId'] ?? ''));
+    return h('div', { class: 'filter-value-editor' }, [
+      row(t(state, 'الحقل المخصص', 'Custom field'), selectControl({ act: 'form-toggle', form: 'inboxFilterFieldId', value: form['inboxFilterFieldId'] ?? '', options: [{ value: '', label: t(state, 'اختر حقلاً', 'Choose a field') }, ...fields.map((field) => ({ value: field.id, label: field.name }))] })),
+      selectedField === undefined
+        ? h('p', { class: 'field__hint' }, [t(state, 'اختر حقلاً لإظهار قيمة مناسبة لنوعه.', 'Choose a field to show the value control for its type.')])
+        : customFieldValueControl(state, selectedField.type, selectedField.options, key),
+    ]);
+  }
+  return valueControl(state, live, definition, key);
+}
+
+/** Only operators the server validates for this typed custom field. */
+function customFieldOperators(type: string | undefined): readonly string[] {
+  if (type === 'boolean') return ['eq', 'neq', 'is_set', 'is_not_set'];
+  if (type === 'number' || type === 'date' || type === 'single_select') return ['eq', 'neq', 'is_set', 'is_not_set'];
+  if (type === 'text' || type === 'email' || type === 'phone') return ['eq', 'contains', 'is_set', 'is_not_set'];
+  // Multi-select has no comparison semantics in the API yet; existence tests
+  // remain useful and, unlike a guessed containment query, are unambiguous.
+  if (type === 'multi_select') return ['is_set', 'is_not_set'];
+  return ['eq', 'is_set', 'is_not_set'];
+}
+
+function customFieldValueControl(state: AppState, type: string, options: readonly string[], key: string): HTMLElement {
+  const value = state.dialogForm[key] ?? '';
+  if (type === 'boolean') return selectControl({ act: 'form', form: key, value, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, { value: 'true', label: t(state, 'نعم', 'Yes') }, { value: 'false', label: t(state, 'لا', 'No') }] });
+  if (type === 'single_select') return selectControl({ act: 'form', form: key, value, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, ...options.map((option) => ({ value: option, label: option }))] });
+  const inputType = type === 'date' ? 'date' : type === 'number' ? 'number' : type === 'email' ? 'email' : type === 'phone' ? 'tel' : 'text';
+  return h('input', { class: 'input', type: inputType, value, placeholder: t(state, 'القيمة', 'Value'), 'data-act': 'form', 'data-form': key, dir: inputType === 'text' ? undefined : 'ltr' });
+}
+
+function valueControl(state: AppState, live: LiveState, definition: InboxFilterDefinition, key: string): HTMLElement {
+  const value = state.dialogForm[key] ?? '';
+  const enumValues = enumOptions(state, definition.key);
+  if (definition.valueType === 'boolean') return selectControl({ act: 'form', form: key, value, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, { value: 'true', label: t(state, 'نعم', 'Yes') }, { value: 'false', label: t(state, 'لا', 'No') }] });
+  if (enumValues !== null) return selectControl({ act: 'form', form: key, value, options: [{ value: '', label: t(state, 'اختر', 'Choose') }, ...enumValues] });
+  const picked = pickerOptions(live, definition);
+  if (definition.valueType === 'label_id' && (state.dialogForm['inboxFilterOperator'] === 'in' || state.dialogForm['inboxFilterOperator'] === 'not_in')) {
+    const selected = new Set(value.split(',').filter(Boolean));
+    return h('div', { class: 'inbox-filter-picker', role: 'group', 'aria-label': t(state, 'اختر التصنيفات', 'Choose labels') }, [
+      ...(picked ?? []).map((option) => button({
+        label: option.label,
+        act: 'live-inbox-filter-value-toggle',
+        arg: option.value,
+        variant: selected.has(option.value) ? 'primary' : 'ghost',
+        small: true,
+        pressed: selected.has(option.value),
+      })),
+    ]);
+  }
+  if (picked !== null) return selectControl({ act: 'form', form: key, value, disabled: picked.length === 0, options: [{ value: '', label: picked.length === 0 ? t(state, 'لا توجد قيم متاحة', 'No available values') : t(state, 'اختر', 'Choose') }, ...picked] });
+  return h('input', { class: 'input', type: definition.valueType === 'date' ? 'date' : 'text', value, placeholder: t(state, 'القيمة', 'Value'), 'data-act': 'form', 'data-form': key, dir: definition.valueType === 'text' || definition.valueType === 'custom_field' ? undefined : 'ltr' });
+}
+
+/** Converts server-backed resources into labels before they reach a picker. */
+function pickerOptions(live: LiveState, definition: InboxFilterDefinition): readonly { readonly value: string; readonly label: string }[] | null {
+  if (definition.valueType === 'membership_id') {
+    return rowsOf(live.people).filter((person) => person.status === 'active').map((person) => ({ value: person.membership_id, label: person.email }));
+  }
+  if (definition.valueType === 'team_id') {
+    return rowsOf(live.teams).filter((team) => !team.archived).map((team) => ({ value: team.id, label: team.name }));
+  }
+  if (definition.valueType === 'connection_id') {
+    return rowsOf(live.connections).filter((connection) => connection.disconnected_at === null).map((connection) => ({ value: connection.id, label: connection.display_name }));
+  }
+  if (definition.valueType === 'label_id') {
+    return rowsOf(live.labels).filter((label) => label.state === 'active').map((label) => ({ value: label.id, label: label.name }));
+  }
+  if (definition.valueType === 'campaign_id') {
+    return rowsOf(live.campaigns).map((campaign) => ({ value: campaign.id, label: campaign.name }));
+  }
+  return null;
+}
+
+function enumOptions(state: AppState, key: string): readonly { readonly value: string; readonly label: string }[] | null {
+  if (key === 'status') return ['open', 'pending', 'snoozed', 'resolved'].map((value) => ({ value, label: value }));
+  if (key === 'priority') return ['urgent', 'high', 'normal', 'low'].map((value) => ({ value, label: phrase(state, { urgent: { ar: 'عاجلة', en: 'Urgent' }, high: { ar: 'مرتفعة', en: 'High' }, normal: { ar: 'عادية', en: 'Normal' }, low: { ar: 'منخفضة', en: 'Low' } }, value) }));
+  if (key === 'channel') return ['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom'].map((value) => ({ value, label: phrase(state, CHANNEL_NAMES, value) }));
+  if (key === 'assignment_state') return [{ value: 'assigned', label: t(state, 'مسندة', 'Assigned') }, { value: 'unassigned', label: t(state, 'غير مسندة', 'Unassigned') }];
+  return null;
+}
+
+function filterLabel(state: AppState, definition: InboxFilterDefinition): string {
+  const labels: Record<string, readonly [string, string]> = {
+    status: ['الحالة', 'Status'], assignment_state: ['الإسناد', 'Assignment'], assigned_agent_id: ['الوكيل', 'Agent'], team_id: ['الفريق', 'Team'], channel: ['القناة', 'Channel'], connection_id: ['الاتصال', 'Connection'], label_id: ['التصنيف', 'Label'], priority: ['الأولوية', 'Priority'], unread: ['القراءة', 'Read state'], unreplied: ['بانتظار رد', 'Awaiting reply'], created_at: ['تاريخ الإنشاء', 'Created'], last_activity_at: ['آخر نشاط', 'Last activity'], waiting_since: ['بانتظار منذ', 'Waiting since'], customer_name: ['اسم العميل', 'Customer name'], customer_phone: ['هاتف العميل', 'Customer phone'], collaborator_id: ['متعاون', 'Collaborator'], participant_id: ['مشارك', 'Participant'], handoff_target_id: ['تحويل إلى', 'Handoff target'], campaign_id: ['الحملة', 'Campaign'], custom_field: ['حقل مخصص', 'Custom field'],
+  };
+  const label = labels[definition.key];
+  return label === undefined ? definition.key : t(state, label[0], label[1]);
+}
+
+function operatorLabel(state: AppState, operator: string): string {
+  const labels: Record<string, readonly [string, string]> = { eq: ['يساوي', 'is'], neq: ['لا يساوي', 'is not'], in: ['ضمن', 'is any of'], not_in: ['ليس ضمن', 'is none of'], contains: ['يتضمن', 'contains'], before: ['قبل', 'before'], after: ['بعد', 'after'], is_set: ['موجود', 'is set'], is_not_set: ['غير موجود', 'is not set'] };
+  const label = labels[operator];
+  return label === undefined ? operator : t(state, label[0], label[1]);
+}
+
+function filterDescription(state: AppState, live: LiveState, filter: InboxFilter): string {
+  const definition = INBOX_FILTER_CATALOGUE.find((entry) => entry.key === filter.key);
+  const name = definition === undefined ? filter.key : filterLabel(state, definition);
+  const values = filter.value === undefined ? [] : Array.isArray(filter.value) ? filter.value : [String(filter.value)];
+  const value = values.map((entry) => filterValueLabel(live, filter, entry)).join(filter.key === 'label_id' ? ' + ' : ', ');
+  const operator = filter.key === 'label_id' && filter.operator === 'in'
+    ? t(state, 'تطابق جميع التصنيفات', 'matches all labels')
+    : operatorLabel(state, filter.operator);
+  return `${name} ${operator}${value === '' ? '' : ` ${value}`}`;
+}
+
+function filterValueLabel(live: LiveState, filter: InboxFilter, value: string): string {
+  if (filter.key === 'assigned_agent_id' || filter.key === 'collaborator_id' || filter.key === 'participant_id' || filter.key === 'handoff_target_id') {
+    return rowsOf(live.people).find((person) => person.membership_id === value)?.email ?? pendingValue();
+  }
+  if (filter.key === 'team_id') return rowsOf(live.teams).find((team) => team.id === value)?.name ?? pendingValue();
+  if (filter.key === 'connection_id') return rowsOf(live.connections).find((connection) => connection.id === value)?.display_name ?? pendingValue();
+  if (filter.key === 'label_id') return rowsOf(live.labels).find((label) => label.id === value)?.name ?? pendingValue();
+  if (filter.key === 'campaign_id') return rowsOf(live.campaigns).find((campaign) => campaign.id === value)?.name ?? pendingValue();
+  return value;
+}
+
+/** The fallback avoids leaking opaque query identifiers into the visual UI. */
+function pendingValue(): string { return '…'; }
+
+function savedViewsMenu(state: AppState, live: LiveState): HTMLElement {
+  const views = live.savedViews.status === 'ready' ? live.savedViews.value : [];
+  return h('div', { class: 'popover inbox-saved-views', role: 'group', 'data-overlay': 'popover', 'aria-label': t(state, 'العروض المحفوظة', 'Saved views') }, [
+    ...views.map((view) => button({ label: view.name, act: 'live-inbox-saved-view-apply', arg: view.id, variant: view.id === live.selectedSavedViewId ? 'primary' : 'ghost', small: true })),
+    views.length === 0 ? h('p', { class: 'empty-copy' }, [t(state, 'لا توجد عروض محفوظة.', 'No saved views yet.')]) : null,
+    button({ label: t(state, 'حفظ العرض الحالي', 'Save current view'), act: 'open-dialog', arg: 'saved-inbox-view:create', variant: 'default', small: true }),
+    live.selectedSavedViewId === null ? null : h('div', { class: 'inbox-saved-views__actions' }, [
+      button({ label: t(state, 'تحديث', 'Update'), act: 'open-dialog', arg: 'saved-inbox-view:update', variant: 'ghost', small: true }),
+      button({ label: t(state, 'حذف', 'Delete'), act: 'live-inbox-saved-view-retire', arg: live.selectedSavedViewId, variant: 'danger', small: true }),
+    ]),
   ]);
 }
 
@@ -279,7 +460,12 @@ function mineList(state: AppState, live: LiveState): Child {
       title: t(state, 'لا توجد محادثات مسندة إليك', 'Nothing assigned to you'),
       body: t(state, 'استلم محادثة من «غير مسندة» لتبدأ.', 'Claim one from Unassigned to start.'),
     },
-    (rows) => h('div', { class: 'convlist', role: 'list' }, rows.map((conversation) => conversationRow(state, live, conversation))),
+    (rows) => h('div', { class: 'convlist', role: 'list' }, [
+      ...rows.map((conversation) => conversationRow(state, live, conversation)),
+      live.inboxNextCursor === null ? null : h('div', { class: 'inbox-more' }, [
+        button({ label: t(state, 'تحميل المزيد', 'Load more'), act: 'live-inbox-load-more', variant: 'ghost', small: true, busy: live.busy === 'inbox-load-more' }),
+      ]),
+    ]),
   );
 }
 

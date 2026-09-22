@@ -1,5 +1,7 @@
 import type { ApiClient, ApiResult } from './client.js';
 import type { EntityMetadata } from './metadata.js';
+import type { InboxQuery } from '@convo/domain';
+export { INBOX_QUERY_DEFAULT as DEFAULT_INBOX_QUERY } from '@convo/domain';
 
 /**
  * The inbox operations, typed against the pinned OpenAPI.
@@ -158,35 +160,13 @@ export interface OutboundMessage {
   readonly delivery_state: string | null;
 }
 
-export type ConversationQueue = 'mine' | 'all';
-
-/** The server's closed InboxQuery representation, mirrored without SQL terms. */
-export interface InboxQueryFilter {
-  readonly key: string;
-  readonly operator: string;
-  readonly value?: string | boolean | readonly string[];
-  readonly fieldId?: string;
-}
-
-export type InboxSort = 'activity_desc' | 'activity_asc' | 'created_desc' | 'created_asc' | 'waiting_desc' | 'priority_desc';
-
-export interface InboxQuery {
-  readonly queue: ConversationQueue;
-  readonly filters: readonly InboxQueryFilter[];
-  readonly search: string | null;
-  readonly sort: InboxSort;
-  readonly cursor: string | null;
-  readonly limit: number;
-}
+export type { InboxFilter, InboxQuery, InboxSort } from '@convo/domain';
 
 export interface ConversationPage {
   readonly items: readonly Conversation[];
   readonly nextCursor: string | null;
 }
 
-export const DEFAULT_INBOX_QUERY: InboxQuery = {
-  queue: 'mine', filters: [], search: null, sort: 'activity_desc', cursor: null, limit: 50,
-};
 
 export class ConversationsApi {
   constructor(private readonly client: ApiClient) {}

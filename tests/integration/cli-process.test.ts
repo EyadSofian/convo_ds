@@ -124,6 +124,7 @@ describe('convo-db entry point', () => {
       'applied 0031_invitation_tenant_scope.sql',
       'applied 0032_automation_execution.sql',
       'applied 0033_account_security_events.sql',
+      'applied 0034_campaign_conversation_attribution.sql',
     ]);
 
     const second = await runBin(['migrate'], env);

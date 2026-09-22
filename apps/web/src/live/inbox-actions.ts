@@ -10,6 +10,7 @@ import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
 import { currentTenantId, failed, forTenant, fromResult, LOADING, ready } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
+import { loadSavedViews } from './saved-view-actions.js';
 
 /**
  * The Inbox, against the real API.
@@ -52,8 +53,59 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
     const now = context.now();
     live.unassigned = fromResult(unassigned, now);
     live.conversations = mine.ok ? ready(mine.data.items, now) : failed(mine.error);
+    live.inboxNextCursor = mine.ok ? mine.data.nextCursor : null;
     context.refresh();
     if (live.labels.status === 'idle') await loadMetadataCatalog(context);
+    if (live.savedViews.status === 'idle') await loadSavedViews(context);
+    if (live.people.status === 'idle' || live.teams.status === 'idle' || live.connections.status === 'idle' || live.campaigns.status === 'idle') {
+      await loadInboxPickerCatalogues(context, tenantId);
+    }
+  });
+}
+
+/**
+ * Uses only server-provided labels for ID-backed Inbox filters. A browser must
+ * never invite an operator to paste a membership, connection, label or campaign
+ * UUID just to express a query.
+ */
+async function loadInboxPickerCatalogues(context: LiveContext, tenantId: string): Promise<void> {
+  const { live } = context;
+  const [people, teams, connections, campaigns] = await Promise.all([
+    live.api.people(tenantId),
+    live.api.teams(tenantId),
+    live.channels.connections(tenantId),
+    live.campaignsApi.list(tenantId),
+  ]);
+  const now = context.now();
+  live.people = fromResult(people, now);
+  live.teams = fromResult(teams, now);
+  live.connections = fromResult(connections, now);
+  live.campaigns = fromResult(campaigns, now);
+  context.refresh();
+}
+
+/** Appends one cursor page without changing the filter URL or duplicating rows. */
+export async function loadMoreInbox(context: LiveContext): Promise<void> {
+  const cursor = context.live.inboxNextCursor;
+  if (cursor === null || context.live.busy !== null) return;
+  return forTenant(context, undefined, async (tenantId) => {
+    context.live.busy = 'inbox-load-more';
+    context.refresh();
+    const result = await context.live.conversationsApi.list(tenantId, { ...context.live.inboxQuery, cursor });
+    context.live.busy = null;
+    if (!result.ok) {
+      context.live.error = result.error;
+      context.refresh();
+      return;
+    }
+    const existing = context.live.conversations.status === 'ready' ? context.live.conversations.value : [];
+    const seen = new Set(existing.map((conversation) => conversation.id));
+    context.live.conversations = ready([...existing, ...result.data.items.filter((conversation) => !seen.has(conversation.id))], context.now());
+    context.live.inboxNextCursor = result.data.nextCursor;
+    // A continuation is a transport position, never part of the persisted
+    // operator query. Realtime therefore always re-reads its first page.
+    context.live.inboxQuery = { ...context.live.inboxQuery, cursor: null };
+    context.refresh();
   });
 }
 

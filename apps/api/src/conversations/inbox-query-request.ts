@@ -41,7 +41,7 @@ function parseValue(type:string,input:unknown,key:string,operator:string):string
 }
 function scalar(type:string,value:unknown,key:string):string{
  if(typeof value!=='string'||value.length===0||value.length>500)return fail();
- if(['membership_id','team_id','connection_id','label_id'].includes(type)&&!UUID.test(value))return fail();
+ if(['membership_id','team_id','connection_id','label_id','campaign_id'].includes(type)&&!UUID.test(value))return fail();
  if(type==='enum'){
   const valid=(key==='status'&&isConversationState(value))||(key==='priority'&&isPriority(value))||(key==='channel'&&isChannelKind(value))||(key==='assignment_state'&&(value==='assigned'||value==='unassigned'));
   if(!valid)return fail();

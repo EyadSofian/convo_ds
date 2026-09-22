@@ -7,8 +7,8 @@ describe('Inbox filter catalogue', () => {
     expect(new Set(INBOX_FILTER_CATALOGUE.map((item) => item.compiler)).size).toBe(INBOX_FILTER_CATALOGUE.length);
   });
 
-  it('does not expose campaign until durable attribution exists', () => {
-    expect(inboxFilterDefinition('campaign_id')).toBeNull();
+  it('exposes durable campaign attribution as an ID-backed filter, never a mutable name', () => {
+    expect(inboxFilterDefinition('campaign_id')).toMatchObject({ valueType: 'campaign_id', compiler: 'campaign_attribution', savedView: true });
     expect(inboxFilterDefinition('campaign_name')).toBeNull();
   });
 });

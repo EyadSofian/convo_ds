@@ -5,6 +5,7 @@ import type { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import { CampaignPlannerService } from '../../apps/api/src/campaigns/campaign-planner.service.js';
+import { ConversationService } from '../../apps/api/src/conversations/conversation.service.js';
 import { parseReportFilters } from '../../apps/api/src/campaigns/campaign-request.js';
 import { CampaignReportExportService } from '../../apps/api/src/campaigns/report-export.service.js';
 import { reportQuery } from '../../apps/api/src/campaigns/reporting.service.js';
@@ -425,6 +426,34 @@ describe('campaign API', () => {
       state: 'queued', traffic_class: 'bulk', campaign_stop_version: '0',
       text_body: 'Your course starts soon, Student 1',
     });
+
+    // A bulk send records attribution but cannot manufacture customer work.
+    // The later inbound-created conversation is the one that binds the row.
+    const beforeInbound = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const rows = await sql.query<{ id: string; conversation_id: string | null; peer_identity: string; conversations: string }>(
+        `SELECT attribution.id::text,attribution.conversation_id::text,attribution.peer_identity,
+                (SELECT count(*)::text FROM conversations WHERE connection_id=$2 AND peer_identity=attribution.peer_identity) AS conversations
+           FROM campaign_conversation_attributions attribution WHERE attribution.recipient_id=$1`,
+        [planned.recipient_id, api.connectionId],
+      );
+      return rows.rows[0]!;
+    });
+    expect(beforeInbound).toMatchObject({ conversation_id: null, peer_identity: '201000000000', conversations: '0' });
+    const conversation = await withTenant(api.pool, api.tenantId, (sql) =>
+      api.app.get(ConversationService).ensure(sql, api.tenantId, api.connectionId, beforeInbound.peer_identity, 'customer_inbound'),
+    );
+    const afterInbound = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const rows = await sql.query<{ conversation_id: string | null; bound_at: Date | null }>(
+        `SELECT conversation_id::text,bound_at FROM campaign_conversation_attributions WHERE id=$1`, [beforeInbound.id],
+      );
+      return rows.rows[0]!;
+    });
+    expect(afterInbound).toMatchObject({ conversation_id: conversation.id });
+    expect(afterInbound.bound_at).toBeInstanceOf(Date);
+    const campaignFilter = encodeURIComponent(JSON.stringify({ key: 'campaign_id', operator: 'eq', value: id }));
+    const attributedInbox = await send(api, 'GET', `/conversations?queue=all&filter=${campaignFilter}`);
+    expect(attributedInbox.statusCode).toBe(200);
+    expect((attributedInbox.json() as { data: readonly { id: string }[] }).data.map((row) => row.id)).toContain(conversation.id);
 
     const dispatched = await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test', 'bulk');
     expect(dispatched).toMatchObject({ claimed: 1, skipped: 1, accepted: 0 });

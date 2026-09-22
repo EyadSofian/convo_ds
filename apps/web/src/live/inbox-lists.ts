@@ -30,6 +30,10 @@ export async function refreshInboxLists(context: LiveContext): Promise<void> {
     }
     if (mine.ok) {
       live.conversations = ready(mine.data.items, now);
+      // Realtime always replaces the visible first page.  An old cursor points
+      // into a snapshot that may have changed, so continuing it could skip or
+      // duplicate work; expose only the new continuation from this response.
+      live.inboxNextCursor = mine.data.nextCursor;
     }
     context.refresh();
   });
