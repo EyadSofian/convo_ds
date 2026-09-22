@@ -29,12 +29,26 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'change-password') return changePasswordDialog(state);
   if (dialog.kind === 'ownership-offer') return ownershipOffer(state, dialog.arg);
   if (dialog.kind === 'saved-inbox-view') return savedInboxView(state, dialog.arg);
+  if (dialog.kind === 'workspace-label') return workspaceLabel(state, dialog.arg);
   return dialogShell(
     state,
     t(state, 'غير متاح', 'Not available'),
     [h('p', {}, [t(state, 'لا يوجد محتوى لهذه النافذة.', 'There is nothing to show here.')])],
     [closeButton(state)],
   );
+}
+
+function workspaceLabel(state: AppState, labelId: string): HTMLElement {
+  const label = rowsOf(state.live.workspaceLabels).find((item) => item.id === labelId);
+  const editing = label !== undefined;
+  const busy = state.live.busy === `metadata:${editing ? 'update-label' : 'create-label'}${editing ? `:${label.id}` : ''}`;
+  return dialogShell(state, editing ? t(state, 'تعديل التصنيف', 'Edit label') : t(state, 'تصنيف جديد', 'New label'), [
+    inlineError(state, state.live.error),
+    h('form', { class: 'form-grid', 'data-submit': editing ? 'live-workspace-label-update' : 'live-workspace-label-create', novalidate: true }, [
+      textInput('labelName', state.dialogForm['labelName'] ?? label?.name ?? '', t(state, 'الاسم', 'Name'), { required: true }),
+      h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'اللون', 'Color')]), h('input', { class: 'input', type: 'color', value: state.dialogForm['labelColor'] ?? label?.color ?? '#3B82F6', 'data-act': 'form', 'data-form': 'labelColor' })]),
+    ]),
+  ], [closeButton(state), button({ label: editing ? t(state, 'حفظ', 'Save') : t(state, 'إنشاء', 'Create'), act: editing ? 'live-workspace-label-update' : 'live-workspace-label-create', variant: 'primary', busy })]);
 }
 
 function savedInboxView(state: AppState, mode: string): HTMLElement {

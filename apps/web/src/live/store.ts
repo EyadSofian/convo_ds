@@ -203,6 +203,8 @@ export interface LiveState {
   selectedContactId: string | null;
   selectedContact: Resource<Contact>;
   labels: Resource<readonly Label[]>;
+  /** The complete catalogue for workspace management, including retired labels. */
+  workspaceLabels: Resource<readonly Label[]>;
   customFields: Resource<readonly CustomField[]>;
   /** This user's active sessions, for the Settings screen. */
   sessions: Resource<readonly SessionSummary[]>;
@@ -301,6 +303,7 @@ export function createLiveState(
     selectedContactId: null,
     selectedContact: IDLE,
     labels: IDLE,
+    workspaceLabels: IDLE,
     customFields: IDLE,
     sessions: IDLE,
     campaigns: IDLE,

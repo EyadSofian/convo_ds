@@ -158,9 +158,15 @@ export async function loadSettingsScreen(context: LiveContext): Promise<void> {
     return;
   }
   live.sessions = LOADING;
+  const tenantId = currentTenantId(live);
+  if (tenantId !== null) live.workspaceLabels = LOADING;
   context.refresh();
-  const result = await live.api.sessions();
+  const [result, labels] = await Promise.all([
+    live.api.sessions(),
+    tenantId === null ? Promise.resolve(null) : live.metadataApi.labels(tenantId, true),
+  ]);
   live.sessions = fromResult(result, context.now());
+  if (labels !== null) live.workspaceLabels = fromResult(labels, context.now());
   context.refresh();
 }
 

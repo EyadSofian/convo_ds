@@ -1112,11 +1112,13 @@ describe('the transport the browser actually gets', () => {
       readCsrfToken: () => 'csrf-token',
     });
     await settle();
-    // Settings reads this person's own sessions, and none of the company lists.
+    // Settings reads this person's own sessions plus the label catalogue it can
+    // manage. It does not fan out into People, Inbox, or campaign data.
     expect(api.calls.map((call) => call.path)).toEqual([
       '/auth/session',
       '/me/memberships',
       '/auth/sessions',
+      `/tenants/${TENANT}/labels?includeRetired=true`,
     ]);
   });
 

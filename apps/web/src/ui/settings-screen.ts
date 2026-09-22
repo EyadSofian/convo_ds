@@ -2,7 +2,8 @@ import type { MembershipSummary, SessionSummary } from '../api/people.js';
 import { h } from '../dom.js';
 import { dateFormat, relativeTime } from '../format.js';
 import { activeMembership } from '../live/ability.js';
-import { openSession } from '../live/store.js';
+import { hasPermission } from '../live/ability.js';
+import { openSession, rowsOf } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { t } from './copy.js';
 import {
@@ -50,11 +51,32 @@ export function renderSettings(state: AppState): HTMLElement {
       ]),
     ]),
     sessionsPanel(state),
+    hasPermission(live, 'catalog.manage') ? labelsPanel(state) : null,
     settingsSection(t(state, 'إعدادات مساحة العمل', 'Workspace settings'), t(state, 'تظهر الإمكانات غير المتصلة بالخادم كمعلومات فقط.', 'Capabilities without a server endpoint are shown as information only.'), [
       ...[t(state, 'اسم مساحة العمل والمنطقة الزمنية', 'Workspace name and time zone'), t(state, 'ساعات العمل والرد الآلي', 'Business hours and away replies'), t(state, 'مدة الاحتفاظ بالبيانات', 'Data retention')]
         .map((label) => settingRow(label, t(state, 'لا توجد واجهة حفظ لهذا الإعداد بعد.', 'No save endpoint exists for this setting yet.'), badge(t(state, 'غير متاح', 'Unavailable'), 'neutral'))),
     ]),
   ]);
+}
+
+function labelsPanel(state: AppState): HTMLElement {
+  const resource = state.live.workspaceLabels;
+  const labels = rowsOf(resource);
+  const active = labels.filter((label) => label.state === 'active');
+  const retired = labels.filter((label) => label.state === 'retired');
+  const list = (items: readonly typeof labels[number][]): HTMLElement => h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+    h('thead', {}, [h('tr', {}, [h('th', { scope: 'col' }, [t(state, 'اللون', 'Color')]), h('th', { scope: 'col' }, [t(state, 'الاسم', 'Name')]), h('th', { scope: 'col' }, [t(state, 'الحالة', 'Status')]), h('th', { scope: 'col' }, [t(state, 'إجراءات', 'Actions')])])]),
+    h('tbody', {}, items.map((label) => h('tr', {}, [
+      h('td', {}, [h('span', { class: 'badge', style: `--label-color:${label.color};border-color:${label.color}` }, [label.color])]),
+      h('td', {}, [label.name]),
+      h('td', {}, [badge(label.state === 'active' ? t(state, 'نشط', 'Active') : t(state, 'متوقف', 'Retired'), label.state === 'active' ? 'success' : 'neutral')]),
+      h('td', {}, [label.state === 'active' ? h('div', { class: 'button-row' }, [button({ label: t(state, 'تعديل', 'Edit'), act: 'dialog', arg: `workspace-label:${label.id}`, small: true, variant: 'ghost' }), button({ label: t(state, 'إيقاف', 'Retire'), act: 'live-workspace-label-retire', arg: label.id, small: true, variant: 'danger', busy: state.live.busy === `metadata:retire-label:${label.id}` })]) : h('span', { class: 'muted' }, [t(state, 'محفوظ للتاريخ', 'Kept for history')])]),
+    ]))),
+  ])]);
+  return panel(t(state, 'تصنيفات مساحة العمل', 'Workspace labels'), [
+    resource.status === 'idle' || resource.status === 'loading' ? skeleton(state, 2) : resource.status === 'error' ? errorState(state, resource.error, 'live-settings-reload') : active.length === 0 ? emptyState({ icon: 'tag', title: t(state, 'لا توجد تصنيفات نشطة', 'No active labels'), body: t(state, 'أنشئ تصنيفًا لتنظيم المحادثات وجهات الاتصال.', 'Create a label to organize conversations and contacts.') }) : list(active),
+    retired.length === 0 ? null : h('div', { class: 'stack stack--sm' }, [h('h3', { class: 'panel__subtitle' }, [t(state, 'متوقفة', 'Retired')]), list(retired)]),
+  ], { actions: [button({ label: t(state, 'تصنيف جديد', 'New label'), icon: 'plus', act: 'dialog', arg: 'workspace-label', small: true, variant: 'primary' })], description: t(state, 'إيقاف التصنيف يحفظ السجل ولا يزيله من المحادثات القديمة.', 'Retiring a label preserves historical records and removes it from future selection.') });
 }
 
 function settingsSection(title: string, description: string, rows: readonly HTMLElement[]): HTMLElement {

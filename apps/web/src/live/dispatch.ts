@@ -33,7 +33,7 @@ import {
   setPriority,
   settleHandoff,
 } from './routing-actions.js';
-import { createField, createLabel, setEntityLabel, setFieldValue } from './metadata-actions.js';
+import { createField, createLabel, retireLabel, setEntityLabel, setFieldValue, updateLabel } from './metadata-actions.js';
 import { rowsOf } from './store.js';
 import { setSimpleFilter } from './inbox-query.js';
 import { INBOX_FILTER_CATALOGUE, INBOX_SORTS, type InboxFilter, type InboxSort } from '@convo/domain';
@@ -928,6 +928,25 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     );
     if (ok) clearForm(context, ['labelName', 'labelColor']);
     return ok;
+  },
+
+  'live-workspace-label-create': async (context) => {
+    const ok = await createLabel(context, form(context, 'labelName'), form(context, 'labelColor') || '#3B82F6');
+    if (ok) { context.state.dialog = null; clearForm(context, ['labelName', 'labelColor']); }
+    return ok;
+  },
+
+  'live-workspace-label-update': async (context) => {
+    const label = rowsOf(context.live.workspaceLabels).find((item) => item.id === context.state.dialog?.arg);
+    if (label === undefined) return false;
+    const ok = await updateLabel(context, label, form(context, 'labelName'), form(context, 'labelColor'));
+    if (ok) context.state.dialog = null;
+    return ok;
+  },
+
+  'live-workspace-label-retire': async (context, arg) => {
+    const label = rowsOf(context.live.workspaceLabels).find((item) => item.id === arg);
+    return label === undefined ? false : retireLabel(context, label);
   },
 
   'live-field-create': async (context) => {
