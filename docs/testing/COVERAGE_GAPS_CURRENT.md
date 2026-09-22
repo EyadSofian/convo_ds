@@ -3,18 +3,19 @@
 This is a temporary engineering register for the existing 100% V8 gate. It is
 not a justification for lowering thresholds or adding broad exclusions.
 
-Snapshot from `pnpm test:coverage` on 2026-09-22 (2,585 tests):
+Snapshot from the latest `pnpm test:coverage` on 2026-09-22 (all unit,
+integration and property files passed):
 
 | Metric | Covered | Total | Result |
 | --- | ---: | ---: | --- |
 | Lines/statements | 27,800 | 28,504 | 97.53% (gate: 100%) |
 | Functions | 2,046 | 2,120 | 96.50% (gate: 100%) |
-| Branches | 9,729 | 10,079 | 96.52% (gate: 100%) |
+| Branches | 9,735 | 10,081 | 96.56% (gate: 100%) |
 
-The report/lifecycle/team services are covered for normal, empty, unknown actor,
-scope and filter paths. The remaining report parser entity checks are covered
-by feature-local tests; the full suite must be rerun after this register is
-updated. No exclusion was added for changed reporting code.
+The report/lifecycle/team services are 100% covered for normal, empty, unknown
+actor, scope and filter paths. The remaining gaps are in pre-existing inbox,
+automation and UI boundary paths; no exclusion was added for changed reporting
+code.
 
 ## Gap register
 
