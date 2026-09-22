@@ -56,6 +56,7 @@ describe('compileInboxQuery', () => {
     const compiled = compileInboxQuery({ ...base, filters: [{ key: 'campaign_id', operator: 'eq', value: label }] }, principal, new Map());
     expect(compiled.where).toContain('campaign_conversation_attributions attribution');
     expect(compiled.where).toContain('attribution.campaign_id = ANY(');
+    expect(compiled.where).toContain('ANY(ARRAY(SELECT');
     expect(compiled.where).not.toContain('campaign_name');
     expect(compiled.params).toEqual([[label]]);
   });
@@ -66,8 +67,18 @@ describe('compileInboxQuery', () => {
       principal,
       new Map([[label, { id: label, type: 'boolean' }]]),
     );
-    expect(compiled.where).toContain('value_json');
+    expect(compiled.where).toContain('custom.search_value');
     expect(compiled.where).toContain('<>');
     expect(compiled.params).toContain('true');
+  });
+
+  it('matches text custom fields through their normalized search representation', () => {
+    const compiled = compileInboxQuery(
+      { ...base, filters: [{ key: 'custom_field', fieldId: label, operator: 'contains', value: 'ÉYAD' }] },
+      principal,
+      new Map([[label, { id: label, type: 'text' }]]),
+    );
+    expect(compiled.where).toContain('custom.search_value ILIKE');
+    expect(compiled.params).toContain('%eyad%');
   });
 });

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { CustomFieldType, InboxFilter, InboxQuery, Principal } from '@convo/domain';
+import { normalizeSearchText, type CustomFieldType, type InboxFilter, type InboxQuery, type Principal } from '@convo/domain';
 
 export interface InboxCustomField {
   readonly id: string;
@@ -67,7 +67,7 @@ function predicate(filter: InboxFilter, customFields: ReadonlyMap<string, InboxC
 
 function campaignAttributionPredicate(filter: InboxFilter, add: (value: unknown) => string): string {
   const values = Array.isArray(filter.value) ? filter.value : [filter.value as string];
-  return `EXISTS (SELECT 1 FROM campaign_conversation_attributions attribution WHERE attribution.conversation_id = c.id AND attribution.campaign_id = ANY(${add(values)}::uuid[]))`;
+  return `c.id = ANY(ARRAY(SELECT attribution.conversation_id FROM campaign_conversation_attributions attribution WHERE attribution.campaign_id = ANY(${add(values)}::uuid[])))`;
 }
 
 function listOrOne(column: string, operator: string, one: () => string, many: () => string, cast: 'text' | 'uuid'): string {
@@ -109,16 +109,17 @@ function textPredicate(column: string, operator: string, value: string, add: (va
 function customPredicate(filter: InboxFilter, field: InboxCustomField | undefined, add: (value: unknown) => string): string {
   if (field === undefined) throw new Error('Custom field must be validated before compilation.');
   const id = add(field.id);
-  const row = `(SELECT custom.value_json FROM conversation_custom_field_values custom WHERE custom.conversation_id = c.id AND custom.field_id = ${id}::uuid)`;
-  if (filter.operator === 'is_set') return `${row} IS NOT NULL`;
-  if (filter.operator === 'is_not_set') return `${row} IS NULL`;
-  if (field.type === 'boolean') return `${row} ${filter.operator === 'neq' ? '<>' : '='} ${add(JSON.stringify(filter.value === true))}::jsonb`;
-  if (field.type === 'number') return `(${row} #>> '{}')::numeric ${comparison(filter.operator)} ${add(filter.value)}::numeric`;
-  if (field.type === 'date') return `(${row} #>> '{}')::date ${comparison(filter.operator === 'before' ? 'lt' : filter.operator === 'after' ? 'gt' : filter.operator)} ${add(filter.value)}::date`;
-  if (field.type === 'single_select') return `${row} ${filter.operator === 'neq' ? '<>' : '='} ${add(JSON.stringify(filter.value))}::jsonb`;
+  const exists = (condition: string) => `EXISTS (SELECT 1 FROM conversation_custom_field_values custom WHERE custom.conversation_id = c.id AND custom.field_id = ${id}::uuid AND ${condition})`;
+  if (filter.operator === 'is_set') return exists('TRUE');
+  if (filter.operator === 'is_not_set') return `NOT ${exists('TRUE')}`;
+  if (field.type === 'boolean') return exists(`custom.search_value ${filter.operator === 'neq' ? '<>' : '='} ${add(String(filter.value === true))}`);
+  if (field.type === 'number') return exists(`custom.search_value::numeric ${comparison(filter.operator)} ${add(filter.value)}::numeric`);
+  if (field.type === 'date') return exists(`custom.search_value ${comparison(filter.operator === 'before' ? 'lt' : filter.operator === 'after' ? 'gt' : filter.operator)} ${add(filter.value)}`);
+  if (field.type === 'single_select') return exists(`custom.search_value ${filter.operator === 'neq' ? '<>' : '='} ${add(normalizeSearchText(String(filter.value)))}`);
   if (field.type === 'text' || field.type === 'email' || field.type === 'phone') {
-    if (filter.operator === 'contains') return `(${row} #>> '{}') ILIKE ${add(`%${escapeLike(filter.value as string)}%`)} ESCAPE '\\'`;
-    return `${row} ${filter.operator === 'neq' ? '<>' : '='} ${add(JSON.stringify(filter.value))}::jsonb`;
+    const value = normalizeSearchText(String(filter.value));
+    if (filter.operator === 'contains') return exists(`custom.search_value ILIKE ${add(`%${escapeLike(value)}%`)} ESCAPE '\\'`);
+    return exists(`custom.search_value ${filter.operator === 'neq' ? '<>' : '='} ${add(value)}`);
   }
   throw new Error(`Unsupported validated custom field type: ${field.type}`);
 }

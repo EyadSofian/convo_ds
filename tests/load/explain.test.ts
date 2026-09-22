@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
-import { applyInstallationConfig } from '../../packages/domain/src/index.js';
+import { applyInstallationConfig, type InboxQuery, type Principal } from '../../packages/domain/src/index.js';
+import { compileInboxQuery } from '../../apps/api/src/conversations/inbox-query-compiler.js';
 import {
   createScratchDatabase,
   migrateScratch,
   scratchRuntimePool,
   superuserPool,
 } from '../support/scratch.js';
-import { seedVolume } from './seed.js';
+import { seedInboxEvidence, seedVolume, type InboxEvidence } from './seed.js';
 
 /**
  * `EXPLAIN ANALYZE` on the queries the load run showed to be expensive.
@@ -43,18 +44,19 @@ describe('query plans at volume', () => {
       const tenantId = tenant.rows[0]?.id ?? '';
       expect(tenantId).not.toBe('');
 
-      await seedVolume(pool, admin, tenantId, {
+      const seeded = await seedVolume(pool, admin, tenantId, {
         conversations: 10_000,
         contacts: 10_000,
         messagesPerConversation: 2,
       });
+      const evidence = await seedInboxEvidence(pool, admin, tenantId, seeded);
 
       const plans: string[] = [];
       await withTenant(pool, tenantId, async (client) => {
         const check = await client.query<{ id: string }>(TENANT_SQL);
         expect(check.rowCount).toBe(1);
 
-        for (const [label, sql, params] of queries(tenantId)) {
+        for (const [label, sql, params] of queries(seeded, evidence)) {
           const explained = await client.query<{ 'QUERY PLAN': string }>(
             `EXPLAIN (ANALYZE, BUFFERS, COSTS) ${sql}`,
             params,
@@ -77,10 +79,56 @@ describe('query plans at volume', () => {
 /**
  * The queries, reduced to the shape the service actually issues.
  *
- * The scope predicates are pinned to the tenant-wide case, which is what an
- * Owner sees and therefore the widest and most expensive one.
+ * Tenant-wide, scoped, and own-access principals are all compiled here. The
+ * plan has to include the authorization predicate before pagination: applying
+ * it after `LIMIT` can make a legal Inbox page look randomly short.
  */
-function queries(tenantId: string): readonly [string, string, unknown[]][] {
+function queries(seeded: { readonly conversationIds: readonly string[] }, evidence: InboxEvidence): readonly [string, string, unknown[]][] {
+  const tenantPrincipal: Principal = {
+    membershipId: evidence.membershipIds[0]!, membershipStatus: 'active', tenantStatus: 'active',
+    grants: { 'conversation.read': 'tenant' }, scopes: [], delegationCeiling: null,
+  };
+  const scopedPrincipal: Principal = {
+    membershipId: evidence.membershipIds[1]!, membershipStatus: 'active', tenantStatus: 'active',
+    grants: { 'conversation.read': 'scoped' }, scopes: [{ type: 'team', id: evidence.teamIds[0]! }], delegationCeiling: null,
+  };
+  const ownPrincipal: Principal = {
+    membershipId: evidence.membershipIds[0]!, membershipStatus: 'active', tenantStatus: 'active',
+    grants: { 'conversation.read': 'own' }, scopes: [{ type: 'team', id: evidence.teamIds[0]! }], delegationCeiling: null,
+  };
+  const customFields = new Map([
+    [evidence.customFieldIds.text, { id: evidence.customFieldIds.text, type: 'text' as const }],
+    [evidence.customFieldIds.singleSelect, { id: evidence.customFieldIds.singleSelect, type: 'single_select' as const }],
+    [evidence.customFieldIds.boolean, { id: evidence.customFieldIds.boolean, type: 'boolean' as const }],
+    [evidence.customFieldIds.date, { id: evidence.customFieldIds.date, type: 'date' as const }],
+  ]);
+  const inbox = (
+    label: string,
+    query: InboxQuery,
+    principal: Principal = tenantPrincipal,
+    cursor: Readonly<{ id: string; value: string }> | null = null,
+  ): [string, string, unknown[]] => {
+    const compiled = compileInboxQuery(query, principal, customFields);
+    const params = [...compiled.params];
+    const add = (value: unknown): string => { params.push(value); return `$${String(params.length)}`; };
+    const cursorSql = cursor === null
+      ? ''
+      : ` AND (c.last_activity_at,c.id)<(${add(cursor.value)}::timestamptz,${add(cursor.id)}::uuid)`;
+    const viewer = add(principal.membershipId);
+    const limit = add(51);
+    return [
+      label,
+      `SELECT c.id::text, c.status, c.priority, c.last_activity_at
+         FROM conversations c
+         JOIN channel_connections n ON n.id = c.connection_id
+         LEFT JOIN conversation_reads r ON r.conversation_id=c.id AND r.membership_id=${viewer}::uuid
+        WHERE ${compiled.where}${cursorSql}
+        ORDER BY ${compiled.order}
+        LIMIT ${limit}::integer`,
+      params,
+    ];
+  };
+  const base: InboxQuery = { queue: 'all', filters: [], search: null, sort: 'activity_desc', cursor: null, limit: 50 };
   return [
     [
       'contact search — infix LIKE only',
@@ -119,14 +167,31 @@ function queries(tenantId: string): readonly [string, string, unknown[]][] {
       [null],
     ],
     [
-      'conversation list — normal Inbox recent first',
-      `SELECT id::text, peer_identity, status, last_activity_at
-         FROM conversations
-        WHERE tenant_id = $1
-          AND status <> 'archived'
-        ORDER BY last_activity_at DESC, id DESC
-        LIMIT 50`,
-      [tenantId],
+      ...inbox('normal Inbox — recent activity', base),
     ],
+    inbox('normal Inbox — keyset page 2', base, tenantPrincipal, evidence.activityCursor),
+    inbox('scoped read — one team', base, scopedPrincipal),
+    inbox('own read — one team', base, ownPrincipal),
+    inbox('label — VIP', { ...base, filters: [{ key: 'label_id', operator: 'eq', value: evidence.labelIds[0]! }] }),
+    inbox('labels ALL — VIP + Hot Lead', { ...base, filters: [{ key: 'label_id', operator: 'in', value: evidence.labelIds.slice(0, 2) }] }),
+    inbox('labels ALL — three labels', { ...base, filters: [{ key: 'label_id', operator: 'in', value: evidence.labelIds.slice(0, 3) }] }),
+    inbox('unread — true', { ...base, filters: [{ key: 'unread', operator: 'eq', value: true }] }),
+    inbox('unreplied — true', { ...base, filters: [{ key: 'unreplied', operator: 'eq', value: true }] }),
+    inbox('unreplied — false', { ...base, filters: [{ key: 'unreplied', operator: 'eq', value: false }] }),
+    inbox('agent + open + activity', { ...base, filters: [{ key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }, { key: 'status', operator: 'eq', value: 'open' }] }),
+    inbox('team + WhatsApp', { ...base, filters: [{ key: 'team_id', operator: 'eq', value: evidence.teamIds[0]! }, { key: 'channel', operator: 'eq', value: 'whatsapp' }] }),
+    inbox('agent + VIP', { ...base, filters: [{ key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }, { key: 'label_id', operator: 'eq', value: evidence.labelIds[0]! }] }),
+    inbox('agent + unreplied', { ...base, filters: [{ key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }, { key: 'unreplied', operator: 'eq', value: true }] }),
+    inbox('connection — specific inbox', { ...base, filters: [{ key: 'connection_id', operator: 'eq', value: evidence.connectionIds[1]! }] }),
+    inbox('campaign + open', { ...base, filters: [{ key: 'campaign_id', operator: 'eq', value: evidence.campaignId }, { key: 'status', operator: 'eq', value: 'open' }] }),
+    inbox('campaign + agent + label', { ...base, filters: [{ key: 'campaign_id', operator: 'eq', value: evidence.campaignId }, { key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }, { key: 'label_id', operator: 'eq', value: evidence.labelIds[0]! }] }),
+    inbox('custom text — exact', { ...base, filters: [{ key: 'custom_field', fieldId: evidence.customFieldIds.text, operator: 'eq', value: 'segment-1' }] }),
+    inbox('custom text — contains', { ...base, filters: [{ key: 'custom_field', fieldId: evidence.customFieldIds.text, operator: 'contains', value: 'segment-1' }] }),
+    inbox('custom single select — gold', { ...base, filters: [{ key: 'custom_field', fieldId: evidence.customFieldIds.singleSelect, operator: 'eq', value: 'gold' }] }),
+    inbox('custom boolean — true', { ...base, filters: [{ key: 'custom_field', fieldId: evidence.customFieldIds.boolean, operator: 'eq', value: true }] }),
+    inbox('custom date — after', { ...base, filters: [{ key: 'custom_field', fieldId: evidence.customFieldIds.date, operator: 'after', value: '2026-01-10' }] }),
+    inbox('search — conversation UUID', { ...base, search: seeded.conversationIds[1]! }),
+    inbox('search — customer name common', { ...base, search: 'Nadia' }),
+    inbox('search — peer identity', { ...base, search: '2010000' }),
   ];
 }
