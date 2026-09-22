@@ -120,18 +120,28 @@ function operationsBody(state: AppState, report: OperationalReport): readonly Ch
     h('div', { class: 'report-grid report-grid--3' }, [
       operationsBreakdown(state, t(state, 'العمل المفتوح حسب الحالة', 'Open workload by status'), t(state, 'الحالة', 'Status'), report.conversations.backlogByStatus),
       operationsBreakdown(state, t(state, 'العمل المفتوح حسب القناة', 'Open workload by channel'), t(state, 'القناة', 'Channel'), report.conversations.backlogByChannel),
+      operationsBreakdown(state, t(state, 'العمل المفتوح حسب الفريق', 'Open workload by team'), t(state, 'الفريق', 'Team'), report.conversations.backlogByTeam),
+    ]),
+    h('div', { class: 'report-grid' }, [
+      workload(state, report),
       agentActivity(state, report),
     ]),
     notice('plain', 'info', h('strong', {}, [t(state, 'تعريف القياس. ', 'Measurement definition. ')]), t(state, 'متوسط أول رد وحل المحادثة يُحسبان من حلقات المحادثة الدائمة التي تحمل دليلاً على منفّذ الإجراء. السجل التاريخي بلا منفّذ لا يُنسب إلى أي وكيل.', 'First-response and resolution averages use durable conversation episodes with recorded actors. Historical episodes without an actor are not attributed to an agent.')),
   ];
 }
 
-function operationsBreakdown(state: AppState, title: string, label: string, rows: readonly { readonly count: number; readonly status?: string; readonly channel?: string }[]): HTMLElement {
+function operationsBreakdown(state: AppState, title: string, label: string, rows: readonly { readonly count: number; readonly status?: string; readonly channel?: string; readonly team?: string }[]): HTMLElement {
   if (rows.length === 0) return panel(title, [emptyState({ icon: 'inbox', title: t(state, 'لا يوجد عمل مفتوح', 'No open workload'), body: t(state, 'لا توجد محادثات ضمن هذا التجميع الآن.', 'There are no conversations in this grouping right now.') })]);
   return panel(title, [h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
     h('thead', {}, [h('tr', {}, [h('th', { scope: 'col' }, [label]), h('th', { scope: 'col', class: 'num' }, [t(state, 'المحادثات', 'Conversations')])])]),
-    h('tbody', {}, rows.map((row) => h('tr', {}, [h('td', {}, [row.status ?? row.channel ?? '—']), h('td', { class: 'num' }, [formatNumber(row.count, state.lang)])]))),
+    h('tbody', {}, rows.map((row) => h('tr', {}, [h('td', {}, [row.status ?? row.channel ?? row.team ?? '—']), h('td', { class: 'num' }, [formatNumber(row.count, state.lang)])]))),
   ])])], { flush: true });
+}
+
+function workload(state: AppState, report: OperationalReport): HTMLElement {
+  const rows = report.conversations.assignmentWorkload;
+  if (rows.length === 0) return panel(t(state, 'حمل التعيين', 'Assignment workload'), [emptyState({ icon: 'people', title: t(state, 'لا توجد محادثات معيّنة', 'No assigned conversations'), body: t(state, 'المحادثات المفتوحة المعيّنة تظهر هنا حسب الوكيل.', 'Assigned open conversations appear here by agent.') })]);
+  return operationsBreakdown(state, t(state, 'حمل التعيين', 'Assignment workload'), t(state, 'الوكيل', 'Agent'), rows);
 }
 
 function agentActivity(state: AppState, report: OperationalReport): HTMLElement {

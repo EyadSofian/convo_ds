@@ -140,6 +140,8 @@ export interface OperationalReport {
     readonly resolved: number;
     readonly backlogByStatus: readonly { readonly status: string; readonly count: number }[];
     readonly backlogByChannel: readonly { readonly channel: string; readonly count: number }[];
+    readonly backlogByTeam: readonly { readonly team: string; readonly count: number }[];
+    readonly assignmentWorkload: readonly { readonly name: string; readonly count: number }[];
   };
   readonly timing: {
     readonly firstResponseMeasured: number;

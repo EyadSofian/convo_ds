@@ -7,7 +7,7 @@ export interface OperationalReportFilters { readonly fromAt: Date | null; readon
 export interface OperationalReport {
   readonly generatedAt: string;
   readonly filters: { readonly from: string | null; readonly to: string | null };
-  readonly conversations: { readonly open: number; readonly new: number; readonly resolved: number; readonly backlogByStatus: readonly { readonly status: string; readonly count: number }[]; readonly backlogByChannel: readonly { readonly channel: string; readonly count: number }[] };
+  readonly conversations: { readonly open: number; readonly new: number; readonly resolved: number; readonly backlogByStatus: readonly { readonly status: string; readonly count: number }[]; readonly backlogByChannel: readonly { readonly channel: string; readonly count: number }[]; readonly backlogByTeam: readonly { readonly team: string; readonly count: number }[]; readonly assignmentWorkload: readonly { readonly name: string; readonly count: number }[] };
   readonly timing: { readonly firstResponseMeasured: number; readonly firstResponseAverageSeconds: number | null; readonly resolutionMeasured: number; readonly resolutionAverageSeconds: number | null };
   readonly agents: readonly { readonly name: string; readonly firstResponses: number; readonly resolutions: number }[];
 }
@@ -43,6 +43,14 @@ export class OperationalReportingService {
                  count(*) FILTER (WHERE e.closed_by_membership_id=m.id)::int AS resolutions
             FROM memberships m JOIN episode_scope e ON m.id=e.first_response_by_membership_id OR m.id=e.closed_by_membership_id
            GROUP BY m.id,m.display_name ORDER BY resolutions DESC,first_responses DESC,m.display_name
+        ),
+        team_backlog AS (
+          SELECT coalesce(t.name, 'Unassigned') AS team,count(*)::int AS count FROM current_backlog c
+            LEFT JOIN teams t ON t.id=c.team_id GROUP BY t.name ORDER BY count DESC,team
+        ),
+        assignment_workload AS (
+          SELECT m.display_name AS name,count(*)::int AS count FROM current_backlog c
+            JOIN memberships m ON m.id=c.assignee_membership_id GROUP BY m.id,m.display_name ORDER BY count DESC,name
         )
         SELECT jsonb_build_object(
           'generatedAt',now(),
@@ -51,7 +59,9 @@ export class OperationalReportingService {
             'new',(SELECT count(*)::int FROM conversation_scope),
             'resolved',(SELECT count(*)::int FROM conversation_scope WHERE resolved_at IS NOT NULL),
             'backlogByStatus',coalesce((SELECT jsonb_agg(jsonb_build_object('status',status,'count',count) ORDER BY status) FROM (SELECT status,count(*)::int AS count FROM current_backlog GROUP BY status) x),'[]'::jsonb),
-            'backlogByChannel',coalesce((SELECT jsonb_agg(jsonb_build_object('channel',kind,'count',count) ORDER BY kind) FROM (SELECT kind,count(*)::int AS count FROM current_backlog GROUP BY kind) x),'[]'::jsonb)
+            'backlogByChannel',coalesce((SELECT jsonb_agg(jsonb_build_object('channel',kind,'count',count) ORDER BY kind) FROM (SELECT kind,count(*)::int AS count FROM current_backlog GROUP BY kind) x),'[]'::jsonb),
+            'backlogByTeam',coalesce((SELECT jsonb_agg(jsonb_build_object('team',team,'count',count)) FROM team_backlog),'[]'::jsonb),
+            'assignmentWorkload',coalesce((SELECT jsonb_agg(jsonb_build_object('name',name,'count',count)) FROM assignment_workload),'[]'::jsonb)
           ),
           'timing',jsonb_build_object('firstResponseMeasured',t.first_response_measured,'firstResponseAverageSeconds',t.first_response_average_seconds,'resolutionMeasured',t.resolution_measured,'resolutionAverageSeconds',t.resolution_average_seconds),
           'agents',coalesce((SELECT jsonb_agg(jsonb_build_object('name',name,'firstResponses',first_responses,'resolutions',resolutions)) FROM agent_rows),'[]'::jsonb)

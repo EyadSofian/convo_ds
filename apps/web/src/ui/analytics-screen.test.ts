@@ -66,6 +66,8 @@ function operations(): OperationalReport {
       open: 7, new: 4, resolved: 3,
       backlogByStatus: [{ status: 'open', count: 5 }, { status: 'pending', count: 2 }],
       backlogByChannel: [{ channel: 'website_chat', count: 7 }],
+      backlogByTeam: [{ team: 'Support', count: 7 }],
+      assignmentWorkload: [{ name: 'Mona Agent', count: 7 }],
     },
     timing: { firstResponseMeasured: 4, firstResponseAverageSeconds: 75, resolutionMeasured: 3, resolutionAverageSeconds: 300 },
     agents: [{ name: 'Mona Agent', firstResponses: 4, resolutions: 3 }],
