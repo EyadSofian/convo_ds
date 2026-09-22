@@ -8,9 +8,9 @@ integration and property files passed):
 
 | Metric | Covered | Total | Result |
 | --- | ---: | ---: | --- |
-| Lines/statements | 27,931 | 28,501 | 98.00% (gate: 100%) |
-| Functions | 2,068 | 2,119 | 97.59% (gate: 100%) |
-| Branches | 10,057 | 10,304 | 97.60% (gate: 100%) |
+| Lines/statements | 28,012 | 28,501 | 98.28% (gate: 100%) |
+| Functions | 2,073 | 2,120 | 97.78% (gate: 100%) |
+| Branches | 10,119 | 10,370 | 97.57% (gate: 100%) |
 
 The report/lifecycle/team services, the covered API validation boundaries, and
 the new supervisor/reporting correctness paths are covered. The remaining gaps
@@ -43,10 +43,10 @@ snapshot; rows are removed when a file becomes fully covered.
 | `apps/web/src/live/saved-view-actions.ts` | 8-10, 22-40, 42-66, 68-88, 90-110, 112-114 | `t@8`, `applySavedView@22`, `saveCurrentInboxView@42`, `retireSavedView@90`, `isVisibility@112` | 14 |
 | `apps/web/src/ui/analytics-screen.ts` | 168, 286-287, 295, 297, 301, 303, 318, 424 | — | 86-87, 89-90, 111, 113, 121-122, 124-125, 128, 158, 167, 187, 189-191, 255, 259-260, 274, 276, 278, 284-285, 291, 294, 296, 300, 302, 312-313, 315-317, 319, 329, 331, 333, 340, 344, 423, 449, 451, 502, 511, 516 |
 | `apps/web/src/ui/automations-screen.ts` | — | — | 106, 247 |
-| `apps/web/src/ui/dialogs.ts` | 44-57, 59-71, 113-148 | `automationDelete@44`, `workspaceLabel@59`, `savedInboxView@113` | 31-32, 35, 88, 93, 102 |
+| `apps/web/src/ui/dialogs.ts` | 117 | — | 63, 67, 88, 93, 116, 124, 127, 135, 145 |
 | `apps/web/src/ui/live-inbox.ts` | 152, 238-244, 253, 264-265, 280-285, 297, 347-355, 360-363, 366-368, 370-377, 385, 387-399, 404-421, 425-429, 451, 458-459, 468, 470-481 | `supervisorMetric@280`, `row@345`, `customFieldOperators@360`, `customFieldValueControl@370`, `pickerOptions@404`, `pendingValue@468`, `savedViewsMenu@470` | 118, 151, 201, 203, 237, 252, 254-258, 262-264, 268-271, 294-296, 299, 301, 309, 311, 313, 326, 342, 346, 383-384, 386, 400, 424, 436, 442, 447-448, 450, 453, 457, 460-463, 688, 712 |
 | `apps/web/src/ui/metadata-section.ts` | 79, 89 | — | 78, 88, 95 |
-| `apps/web/src/ui/settings-screen.ts` | 62-80 | `labelsPanel@62` | 54 |
+| `apps/web/src/ui/settings-screen.ts` | — | — | 77 |
 | `packages/domain/src/conversations/inbox-saved-view.ts` | — | — | 22, 32, 38, 43-45, 60, 68-69, 72, 74, 76-78 |
 
 ## Classification and policy

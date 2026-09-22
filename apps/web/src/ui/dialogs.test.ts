@@ -54,6 +54,36 @@ describe('label safety dialogs', () => {
     expect(inline.querySelector('input[pattern="^#[0-9A-Fa-f]{6}$"]')).not.toBeNull();
     expect(inline.textContent).toContain('Label preview');
   });
+
+  it('renders create/edit label forms and refuses invalid inline targets', () => {
+    const state = base();
+    state.live.workspaceLabels = ready([{ id: 'label-1', name: 'VIP', color: '#abcdef', state: 'active', version: 2 }], 0);
+    const create = open(state, 'workspace-label');
+    expect(create.querySelector('form')?.getAttribute('data-submit')).toBe('live-workspace-label-create');
+    expect(create.querySelectorAll('.label-color-choice')).toHaveLength(8);
+    state.dialogForm = { labelName: 'VIP 2', labelColor: '#123456' };
+    const edit = open(state, 'workspace-label', 'label-1');
+    expect(edit.querySelector('form')?.getAttribute('data-submit')).toBe('live-workspace-label-update');
+    expect((edit.querySelector('input[pattern]') as HTMLInputElement).value).toBe('#123456');
+    expect(open(state, 'inline-label', 'bad').querySelector('.notice--warning')).not.toBeNull();
+  });
+
+  it('renders saved-view visibility and safe automation delete states', () => {
+    const state = base();
+    state.live.teams = ready([{ id: 'team-1', name: 'Support', member_count: 1, archived: false, members: [] }], 0);
+    state.live.savedViews = ready([{ id: 'view-1', ownerMembershipId: 'm-1', name: 'Mine', visibility: 'team', teamId: 'team-1', resource: 'conversations', conditions: { version: 1, root: { kind: 'group', match: 'all', conditions: [] } }, version: 1 }], 0);
+    state.live.selectedSavedViewId = 'view-1';
+    const update = open(state, 'saved-inbox-view', 'update');
+    expect(update.querySelector('[data-submit="live-inbox-saved-view-update"]')).not.toBeNull();
+    expect(update.querySelector('[data-form="savedViewTeamId"]')).not.toBeNull();
+    const missingUpdate = open(state, 'saved-inbox-view', 'update');
+    state.live.selectedSavedViewId = 'gone';
+    expect(renderDialog(state)?.querySelector('[data-act="live-inbox-saved-view-update"]')?.hasAttribute('disabled')).toBe(true);
+    state.live.automations = ready([{ id: 'a-1', name: 'Draft', state: 'draft' } as never], 0);
+    expect(open(state, 'automation-delete', 'a-1').textContent).toContain('has never run');
+    expect(open(state, 'automation-delete', 'gone').querySelector('.notice--warning')).not.toBeNull();
+    expect(missingUpdate).not.toBeNull();
+  });
 });
 
 describe('changing the password', () => {
