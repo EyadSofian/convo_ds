@@ -219,6 +219,8 @@ describe('URL round-trip', () => {
       return state.live.inboxQuery.filters as readonly unknown[];
     };
     expect(apply({ key: 'status', operator: 'eq', value: 'open' })).toEqual([]);
+    expect(apply(null)).toEqual([]);
+    expect(apply([])).toEqual([]);
     expect(apply([{ key: 'status', operator: 'not-supported', value: 'open' }])).toEqual([]);
     expect(apply([{ key: 'status', operator: 'eq' }])).toEqual([]);
     expect(apply([{ key: 'custom_field', operator: 'eq', value: 'x' }])).toEqual([]);
@@ -226,6 +228,7 @@ describe('URL round-trip', () => {
     expect(apply([{ key: 'waiting_since', operator: 'is_set', value: true }])).toEqual([]);
     expect(apply([{ key: 'waiting_since', operator: 'is_set' }])).toEqual([{ key: 'waiting_since', operator: 'is_set' }]);
     expect(apply([{ key: 'priority', operator: 'eq', value: true }])).toEqual([]);
+    expect(apply([{ key: 'unread', operator: 'eq', value: false }])).toEqual([{ key: 'unread', operator: 'eq', value: false }]);
     expect(apply([{ key: 'priority', operator: 'eq', value: ['high', 'urgent'] }])).toEqual([{ key: 'priority', operator: 'eq', value: ['high', 'urgent'] }]);
     expect(apply([{ key: 'priority', operator: 'eq', value: [] }])).toEqual([]);
     expect(apply([{ key: 'priority', operator: 'eq', value: ['high', 1] }])).toEqual([]);
