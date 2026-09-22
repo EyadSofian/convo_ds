@@ -54,6 +54,8 @@ export interface AnalyticsFilters {
   readonly campaignId: string;
 }
 
+export type AnalyticsView = 'campaigns' | 'operations';
+
 export const NO_ANALYTICS_FILTERS: AnalyticsFilters = { from: '', to: '', channel: '', campaignId: '' };
 
 export interface AppState {
@@ -96,6 +98,7 @@ export interface AppState {
   /** The connection whose management details are expanded. */
   expandedConnection: string | null;
   analyticsFilters: AnalyticsFilters;
+  analyticsView: AnalyticsView;
   /**
    * The moment the screen was last drawn.
    *
@@ -150,6 +153,7 @@ export function createState(
     channelKind: '',
     expandedConnection: null,
     analyticsFilters: NO_ANALYTICS_FILTERS,
+    analyticsView: 'campaigns',
     clock: now,
     toasts: [],
     sequence: 0,
@@ -186,6 +190,7 @@ export function routeParamsFor(state: AppState): Record<string, string> {
     if (query.filters.length > 0) params.filters = JSON.stringify(query.filters);
   }
   if (state.route.screen === 'analytics') {
+    if (state.analyticsView !== 'campaigns') params.view = state.analyticsView;
     const filters = state.analyticsFilters;
     if (filters.from !== '') params.from = filters.from;
     if (filters.to !== '') params.to = filters.to;
@@ -236,6 +241,7 @@ export function applyRoute(state: AppState, route: Route): void {
     };
   }
   if (route.screen === 'analytics') {
+    state.analyticsView = params.view === 'operations' ? 'operations' : 'campaigns';
     state.analyticsFilters = {
       from: params.from ?? '',
       to: params.to ?? '',

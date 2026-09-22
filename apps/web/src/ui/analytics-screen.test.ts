@@ -2,7 +2,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest';
-import type { CampaignReport, CampaignReportExport } from '../api/campaigns';
+import type { CampaignReport, CampaignReportExport, OperationalReport } from '../api/campaigns';
 import { createState } from '../state';
 import type { AppState } from '../state';
 import { exportView, renderAnalytics } from './analytics-screen';
@@ -59,6 +59,19 @@ function exportJob(overrides: Partial<CampaignReportExport> = {}): CampaignRepor
   };
 }
 
+function operations(): OperationalReport {
+  return {
+    generatedAt: NOW.toISOString(), filters: { from: null, to: null },
+    conversations: {
+      open: 7, new: 4, resolved: 3,
+      backlogByStatus: [{ status: 'open', count: 5 }, { status: 'pending', count: 2 }],
+      backlogByChannel: [{ channel: 'website_chat', count: 7 }],
+    },
+    timing: { firstResponseMeasured: 4, firstResponseAverageSeconds: 75, resolutionMeasured: 3, resolutionAverageSeconds: 300 },
+    agents: [{ name: 'Mona Agent', firstResponses: 4, resolutions: 3 }],
+  };
+}
+
 describe('the filter bar', () => {
   it('offers period, channel and campaign, plus refresh and a real export', () => {
     const root = renderAnalytics(screen());
@@ -86,6 +99,21 @@ describe('the filter bar', () => {
     expect(root.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect((root.querySelector('select') as HTMLSelectElement).disabled).toBe(true);
     expect((root.querySelector('[data-act="live-report-export"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('operational analytics', () => {
+  it('uses the operational API projection and labels its durable evidence', () => {
+    const state = screen();
+    state.analyticsView = 'operations';
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
+    const root = renderAnalytics(state);
+    expect(root.querySelector('[data-operations-report-ready]')).not.toBeNull();
+    expect(root.textContent).toContain('Open workload');
+    expect(root.textContent).toContain('Mona Agent');
+    expect(root.textContent).toContain('recorded actors');
+    expect(root.querySelector('[data-act="live-report-export"]')).toBeNull();
+    expect(root.querySelector('[data-act="analytics-view"][data-arg="campaigns"]')).not.toBeNull();
   });
 });
 

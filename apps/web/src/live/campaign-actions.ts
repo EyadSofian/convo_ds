@@ -57,6 +57,22 @@ export async function loadCampaignReport(context: LiveContext): Promise<void> {
   context.refresh();
 }
 
+/** Reads the operational report from its own server projection. */
+export async function loadOperationalReport(context: LiveContext): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  context.live.operationalReport = LOADING;
+  context.refresh();
+  const { from, to } = context.state.analyticsFilters;
+  const result = await context.live.campaignsApi.operationsReport(tenantId, { from, to });
+  context.live.operationalReport = fromResult(result, context.now());
+  context.refresh();
+}
+
+export function loadAnalyticsReport(context: LiveContext): Promise<void> {
+  return context.state.analyticsView === 'operations' ? loadOperationalReport(context) : loadCampaignReport(context);
+}
+
 export async function createCampaignReportExport(context: LiveContext): Promise<boolean> {
   const tenantId = currentTenantId(context.live);
   if (tenantId === null) return false;

@@ -26,7 +26,7 @@ import {
   stopRealtime,
 } from './live/inbox-actions';
 import { loadContactsScreen } from './live/contact-actions';
-import { loadCampaignReport, loadCampaignsScreen, refreshCampaignReportExport } from './live/campaign-actions';
+import { loadAnalyticsReport, loadCampaignsScreen, refreshCampaignReportExport } from './live/campaign-actions';
 import { loadAutomationsScreen } from './live/automation-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
@@ -286,7 +286,7 @@ const SCREEN_LOADERS: Readonly<Record<Exclude<ScreenId, 'accept-invitation' | 'r
   contacts: loadContactsScreen,
   broadcasts: loadCampaignsScreen,
   automations: loadAutomationsScreen,
-  analytics: loadCampaignReport,
+  analytics: loadAnalyticsReport,
   settings: loadSettingsScreen,
 };
 

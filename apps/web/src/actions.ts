@@ -231,6 +231,12 @@ const campaignReport: ActionHandler = (context, arg) => {
   context.navigate('analytics', null);
 };
 
+const analyticsView: ActionHandler = (context, arg) => {
+  if (arg !== 'campaigns' && arg !== 'operations') return;
+  context.state.analyticsView = arg;
+  context.navigate('analytics', null);
+};
+
 /** From a report row to the campaign itself, selected. */
 const campaignOpen: ActionHandler = (context, arg) => {
   context.state.live.selectedCampaignId = arg;
@@ -271,6 +277,7 @@ export const ACTIONS: Readonly<Record<string, ActionHandler>> = {
   'theme-set': setTheme,
   'nav-set': setNav,
   'campaign-report': campaignReport,
+  'analytics-view': analyticsView,
   'campaign-open': campaignOpen,
 };
 

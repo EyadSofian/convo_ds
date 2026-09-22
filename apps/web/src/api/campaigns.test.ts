@@ -95,6 +95,21 @@ describe('CampaignsApi', () => {
     expect(JSON.parse(String(calls[2]?.init.body))).toEqual({ mode: 'scheduled', scheduledFor: '2026-09-10T09:00:00.000Z' });
   });
 
+  it('scopes operational reporting only by its supported date range', async () => {
+    const calls: string[] = [];
+    const api = new CampaignsApi(new ApiClient({
+      baseUrl: '/api/v1',
+      fetch: (path) => { calls.push(String(path)); return Promise.resolve(new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'content-type': 'application/json' } })); },
+      readCsrfToken: () => 'csrf',
+    }));
+    await api.operationsReport('tenant-1', { from: '', to: '' });
+    await api.operationsReport('tenant-1', { from: '2026-09-01', to: '2026-09-09' });
+    expect(calls).toEqual([
+      '/api/v1/tenants/tenant-1/reports/operations',
+      '/api/v1/tenants/tenant-1/reports/operations?from=2026-09-01&to=2026-09-09',
+    ]);
+  });
+
   it('has an honest disconnected default', async () => {
     const api = disconnectedCampaignsApi();
     const result = await api.list('tenant-1');

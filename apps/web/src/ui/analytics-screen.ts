@@ -1,4 +1,4 @@
-import type { CampaignReport, CampaignReportExport, CampaignReportTrendDay } from '../api/campaigns.js';
+import type { CampaignReport, CampaignReportExport, CampaignReportTrendDay, OperationalReport } from '../api/campaigns.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, formatNumber, numberFormat } from '../format.js';
@@ -19,6 +19,7 @@ import {
   panel,
   progress,
   selectControl,
+  segmented,
   skeleton,
 } from './parts.js';
 import type { Tone } from './parts.js';
@@ -43,9 +44,10 @@ function stamp(state: AppState, iso: string): string {
 }
 
 export function renderAnalytics(state: AppState): HTMLElement {
+  if (state.analyticsView === 'operations') return renderOperations(state);
   const resource = state.live.campaignReport;
   const report = resource.status === 'ready' ? resource.value : null;
-  return page('analytics', filterBar(state, report), [
+  return page('analytics', analyticsHeader(state, filterBar(state, report)), [
     resource.status === 'idle' || resource.status === 'loading'
       ? skeleton(state, 4)
       : resource.status === 'error'
@@ -53,6 +55,91 @@ export function renderAnalytics(state: AppState): HTMLElement {
         : null,
     ...(report === null ? [] : reportBody(state, report)),
   ]);
+}
+
+function analyticsHeader(state: AppState, filters: HTMLElement): HTMLElement {
+  return h('div', { class: 'stack stack--sm' }, [
+    segmented([
+      { value: 'campaigns', label: t(state, 'الحملات', 'Campaigns') },
+      { value: 'operations', label: t(state, 'التشغيل', 'Operations') },
+    ], state.analyticsView, 'analytics-view', t(state, 'نوع التقرير', 'Report type')),
+    filters,
+  ]);
+}
+
+function renderOperations(state: AppState): HTMLElement {
+  const resource = state.live.operationalReport;
+  const report = resource.status === 'ready' ? resource.value : null;
+  const filters = state.analyticsFilters;
+  const busy = resource.status === 'loading';
+  const filterBar = h('div', { class: 'filterbar', role: 'search', 'aria-label': t(state, 'نطاق تقرير التشغيل', 'Operational report scope') }, [
+    h('div', { class: 'filterbar__fields' }, [
+      h('label', { class: 'field field--compact' }, [
+        h('span', { class: 'field__label' }, [t(state, 'من', 'From')]),
+        h('input', { class: 'input', type: 'date', value: filters.from, max: filters.to === '' ? undefined : filters.to, 'data-act': 'live-report-filter', 'data-form': 'from', disabled: busy }),
+      ]),
+      h('label', { class: 'field field--compact' }, [
+        h('span', { class: 'field__label' }, [t(state, 'إلى', 'To')]),
+        h('input', { class: 'input', type: 'date', value: filters.to, min: filters.from === '' ? undefined : filters.from, 'data-act': 'live-report-filter', 'data-form': 'to', disabled: busy }),
+      ]),
+    ]),
+    h('div', { class: 'filterbar__actions' }, [
+      (filters.from !== '' || filters.to !== '') ? button({ label: t(state, 'مسح التصفية', 'Clear filters'), act: 'live-report-filter-clear', small: true, variant: 'ghost' }) : null,
+      button({ label: t(state, 'تحديث', 'Refresh'), icon: 'refresh', act: 'live-report-reload', small: true, busy }),
+    ]),
+  ]);
+  return page('analytics', analyticsHeader(state, filterBar), [
+    resource.status === 'idle' || resource.status === 'loading'
+      ? skeleton(state, 4)
+      : resource.status === 'error'
+        ? errorState(state, resource.error, 'live-report-reload')
+        : null,
+    ...(report === null ? [] : operationsBody(state, report)),
+  ]);
+}
+
+function duration(state: AppState, seconds: number | null): string {
+  if (seconds === null) return '—';
+  if (seconds < 60) return t(state, `${formatNumber(Math.round(seconds), state.lang)} ث`, `${formatNumber(Math.round(seconds), state.lang)} sec`);
+  return t(state, `${formatNumber(Math.round(seconds / 60), state.lang)} د`, `${formatNumber(Math.round(seconds / 60), state.lang)} min`);
+}
+
+function operationsBody(state: AppState, report: OperationalReport): readonly Child[] {
+  return [
+    h('p', { class: 'freshness', 'data-operations-report-ready': 'true' }, [
+      icon('clock', 14),
+      t(state, `آخر تحديث ${stamp(state, report.generatedAt)} (UTC)`, `Updated ${stamp(state, report.generatedAt)} UTC`),
+    ]),
+    h('section', { class: 'kpis kpis--5', 'aria-label': t(state, 'مؤشرات التشغيل', 'Operational measures') }, [
+      kpi(t(state, 'العمل المفتوح', 'Open workload'), formatNumber(report.conversations.open, state.lang)),
+      kpi(t(state, 'جديد في الفترة', 'New in period'), formatNumber(report.conversations.new, state.lang)),
+      kpi(t(state, 'تم الحل', 'Resolved'), formatNumber(report.conversations.resolved, state.lang)),
+      kpi(t(state, 'متوسط أول رد', 'Avg. first response'), duration(state, report.timing.firstResponseAverageSeconds), { foot: t(state, `${formatNumber(report.timing.firstResponseMeasured, state.lang)} محادثة مقاسة`, `${formatNumber(report.timing.firstResponseMeasured, state.lang)} measured conversations`) }),
+      kpi(t(state, 'متوسط الحل', 'Avg. resolution'), duration(state, report.timing.resolutionAverageSeconds), { foot: t(state, `${formatNumber(report.timing.resolutionMeasured, state.lang)} حل مقاس`, `${formatNumber(report.timing.resolutionMeasured, state.lang)} measured resolutions`) }),
+    ]),
+    h('div', { class: 'report-grid report-grid--3' }, [
+      operationsBreakdown(state, t(state, 'العمل المفتوح حسب الحالة', 'Open workload by status'), t(state, 'الحالة', 'Status'), report.conversations.backlogByStatus),
+      operationsBreakdown(state, t(state, 'العمل المفتوح حسب القناة', 'Open workload by channel'), t(state, 'القناة', 'Channel'), report.conversations.backlogByChannel),
+      agentActivity(state, report),
+    ]),
+    notice('plain', 'info', h('strong', {}, [t(state, 'تعريف القياس. ', 'Measurement definition. ')]), t(state, 'متوسط أول رد وحل المحادثة يُحسبان من حلقات المحادثة الدائمة التي تحمل دليلاً على منفّذ الإجراء. السجل التاريخي بلا منفّذ لا يُنسب إلى أي وكيل.', 'First-response and resolution averages use durable conversation episodes with recorded actors. Historical episodes without an actor are not attributed to an agent.')),
+  ];
+}
+
+function operationsBreakdown(state: AppState, title: string, label: string, rows: readonly { readonly count: number; readonly status?: string; readonly channel?: string }[]): HTMLElement {
+  if (rows.length === 0) return panel(title, [emptyState({ icon: 'inbox', title: t(state, 'لا يوجد عمل مفتوح', 'No open workload'), body: t(state, 'لا توجد محادثات ضمن هذا التجميع الآن.', 'There are no conversations in this grouping right now.') })]);
+  return panel(title, [h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+    h('thead', {}, [h('tr', {}, [h('th', { scope: 'col' }, [label]), h('th', { scope: 'col', class: 'num' }, [t(state, 'المحادثات', 'Conversations')])])]),
+    h('tbody', {}, rows.map((row) => h('tr', {}, [h('td', {}, [row.status ?? row.channel ?? '—']), h('td', { class: 'num' }, [formatNumber(row.count, state.lang)])]))),
+  ])])], { flush: true });
+}
+
+function agentActivity(state: AppState, report: OperationalReport): HTMLElement {
+  if (report.agents.length === 0) return panel(t(state, 'نشاط الوكلاء', 'Agent activity'), [emptyState({ icon: 'people', title: t(state, 'لا توجد أحداث منسوبة', 'No attributed events'), body: t(state, 'تظهر هنا الردود الأولى وعمليات الحل التي تحمل منفّذًا محفوظًا.', 'First responses and resolutions with a recorded actor appear here.') })]);
+  return panel(t(state, 'نشاط الوكلاء', 'Agent activity'), [h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+    h('thead', {}, [h('tr', {}, [h('th', { scope: 'col' }, [t(state, 'الوكيل', 'Agent')]), h('th', { scope: 'col', class: 'num' }, [t(state, 'أول رد', 'First responses')]), h('th', { scope: 'col', class: 'num' }, [t(state, 'حلول', 'Resolutions')])])]),
+    h('tbody', {}, report.agents.map((agent) => h('tr', {}, [h('td', {}, [agent.name]), h('td', { class: 'num' }, [formatNumber(agent.firstResponses, state.lang)]), h('td', { class: 'num' }, [formatNumber(agent.resolutions, state.lang)])]))),
+  ])])], { flush: true });
 }
 
 /* ---------------------------------------------------------------- filters -- */

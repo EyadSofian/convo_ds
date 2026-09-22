@@ -15,7 +15,7 @@ import type {
 import { INBOX_QUERY_DEFAULT, type InboxQuery } from '@convo/domain';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
-import type { Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi } from '../api/campaigns.js';
+import type { Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport } from '../api/campaigns.js';
 import { disconnectedCampaignsApi } from '../api/campaigns.js';
 import type { Automation, AutomationRun, AutomationTemplate, AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
 import { disconnectedAutomationsApi } from '../api/automations.js';
@@ -209,6 +209,7 @@ export interface LiveState {
   campaigns: Resource<readonly Campaign[]>;
   campaignRecipients: Resource<readonly CampaignRecipient[]>;
   campaignReport: Resource<CampaignReport>;
+  operationalReport: Resource<OperationalReport>;
   /** The campaigns the Analytics campaign filter can offer. */
   reportCampaigns: readonly { readonly id: string; readonly name: string }[];
   campaignReportExport: Resource<CampaignReportExport>;
@@ -305,6 +306,7 @@ export function createLiveState(
     campaigns: IDLE,
     campaignRecipients: IDLE,
     campaignReport: IDLE,
+    operationalReport: IDLE,
     reportCampaigns: [],
     campaignReportExport: IDLE,
     automationTemplates: IDLE,

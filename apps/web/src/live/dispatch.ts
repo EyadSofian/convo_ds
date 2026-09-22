@@ -46,7 +46,7 @@ import {
   createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
-  loadCampaignReport,
+  loadAnalyticsReport,
   loadCampaignsScreen,
   refreshCampaignReportExport,
   retryCampaignFailures,
@@ -608,16 +608,16 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     const filters = context.state.analyticsFilters;
     if (!(id === 'from' || id === 'to' || id === 'channel' || id === 'campaignId') || filters[id] === value) return false;
     context.state.analyticsFilters = { ...filters, [id]: value };
-    await loadCampaignReport(context);
+    await loadAnalyticsReport(context);
     return true;
   },
 
   'live-report-filter-clear': async (context) => {
     context.state.analyticsFilters = NO_ANALYTICS_FILTERS;
-    await loadCampaignReport(context);
+    await loadAnalyticsReport(context);
   },
 
-  'live-report-reload': async (context) => loadCampaignReport(context),
+  'live-report-reload': async (context) => loadAnalyticsReport(context),
   'live-report-export': async (context) => createCampaignReportExport(context),
   'live-report-export-refresh': async (context) => refreshCampaignReportExport(context),
 

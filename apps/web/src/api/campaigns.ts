@@ -130,6 +130,31 @@ export interface CampaignReportExport {
   readonly download_url: string | null;
 }
 
+/** Current operational workload and durable episode timings, calculated by the API. */
+export interface OperationalReport {
+  readonly generatedAt: string;
+  readonly filters: { readonly from: string | null; readonly to: string | null };
+  readonly conversations: {
+    readonly open: number;
+    readonly new: number;
+    readonly resolved: number;
+    readonly backlogByStatus: readonly { readonly status: string; readonly count: number }[];
+    readonly backlogByChannel: readonly { readonly channel: string; readonly count: number }[];
+  };
+  readonly timing: {
+    readonly firstResponseMeasured: number;
+    readonly firstResponseAverageSeconds: number | null;
+    readonly resolutionMeasured: number;
+    readonly resolutionAverageSeconds: number | null;
+  };
+  readonly agents: readonly { readonly name: string; readonly firstResponses: number; readonly resolutions: number }[];
+}
+
+export interface OperationalReportFilterInput {
+  readonly from: string;
+  readonly to: string;
+}
+
 export interface CreateCampaignInput {
   readonly name: string;
   readonly objective: string | null;
@@ -194,6 +219,13 @@ export class CampaignsApi {
     }
     const suffix = query.size === 0 ? '' : `?${query.toString()}`;
     return this.client.get(`/tenants/${tenantId}/reports/campaigns${suffix}`);
+  }
+  operationsReport(tenantId: string, filters: OperationalReportFilterInput): Promise<ApiResult<OperationalReport>> {
+    const query = new URLSearchParams();
+    if (filters.from !== '') query.set('from', filters.from);
+    if (filters.to !== '') query.set('to', filters.to);
+    const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+    return this.client.get(`/tenants/${tenantId}/reports/operations${suffix}`);
   }
   createReportExport(tenantId: string, campaignId: string | null, key: string): Promise<ApiResult<CampaignReportExport>> {
     return this.client.post(`/tenants/${tenantId}/reports/campaigns/exports`, {
