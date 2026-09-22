@@ -489,6 +489,12 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     if (path.endsWith('/custom-fields')) {
       return json(route, paged([]));
     }
+    // The Inbox always asks for server-backed saved views alongside its first
+    // page. Keep this explicit so a new request remains visible as a 404,
+    // while the normal empty-state response does not become a browser error.
+    if (path.endsWith('/saved-views')) {
+      return json(route, paged([]));
+    }
     if (path.endsWith('/channels/catalogue')) {
       return json(route, paged(channelCatalogue()));
     }
