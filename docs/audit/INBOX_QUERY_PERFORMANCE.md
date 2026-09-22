@@ -1,6 +1,6 @@
 # Inbox Query Performance Evidence
 
-Date: 2026-09-22  
+Date: 2026-09-22
 Scope: the normal Inbox read path, measured locally against PostgreSQL with
 tenant RLS enabled. These figures diagnose query shape; they are not a Railway
 capacity claim.
@@ -40,4 +40,3 @@ conversation; a 50-row page therefore produced 100 metadata reads. The list
 path now uses `conversationMetadataBatch`: the integration count test proves
 the same 50-row request produces exactly **two** relation reads (labels and
 custom fields), independent of page length.
-
