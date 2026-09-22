@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InboxQuery, Principal } from '@convo/domain';
-import { compileInboxQuery } from './inbox-query-compiler.js';
+import { compileInboxQuery, readableScope } from './inbox-query-compiler.js';
 
 const member = '11111111-1111-4111-8111-111111111111';
 const label = '22222222-2222-4222-8222-222222222222';
@@ -80,5 +80,58 @@ describe('compileInboxQuery', () => {
     );
     expect(compiled.where).toContain('custom.search_value ILIKE');
     expect(compiled.params).toContain('%eyad%');
+  });
+
+  it('compiles every supported Inbox predicate and sort without interpolating values', () => {
+    const custom = new Map([
+      [label, { id: label, type: 'boolean' as const }],
+      [member, { id: member, type: 'number' as const }],
+    ]);
+    const filters: InboxQuery['filters'] = [
+      { key: 'status', operator: 'in', value: ['open', 'pending'] },
+      { key: 'priority', operator: 'eq', value: 'high' },
+      { key: 'channel', operator: 'in', value: ['whatsapp', 'messenger'] },
+      { key: 'connection_id', operator: 'in', value: [label] },
+      { key: 'team_id', operator: 'eq', value: member },
+      { key: 'assigned_agent_id', operator: 'not_in', value: [member] },
+      { key: 'assignment_state', operator: 'eq', value: 'assigned' },
+      { key: 'label_id', operator: 'not_in', value: [label] },
+      { key: 'unread', operator: 'eq', value: true },
+      { key: 'unreplied', operator: 'eq', value: false },
+      { key: 'created_at', operator: 'before', value: '2026-01-01' },
+      { key: 'last_activity_at', operator: 'after', value: '2026-01-01' },
+      { key: 'waiting_since', operator: 'is_set' },
+      { key: 'customer_name', operator: 'eq', value: 'Ahmed' },
+      { key: 'customer_phone', operator: 'contains', value: '1555' },
+      { key: 'collaborator_id', operator: 'in', value: [member] },
+      { key: 'participant_id', operator: 'eq', value: member },
+      { key: 'handoff_target_id', operator: 'eq', value: member },
+      { key: 'campaign_id', operator: 'in', value: [label] },
+    ];
+    const compiled = compileInboxQuery({ ...base, filters, search: '100%_safe' }, principal, custom);
+    expect(compiled.where).toContain('NOT EXISTS');
+    expect(compiled.where).toContain('campaign_conversation_attributions');
+    expect(compiled.params).toContain('%100\\%\\_safe%');
+    for (const sort of ['activity_asc', 'created_desc', 'created_asc', 'waiting_desc', 'priority_desc'] as const) {
+      expect(compileInboxQuery({ ...base, sort }, principal, new Map()).order).toBeTruthy();
+    }
+  });
+
+  it('compiles custom field type comparisons and readable scopes', () => {
+    const fieldCases = [
+      [{ id: label, type: 'boolean' as const }, { key: 'custom_field', fieldId: label, operator: 'eq', value: false }],
+      [{ id: member, type: 'number' as const }, { key: 'custom_field', fieldId: member, operator: 'gte', value: '2' }],
+      [{ id: label, type: 'date' as const }, { key: 'custom_field', fieldId: label, operator: 'before', value: '2026-01-01' }],
+      [{ id: label, type: 'single_select' as const }, { key: 'custom_field', fieldId: label, operator: 'neq', value: 'VIP' }],
+      [{ id: label, type: 'email' as const }, { key: 'custom_field', fieldId: label, operator: 'eq', value: 'a@example.com' }],
+      [{ id: label, type: 'phone' as const }, { key: 'custom_field', fieldId: label, operator: 'contains', value: '1555' }],
+    ] as const;
+    for (const [field, filter] of fieldCases) expect(compileInboxQuery({ ...base, filters: [filter] }, principal, new Map([[field.id, field]])).where).toContain('custom.search_value');
+    expect(compileInboxQuery({ ...base, filters: [{ key: 'custom_field', fieldId: label, operator: 'is_not_set' }] }, principal, new Map([[label, { id: label, type: 'text' as const }]])).where).toContain('NOT EXISTS');
+    const own = { ...principal, grants: { 'conversation.read': 'own' as const }, scopes: [{ type: 'tenant' as const, id: null }] };
+    const none = { ...principal, grants: {} };
+    expect(readableScope(own, () => '$1')).toContain('own_participant');
+    expect(readableScope(none, () => '$1')).toBe('FALSE');
+    expect(() => compileInboxQuery({ ...base, filters: [{ key: 'custom_field', fieldId: label, operator: 'bad', value: 'x' }] }, principal, new Map([[label, { id: label, type: 'number' as const }]])).where).toThrow();
   });
 });

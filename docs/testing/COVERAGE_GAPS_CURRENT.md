@@ -8,9 +8,9 @@ integration and property files passed):
 
 | Metric | Covered | Total | Result |
 | --- | ---: | ---: | --- |
-| Lines/statements | 27,865 | 28,504 | 97.75% (gate: 100%) |
-| Functions | 2,053 | 2,120 | 96.83% (gate: 100%) |
-| Branches | 9,892 | 10,196 | 97.01% (gate: 100%) |
+| Lines/statements | 27,892 | 28,501 | 97.86% (gate: 100%) |
+| Functions | 2,057 | 2,119 | 97.07% (gate: 100%) |
+| Branches | 10,000 | 10,267 | 97.39% (gate: 100%) |
 
 The report/lifecycle/team services, the covered API validation boundaries, and
 the new supervisor/reporting correctness paths are covered. The remaining gaps
@@ -25,11 +25,11 @@ snapshot; rows are removed when a file becomes fully covered.
 | File | Uncovered lines | Uncovered functions | Uncovered branches |
 | --- | --- | --- | --- |
 | `apps/api/src/automations/automation.service.ts` | — | — | 98 |
-| `apps/api/src/conversations/conversation.service.ts` | 485-486, 699-707 | `requireSupervisor@484`, `cursorPredicate@699` | 367, 373, 409, 418, 421, 468, 693-695 |
-| `apps/api/src/conversations/inbox-query-compiler.ts` | 76-79, 98-102, 107-108, 125-126, 128-138, 157-158 | `many@44`, `datePredicate@98`, `comparison@128` | 47-50, 52, 56-58, 60-61, 63, 65, 70, 75, 83, 85, 90, 105-106, 111, 114-120, 122-124, 147, 156, 162-166 |
+| `apps/api/src/conversations/conversation.controller.ts` | — | — | 82 |
+| `apps/api/src/conversations/conversation.service.ts` | — | — | 373, 409, 468 |
+| `apps/api/src/conversations/inbox-query-compiler.ts` | 78-79, 101-102, 107-108, 125-126 | — | 52, 58, 65, 77, 83, 100, 106, 111, 114, 118-119, 123-124, 130-132, 135 |
 | `apps/api/src/conversations/inbox-query-request.ts` | 54-56, 59-60 | — | 19, 25-26, 28, 39, 43, 46, 49, 53, 58, 63 |
 | `apps/api/src/conversations/inbox-query-validation.ts` | — | — | 25, 29, 36, 47-48, 57 |
-| `apps/api/src/conversations/supervisor-directory.ts` | — | — | 41 |
 | `apps/web/src/actions.ts` | 235-238 | `analyticsView@234` | — |
 | `apps/web/src/app.ts` | 718 | — | 717, 719 |
 | `apps/web/src/prepaint-language.ts` | — | — | 21 |
@@ -54,7 +54,6 @@ snapshot; rows are removed when a file becomes fully covered.
 | `apps/web/src/ui/live-inbox.ts` | 152, 238-244, 253, 264-265, 280-285, 297, 347-355, 360-363, 366-368, 370-377, 385, 387-399, 404-421, 425-429, 451, 458-459, 468, 470-481 | `supervisorMetric@280`, `row@345`, `customFieldOperators@360`, `customFieldValueControl@370`, `pickerOptions@404`, `pendingValue@468`, `savedViewsMenu@470` | 118, 151, 201, 203, 237, 252, 254-258, 262-264, 268-271, 294-296, 299, 301, 309, 311, 313, 326, 342, 346, 383-384, 386, 400, 424, 436, 442, 447-448, 450, 453, 457, 460-463, 688, 712 |
 | `apps/web/src/ui/metadata-section.ts` | 79, 89 | — | 78, 88, 95 |
 | `apps/web/src/ui/settings-screen.ts` | 62-80 | `labelsPanel@62` | 54 |
-| `packages/domain/src/conversations/inbox-query.ts` | 41 | — | 27, 29, 31, 33, 38, 40, 44 |
 | `packages/domain/src/conversations/inbox-saved-view.ts` | — | — | 22, 32, 38, 43-45, 60, 68-69, 72, 74, 76-78 |
 
 ## Classification and policy

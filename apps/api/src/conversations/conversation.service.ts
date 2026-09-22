@@ -36,7 +36,7 @@ import type { EntityMetadata } from '../metadata/metadata.service.js';
 import { OpaqueCursorCodec } from '../pagination.js';
 import { compileInboxQuery, readableScope } from './inbox-query-compiler.js';
 import { validateInboxQuery } from './inbox-query-validation.js';
-import { assertSupervisor, requireScopedSupervisorAgent, scopedSupervisorAgents } from './supervisor-directory.js';
+import { requireScopedSupervisorAgent, scopedSupervisorAgents } from './supervisor-directory.js';
 import { conversationUnrepliedPredicate } from './event-boundary.js';
 
 export type { ConversationDetail, ConversationRow } from './record.js';
@@ -479,10 +479,6 @@ export class ConversationService {
    */
   async supervisorAgents(session: AuthenticatedSession, tenantId: string): Promise<readonly SupervisorAgent[]> {
     return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => scopedSupervisorAgents(sql, principal));
-  }
-
-  private async requireSupervisor(session: AuthenticatedSession, tenantId: string): Promise<void> {
-    await this.authorization.withPrincipal(session, tenantId, async ({ principal }) => { assertSupervisor(principal); });
   }
 
   /**
