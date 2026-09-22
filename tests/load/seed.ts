@@ -34,6 +34,10 @@ export interface SeedResult {
   readonly elapsedMs: number;
 }
 
+type PaginationSort = 'activity_desc' | 'created_desc' | 'priority_desc' | 'waiting_desc';
+type PaginationCursor = Readonly<{ id: string; value: string }>;
+type PaginationCursors = Readonly<Record<PaginationSort, Readonly<Record<'middle' | 'late', PaginationCursor>>>>;
+
 /** Related evidence used by the Inbox predicate-plan harness. */
 export interface InboxEvidence {
   readonly membershipIds: readonly string[];
@@ -42,7 +46,7 @@ export interface InboxEvidence {
   readonly labelIds: readonly string[];
   readonly campaignId: string;
   readonly customFieldIds: Readonly<Record<'text' | 'singleSelect' | 'boolean' | 'date', string>>;
-  readonly activityCursor: Readonly<{ id: string; value: string }>;
+  readonly paginationCursors: PaginationCursors;
 }
 
 const BATCH = 1_000;
@@ -251,9 +255,11 @@ export async function seedInboxEvidence(
           SET connection_id = input.connection_id,
               contact_id = input.contact_id,
               team_id = input.team_id,
-              assignee_membership_id = input.membership_id
-         FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::uuid[])
-              AS input(conversation_id,connection_id,contact_id,team_id,membership_id)
+              assignee_membership_id = input.membership_id,
+              priority = input.priority,
+              created_at = c.last_activity_at - interval '7 days'
+         FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::uuid[], $6::text[])
+              AS input(conversation_id,connection_id,contact_id,team_id,membership_id,priority)
         WHERE c.id = input.conversation_id`,
       [
         conversationIds,
@@ -261,6 +267,7 @@ export async function seedInboxEvidence(
         conversationIds.map((_, index) => contactIds[index % contactIds.length]!),
         conversationIds.map((_, index) => teamIds[index % teamIds.length]!),
         conversationIds.map((_, index) => membershipIds[index % membershipIds.length]!),
+        conversationIds.map((_, index) => index % 10 === 0 ? 'urgent' : index % 10 < 3 ? 'high' : index % 10 < 8 ? 'normal' : 'low'),
       ],
     );
     await client.query(
@@ -332,7 +339,7 @@ export async function seedInboxEvidence(
     const outboundIds: string[] = [];
     const outboundConversationIds: string[] = [];
     for (const [index, conversationId] of conversationIds.entries()) {
-      if (index % 10 === 0 || index % 10 === 5) continue;
+      if (index % 10 === 0) continue;
       outboundIds.push(randomUUID());
       outboundConversationIds.push(conversationId);
     }
@@ -350,6 +357,11 @@ export async function seedInboxEvidence(
       `INSERT INTO conversation_participants (tenant_id,conversation_id,membership_id)
        SELECT $1,conversation_id,$2 FROM unnest($3::uuid[]) AS t(conversation_id)`,
       [tenantId, membershipIds[0], conversationIds.filter((_, index) => index % 4 === 0)],
+    );
+    await client.query(
+      `INSERT INTO conversation_collaborators (tenant_id,conversation_id,membership_id,added_by_membership_id)
+       SELECT $1,conversation_id,$2,$2 FROM unnest($3::uuid[]) AS t(conversation_id)`,
+      [tenantId, membershipIds[0], conversationIds.filter((_, index) => index % 9 === 0)],
     );
 
     const campaignIndexes = outboundConversationIds.slice(0, 1_200);
@@ -406,18 +418,42 @@ export async function seedInboxEvidence(
       [tenantId, campaignId, executionId, campaignRecipientIds, campaignOutboundIds, campaignIndexes],
     );
     await client.query('ANALYZE');
-    const cursor = await client.query<{ id: string; last_activity_at: Date }>(
-      `SELECT id::text, last_activity_at
-         FROM conversations
-        WHERE status <> 'archived'
-        ORDER BY last_activity_at DESC, id DESC
-        OFFSET 49 LIMIT 1`,
-    );
-    const cursorRow = cursor.rows[0];
-    if (cursorRow === undefined) throw new Error('performance seed did not create an activity cursor');
+    const cursorFor = async (
+      value: string,
+      order: string,
+      offset: number,
+    ): Promise<Readonly<{ id: string; value: string }>> => {
+      const rows = await client.query<{ id: string; value: string | number | Date }>(
+        `SELECT id::text, ${value} AS value FROM conversations
+          WHERE status <> 'archived'
+          ORDER BY ${order} OFFSET $1 LIMIT 1`,
+        [offset],
+      );
+      const row = rows.rows[0];
+      if (row === undefined) throw new Error('performance seed did not create a keyset cursor');
+      return { id: row.id, value: row.value instanceof Date ? row.value.toISOString() : String(row.value) };
+    };
+    const paginationCursors = {
+      activity_desc: {
+        middle: await cursorFor('last_activity_at::text', 'last_activity_at DESC, id DESC', 4_000),
+        late: await cursorFor('last_activity_at::text', 'last_activity_at DESC, id DESC', 8_000),
+      },
+      created_desc: {
+        middle: await cursorFor('created_at::text', 'created_at DESC, id DESC', 4_000),
+        late: await cursorFor('created_at::text', 'created_at DESC, id DESC', 8_000),
+      },
+      priority_desc: {
+        middle: await cursorFor("(CASE priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END)::text", "CASE priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END DESC, id DESC", 4_000),
+        late: await cursorFor("(CASE priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END)::text", "CASE priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END DESC, id DESC", 8_000),
+      },
+      waiting_desc: {
+        middle: await cursorFor("coalesce(waiting_since,'-infinity'::timestamptz)::text", 'waiting_since DESC NULLS LAST, id DESC', 4_000),
+        late: await cursorFor("coalesce(waiting_since,'-infinity'::timestamptz)::text", 'waiting_since DESC NULLS LAST, id DESC', 8_000),
+      },
+    } as const;
     return {
       membershipIds, teamIds, connectionIds, labelIds, campaignId, customFieldIds,
-      activityCursor: { id: cursorRow.id, value: cursorRow.last_activity_at.toISOString() },
+      paginationCursors,
     };
   });
 }

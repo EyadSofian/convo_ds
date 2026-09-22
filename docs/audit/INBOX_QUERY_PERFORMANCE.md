@@ -32,39 +32,41 @@ an empty-table plan.
 
 ## Measured query plans
 
-The exact execution times from the latest clean local run are below. They vary
-slightly between runs; plan shape and order of magnitude are the decision
-evidence.
+Exact local PostgreSQL fixture results from the latest clean run. `Buffers` is
+the root plan's shared buffer hits. All read plans use the real compiler and
+the 51-row query shape (`limit + 1`); no timing assertion is used in CI.
 
-| Query | Dominant observed plan | Execution time |
-| --- | --- | ---: |
-| Contact infix search | tenant contact index + bounded filter/sort | 1.063 ms |
-| Contact list | tenant contact index + top-N sort | 1.399 ms |
-| Inbox, activity descending | connection-aware tenant scan + top-N sort | 3.828 ms |
-| Inbox, keyset page 2 | same path with cursor predicate before `LIMIT` | 2.353 ms |
-| Scoped reader, one team | team scope predicate before `LIMIT` | 1.292 ms |
-| Own reader, one team | scope plus assignment/participant predicates | 2.811 ms |
-| One label (VIP) | label ALL aggregate via `conversation_labels_filter_idx` | 8.894 ms |
-| Two labels, ALL | same aggregate, two requested labels | 12.978 ms |
-| Three labels, ALL | same aggregate, three requested labels | 16.865 ms |
-| Unread | per-viewer `conversation_reads` left join | 3.898 ms |
-| Unreplied = true | inbound/outbound aggregate evidence | 19.435 ms |
-| Unreplied = false | inbound/outbound aggregate evidence | 19.221 ms |
-| Agent + open | `conversations_assignee_idx` | 0.064 ms |
-| Team + WhatsApp | team/channel predicates | 0.967 ms |
-| Agent + VIP | assignee index plus label evidence | 0.280 ms |
-| Agent + unreplied | assignee index plus reply evidence | 0.423 ms |
-| Specific connection | live conversation identity index | 1.468 ms |
-| Campaign + open | one-time campaign-attribution array, then Inbox scan | 15.909 ms |
-| Campaign + agent + label | one-time campaign-attribution array plus selective predicates | 1.374 ms |
-| Custom text, exact | `conversation_field_values_filter_idx` then conversation lookup | 1.109 ms |
-| Custom text, contains | typed field scan/filter then conversation lookup | 9.423 ms |
-| Custom single-select | field value index | 4.816 ms |
-| Custom boolean | field value index | 7.166 ms |
-| Custom date, after | lexically ordered ISO date search value index | 9.621 ms |
-| Conversation UUID search | Inbox scan plus bound contact/identity subplans | 8.278 ms |
-| Common customer-name search | Inbox scan plus contact subplan | 8.121 ms |
-| Peer identity search | Inbox scan plus peer predicate | 2.741 ms |
+| Query shape | Fixture selectivity | Dominant plan / behavior | Buffers | Execution | Decision |
+| --- | --- | --- | ---: | ---: | --- |
+| Contact name infix | common `nadia` | tenant contact index, filter/sort | 297 | 1.049 ms | keep |
+| Contact list | all contacts | tenant contact index, top-N | 297 | 1.653 ms | keep |
+| Inbox activity, first | 10k live | connection tenant scans, top-N | 6,265 | 3.037 ms | keep |
+| Created / priority / waiting, first | 10k live | keyset-compatible top-N | 5,162 | 2.494 / 3.140 / 2.461 ms | keep |
+| Activity cursor middle / late | rows ~4k / ~8k | keyset predicate before `LIMIT` | 5,162 | 1.863 / 1.847 ms | keep |
+| Created cursor middle / late | rows ~4k / ~8k | keyset predicate before `LIMIT` | 5,162 | 1.937 / 1.533 ms | keep |
+| Priority cursor middle / late | rows ~4k / ~8k | keyset predicate before `LIMIT` | 5,162 | 3.087 / 1.889 ms | keep |
+| Waiting cursor middle / late | rows ~4k / ~8k | keyset predicate before `LIMIT` | 5,162 | 1.992 / 1.419 ms | keep |
+| Scoped team / inbox | one of six / one of four | scope predicate before `LIMIT` | 5,162 | 1.803 / 1.403 ms | keep |
+| Own team | assignment + participant + collaborator | bounded ownership subplans | 8,659 | 2.167 ms | keep |
+| VIP / two-label ALL / three-label ALL | 20% / overlap / overlap | `conversation_labels_filter_idx`, correlated ALL aggregate | 27,162 / 48,866 / 69,496 | 9.604 / 13.642 / 17.447 ms | keep |
+| Unread | 40% (none or behind read) | viewer read left join | 12,152 | 4.503 ms | keep |
+| Unreplied true / false | 30% / 70% | bounded inbound/outbound evidence subplans | 66,662 | 19.955 / 20.377 ms | monitor |
+| Agent + open / connection | 1/16 agent | assignee index | 136 / 129 | 0.075 / 0.045 ms | keep |
+| Team + WhatsApp | one team, majority channel | team/channel predicates | 4,230 | 0.906 ms | keep |
+| Agent + VIP / unreplied | 1/16 plus relation | assignee index then evidence | 785 / 1,134 | 0.310 / 0.470 ms | keep |
+| Specific connection | one of four | live identity index | 5,310 | 1.619 ms | keep |
+| Campaign + open | 1,200 attributed rows | one-time attribution array init-plan | 5,202 | 15.891 ms | keep |
+| Campaign + agent + open | attributed + 1/16 agent | init-plan then assignee index | 179 | 0.290 ms | keep |
+| Campaign + agent + label | attributed + selective relations | init-plan then selective evidence | 455 | 1.380 ms | keep |
+| Campaign + unreplied | attributed + reply evidence | init-plan plus bounded subplans | 12,669 | 20.832 ms | monitor |
+| Custom text exact / contains | 5% / 55% | field-value index / typed filter scan | 4,007 / 48,022 | 0.841 / 9.237 ms | keep |
+| Custom select / boolean / date | 33% / 50% / 64% | `conversation_field_values_filter_idx` | 24,527 / 36,062 / 44,917 | 4.854 / 7.177 / 9.267 ms | keep |
+| Search UUID / common name | rare / 10% | Inbox scan + bound contact/identity subplans | 35,193 / 35,196 | 8.322 / 8.085 ms | monitor |
+| Peer identity rare / common | rare / all | same search path / peer predicate | 34,896 / 5,162 | 8.283 / 3.134 ms | keep |
+| Customer phone exact | one seeded identity | identity subplan | 26,362 | 7.662 ms | monitor |
+| Team + unreplied + waiting | one team + 30% | team scan + bounded reply evidence | 15,664 | 4.664 ms | keep |
+| Unread + high + WhatsApp | 40% + 20% + channel | read join + channel/priority | 5,230 | 1.099 ms | keep |
+| Two-label ALL + agent | label overlap + 1/16 | assignee index + ALL aggregate | 3,044 | 0.963 ms | keep |
 
 ## Changes justified by the evidence
 
@@ -76,7 +78,7 @@ index:
    select and date cases took approximately **1.33–1.40 s**. The compiler now
    uses `EXISTS` against the stored typed `search_value`. PostgreSQL starts with
    the existing `(tenant_id, field_id, search_value, conversation_id)` index;
-   exact text is now **1.109 ms**. The stored representation is specifically
+   exact text is now **0.841 ms**. The stored representation is specifically
    normalized for matching, so the change also keeps case/diacritic matching
    consistent with metadata writes.
 
@@ -84,7 +86,7 @@ index:
    attributions once per open conversation: roughly 9.5 million shared-buffer
    hits and **~1.0 s** locally. The compiler now materializes the campaign's
    bound conversation IDs once via an array init-plan. The existing
-   campaign-attribution index is sufficient; campaign+open is now **15.909 ms**.
+   campaign-attribution index is sufficient; campaign+open is now **15.891 ms**.
 
 An experimental attribution lookup index did not change that bad semi-join
 plan, so it was discarded. No speculative indexes were committed. The earlier

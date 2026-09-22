@@ -92,6 +92,10 @@ function queries(seeded: { readonly conversationIds: readonly string[] }, eviden
     membershipId: evidence.membershipIds[1]!, membershipStatus: 'active', tenantStatus: 'active',
     grants: { 'conversation.read': 'scoped' }, scopes: [{ type: 'team', id: evidence.teamIds[0]! }], delegationCeiling: null,
   };
+  const inboxScopedPrincipal: Principal = {
+    membershipId: evidence.membershipIds[1]!, membershipStatus: 'active', tenantStatus: 'active',
+    grants: { 'conversation.read': 'scoped' }, scopes: [{ type: 'inbox', id: evidence.connectionIds[0]! }], delegationCeiling: null,
+  };
   const ownPrincipal: Principal = {
     membershipId: evidence.membershipIds[0]!, membershipStatus: 'active', tenantStatus: 'active',
     grants: { 'conversation.read': 'own' }, scopes: [{ type: 'team', id: evidence.teamIds[0]! }], delegationCeiling: null,
@@ -111,9 +115,7 @@ function queries(seeded: { readonly conversationIds: readonly string[] }, eviden
     const compiled = compileInboxQuery(query, principal, customFields);
     const params = [...compiled.params];
     const add = (value: unknown): string => { params.push(value); return `$${String(params.length)}`; };
-    const cursorSql = cursor === null
-      ? ''
-      : ` AND (c.last_activity_at,c.id)<(${add(cursor.value)}::timestamptz,${add(cursor.id)}::uuid)`;
+    const cursorSql = cursor === null ? '' : keysetCursor(query.sort, cursor, add);
     const viewer = add(principal.membershipId);
     const limit = add(51);
     return [
@@ -129,6 +131,13 @@ function queries(seeded: { readonly conversationIds: readonly string[] }, eviden
     ];
   };
   const base: InboxQuery = { queue: 'all', filters: [], search: null, sort: 'activity_desc', cursor: null, limit: 50 };
+  const page = (sort: 'activity_desc' | 'created_desc' | 'priority_desc' | 'waiting_desc', depth: 'middle' | 'late') =>
+    inbox(
+      `Inbox, ${sort} — ${depth} cursor`,
+      { ...base, sort },
+      tenantPrincipal,
+      evidence.paginationCursors[sort][depth],
+    );
   return [
     [
       'contact search — infix LIKE only',
@@ -169,8 +178,15 @@ function queries(seeded: { readonly conversationIds: readonly string[] }, eviden
     [
       ...inbox('normal Inbox — recent activity', base),
     ],
-    inbox('normal Inbox — keyset page 2', base, tenantPrincipal, evidence.activityCursor),
+    inbox('Inbox, created_desc — first page', { ...base, sort: 'created_desc' }),
+    inbox('Inbox, priority_desc — first page', { ...base, sort: 'priority_desc' }),
+    inbox('Inbox, waiting_desc — first page', { ...base, sort: 'waiting_desc' }),
+    page('activity_desc', 'middle'), page('activity_desc', 'late'),
+    page('created_desc', 'middle'), page('created_desc', 'late'),
+    page('priority_desc', 'middle'), page('priority_desc', 'late'),
+    page('waiting_desc', 'middle'), page('waiting_desc', 'late'),
     inbox('scoped read — one team', base, scopedPrincipal),
+    inbox('scoped read — one inbox', base, inboxScopedPrincipal),
     inbox('own read — one team', base, ownPrincipal),
     inbox('label — VIP', { ...base, filters: [{ key: 'label_id', operator: 'eq', value: evidence.labelIds[0]! }] }),
     inbox('labels ALL — VIP + Hot Lead', { ...base, filters: [{ key: 'label_id', operator: 'in', value: evidence.labelIds.slice(0, 2) }] }),
@@ -180,11 +196,14 @@ function queries(seeded: { readonly conversationIds: readonly string[] }, eviden
     inbox('unreplied — false', { ...base, filters: [{ key: 'unreplied', operator: 'eq', value: false }] }),
     inbox('agent + open + activity', { ...base, filters: [{ key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }, { key: 'status', operator: 'eq', value: 'open' }] }),
     inbox('team + WhatsApp', { ...base, filters: [{ key: 'team_id', operator: 'eq', value: evidence.teamIds[0]! }, { key: 'channel', operator: 'eq', value: 'whatsapp' }] }),
+    inbox('agent + connection', { ...base, filters: [{ key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }, { key: 'connection_id', operator: 'eq', value: evidence.connectionIds[0]! }] }),
     inbox('agent + VIP', { ...base, filters: [{ key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }, { key: 'label_id', operator: 'eq', value: evidence.labelIds[0]! }] }),
     inbox('agent + unreplied', { ...base, filters: [{ key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }, { key: 'unreplied', operator: 'eq', value: true }] }),
     inbox('connection — specific inbox', { ...base, filters: [{ key: 'connection_id', operator: 'eq', value: evidence.connectionIds[1]! }] }),
     inbox('campaign + open', { ...base, filters: [{ key: 'campaign_id', operator: 'eq', value: evidence.campaignId }, { key: 'status', operator: 'eq', value: 'open' }] }),
+    inbox('campaign + agent + open', { ...base, filters: [{ key: 'campaign_id', operator: 'eq', value: evidence.campaignId }, { key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }, { key: 'status', operator: 'eq', value: 'open' }] }),
     inbox('campaign + agent + label', { ...base, filters: [{ key: 'campaign_id', operator: 'eq', value: evidence.campaignId }, { key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }, { key: 'label_id', operator: 'eq', value: evidence.labelIds[0]! }] }),
+    inbox('campaign + unreplied', { ...base, filters: [{ key: 'campaign_id', operator: 'eq', value: evidence.campaignId }, { key: 'unreplied', operator: 'eq', value: true }] }),
     inbox('custom text — exact', { ...base, filters: [{ key: 'custom_field', fieldId: evidence.customFieldIds.text, operator: 'eq', value: 'segment-1' }] }),
     inbox('custom text — contains', { ...base, filters: [{ key: 'custom_field', fieldId: evidence.customFieldIds.text, operator: 'contains', value: 'segment-1' }] }),
     inbox('custom single select — gold', { ...base, filters: [{ key: 'custom_field', fieldId: evidence.customFieldIds.singleSelect, operator: 'eq', value: 'gold' }] }),
@@ -192,6 +211,24 @@ function queries(seeded: { readonly conversationIds: readonly string[] }, eviden
     inbox('custom date — after', { ...base, filters: [{ key: 'custom_field', fieldId: evidence.customFieldIds.date, operator: 'after', value: '2026-01-10' }] }),
     inbox('search — conversation UUID', { ...base, search: seeded.conversationIds[1]! }),
     inbox('search — customer name common', { ...base, search: 'Nadia' }),
-    inbox('search — peer identity', { ...base, search: '2010000' }),
+    inbox('search — peer identity rare', { ...base, search: '201000000000' }),
+    inbox('search — peer identity common', { ...base, search: '2010000' }),
+    inbox('customer phone — exact', { ...base, filters: [{ key: 'customer_phone', operator: 'eq', value: '201000000000' }] }),
+    inbox('team + unreplied + waiting', { ...base, sort: 'waiting_desc', filters: [{ key: 'team_id', operator: 'eq', value: evidence.teamIds[0]! }, { key: 'unreplied', operator: 'eq', value: true }] }),
+    inbox('unread + high + WhatsApp', { ...base, filters: [{ key: 'unread', operator: 'eq', value: true }, { key: 'priority', operator: 'eq', value: 'high' }, { key: 'channel', operator: 'eq', value: 'whatsapp' }] }),
+    inbox('two labels ALL + agent', { ...base, filters: [{ key: 'label_id', operator: 'in', value: evidence.labelIds.slice(0, 2) }, { key: 'assigned_agent_id', operator: 'eq', value: evidence.membershipIds[0]! }] }),
   ];
+}
+
+function keysetCursor(
+  sort: InboxQuery['sort'],
+  cursor: Readonly<{ id: string; value: string }>,
+  add: (value: unknown) => string,
+): string {
+  const value = add(cursor.value);
+  const id = add(cursor.id);
+  if (sort === 'created_desc') return ` AND (c.created_at,c.id)<(${value}::timestamptz,${id}::uuid)`;
+  if (sort === 'priority_desc') return ` AND ((CASE c.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END),c.id)<(${value}::integer,${id}::uuid)`;
+  if (sort === 'waiting_desc') return ` AND (coalesce(c.waiting_since,'-infinity'::timestamptz),c.id)<(${value}::timestamptz,${id}::uuid)`;
+  return ` AND (c.last_activity_at,c.id)<(${value}::timestamptz,${id}::uuid)`;
 }
