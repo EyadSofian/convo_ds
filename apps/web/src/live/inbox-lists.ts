@@ -22,10 +22,12 @@ export async function refreshInboxLists(context: LiveContext): Promise<void> {
       // operational query. Dropping these would silently turn an Agent/Label
       // queue into an unfiltered one after the first incoming message.
       live.conversationsApi.unassigned(tenantId, unassignedFilterProjection(live.inboxQuery)),
-      live.conversationsApi.list(tenantId, live.inboxQuery),
+      live.supervisorAgentId === null
+        ? live.conversationsApi.list(tenantId, live.inboxQuery)
+        : live.conversationsApi.supervisorList(tenantId, live.supervisorAgentId, live.inboxQuery),
     ]);
     const now = context.now();
-    if (unassigned.ok) {
+    if (live.supervisorAgentId === null && unassigned.ok) {
       live.unassigned = ready(unassigned.data, now);
     }
     if (mine.ok) {

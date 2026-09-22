@@ -8,7 +8,7 @@ import { loadEpisodes, loadNotes, markConversationRead } from './lifecycle-actio
 import { loadRouting } from './routing-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
-import { currentTenantId, failed, forTenant, fromResult, LOADING, ready } from './store.js';
+import { currentTenantId, failed, forTenant, fromResult, LOADING, ready, rowsOf } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadSavedViews } from './saved-view-actions.js';
 
@@ -42,6 +42,22 @@ function t(context: LiveContext, ar: string, en: string): string {
 export async function loadInboxScreen(context: LiveContext): Promise<void> {
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
+    // A bookmarked supervisor lens is still validated by the server on every
+    // read. The browser restores only the opaque membership reference; it
+    // never restores a different session or an assumed directory entry.
+    if (live.supervisorAgentId === null && uuid(context.state.route.params['agent'])) {
+      live.supervisorAgentId = context.state.route.params['agent']!;
+    }
+    if (live.supervisorAgentId !== null) {
+      live.conversations = LOADING;
+      context.refresh();
+      const page = await live.conversationsApi.supervisorList(tenantId, live.supervisorAgentId, { ...live.inboxQuery, cursor: null });
+      live.conversations = page.ok ? ready(page.data.items, context.now()) : failed(page.error);
+      live.inboxNextCursor = page.ok ? page.data.nextCursor : null;
+      if (!page.ok) live.error = page.error;
+      context.refresh();
+      return;
+    }
     live.unassigned = LOADING;
     live.conversations = LOADING;
     context.refresh();
@@ -60,6 +76,40 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
     if (live.people.status === 'idle' || live.teams.status === 'idle' || live.connections.status === 'idle' || live.campaigns.status === 'idle') {
       await loadInboxPickerCatalogues(context, tenantId);
     }
+  });
+}
+
+function uuid(value: string | undefined): value is string {
+  return value !== undefined && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+/** Opens the protected agent picker; a 403 is displayed as such, never faked. */
+export async function loadSupervisorAgents(context: LiveContext): Promise<void> {
+  return forTenant(context, undefined, async (tenantId) => {
+    context.live.supervisorAgents = LOADING;
+    context.refresh();
+    const result = await context.live.conversationsApi.supervisorAgents(tenantId);
+    context.live.supervisorAgents = fromResult(result, context.now());
+    if (!result.ok) context.live.error = result.error;
+    context.refresh();
+  });
+}
+
+/** Lists the selected agent's work under the signed-in supervisor's own RBAC. */
+export async function loadSupervisorInbox(context: LiveContext, agentMembershipId: string): Promise<boolean> {
+  if (!rowsOf(context.live.supervisorAgents).some((agent) => agent.membershipId === agentMembershipId)) return false;
+  return forTenant(context, false, async (tenantId) => {
+    context.live.conversations = LOADING;
+    context.live.supervisorAgentId = agentMembershipId;
+    context.state.inboxQueue = 'mine';
+    context.state.route = { ...context.state.route, params: { ...context.state.route.params, agent: agentMembershipId } };
+    context.refresh();
+    const result = await context.live.conversationsApi.supervisorList(tenantId, agentMembershipId, { ...context.live.inboxQuery, cursor: null });
+    context.live.conversations = result.ok ? ready(result.data.items, context.now()) : failed(result.error);
+    context.live.inboxNextCursor = result.ok ? result.data.nextCursor : null;
+    if (!result.ok) context.live.error = result.error;
+    context.refresh();
+    return result.ok;
   });
 }
 
@@ -91,7 +141,9 @@ export async function loadMoreInbox(context: LiveContext): Promise<void> {
   return forTenant(context, undefined, async (tenantId) => {
     context.live.busy = 'inbox-load-more';
     context.refresh();
-    const result = await context.live.conversationsApi.list(tenantId, { ...context.live.inboxQuery, cursor });
+    const result = context.live.supervisorAgentId === null
+      ? await context.live.conversationsApi.list(tenantId, { ...context.live.inboxQuery, cursor })
+      : await context.live.conversationsApi.supervisorList(tenantId, context.live.supervisorAgentId, { ...context.live.inboxQuery, cursor });
     context.live.busy = null;
     if (!result.ok) {
       context.live.error = result.error;

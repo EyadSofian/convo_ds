@@ -10,6 +10,7 @@ import type {
   Note,
   QueueCard,
   TimelineMessage,
+  SupervisorAgent,
 } from '../api/conversations.js';
 import { INBOX_QUERY_DEFAULT, type InboxQuery } from '@convo/domain';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
@@ -133,6 +134,9 @@ export interface LiveState {
   unassigned: Resource<readonly QueueCard[]>;
   /** Conversations this caller may read. Records, not cards. */
   conversations: Resource<readonly Conversation[]>;
+  /** Read-only staff list offered by the guarded Supervisor lens. */
+  supervisorAgents: Resource<readonly SupervisorAgent[]>;
+  supervisorAgentId: string | null;
   openConversationId: string | null;
   openConversation: Resource<Conversation>;
   timeline: Resource<readonly TimelineMessage[]>;
@@ -257,6 +261,8 @@ export function createLiveState(
     api,
     channels,
     conversations: IDLE,
+    supervisorAgents: IDLE,
+    supervisorAgentId: null,
     session: { status: 'unknown' },
     people: IDLE,
     roles: IDLE,

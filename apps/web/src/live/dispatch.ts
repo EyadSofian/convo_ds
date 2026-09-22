@@ -10,6 +10,8 @@ import {
 } from './contact-actions.js';
 import {
   claimConversation,
+  loadSupervisorAgents,
+  loadSupervisorInbox,
   loadInboxScreen,
   loadMoreInbox,
   loadOlderMessages,
@@ -622,6 +624,8 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   /* ----------------------------------------------------------------- inbox -- */
 
   'live-inbox-reload': async (context) => loadInboxScreen(context),
+  'live-supervisor-open': async (context) => loadSupervisorAgents(context),
+  'live-supervisor-agent': async (context, arg) => loadSupervisorInbox(context, arg),
 
   'live-inbox-queue': (context, arg) => {
     // A local view switch, not a request: both halves are already loaded, and

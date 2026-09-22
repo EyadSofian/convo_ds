@@ -74,6 +74,7 @@ export interface DirectoryAgent {
   readonly label: string;
   readonly assigned: boolean;
 }
+export interface SupervisorAgent { readonly membershipId: string; readonly name: string; readonly email: string; readonly teams: readonly string[]; }
 
 export interface Handoff {
   readonly id: string;
@@ -180,6 +181,21 @@ export class ConversationsApi {
     if (inboxQuery.search !== null && inboxQuery.search !== '') query.set('search', inboxQuery.search);
     for (const filter of inboxQuery.filters) query.append('filter', JSON.stringify(filter));
     const page = await this.client.page<Conversation>(`/tenants/${tenantId}/conversations?${query.toString()}`);
+    return page.ok ? { ok: true, data: { items: page.data.data, nextCursor: page.data.nextCursor } } : page;
+  }
+
+  supervisorAgents(tenantId: string): Promise<ApiResult<readonly SupervisorAgent[]>> {
+    return this.client.get(`/tenants/${tenantId}/supervisor/agents`);
+  }
+
+  async supervisorList(tenantId: string, agentMembershipId: string, inboxQuery: InboxQuery): Promise<ApiResult<ConversationPage>> {
+    const query = new URLSearchParams({ agent: agentMembershipId, queue: 'all' });
+    if (inboxQuery.sort !== 'activity_desc') query.set('sort', inboxQuery.sort);
+    if (inboxQuery.limit !== 50) query.set('limit', String(inboxQuery.limit));
+    if (inboxQuery.cursor !== null) query.set('cursor', inboxQuery.cursor);
+    if (inboxQuery.search !== null && inboxQuery.search !== '') query.set('search', inboxQuery.search);
+    for (const filter of inboxQuery.filters) query.append('filter', JSON.stringify(filter));
+    const page = await this.client.page<Conversation>(`/tenants/${tenantId}/supervisor/conversations?${query.toString()}`);
     return page.ok ? { ok: true, data: { items: page.data.data, nextCursor: page.data.nextCursor } } : page;
   }
 

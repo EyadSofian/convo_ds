@@ -74,6 +74,7 @@ const COMMAND_LABEL: Readonly<Record<string, Phrase>> = {
 export function renderInbox(state: AppState): HTMLElement {
   const live = state.live;
   const open = live.openConversationId !== null;
+  const supervisorMode = live.supervisorAgentId !== null;
   return h(
     'div',
     {
@@ -111,10 +112,10 @@ export function renderInbox(state: AppState): HTMLElement {
             live.openConversation.status === 'ready'
               ? metadataSection(state, live, 'conversation', live.openConversation.value)
               : null,
-            live.openConversation.status === 'ready'
+            !supervisorMode && live.openConversation.status === 'ready'
               ? routingSection(state, live, live.openConversation.value, routingAbility(live))
               : null,
-            notesSection(state, live),
+            supervisorMode ? null : notesSection(state, live),
             episodesSection(state, live),
           ])
         : null,
@@ -143,10 +144,13 @@ function listResizer(state: AppState): HTMLElement {
 /* ------------------------------------------------------------------- list -- */
 
 function renderListZone(state: AppState, live: LiveState): HTMLElement {
+  const supervisorMode = live.supervisorAgentId !== null;
   const activeFilters = activeFilterCount(live.inboxQuery);
   return h('section', { class: 'zone zone--list', 'aria-label': t(state, 'قائمة المحادثات', 'Conversation list') }, [
     h('header', { class: 'listhead' }, [
-      segmented(
+      supervisorMode ? h('div', { class: 'listhead__supervisor', role: 'status' }, [
+        icon('eye', 15), t(state, 'عرض إشرافي للقراءة فقط', 'Read-only supervisor view'),
+      ]) : segmented(
         [
           { value: 'unassigned', label: t(state, 'غير مسندة', 'Unassigned'), count: countOf(live.unassigned) },
           { value: 'mine', label: t(state, 'محادثاتي', 'Mine'), count: countOf(live.conversations) },
@@ -173,6 +177,10 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
           }),
           state.openMenu === 'inbox-filters' ? inboxFilters(state, live) : null,
         ]),
+        button({
+          label: t(state, 'عرض فريق', 'View team'), icon: 'eye', act: 'live-supervisor-open', variant: 'ghost', small: true,
+          busy: live.supervisorAgents.status === 'loading', title: t(state, 'عرض المحادثات المسندة لوكيل ضمن نطاقك', 'View an in-scope agent’s assigned conversations'),
+        }),
         selectControl({
           act: 'live-inbox-sort', value: live.inboxQuery.sort,
           ariaLabel: t(state, 'ترتيب المحادثات', 'Sort conversations'),
@@ -214,12 +222,26 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
       ]),
     ]),
     inboxSearch(state, live),
+    supervisorPicker(state, live),
     activeFilterChips(state, live),
     connectionNotice(state, live),
     listResizer(state),
     h('div', { class: 'zone__body', 'data-scroll': 'list' }, [
-      state.inboxQueue === 'mine' ? mineList(state, live) : queueList(state, live),
+      supervisorMode || state.inboxQueue === 'mine' ? mineList(state, live) : queueList(state, live),
     ]),
+  ]);
+}
+
+function supervisorPicker(state: AppState, live: LiveState): Child {
+  if (live.supervisorAgents.status === 'idle') return null;
+  if (live.supervisorAgents.status === 'loading') return h('p', { class: 'empty-copy' }, [t(state, 'جارٍ تحميل الوكلاء المتاحين…', 'Loading in-scope agents…')]);
+  if (live.supervisorAgents.status === 'error') return h('p', { class: 'empty-copy', role: 'status' }, [t(state, 'لا تملك صلاحية العرض الإشرافي.', 'Supervisor view is not available to this role.')]);
+  const agents = live.supervisorAgents.value;
+  if (agents.length === 0) return h('p', { class: 'empty-copy' }, [t(state, 'لا يوجد عمل مسند مرئي ضمن نطاقك.', 'No visible assigned work is available in your scope.')]);
+  const options = [{ value: '', label: t(state, 'اختر وكيلًا للعرض', 'Choose an agent to view') }, ...agents.map((agent) => ({ value: agent.membershipId, label: `${agent.name} · ${agent.email}${agent.teams.length === 0 ? '' : ` · ${agent.teams.join(', ')}`}` }))];
+  return h('label', { class: 'field field--row inbox-supervisor-picker' }, [
+    h('span', { class: 'field__label' }, [t(state, 'عرض وكيل', 'View agent')]),
+    selectControl({ act: 'live-supervisor-agent', value: live.supervisorAgentId ?? '', ariaLabel: t(state, 'اختر وكيلًا', 'Choose agent'), options }),
   ]);
 }
 
@@ -621,18 +643,19 @@ function renderThreadZone(state: AppState, live: LiveState): HTMLElement {
   }
 
   const conversation = live.openConversation.value;
+  const supervisorMode = live.supervisorAgentId !== null;
   return threadZone(state, [
-    threadHeader(state, live, conversation),
-    lifecycleForm(state, live, conversation),
+    threadHeader(state, live, conversation, supervisorMode),
+    supervisorMode ? null : lifecycleForm(state, live, conversation),
     lifecycleNotice(state, conversation),
     timelineView(state, live),
     // An archived conversation is immutable, so it gets no composer. The notice
     // above says why; a disabled box would say only that something is wrong.
-    conversation.status === 'archived' ? null : composer(state, live, conversation),
+    conversation.status === 'archived' || supervisorMode ? null : composer(state, live, conversation),
   ]);
 }
 
-function threadHeader(state: AppState, live: LiveState, conversation: Conversation): HTMLElement {
+function threadHeader(state: AppState, live: LiveState, conversation: Conversation, supervisorMode: boolean): HTMLElement {
   return h('header', { class: 'thread__header' }, [
     listToggle(state),
     avatar({ initials: initials(conversation.peerIdentity), channel: conversation.channel }),
@@ -647,7 +670,7 @@ function threadHeader(state: AppState, live: LiveState, conversation: Conversati
       conversation.priority === 'normal' ? null : priorityBadge(state, conversation.priority),
     ]),
     h('div', { class: 'thread__toolbar' }, [
-      lifecycleControls(state, live, conversation),
+      supervisorMode ? h('span', { class: 'badge badge--neutral' }, [t(state, 'قراءة فقط', 'Read-only')]) : lifecycleControls(state, live, conversation),
       button({
         icon: 'panel',
         act: 'panel',
