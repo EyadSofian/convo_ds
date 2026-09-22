@@ -37,6 +37,7 @@ import { OpaqueCursorCodec } from '../pagination.js';
 import { compileInboxQuery, readableScope } from './inbox-query-compiler.js';
 import { validateInboxQuery } from './inbox-query-validation.js';
 import { assertSupervisor, requireScopedSupervisorAgent, scopedSupervisorAgents } from './supervisor-directory.js';
+import { conversationUnrepliedPredicate } from './event-boundary.js';
 
 export type { ConversationDetail, ConversationRow } from './record.js';
 
@@ -440,7 +441,8 @@ export class ConversationService {
       const scope = readableScope(principal, add);
       const result = await sql.query<{ workload: Omit<SupervisorWorkload, 'agent'> }>(`
         WITH current_scope AS (
-          SELECT c.status,c.priority,n.kind,c.connection_id,c.peer_identity
+          SELECT c.id,c.tenant_id,c.connection_id,c.peer_identity,c.created_at,c.archived_at,c.status,c.priority,n.kind,
+                 ${conversationUnrepliedPredicate('c')} AS unreplied
             FROM conversations c JOIN channel_connections n ON n.id=c.connection_id
            -- Workload is a live operating queue. Resolved and archived records
            -- remain reportable history but must never inflate an agent's live
@@ -453,7 +455,7 @@ export class ConversationService {
                  count(*) FILTER (WHERE status='snoozed')::int AS snoozed,
                  count(*) FILTER (WHERE priority='urgent')::int AS urgent,
                  count(*) FILTER (WHERE priority='high')::int AS high,
-                 count(*) FILTER (WHERE (SELECT max(inbound.occurred_at) FROM inbound_events inbound WHERE inbound.connection_id=current_scope.connection_id AND inbound.peer_identity=current_scope.peer_identity AND inbound.kind='message') > COALESCE((SELECT max(outbound.created_at) FROM outbound_messages outbound WHERE outbound.connection_id=current_scope.connection_id AND outbound.peer_identity=current_scope.peer_identity AND outbound.author_membership IS NOT NULL), '-infinity'::timestamptz))::int AS unreplied
+                 count(*) FILTER (WHERE unreplied)::int AS unreplied
             FROM current_scope
         )
         SELECT jsonb_build_object(

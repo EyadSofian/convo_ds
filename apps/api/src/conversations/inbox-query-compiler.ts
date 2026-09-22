@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { normalizeSearchText, type CustomFieldType, type InboxFilter, type InboxQuery, type Principal } from '@convo/domain';
+import { conversationUnrepliedPredicate } from './event-boundary.js';
 
 export interface InboxCustomField {
   readonly id: string;
@@ -91,7 +92,7 @@ function membershipExists(table: string, alias: string, column: string, filter: 
 }
 
 function unrepliedPredicate(value: string): string {
-  return `((SELECT max(inbound.occurred_at) FROM inbound_events inbound WHERE inbound.connection_id = c.connection_id AND inbound.peer_identity = c.peer_identity AND inbound.kind = 'message') > COALESCE((SELECT max(outbound.created_at) FROM outbound_messages outbound WHERE outbound.connection_id = c.connection_id AND outbound.peer_identity = c.peer_identity AND outbound.author_membership IS NOT NULL), '-infinity'::timestamptz)) = ${value}::boolean`;
+  return `${conversationUnrepliedPredicate('c')} = ${value}::boolean`;
 }
 
 function datePredicate(column: string, operator: string, one: () => string): string {

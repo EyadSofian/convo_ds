@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig, type InboxQuery, type Principal } from '../../packages/domain/src/index.js';
 import { compileInboxQuery } from '../../apps/api/src/conversations/inbox-query-compiler.js';
+import { conversationEventBoundary, conversationUnrepliedPredicate, qualifyingHumanOutbound } from '../../apps/api/src/conversations/event-boundary.js';
 import {
   createScratchDatabase,
   migrateScratch,
@@ -139,6 +140,29 @@ function queries(seeded: { readonly conversationIds: readonly string[] }, eviden
       evidence.paginationCursors[sort][depth],
     );
   return [
+    [
+      'supervisor workload — assigned + conversation-bound unreplied',
+      `SELECT count(*) FILTER (WHERE c.status IN ('open','pending','snoozed'))::int AS assigned,
+              count(*) FILTER (WHERE c.status IN ('open','pending','snoozed') AND ${conversationUnrepliedPredicate('c')})::int AS unreplied
+         FROM conversations c
+        WHERE c.assignee_membership_id=$1::uuid AND c.status IN ('open','pending','snoozed')`,
+      [evidence.membershipIds[0]],
+    ],
+    [
+      'agent human messages — conversation-bound event attribution',
+      `SELECT o.author_membership,count(*)::int AS messages
+         FROM outbound_messages o JOIN conversations c ON ${conversationEventBoundary('c','o','o.created_at')}
+        WHERE ${qualifyingHumanOutbound('o')} AND o.author_membership=$1::uuid
+        GROUP BY o.author_membership`,
+      [evidence.membershipIds[0]],
+    ],
+    [
+      'agent handled conversations — distinct conversation ownership',
+      `SELECT count(DISTINCT c.id)::int AS handled
+         FROM outbound_messages o JOIN conversations c ON ${conversationEventBoundary('c','o','o.created_at')}
+        WHERE ${qualifyingHumanOutbound('o')} AND o.author_membership=$1::uuid`,
+      [evidence.membershipIds[0]],
+    ],
     [
       'contact search — infix LIKE only',
       `SELECT id::text, display_name FROM contacts

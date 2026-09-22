@@ -3,6 +3,7 @@ import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { readableScope } from '../conversations/inbox-query-compiler.js';
 import { scopedReportableAgents } from '../conversations/supervisor-directory.js';
+import { conversationEventBoundary, qualifyingHumanOutbound } from '../conversations/event-boundary.js';
 import { ApiHttpError } from '../http-error.js';
 
 export interface OperationalReportFilters { readonly fromAt: Date | null; readonly toExclusiveAt: Date | null; }
@@ -78,8 +79,8 @@ export class OperationalReportingService {
         ),
         agent_human_messages AS (
           SELECT o.author_membership AS membership_id,count(*)::int AS messages,count(DISTINCT c.id)::int AS handled
-            FROM outbound_messages o JOIN conversations c ON c.connection_id=o.connection_id AND c.peer_identity=o.peer_identity
-            CROSS JOIN params p WHERE ${scope} AND o.author_membership IS NOT NULL
+            FROM outbound_messages o JOIN conversations c ON ${conversationEventBoundary('c', 'o', 'o.created_at')}
+            CROSS JOIN params p WHERE ${scope} AND ${qualifyingHumanOutbound('o')}
               AND (p.from_at IS NULL OR o.created_at>=p.from_at) AND (p.to_at IS NULL OR o.created_at<p.to_at)
            GROUP BY o.author_membership
         ),

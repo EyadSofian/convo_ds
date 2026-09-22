@@ -2315,6 +2315,97 @@ describe('supervisor inbox lens', () => {
     expect(current).toEqual(expect.objectContaining({ assigned: 4, open: 2, pending: 1, snoozed: 1 }));
   });
 
+  it('binds delayed inbound and human replies to one conversation across an archive boundary', async () => {
+    const peer = '15557000929';
+    const workloadBefore = await send(api, supervisor, 'GET', `/supervisor/workload?agent=${agentAMembershipId}`);
+    expect(workloadBefore.statusCode, workloadBefore.payload).toBe(200);
+    const unrepliedBefore = (workloadBefore.json() as { data: { current: { unreplied: number } } }).data.current.unreplied;
+    const before = await send(api, owner, 'GET', '/reports/operations');
+    expect(before.statusCode, before.payload).toBe(200);
+    const beforeAgent = (before.json() as { data: { agents: { membershipId: string; humanMessages: number; handledConversations: number }[] } }).data.agents
+      .find((row) => row.membershipId === agentAMembershipId)!;
+
+    await customerWrites(INBOX_A, peer, 'المحادثة الأولى', 'wamid.rt-bound-a-in');
+    const conversationA = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> \'archived\'', [inboxA, peer],
+    ))).rows[0]!.id;
+    let current = await send(api, owner, 'GET', `/conversations/${conversationA}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationA}/assignments`, {
+      version: (current.json() as { data: { version: number } }).data.version, assigneeMembershipId: agentAMembershipId,
+    })).statusCode).toBe(200);
+    expect((await send(api, agentA, 'POST', `/conversations/${conversationA}/messages`, {
+      messageType: 'text', text: 'رد المحادثة الأولى', trafficClass: 'interactive', clientMessageId: 'supervisor-bound-a-out',
+    })).statusCode).toBe(202);
+    const outboundA = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string; created_at: Date }>(
+      'SELECT id::text,created_at FROM outbound_messages WHERE client_message_id=$1', ['supervisor-bound-a-out'],
+    ));
+    current = await send(api, owner, 'GET', `/conversations/${conversationA}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationA}/transitions`, {
+      version: (current.json() as { data: { version: number } }).data.version,
+      command: 'resolve', resolution: 'انتهى الاختبار الأول',
+    })).statusCode).toBe(200);
+    current = await send(api, owner, 'GET', `/conversations/${conversationA}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationA}/transitions`, {
+      version: (current.json() as { data: { version: number } }).data.version, command: 'archive',
+    })).statusCode).toBe(200);
+
+    await customerWrites(INBOX_A, peer, 'رسالة متأخرة زمنيًا للمحادثة الجديدة', 'wamid.rt-bound-b-in');
+    const conversationB = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> \'archived\'', [inboxA, peer],
+    ))).rows[0]!.id;
+    expect(conversationB).not.toBe(conversationA);
+    const inboundB = await withTenant(api.pool, api.tenantId, (client) => client.query<{ occurred_at: Date; conversation_id: string | null }>(
+      'SELECT occurred_at,conversation_id::text FROM inbound_events WHERE provider_message_id=$1', ['wamid.rt-bound-b-in'],
+    ));
+    expect(inboundB.rows[0]!.occurred_at.getTime()).toBeLessThan(outboundA.rows[0]!.created_at.getTime());
+    expect(inboundB.rows[0]!.conversation_id).toBe(conversationB);
+    current = await send(api, owner, 'GET', `/conversations/${conversationB}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationB}/assignments`, {
+      version: (current.json() as { data: { version: number } }).data.version, assigneeMembershipId: agentAMembershipId,
+    })).statusCode).toBe(200);
+
+    // Revert only the test rows to the legacy NULL state to exercise the
+    // deterministic temporal fallback used for data created before migration
+    // 0036. Production history is deliberately not backfilled by identity.
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      await client.query('UPDATE inbound_events SET conversation_id=NULL WHERE provider_message_id=$1', ['wamid.rt-bound-b-in']);
+    });
+
+    // The fixture's provider clock intentionally trails processing time by an
+    // hour. B is normalized after A's reply/archive, while its provider event
+    // timestamp precedes that reply. The durable binding must win over global
+    // peer chronology without rewriting the immutable inbound journal.
+    const filter = encodeURIComponent(JSON.stringify({ key: 'unreplied', operator: 'eq', value: true }));
+    const unrepliedInbox = await send(api, owner, 'GET', `/conversations?queue=all&filter=${filter}`);
+    expect(unrepliedInbox.statusCode, unrepliedInbox.payload).toBe(200);
+    const unrepliedIds = (unrepliedInbox.json() as { data: { id: string }[] }).data.map((row) => row.id);
+    expect(unrepliedIds).toContain(conversationB);
+
+    const workload = await send(api, supervisor, 'GET', `/supervisor/workload?agent=${agentAMembershipId}`);
+    expect(workload.statusCode, workload.payload).toBe(200);
+    expect((workload.json() as { data: { current: { unreplied: number } } }).data.current.unreplied).toBe(unrepliedBefore + 1);
+
+    expect((await send(api, agentA, 'POST', `/conversations/${conversationB}/messages`, {
+      messageType: 'text', text: 'رد المحادثة الثانية', trafficClass: 'interactive', clientMessageId: 'supervisor-bound-b-out',
+    })).statusCode).toBe(202);
+    const boundMessages = await withTenant(api.pool, api.tenantId, (client) => client.query<{ conversation_id: string | null }>(
+      `SELECT conversation_id::text FROM outbound_messages WHERE client_message_id = ANY($1::text[]) ORDER BY client_message_id`,
+      [['supervisor-bound-a-out', 'supervisor-bound-b-out']],
+    ));
+    expect(boundMessages.rows.map((row) => row.conversation_id)).toEqual(expect.arrayContaining([conversationA, conversationB]));
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      await client.query('UPDATE outbound_messages SET conversation_id=NULL WHERE client_message_id = ANY($1::text[])', [
+        ['supervisor-bound-a-out', 'supervisor-bound-b-out'],
+      ]);
+    });
+    const after = await send(api, owner, 'GET', '/reports/operations');
+    expect(after.statusCode, after.payload).toBe(200);
+    const afterAgent = (after.json() as { data: { agents: { membershipId: string; humanMessages: number; handledConversations: number }[] } }).data.agents
+      .find((row) => row.membershipId === agentAMembershipId)!;
+    expect(afterAgent.humanMessages - beforeAgent.humanMessages).toBe(2);
+    expect(afterAgent.handledConversations - beforeAgent.handledConversations).toBe(2);
+  });
+
   it('scopes operational aggregates through the supervisor readable inbox scope', async () => {
     const peerB = '15557000911';
     await customerWrites(INBOX_B, peerB, 'هذا العمل خارج نطاق المشرف', 'wamid.rt-supervisor-scope-b');

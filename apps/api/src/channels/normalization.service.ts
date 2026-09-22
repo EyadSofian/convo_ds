@@ -132,7 +132,7 @@ export class ChannelNormalizationService {
           // The inbox side of the same transaction: a conversation exists, it
           // knows a customer is waiting, and the feed says so. All three commit
           // with the normalized event or none of them do (DEL-07).
-          await this.record(sql, tenantId, row.connection_id, inserted);
+          await this.record(sql, tenantId, row.connection_id, inserted.id, inserted.row);
         }
         await sql.query(
           `UPDATE channel_events SET status = 'normalized', processed_at = now() WHERE id = $1`,
@@ -158,6 +158,7 @@ export class ChannelNormalizationService {
     sql: SqlExecutor,
     tenantId: string,
     connectionId: string,
+    inboundEventId: string,
     inbound: InboundRow,
   ): Promise<void> {
     if (inbound.kind !== 'message') {
@@ -168,6 +169,14 @@ export class ChannelNormalizationService {
       tenantId,
       connectionId,
       inbound.peerIdentity,
+    );
+    // Bind at normalization time, after ensure selected or created the active
+    // thread. Both writes share the worker transaction, including the first
+    // inbound that opened a new conversation.
+    await sql.query(
+      `UPDATE inbound_events SET conversation_id=$2
+        WHERE id=$1 AND tenant_id=$3 AND conversation_id IS NULL`,
+      [inboundEventId, conversation.id, tenantId],
     );
     // The customer's identity, resolved in this same transaction. It is scoped
     // to the connection the message arrived on: the same person writing to two
@@ -217,7 +226,7 @@ async function projectEvent(
   eventId: string,
   connectionId: string,
   event: Record<string, unknown>,
-): Promise<InboundRow | null> {
+): Promise<{ readonly id: string; readonly row: InboundRow } | null> {
   const row = inboundRowFrom(event, new Date());
   const inserted = await sql.query<{ id: string }>(
     `INSERT INTO inbound_events
@@ -241,5 +250,6 @@ async function projectEvent(
       row.occurredAt,
     ],
   );
-  return inserted.rows.length > 0 ? row : null;
+  const insertedId = inserted.rows[0]?.id;
+  return insertedId === undefined ? null : { id: insertedId, row };
 }
