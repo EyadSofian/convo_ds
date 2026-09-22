@@ -70,7 +70,13 @@ function operations(): OperationalReport {
       assignmentWorkload: [{ name: 'Mona Agent', count: 7 }],
     },
     timing: { firstResponseMeasured: 4, firstResponseAverageSeconds: 75, firstResponseMedianSeconds: 70, resolutionMeasured: 3, resolutionAverageSeconds: 300, resolutionMedianSeconds: 280 },
-    agents: [{ membershipId: '00000000-0000-4000-8000-000000000001', name: 'Mona Agent', email: 'mona@example.test', firstResponses: 4, resolutions: 3 }],
+    agents: [{
+      membershipId: '00000000-0000-4000-8000-000000000001', name: 'Mona Agent', email: 'mona@example.test', teams: ['Support'],
+      currentAssigned: 7, currentOpen: 5, currentPending: 2, currentSnoozed: 0,
+      assignedInPeriod: 4, handledConversations: 3, humanMessages: 5, internalNotes: 2,
+      firstResponses: 4, firstResponseAverageSeconds: 75, firstResponseMedianSeconds: 70,
+      resolutions: 3, resolutionAverageSeconds: 300, resolutionMedianSeconds: 280, reassignments: 1,
+    }],
   };
 }
 

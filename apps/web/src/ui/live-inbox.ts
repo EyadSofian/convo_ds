@@ -110,7 +110,7 @@ export function renderInbox(state: AppState): HTMLElement {
       open
         ? renderContactPanel(state, live, [
             live.openConversation.status === 'ready'
-              ? metadataSection(state, live, 'conversation', live.openConversation.value)
+              ? metadataSection(state, live, 'conversation', live.openConversation.value, { readOnly: supervisorMode })
               : null,
             !supervisorMode && live.openConversation.status === 'ready'
               ? routingSection(state, live, live.openConversation.value, routingAbility(live))
@@ -223,6 +223,7 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
     ]),
     inboxSearch(state, live),
     supervisorPicker(state, live),
+    supervisorBanner(state, live),
     activeFilterChips(state, live),
     connectionNotice(state, live),
     listResizer(state),
@@ -237,11 +238,49 @@ function supervisorPicker(state: AppState, live: LiveState): Child {
   if (live.supervisorAgents.status === 'loading') return h('p', { class: 'empty-copy' }, [t(state, 'جارٍ تحميل الوكلاء المتاحين…', 'Loading in-scope agents…')]);
   if (live.supervisorAgents.status === 'error') return h('p', { class: 'empty-copy', role: 'status' }, [t(state, 'لا تملك صلاحية العرض الإشرافي.', 'Supervisor view is not available to this role.')]);
   const agents = live.supervisorAgents.value;
-  if (agents.length === 0) return h('p', { class: 'empty-copy' }, [t(state, 'لا يوجد عمل مسند مرئي ضمن نطاقك.', 'No visible assigned work is available in your scope.')]);
+  if (agents.length === 0) return h('p', { class: 'empty-copy' }, [t(state, 'لا يوجد وكلاء نشطون ضمن نطاقك.', 'No active agents are available in your scope.')]);
   const options = [{ value: '', label: t(state, 'اختر وكيلًا للعرض', 'Choose an agent to view') }, ...agents.map((agent) => ({ value: agent.membershipId, label: `${agent.name} · ${agent.email}${agent.teams.length === 0 ? '' : ` · ${agent.teams.join(', ')}`}` }))];
   return h('label', { class: 'field field--row inbox-supervisor-picker' }, [
     h('span', { class: 'field__label' }, [t(state, 'عرض وكيل', 'View agent')]),
     selectControl({ act: 'live-supervisor-agent', value: live.supervisorAgentId ?? '', ariaLabel: t(state, 'اختر وكيلًا', 'Choose agent'), options }),
+  ]);
+}
+
+/** A server-backed operational summary; never an inference from a loaded page. */
+function supervisorBanner(state: AppState, live: LiveState): Child {
+  const agentId = live.supervisorAgentId;
+  if (agentId === null) return null;
+  const agent = rowsOf(live.supervisorAgents).find((entry) => entry.membershipId === agentId);
+  const workload = live.supervisorWorkload.status === 'ready' ? live.supervisorWorkload.value : null;
+  const name = agent?.name ?? t(state, 'الوكيل المحدد', 'Selected agent');
+  const teams = agent?.teams ?? workload?.agent.teams ?? [];
+  const count = workload?.current.assigned ?? 0;
+  const detail = workload?.current;
+  return h('section', { class: 'inbox-supervisor-banner', role: 'status', 'aria-live': 'polite' }, [
+    h('div', { class: 'inbox-supervisor-banner__identity' }, [
+      h('strong', {}, [t(state, `عرض حمل ${name}`, `Viewing ${name}'s workload`)]),
+      teams.length === 0 ? null : h('span', { class: 'inbox-supervisor-banner__teams' }, [teams.join(' · ')]),
+      live.supervisorWorkload.status === 'loading'
+        ? h('span', { class: 'inbox-supervisor-banner__count' }, [t(state, 'جارٍ تحميل الحمل…', 'Loading workload…')])
+        : h('span', { class: 'inbox-supervisor-banner__count' }, [t(state, `${String(count)} محادثات نشطة`, `${String(count)} active conversations`)]),
+    ]),
+    h('div', { class: 'inbox-supervisor-banner__metrics', 'aria-label': t(state, 'ملخص حمل الوكيل', 'Agent workload summary') }, [
+      supervisorMetric(t(state, 'مفتوحة', 'Open'), detail?.open ?? 0),
+      supervisorMetric(t(state, 'معلّقة', 'Pending'), detail?.pending ?? 0),
+      supervisorMetric(t(state, 'مؤجلة', 'Snoozed'), detail?.snoozed ?? 0),
+      supervisorMetric(t(state, 'دون رد', 'Unreplied'), detail?.unreplied ?? 0),
+    ]),
+    h('div', { class: 'inbox-supervisor-banner__actions' }, [
+      button({ label: t(state, 'فتح تقرير الوكيل', 'Open agent report'), act: 'live-supervisor-open-report', arg: agentId, variant: 'ghost', small: true }),
+      button({ label: t(state, 'إنهاء العرض', 'Exit'), act: 'live-supervisor-exit', variant: 'ghost', small: true }),
+    ]),
+  ]);
+}
+
+function supervisorMetric(label: string, value: number): HTMLElement {
+  return h('span', { class: 'inbox-supervisor-banner__metric' }, [
+    h('span', { class: 'inbox-supervisor-banner__metric-label' }, [label]),
+    h('strong', {}, [String(value)]),
   ]);
 }
 

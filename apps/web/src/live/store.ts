@@ -11,6 +11,7 @@ import type {
   QueueCard,
   TimelineMessage,
   SupervisorAgent,
+  SupervisorWorkload,
 } from '../api/conversations.js';
 import { INBOX_QUERY_DEFAULT, type InboxQuery } from '@convo/domain';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
@@ -147,6 +148,8 @@ export interface LiveState {
   /** Read-only staff list offered by the guarded Supervisor lens. */
   supervisorAgents: Resource<readonly SupervisorAgent[]>;
   supervisorAgentId: string | null;
+  /** Server-calculated active workload for the guarded Supervisor lens. */
+  supervisorWorkload: Resource<SupervisorWorkload>;
   openConversationId: string | null;
   openConversation: Resource<Conversation>;
   timeline: Resource<readonly TimelineMessage[]>;
@@ -282,6 +285,7 @@ export function createLiveState(
     conversations: IDLE,
     supervisorAgents: IDLE,
     supervisorAgentId: null,
+    supervisorWorkload: IDLE,
     session: { status: 'unknown' },
     people: IDLE,
     roles: IDLE,

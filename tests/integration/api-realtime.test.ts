@@ -2272,6 +2272,49 @@ describe('supervisor inbox lens', () => {
     expect(data.agents).toEqual(expect.arrayContaining([expect.objectContaining({ membershipId: secondAgentAMembershipId, firstResponses: 0, resolutions: 0 })]));
   });
 
+  it('keeps resolved and archived records out of the selected agent’s current workload', async () => {
+    // A fresh, in-scope agent makes the projection deterministic even though
+    // the wider realtime suite has already exercised agent A's live queue.
+    const isolatedAgentId = await addMember(api, 'workload-isolated@realtime.test', 'agent', [
+      { type: 'inbox', id: inboxA },
+    ]);
+    const workloadPeers = [
+      ['15557000921', 'open'], ['15557000922', 'open'], ['15557000923', 'pending'], ['15557000924', 'snoozed'],
+      ['15557000925', 'resolved'], ['15557000926', 'resolved'], ['15557000927', 'resolved'], ['15557000928', 'archived'],
+    ] as const;
+    for (const [peer, status] of workloadPeers) {
+      await customerWrites(INBOX_A, peer, `حمل ${status}`, `wamid.rt-supervisor-workload-${peer}`);
+      const id = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+        'SELECT id::text FROM conversations WHERE peer_identity=$1', [peer],
+      ))).rows[0]!.id;
+      const current = await send(api, owner, 'GET', `/conversations/${id}`);
+      expect((await send(api, owner, 'POST', `/conversations/${id}/assignments`, {
+        version: (current.json() as { data: { version: number } }).data.version,
+        assigneeMembershipId: isolatedAgentId,
+      })).statusCode).toBe(200);
+      if (status !== 'open') {
+        const afterAssignment = await send(api, owner, 'GET', `/conversations/${id}`);
+        const version = (afterAssignment.json() as { data: { version: number } }).data.version;
+        const command = status === 'pending'
+          ? { command: 'wait', reason: 'اختبار الحمل' }
+          : status === 'snoozed'
+            ? { command: 'snooze', wakeAt: '2027-01-01T12:00:00.000Z', timezone: 'UTC' }
+            : { command: 'resolve', resolution: 'اختبار الحمل' };
+        expect((await send(api, owner, 'POST', `/conversations/${id}/transitions`, { version, ...command })).statusCode).toBe(200);
+        if (status === 'archived') {
+          const resolved = await send(api, owner, 'GET', `/conversations/${id}`);
+          expect((await send(api, owner, 'POST', `/conversations/${id}/transitions`, {
+            version: (resolved.json() as { data: { version: number } }).data.version, command: 'archive',
+          })).statusCode).toBe(200);
+        }
+      }
+    }
+    const workload = await send(api, supervisor, 'GET', `/supervisor/workload?agent=${isolatedAgentId}`);
+    expect(workload.statusCode, workload.payload).toBe(200);
+    const current = (workload.json() as { data: { current: { assigned: number; open: number; pending: number; snoozed: number } } }).data.current;
+    expect(current).toEqual(expect.objectContaining({ assigned: 4, open: 2, pending: 1, snoozed: 1 }));
+  });
+
   it('scopes operational aggregates through the supervisor readable inbox scope', async () => {
     const peerB = '15557000911';
     await customerWrites(INBOX_B, peerB, 'هذا العمل خارج نطاق المشرف', 'wamid.rt-supervisor-scope-b');

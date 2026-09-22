@@ -151,7 +151,14 @@ export interface OperationalReport {
     readonly resolutionAverageSeconds: number | null;
     readonly resolutionMedianSeconds: number | null;
   };
-  readonly agents: readonly { readonly membershipId: string; readonly name: string; readonly email: string; readonly firstResponses: number; readonly resolutions: number }[];
+  readonly agents: readonly {
+    readonly membershipId: string; readonly name: string; readonly email: string; readonly teams: readonly string[];
+    readonly currentAssigned: number; readonly currentOpen: number; readonly currentPending: number; readonly currentSnoozed: number;
+    readonly assignedInPeriod: number; readonly handledConversations: number; readonly humanMessages: number; readonly internalNotes: number;
+    readonly firstResponses: number; readonly firstResponseAverageSeconds: number | null; readonly firstResponseMedianSeconds: number | null;
+    readonly resolutions: number; readonly resolutionAverageSeconds: number | null; readonly resolutionMedianSeconds: number | null;
+    readonly reassignments: number;
+  }[];
 }
 
 export interface OperationalReportFilterInput {

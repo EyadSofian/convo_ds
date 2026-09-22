@@ -442,7 +442,10 @@ export class ConversationService {
         WITH current_scope AS (
           SELECT c.status,c.priority,n.kind,c.connection_id,c.peer_identity
             FROM conversations c JOIN channel_connections n ON n.id=c.connection_id
-           WHERE c.assignee_membership_id=$1::uuid AND c.status <> 'archived' AND ${scope}
+           -- Workload is a live operating queue. Resolved and archived records
+           -- remain reportable history but must never inflate an agent's live
+           -- assignment, unreplied, priority or channel counts.
+           WHERE c.assignee_membership_id=$1::uuid AND c.status IN ('open','pending','snoozed') AND ${scope}
         ), counts AS (
           SELECT count(*)::int AS assigned,
                  count(*) FILTER (WHERE status='open')::int AS open,

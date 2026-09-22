@@ -146,9 +146,21 @@ function workload(state: AppState, report: OperationalReport): HTMLElement {
 
 function agentActivity(state: AppState, report: OperationalReport): HTMLElement {
   if (report.agents.length === 0) return panel(t(state, 'نشاط الوكلاء', 'Agent activity'), [emptyState({ icon: 'people', title: t(state, 'لا توجد أحداث منسوبة', 'No attributed events'), body: t(state, 'تظهر هنا الردود الأولى وعمليات الحل التي تحمل منفّذًا محفوظًا.', 'First responses and resolutions with a recorded actor appear here.') })]);
-  return panel(t(state, 'نشاط الوكلاء', 'Agent activity'), [h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
-    h('thead', {}, [h('tr', {}, [h('th', { scope: 'col' }, [t(state, 'الوكيل', 'Agent')]), h('th', { scope: 'col', class: 'num' }, [t(state, 'أول رد', 'First responses')]), h('th', { scope: 'col', class: 'num' }, [t(state, 'حلول', 'Resolutions')])])]),
-    h('tbody', {}, report.agents.map((agent) => h('tr', {}, [h('td', {}, [agent.name]), h('td', { class: 'num' }, [formatNumber(agent.firstResponses, state.lang)]), h('td', { class: 'num' }, [formatNumber(agent.resolutions, state.lang)])]))),
+  return panel(t(state, 'أداء الوكلاء', 'Agent performance'), [h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+    h('thead', {}, [h('tr', {}, [
+      h('th', { scope: 'col' }, [t(state, 'الوكيل', 'Agent')]), h('th', { scope: 'col', class: 'num' }, [t(state, 'الحمل الحالي', 'Active workload')]),
+      h('th', { scope: 'col', class: 'num' }, [t(state, 'أُسندت في الفترة', 'Assigned in period')]), h('th', { scope: 'col', class: 'num' }, [t(state, 'تم التعامل', 'Handled')]),
+      h('th', { scope: 'col', class: 'num' }, [t(state, 'رسائل بشرية', 'Human messages')]), h('th', { scope: 'col', class: 'num' }, [t(state, 'ملاحظات', 'Notes')]),
+      h('th', { scope: 'col', class: 'num' }, [t(state, 'أول رد', 'First responses')]), h('th', { scope: 'col', class: 'num' }, [t(state, 'حلول', 'Resolutions')]),
+      h('th', { scope: 'col', class: 'num' }, [t(state, 'إعادات إسناد', 'Reassignments')]),
+    ])]),
+    h('tbody', {}, report.agents.map((agent) => h('tr', { 'data-agent-id': agent.membershipId }, [
+      h('td', {}, [h('strong', {}, [agent.name]), h('span', { class: 'table__secondary' }, [agent.email])]),
+      h('td', { class: 'num' }, [formatNumber(agent.currentAssigned, state.lang)]), h('td', { class: 'num' }, [formatNumber(agent.assignedInPeriod, state.lang)]),
+      h('td', { class: 'num' }, [formatNumber(agent.handledConversations, state.lang)]), h('td', { class: 'num' }, [formatNumber(agent.humanMessages, state.lang)]),
+      h('td', { class: 'num' }, [formatNumber(agent.internalNotes, state.lang)]), h('td', { class: 'num' }, [formatNumber(agent.firstResponses, state.lang)]),
+      h('td', { class: 'num' }, [formatNumber(agent.resolutions, state.lang)]), h('td', { class: 'num' }, [formatNumber(agent.reassignments, state.lang)]),
+    ]))),
   ])])], { flush: true });
 }
 

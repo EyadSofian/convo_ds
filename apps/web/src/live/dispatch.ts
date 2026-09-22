@@ -664,6 +664,30 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-inbox-reload': async (context) => loadInboxScreen(context),
   'live-supervisor-open': async (context) => loadSupervisorAgents(context),
   'live-supervisor-agent': async (context, arg) => loadSupervisorInbox(context, arg),
+  'live-supervisor-open-report': async (context, arg) => {
+    // Preserve the opaque membership ID, rather than a display name, so two
+    // people with the same name cannot share a report or a drill-down route.
+    if (!rowsOf(context.live.supervisorAgents).some((agent) => agent.membershipId === arg)) return false;
+    context.state.analyticsView = 'operations';
+    context.state.route = {
+      screen: 'analytics',
+      conversationId: null,
+      params: { ...context.state.route.params, view: 'operations', agent: arg },
+    };
+    await loadAnalyticsReport(context);
+    return true;
+  },
+  'live-supervisor-exit': async (context) => {
+    context.live.supervisorAgentId = null;
+    context.live.supervisorWorkload = { status: 'idle' };
+    const { agent: ignoredAgent, ...params } = context.state.route.params;
+    // Explicitly discard the supervisor lens, rather than letting a copied
+    // Inbox URL restore it after exit.
+    void ignoredAgent;
+    context.state.route = { ...context.state.route, params };
+    await loadInboxScreen(context);
+    return true;
+  },
 
   'live-inbox-queue': (context, arg) => {
     // A local view switch, not a request: both halves are already loaded, and

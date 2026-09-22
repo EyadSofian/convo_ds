@@ -11,7 +11,14 @@ export interface OperationalReport {
   readonly filters: { readonly from: string | null; readonly to: string | null };
   readonly conversations: { readonly open: number; readonly new: number; readonly resolved: number; readonly backlogByStatus: readonly { readonly status: string; readonly count: number }[]; readonly backlogByChannel: readonly { readonly channel: string; readonly count: number }[]; readonly backlogByTeam: readonly { readonly team: string; readonly count: number }[]; readonly assignmentWorkload: readonly { readonly name: string; readonly count: number }[] };
   readonly timing: { readonly firstResponseMeasured: number; readonly firstResponseAverageSeconds: number | null; readonly firstResponseMedianSeconds: number | null; readonly resolutionMeasured: number; readonly resolutionAverageSeconds: number | null; readonly resolutionMedianSeconds: number | null };
-  readonly agents: readonly { readonly membershipId: string; readonly name: string; readonly email: string; readonly firstResponses: number; readonly resolutions: number }[];
+  readonly agents: readonly {
+    readonly membershipId: string; readonly name: string; readonly email: string; readonly teams: readonly string[];
+    readonly currentAssigned: number; readonly currentOpen: number; readonly currentPending: number; readonly currentSnoozed: number;
+    readonly assignedInPeriod: number; readonly handledConversations: number; readonly humanMessages: number; readonly internalNotes: number;
+    readonly firstResponses: number; readonly firstResponseAverageSeconds: number | null; readonly firstResponseMedianSeconds: number | null;
+    readonly resolutions: number; readonly resolutionAverageSeconds: number | null; readonly resolutionMedianSeconds: number | null;
+    readonly reassignments: number;
+  }[];
 }
 
 @Injectable()
@@ -56,14 +63,70 @@ export class OperationalReportingService {
                  percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM closed_at-opened_at)) AS median_seconds
             FROM resolution_episodes
         ),
-        agent_rows AS (
-          SELECT m.id::text AS membership_id,m.display_name AS name,u.email::text AS email,
-                 count(DISTINCT fr.id)::int AS first_responses,count(DISTINCT re.id)::int AS resolutions
+        agent_directory AS (
+          SELECT m.id,m.display_name AS name,u.email::text AS email,
+                 coalesce(array_agg(DISTINCT t.name) FILTER (WHERE t.archived_at IS NULL), '{}') AS teams
             FROM memberships m JOIN users u ON u.id=m.user_id
-            LEFT JOIN first_response_episodes fr ON fr.first_response_by_membership_id=m.id
-            LEFT JOIN resolution_episodes re ON re.closed_by_membership_id=m.id
-           WHERE m.id = ANY($3::uuid[])
-           GROUP BY m.id,m.display_name,u.email ORDER BY resolutions DESC,first_responses DESC,m.display_name,m.id
+            LEFT JOIN team_members tm ON tm.membership_id=m.id LEFT JOIN teams t ON t.id=tm.team_id
+           WHERE m.id = ANY($3::uuid[]) GROUP BY m.id,m.display_name,u.email
+        ),
+        current_agent_workload AS (
+          SELECT c.assignee_membership_id AS membership_id,count(*)::int AS assigned,
+                 count(*) FILTER (WHERE c.status='open')::int AS open,count(*) FILTER (WHERE c.status='pending')::int AS pending,
+                 count(*) FILTER (WHERE c.status='snoozed')::int AS snoozed
+            FROM current_backlog c WHERE c.assignee_membership_id IS NOT NULL GROUP BY c.assignee_membership_id
+        ),
+        agent_human_messages AS (
+          SELECT o.author_membership AS membership_id,count(*)::int AS messages,count(DISTINCT c.id)::int AS handled
+            FROM outbound_messages o JOIN conversations c ON c.connection_id=o.connection_id AND c.peer_identity=o.peer_identity
+            CROSS JOIN params p WHERE ${scope} AND o.author_membership IS NOT NULL
+              AND (p.from_at IS NULL OR o.created_at>=p.from_at) AND (p.to_at IS NULL OR o.created_at<p.to_at)
+           GROUP BY o.author_membership
+        ),
+        agent_notes AS (
+          SELECT n.author_membership_id AS membership_id,count(*)::int AS notes
+            FROM conversation_notes n JOIN conversations c ON c.id=n.conversation_id CROSS JOIN params p
+           WHERE ${scope} AND n.author_membership_id IS NOT NULL AND n.deleted_at IS NULL
+             AND (p.from_at IS NULL OR n.created_at>=p.from_at) AND (p.to_at IS NULL OR n.created_at<p.to_at)
+           GROUP BY n.author_membership_id
+        ),
+        agent_assignments AS (
+          SELECT a.to_value::uuid AS membership_id,count(*) FILTER (WHERE a.act IN ('claim','assign','handoff'))::int AS assigned,
+                 count(*) FILTER (WHERE a.act IN ('assign','handoff') AND a.from_value IS NOT NULL)::int AS reassignments
+            FROM conversation_audit a JOIN conversations c ON c.id=a.conversation_id CROSS JOIN params p
+           WHERE ${scope} AND a.to_value IS NOT NULL AND a.act IN ('claim','assign','handoff')
+             AND (p.from_at IS NULL OR a.at>=p.from_at) AND (p.to_at IS NULL OR a.at<p.to_at)
+           GROUP BY a.to_value
+        ),
+        agent_first_responses AS (
+          SELECT first_response_by_membership_id AS membership_id,count(*)::int AS measured,
+                 avg(extract(epoch FROM first_response_at-first_inbound_at)) AS average_seconds,
+                 percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM first_response_at-first_inbound_at)) AS median_seconds
+            FROM first_response_episodes WHERE first_response_by_membership_id IS NOT NULL GROUP BY first_response_by_membership_id
+        ),
+        agent_resolutions AS (
+          SELECT closed_by_membership_id AS membership_id,count(*)::int AS measured,
+                 avg(extract(epoch FROM closed_at-opened_at)) AS average_seconds,
+                 percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM closed_at-opened_at)) AS median_seconds
+            FROM resolution_episodes WHERE closed_by_membership_id IS NOT NULL GROUP BY closed_by_membership_id
+        ),
+        agent_rows AS (
+          SELECT d.id::text AS membership_id,d.name,d.email,d.teams,
+                 coalesce(cw.assigned,0)::int AS current_assigned,coalesce(cw.open,0)::int AS current_open,
+                 coalesce(cw.pending,0)::int AS current_pending,coalesce(cw.snoozed,0)::int AS current_snoozed,
+                 coalesce(aa.assigned,0)::int AS assigned_in_period,coalesce(hm.handled,0)::int AS handled_conversations,
+                 coalesce(hm.messages,0)::int AS human_messages,coalesce(an.notes,0)::int AS internal_notes,
+                 coalesce(fr.measured,0)::int AS first_responses,fr.average_seconds AS first_response_average_seconds,fr.median_seconds AS first_response_median_seconds,
+                 coalesce(re.measured,0)::int AS resolutions,re.average_seconds AS resolution_average_seconds,re.median_seconds AS resolution_median_seconds,
+                 coalesce(aa.reassignments,0)::int AS reassignments
+            FROM agent_directory d
+            LEFT JOIN current_agent_workload cw ON cw.membership_id=d.id
+            LEFT JOIN agent_human_messages hm ON hm.membership_id=d.id
+            LEFT JOIN agent_notes an ON an.membership_id=d.id
+            LEFT JOIN agent_assignments aa ON aa.membership_id=d.id
+            LEFT JOIN agent_first_responses fr ON fr.membership_id=d.id
+            LEFT JOIN agent_resolutions re ON re.membership_id=d.id
+           ORDER BY resolutions DESC,first_responses DESC,d.name,d.id
         ),
         team_backlog AS (
           SELECT coalesce(t.name, 'Unassigned') AS team,count(*)::int AS count FROM current_backlog c
@@ -85,7 +148,13 @@ export class OperationalReportingService {
             'assignmentWorkload',coalesce((SELECT jsonb_agg(jsonb_build_object('name',name,'count',count)) FROM assignment_workload),'[]'::jsonb)
           ),
           'timing',jsonb_build_object('firstResponseMeasured',fr.measured,'firstResponseAverageSeconds',fr.average_seconds,'firstResponseMedianSeconds',fr.median_seconds,'resolutionMeasured',rt.measured,'resolutionAverageSeconds',rt.average_seconds,'resolutionMedianSeconds',rt.median_seconds),
-          'agents',coalesce((SELECT jsonb_agg(jsonb_build_object('membershipId',membership_id,'name',name,'email',email,'firstResponses',first_responses,'resolutions',resolutions)) FROM agent_rows),'[]'::jsonb)
+          'agents',coalesce((SELECT jsonb_agg(jsonb_build_object(
+            'membershipId',membership_id,'name',name,'email',email,'teams',teams,
+            'currentAssigned',current_assigned,'currentOpen',current_open,'currentPending',current_pending,'currentSnoozed',current_snoozed,
+            'assignedInPeriod',assigned_in_period,'handledConversations',handled_conversations,'humanMessages',human_messages,'internalNotes',internal_notes,
+            'firstResponses',first_responses,'firstResponseAverageSeconds',first_response_average_seconds,'firstResponseMedianSeconds',first_response_median_seconds,
+            'resolutions',resolutions,'resolutionAverageSeconds',resolution_average_seconds,'resolutionMedianSeconds',resolution_median_seconds,'reassignments',reassignments
+          )) FROM agent_rows),'[]'::jsonb)
         ) AS report FROM first_response_timing fr CROSS JOIN resolution_timing rt`, values)).rows[0];
       if (row === undefined) throw new Error('operational report returned no row');
       return { ...row.report, filters: { from: filters.fromAt?.toISOString() ?? null, to: filters.toExclusiveAt?.toISOString() ?? null } };

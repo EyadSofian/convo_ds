@@ -50,11 +50,17 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
     }
     if (live.supervisorAgentId !== null) {
       live.conversations = LOADING;
+      live.supervisorWorkload = LOADING;
       context.refresh();
-      const page = await live.conversationsApi.supervisorList(tenantId, live.supervisorAgentId, { ...live.inboxQuery, cursor: null });
+      const [page, workload] = await Promise.all([
+        live.conversationsApi.supervisorList(tenantId, live.supervisorAgentId, { ...live.inboxQuery, cursor: null }),
+        live.conversationsApi.supervisorWorkload(tenantId, live.supervisorAgentId),
+      ]);
       live.conversations = page.ok ? ready(page.data.items, context.now()) : failed(page.error);
+      live.supervisorWorkload = fromResult(workload, context.now());
       live.inboxNextCursor = page.ok ? page.data.nextCursor : null;
       if (!page.ok) live.error = page.error;
+      else if (!workload.ok) live.error = workload.error;
       context.refresh();
       return;
     }
@@ -100,14 +106,20 @@ export async function loadSupervisorInbox(context: LiveContext, agentMembershipI
   if (!rowsOf(context.live.supervisorAgents).some((agent) => agent.membershipId === agentMembershipId)) return false;
   return forTenant(context, false, async (tenantId) => {
     context.live.conversations = LOADING;
+    context.live.supervisorWorkload = LOADING;
     context.live.supervisorAgentId = agentMembershipId;
     context.state.inboxQueue = 'mine';
     context.state.route = { ...context.state.route, params: { ...context.state.route.params, agent: agentMembershipId } };
     context.refresh();
-    const result = await context.live.conversationsApi.supervisorList(tenantId, agentMembershipId, { ...context.live.inboxQuery, cursor: null });
+    const [result, workload] = await Promise.all([
+      context.live.conversationsApi.supervisorList(tenantId, agentMembershipId, { ...context.live.inboxQuery, cursor: null }),
+      context.live.conversationsApi.supervisorWorkload(tenantId, agentMembershipId),
+    ]);
     context.live.conversations = result.ok ? ready(result.data.items, context.now()) : failed(result.error);
+    context.live.supervisorWorkload = fromResult(workload, context.now());
     context.live.inboxNextCursor = result.ok ? result.data.nextCursor : null;
     if (!result.ok) context.live.error = result.error;
+    else if (!workload.ok) context.live.error = workload.error;
     context.refresh();
     return result.ok;
   });
@@ -223,7 +235,10 @@ export async function openConversation(context: LiveContext, id: string): Promis
     // Read last, and only once the contents are actually on screen: a cursor
     // moved before the messages arrived would mark as seen what a failed
     // timeline never showed anybody.
-    await markConversationRead(context, id);
+    // Supervisor inspection is observational. It never alters the selected
+    // agent's cursor and it also avoids manufacturing a supervisor read side
+    // effect merely from opening a read-only lens.
+    if (live.supervisorAgentId === null) await markConversationRead(context, id);
   });
 }
 
@@ -457,6 +472,16 @@ export async function applyRealtimeEvent(
   const { live } = context;
   live.realtime = { status: 'live', since: context.now() };
   const tasks: Promise<unknown>[] = [refreshInboxLists(context)];
+  // Assignment changes can remove the selected agent from the event scope. A
+  // state/routing event delivered inside the supervisor's readable scope is
+  // therefore the narrow safe invalidation set: message-only events leave the
+  // current workload unchanged, while any live-work mutation re-reads it.
+  if (
+    live.supervisorAgentId !== null &&
+    (event.type === 'conversation.state' || event.type === 'conversation.assigned' || event.type === 'conversation.routing')
+  ) {
+    tasks.push(refreshSupervisorWorkload(context));
+  }
   if (event.scope.conversationId === live.openConversationId) {
     tasks.push(loadTimeline(context, event.scope.conversationId));
     if (event.type === 'conversation.handoff') {
@@ -477,4 +502,16 @@ export async function applyRealtimeEvent(
     }
   }
   await Promise.all(tasks);
+}
+
+/** Refresh only the selected workload projection after relevant realtime work. */
+export async function refreshSupervisorWorkload(context: LiveContext): Promise<void> {
+  const agentId = context.live.supervisorAgentId;
+  if (agentId === null) return;
+  return forTenant(context, undefined, async (tenantId) => {
+    const result = await context.live.conversationsApi.supervisorWorkload(tenantId, agentId);
+    if (result.ok) context.live.supervisorWorkload = ready(result.data, context.now());
+    else context.live.error = result.error;
+    context.refresh();
+  });
 }
