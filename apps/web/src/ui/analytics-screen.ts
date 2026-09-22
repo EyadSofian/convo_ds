@@ -126,8 +126,27 @@ function operationsBody(state: AppState, report: OperationalReport): readonly Ch
       workload(state, report),
       agentActivity(state, report),
     ]),
+    agentDetail(state, report),
     notice('plain', 'info', h('strong', {}, [t(state, 'تعريف القياس. ', 'Measurement definition. ')]), t(state, 'متوسط أول رد وحل المحادثة يُحسبان من حلقات المحادثة الدائمة التي تحمل دليلاً على منفّذ الإجراء. السجل التاريخي بلا منفّذ لا يُنسب إلى أي وكيل.', 'First-response and resolution averages use durable conversation episodes with recorded actors. Historical episodes without an actor are not attributed to an agent.')),
   ];
+}
+
+/** The supervisor banner carries an opaque membership ID into this view. */
+function agentDetail(state: AppState, report: OperationalReport): Child {
+  const id = state.route.params.agent;
+  if (id === undefined) return null;
+  const agent = report.agents.find((row) => row.membershipId === id);
+  if (agent === undefined) return notice('warning', 'people', t(state, 'الوكيل لم يعد ضمن نطاق التقرير.', 'That agent is no longer within this report scope.'));
+  return panel(t(state, `تفاصيل ${agent.name}`, `${agent.name} detail`), [
+    h('p', { class: 'table__secondary' }, [agent.email, agent.teams.length === 0 ? '' : ` · ${agent.teams.join(' · ')}`]),
+    h('section', { class: 'kpis kpis--5', 'aria-label': t(state, 'مقاييس الوكيل', 'Agent measures') }, [
+      kpi(t(state, 'نشط الآن', 'Active now'), formatNumber(agent.currentAssigned, state.lang)),
+      kpi(t(state, 'تم التعامل', 'Handled'), formatNumber(agent.handledConversations, state.lang)),
+      kpi(t(state, 'رسائل بشرية', 'Human messages'), formatNumber(agent.humanMessages, state.lang)),
+      kpi(t(state, 'متوسط أول رد', 'Avg. first response'), duration(state, agent.firstResponseAverageSeconds), { foot: t(state, `الوسيط ${duration(state, agent.firstResponseMedianSeconds)}`, `Median ${duration(state, agent.firstResponseMedianSeconds)}`) }),
+      kpi(t(state, 'متوسط الحل', 'Avg. resolution'), duration(state, agent.resolutionAverageSeconds), { foot: t(state, `الوسيط ${duration(state, agent.resolutionMedianSeconds)}`, `Median ${duration(state, agent.resolutionMedianSeconds)}`) }),
+    ]),
+  ]);
 }
 
 function operationsBreakdown(state: AppState, title: string, label: string, rows: readonly { readonly count: number; readonly status?: string; readonly channel?: string; readonly team?: string }[]): HTMLElement {

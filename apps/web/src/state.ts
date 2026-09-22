@@ -196,6 +196,10 @@ export function routeParamsFor(state: AppState): Record<string, string> {
     if (filters.to !== '') params.to = filters.to;
     if (filters.channel !== '') params.channel = filters.channel;
     if (filters.campaignId !== '') params.campaign = filters.campaignId;
+    // Agent-detail navigation is identity based. It is deliberately not a
+    // display name, because names are neither unique nor stable identifiers.
+    const agent = state.route.params.agent;
+    if (agent !== undefined && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(agent)) params.agent = agent;
   }
   if (state.route.screen === 'automations') {
     const view = state.route.params['view'];
