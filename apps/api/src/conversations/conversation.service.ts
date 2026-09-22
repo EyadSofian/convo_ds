@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { InboxQuery, Principal, QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
+import type { InboxQuery, QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
 import { authorize, projectQueueCard, reachFor, REALTIME_SCHEMA_VERSION } from '@convo/domain';
 import type { Pool } from 'pg';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
@@ -34,8 +34,9 @@ import type { TimelinePage } from './timeline.js';
 import { MetadataService } from '../metadata/metadata.service.js';
 import type { EntityMetadata } from '../metadata/metadata.service.js';
 import { OpaqueCursorCodec } from '../pagination.js';
-import { compileInboxQuery, readableScope } from './inbox-query-compiler.js';
+import { compileInboxQuery } from './inbox-query-compiler.js';
 import { validateInboxQuery } from './inbox-query-validation.js';
+import { assertSupervisor, requireScopedSupervisorAgent, scopedSupervisorAgents } from './supervisor-directory.js';
 
 export type { ConversationDetail, ConversationRow } from './record.js';
 
@@ -80,11 +81,6 @@ export interface SupervisorAgent { readonly membershipId: string; readonly name:
  * a week later is not a working pointer into somebody's messages.
  */
 const CURSOR_TTL_SECONDS = 3600;
-
-function assertSupervisor(principal: Principal): void {
-  const reach = reachFor(principal, 'conversation.read');
-  if (reach === 'none' || reach === 'own') throw denied();
-}
 
 @Injectable()
 export class ConversationService {
@@ -425,7 +421,7 @@ export class ConversationService {
    * the supervisor's own scopes, then additionally limited to the agent.
    */
   async supervisorList(session: AuthenticatedSession, tenantId: string, agentMembershipId: string, query: InboxQuery): Promise<ConversationListPage> {
-    await this.requireSupervisor(session, tenantId);
+    await this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => requireScopedSupervisorAgent(sql, principal, agentMembershipId));
     return this.list(session, tenantId, { ...query, queue: 'all', filters: [...query.filters, { key: 'assigned_agent_id', operator: 'eq', value: agentMembershipId }] });
   }
 
@@ -437,31 +433,7 @@ export class ConversationService {
    * the selected person's permissions for the supervisor's own authorization.
    */
   async supervisorAgents(session: AuthenticatedSession, tenantId: string): Promise<readonly SupervisorAgent[]> {
-    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
-      assertSupervisor(principal);
-      const values: unknown[] = [];
-      const add = (value: unknown): string => { values.push(value); return `$${values.length}`; };
-      const scope = readableScope(principal, add);
-      const teams = principal.scopes.filter((entry) => entry.type === 'team').map((entry) => entry.id);
-      const inboxes = principal.scopes.filter((entry) => entry.type === 'inbox').map((entry) => entry.id);
-      const tenantReach = principal.grants['conversation.read'] === 'tenant' || principal.scopes.some((entry) => entry.type === 'tenant');
-      const relationship = tenantReach ? 'TRUE' : `(
-        EXISTS (SELECT 1 FROM team_members agent_team WHERE agent_team.membership_id=m.id AND agent_team.team_id=ANY(${add(teams)}::uuid[]))
-        OR EXISTS (SELECT 1 FROM membership_scopes agent_inbox WHERE agent_inbox.membership_id=m.id AND agent_inbox.scope_type='inbox' AND agent_inbox.scope_id=ANY(${add(inboxes)}::uuid[]))
-        OR EXISTS (SELECT 1 FROM conversations c WHERE c.assignee_membership_id=m.id AND c.status <> 'archived' AND ${scope})
-      )`;
-      const rows = await sql.query<{ membership_id: string; name: string; email: string; teams: readonly string[] }>(
-        `SELECT m.id::text AS membership_id, m.display_name AS name, u.email::text AS email,
-                coalesce(array_agg(DISTINCT t.name) FILTER (WHERE t.archived_at IS NULL), '{}') AS teams
-           FROM memberships m JOIN users u ON u.id=m.user_id
-           JOIN role_permissions read_grant ON read_grant.role_id=m.role_id AND read_grant.permission_key='conversation.read'
-           LEFT JOIN team_members tm ON tm.membership_id=m.id
-           LEFT JOIN teams t ON t.id=tm.team_id
-          WHERE m.status='active' AND ${relationship}
-          GROUP BY m.id,m.display_name,u.email ORDER BY lower(m.display_name),m.id`, values,
-      );
-      return rows.rows.map((row) => ({ membershipId: row.membership_id, name: row.name, email: row.email, teams: row.teams }));
-    });
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => scopedSupervisorAgents(sql, principal));
   }
 
   private async requireSupervisor(session: AuthenticatedSession, tenantId: string): Promise<void> {

@@ -2251,10 +2251,13 @@ describe('supervisor inbox lens', () => {
     })).statusCode).toBe(200);
     const report = await send(api, owner, 'GET', '/reports/operations');
     expect(report.statusCode, report.payload).toBe(200);
-    const data = (report.json() as { data: { timing: { firstResponseMeasured: number; resolutionMeasured: number }; agents: { name: string; firstResponses: number }[] } }).data;
+    const data = (report.json() as { data: { timing: { firstResponseMeasured: number; resolutionMeasured: number }; agents: { membershipId: string; name: string; firstResponses: number; resolutions: number }[] } }).data;
     expect(data.timing.firstResponseMeasured).toBeGreaterThan(0);
     expect(data.timing.resolutionMeasured).toBeGreaterThan(0);
     expect(data.agents.some((agent) => agent.firstResponses > 0)).toBe(true);
+    // The report directory is identity-first: a visible active agent with no
+    // qualifying event remains a real zero row, never an absent name bucket.
+    expect(data.agents).toEqual(expect.arrayContaining([expect.objectContaining({ membershipId: secondAgentAMembershipId, firstResponses: 0, resolutions: 0 })]));
   });
 
   it('scopes operational aggregates through the supervisor readable inbox scope', async () => {

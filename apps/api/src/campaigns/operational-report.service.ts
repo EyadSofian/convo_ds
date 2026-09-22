@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { readableScope } from '../conversations/inbox-query-compiler.js';
+import { scopedReportableAgents } from '../conversations/supervisor-directory.js';
 import { ApiHttpError } from '../http-error.js';
 
 export interface OperationalReportFilters { readonly fromAt: Date | null; readonly toExclusiveAt: Date | null; }
@@ -19,7 +20,11 @@ export class OperationalReportingService {
 
   async report(session: AuthenticatedSession, tenantId: string, filters: OperationalReportFilters): Promise<OperationalReport> {
     return this.authorization.authorized(session, tenantId, 'report.read', async ({ sql, principal }) => {
-      const values: unknown[] = [filters.fromAt, filters.toExclusiveAt];
+      // The directory is shared with Supervisor View. It represents people the
+      // reporting principal can inspect, not everyone who happens to have an
+      // event row in the selected time range.
+      const visibleAgents = await scopedReportableAgents(sql, principal);
+      const values: unknown[] = [filters.fromAt, filters.toExclusiveAt, visibleAgents.map((agent) => agent.membershipId)];
       const add = (value: unknown): string => { values.push(value); return `$${values.length}`; };
       const scope = readableScope(principal, add);
       const row = (await sql.query<{ report: Omit<OperationalReport, 'filters'> }>(`
@@ -57,7 +62,7 @@ export class OperationalReportingService {
             FROM memberships m JOIN users u ON u.id=m.user_id
             LEFT JOIN first_response_episodes fr ON fr.first_response_by_membership_id=m.id
             LEFT JOIN resolution_episodes re ON re.closed_by_membership_id=m.id
-           WHERE fr.id IS NOT NULL OR re.id IS NOT NULL
+           WHERE m.id = ANY($3::uuid[])
            GROUP BY m.id,m.display_name,u.email ORDER BY resolutions DESC,first_responses DESC,m.display_name,m.id
         ),
         team_backlog AS (
