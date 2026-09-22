@@ -1,5 +1,5 @@
 {
-  "measured_at": "2026-09-22T20:20:31.790Z",
+  "measured_at": "2026-09-22T20:30:26.334Z",
   "environment": {
     "note": "Local developer machine. Client and server share a host, so network latency is zero. Not a production capacity measurement.",
     "node": "v22.23.2",
@@ -15,70 +15,70 @@
   "runs": [
     {
       "concurrency": 10,
-      "durationMs": 10002,
-      "totalRequests": 43267,
+      "durationMs": 10001,
+      "totalRequests": 43169,
       "totalErrors": 0,
-      "requestsPerSecond": 4325.83,
+      "requestsPerSecond": 4316.47,
       "errorRate": 0,
       "scenarios": [
         {
           "scenario": "conversation-list",
-          "samples": 11153,
+          "samples": 11142,
           "errors": 0,
           "p50": 2.58,
-          "p95": 3.83,
-          "p99": 4.67,
-          "max": 21.5,
+          "p95": 3.88,
+          "p99": 4.69,
+          "max": 20.92,
           "mean": 2.69
         },
         {
           "scenario": "conversation-open",
-          "samples": 6423,
+          "samples": 6407,
           "errors": 0,
           "p50": 3,
-          "p95": 4.3,
-          "p99": 5.4,
-          "max": 22.95,
-          "mean": 3.11
+          "p95": 4.33,
+          "p99": 5.46,
+          "max": 23.81,
+          "mean": 3.12
         },
         {
           "scenario": "message-timeline",
-          "samples": 6467,
+          "samples": 6470,
           "errors": 0,
-          "p50": 2.99,
-          "p95": 4.25,
-          "p99": 5.37,
-          "max": 25.54,
+          "p50": 2.98,
+          "p95": 4.29,
+          "p99": 5.33,
+          "max": 25.43,
           "mean": 3.09
         },
         {
           "scenario": "contact-search",
-          "samples": 2147,
+          "samples": 2141,
           "errors": 0,
-          "p50": 4.53,
-          "p95": 5.94,
-          "p99": 7.43,
-          "max": 27.26,
-          "mean": 4.66
+          "p50": 4.52,
+          "p95": 5.9,
+          "p99": 7.51,
+          "max": 27.8,
+          "mean": 4.67
         },
         {
           "scenario": "session-check",
-          "samples": 7873,
+          "samples": 7822,
           "errors": 0,
           "p50": 1.16,
-          "p95": 2.07,
-          "p99": 2.64,
-          "max": 17.52,
-          "mean": 1.27
+          "p95": 2.1,
+          "p99": 2.69,
+          "max": 21.73,
+          "mean": 1.28
         },
         {
           "scenario": "readiness",
-          "samples": 9204,
+          "samples": 9187,
           "errors": 0,
           "p50": 1.01,
-          "p95": 1.69,
-          "p99": 2.19,
-          "max": 18.59,
+          "p95": 1.7,
+          "p99": 2.18,
+          "max": 21.59,
           "mean": 1.09
         }
       ]
@@ -86,39 +86,39 @@
     {
       "concurrency": 25,
       "durationMs": 10005,
-      "totalRequests": 41709,
+      "totalRequests": 41676,
       "totalErrors": 0,
-      "requestsPerSecond": 4168.82,
+      "requestsPerSecond": 4165.52,
       "errorRate": 0,
       "scenarios": [
         {
           "scenario": "conversation-list",
-          "samples": 11487,
+          "samples": 11477,
           "errors": 0,
           "p50": 6.94,
-          "p95": 8.19,
-          "p99": 8.94,
-          "max": 14.41,
+          "p95": 8.18,
+          "p99": 9.01,
+          "max": 26.08,
           "mean": 6.97
         },
         {
           "scenario": "conversation-open",
-          "samples": 6048,
+          "samples": 6044,
           "errors": 0,
           "p50": 8.22,
-          "p95": 9.41,
-          "p99": 10.4,
-          "max": 31.27,
-          "mean": 8.27
+          "p95": 9.42,
+          "p99": 10.43,
+          "max": 35.2,
+          "mean": 8.28
         },
         {
           "scenario": "message-timeline",
-          "samples": 6380,
+          "samples": 6378,
           "errors": 0,
-          "p50": 7.79,
+          "p50": 7.8,
           "p95": 9,
-          "p99": 9.96,
-          "max": 31.53,
+          "p99": 9.88,
+          "max": 37.29,
           "mean": 7.84
         },
         {
@@ -126,29 +126,29 @@
           "samples": 2989,
           "errors": 0,
           "p50": 9.97,
-          "p95": 11.38,
-          "p99": 12.87,
-          "max": 34,
+          "p95": 11.39,
+          "p99": 12.65,
+          "max": 38.29,
           "mean": 10.04
         },
         {
           "scenario": "session-check",
-          "samples": 6332,
+          "samples": 6330,
           "errors": 0,
-          "p50": 3.07,
-          "p95": 4.25,
-          "p99": 4.87,
-          "max": 8.26,
+          "p50": 3.08,
+          "p95": 4.24,
+          "p99": 4.84,
+          "max": 8.5,
           "mean": 3.16
         },
         {
           "scenario": "readiness",
-          "samples": 8473,
+          "samples": 8458,
           "errors": 0,
           "p50": 2.29,
-          "p95": 3.3,
-          "p99": 3.81,
-          "max": 6.65,
+          "p95": 3.29,
+          "p99": 3.83,
+          "max": 6.83,
           "mean": 2.36
         }
       ]
@@ -156,140 +156,140 @@
     {
       "concurrency": 50,
       "durationMs": 10011,
-      "totalRequests": 35636,
+      "totalRequests": 35696,
       "totalErrors": 0,
-      "requestsPerSecond": 3559.68,
+      "requestsPerSecond": 3565.68,
       "errorRate": 0,
       "scenarios": [
         {
           "scenario": "conversation-list",
-          "samples": 10975,
+          "samples": 10964,
           "errors": 0,
-          "p50": 15.5,
-          "p95": 17.19,
-          "p99": 20.5,
-          "max": 29.86,
-          "mean": 15.5
+          "p50": 15.58,
+          "p95": 17.16,
+          "p99": 18.91,
+          "max": 23.29,
+          "mean": 15.51
         },
         {
           "scenario": "conversation-open",
-          "samples": 5847,
+          "samples": 5841,
           "errors": 0,
-          "p50": 17.04,
-          "p95": 18.72,
-          "p99": 22.25,
-          "max": 32.42,
-          "mean": 17.12
+          "p50": 17.1,
+          "p95": 18.71,
+          "p99": 21.07,
+          "max": 24.71,
+          "mean": 17.13
         },
         {
           "scenario": "message-timeline",
-          "samples": 6030,
+          "samples": 6044,
           "errors": 0,
-          "p50": 16.53,
-          "p95": 18.26,
-          "p99": 21.64,
-          "max": 31.65,
-          "mean": 16.59
+          "p50": 16.55,
+          "p95": 18.19,
+          "p99": 19.92,
+          "max": 23.64,
+          "mean": 16.55
         },
         {
           "scenario": "contact-search",
-          "samples": 3721,
+          "samples": 3753,
           "errors": 0,
-          "p50": 18.71,
-          "p95": 20.86,
-          "p99": 24.54,
-          "max": 32.8,
-          "mean": 18.83
+          "p50": 18.57,
+          "p95": 20.69,
+          "p99": 22.77,
+          "max": 26.43,
+          "mean": 18.67
         },
         {
           "scenario": "session-check",
-          "samples": 3526,
+          "samples": 3533,
           "errors": 0,
-          "p50": 8.44,
-          "p95": 10.94,
-          "p99": 11.81,
-          "max": 20.21,
-          "mean": 8.51
+          "p50": 8.32,
+          "p95": 10.95,
+          "p99": 11.79,
+          "max": 15.34,
+          "mean": 8.49
         },
         {
           "scenario": "readiness",
-          "samples": 5537,
+          "samples": 5561,
           "errors": 0,
-          "p50": 5.22,
-          "p95": 7.87,
-          "p99": 8.78,
-          "max": 14.79,
-          "mean": 5.42
+          "p50": 5.19,
+          "p95": 7.79,
+          "p99": 8.91,
+          "max": 12.31,
+          "mean": 5.4
         }
       ]
     },
     {
       "concurrency": 100,
-      "durationMs": 10025,
-      "totalRequests": 35589,
+      "durationMs": 10024,
+      "totalRequests": 35560,
       "totalErrors": 0,
-      "requestsPerSecond": 3550.02,
+      "requestsPerSecond": 3547.49,
       "errorRate": 0,
       "scenarios": [
         {
           "scenario": "conversation-list",
-          "samples": 10168,
+          "samples": 10170,
           "errors": 0,
-          "p50": 32.4,
-          "p95": 35.5,
-          "p99": 38.83,
-          "max": 41.62,
+          "p50": 32.42,
+          "p95": 35.28,
+          "p99": 38.89,
+          "max": 41.65,
           "mean": 32.5
         },
         {
           "scenario": "conversation-open",
-          "samples": 5875,
+          "samples": 5861,
           "errors": 0,
-          "p50": 33.89,
-          "p95": 37.02,
-          "p99": 40.38,
-          "max": 41.97,
-          "mean": 34.09
+          "p50": 33.95,
+          "p95": 36.99,
+          "p99": 40.75,
+          "max": 42.96,
+          "mean": 34.16
         },
         {
           "scenario": "message-timeline",
-          "samples": 5964,
+          "samples": 5959,
           "errors": 0,
-          "p50": 33.37,
-          "p95": 36.58,
-          "p99": 39.85,
-          "max": 42.51,
-          "mean": 33.57
+          "p50": 33.43,
+          "p95": 36.53,
+          "p99": 40,
+          "max": 42.2,
+          "mean": 33.63
         },
         {
           "scenario": "contact-search",
           "samples": 3665,
           "errors": 0,
-          "p50": 35.36,
-          "p95": 38.74,
-          "p99": 42.27,
-          "max": 45.08,
-          "mean": 35.53
+          "p50": 35.32,
+          "p95": 38.85,
+          "p99": 42.14,
+          "max": 44.29,
+          "mean": 35.51
         },
         {
           "scenario": "session-check",
           "samples": 3558,
           "errors": 0,
-          "p50": 19.67,
-          "p95": 23.17,
-          "p99": 26.39,
-          "max": 28.93,
+          "p50": 19.74,
+          "p95": 23.12,
+          "p99": 26.44,
+          "max": 29.32,
           "mean": 19.69
         },
         {
           "scenario": "readiness",
-          "samples": 6359,
+          "samples": 6347,
           "errors": 0,
-          "p50": 10.8,
-          "p95": 14.24,
-          "p99": 16.02,
-          "max": 20.24,
-          "mean": 11.01
+          "p50": 10.78,
+          "p95": 14.29,
+          "p99": 16.14,
+          "max": 21.94,
+          "mean": 11.04
         }
       ]
     }
