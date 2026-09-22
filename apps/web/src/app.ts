@@ -714,7 +714,9 @@ export function mount(options: MountOptions): AppHandle {
       return;
     }
 
-    if (keyboard.key === 'Tab' && (state.dialog !== null || state.navOpen)) {
+    const mobileFilterDrawer = state.openMenu === 'inbox-filters' &&
+      root.ownerDocument.defaultView?.matchMedia('(max-width: 599px)').matches === true;
+    if (keyboard.key === 'Tab' && (state.dialog !== null || state.navOpen || mobileFilterDrawer)) {
       if (trapTab(keyboard)) event.preventDefault();
       return;
     }

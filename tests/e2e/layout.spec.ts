@@ -163,6 +163,28 @@ test.describe('the navigation drawer below 960px', () => {
   });
 });
 
+test.describe('the inbox filter drawer on a phone', () => {
+  test('uses the viewport, traps focus, and closes with Escape', async ({ page }) => {
+    await openInbox(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.thread__listtoggle').click();
+    const opener = page.locator('[data-act="menu"][data-arg="inbox-filters"]');
+    await opener.click();
+    const drawer = page.locator('.inbox-filter-popover');
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toHaveAttribute('data-trap', 'mobile-inbox-filters');
+    const box = await drawer.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(389);
+    expect(box?.height).toBeGreaterThanOrEqual(843);
+    for (let index = 0; index < 12; index += 1) {
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.querySelector('.inbox-filter-popover')?.contains(document.activeElement))).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
+  });
+});
+
 test.describe('the queue', () => {
   test('rows are compact, carry no message text, and mark the open one', async ({ page }) => {
     await openInbox(page);

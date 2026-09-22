@@ -239,7 +239,11 @@ function inboxFilters(state: AppState, live: LiveState): HTMLElement {
   const requestedOperator = state.dialogForm['inboxFilterOperator'] ?? '';
   const operator = operators.includes(requestedOperator) ? requestedOperator : operators[0] ?? '';
   const row = (label: string, control: HTMLElement): HTMLElement => h('label', { class: 'field field--row' }, [h('span', { class: 'field__label' }, [label]), control]);
-  return h('div', { class: 'popover inbox-filter-popover', role: 'group', 'data-overlay': 'popover', 'aria-label': t(state, 'تصفية المحادثات', 'Filter conversations') }, [
+  return h('div', { class: 'popover inbox-filter-popover', role: 'dialog', 'data-overlay': 'popover', 'data-trap': 'mobile-inbox-filters', 'aria-label': t(state, 'تصفية المحادثات', 'Filter conversations') }, [
+    h('div', { class: 'inbox-filter-popover__head' }, [
+      h('strong', {}, [t(state, 'الفلاتر', 'Filters')]),
+      button({ icon: 'close', act: 'close-menu', variant: 'ghost', small: true, title: t(state, 'إغلاق الفلاتر', 'Close filters') }),
+    ]),
     h('input', { class: 'input input--sm', type: 'search', value: search, placeholder: t(state, 'ابحث عن فلتر', 'Find a filter'), 'data-act': 'form-toggle', 'data-form': 'inboxFilterCatalogueSearch' }),
     ...(selected === undefined ? [h('p', { class: 'empty-copy' }, [t(state, 'لا يوجد فلتر مطابق.', 'No matching filter.')])] : [
       row(t(state, 'الحقل', 'Field'), selectControl({ act: 'form-toggle', form: 'inboxFilterKey', value: selected.key, options: definitions.map((definition) => ({ value: definition.key, label: filterLabel(state, definition) })) })),

@@ -138,6 +138,16 @@ test.describe('inbox baselines', () => {
     await expect(page).toHaveScreenshot('phone-nav-open.png');
   });
 
+  test('the filter drawer on a phone', async ({ page }) => {
+    await openInbox(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.thread__listtoggle').click();
+    await page.locator('[data-act="menu"][data-arg="inbox-filters"]').click();
+    await expect(page.locator('.inbox-filter-popover')).toBeVisible();
+    await fontsReady(page);
+    await expect(page).toHaveScreenshot('inbox-phone-filters.png');
+  });
+
   test('the active conversation on a phone', async ({ page }) => {
     await openInbox(page);
     await page.setViewportSize({ width: 390, height: 844 });
