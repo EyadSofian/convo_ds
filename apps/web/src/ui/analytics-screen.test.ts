@@ -251,6 +251,52 @@ describe('lifecycle analytics', () => {
     expect(root.textContent).toContain('Unattributed');
     expect(root.textContent).toContain('sequence is greater than 1');
   });
+
+  it('keeps an unknown first-response actor visible as Unattributed', () => {
+    const state = screen();
+    state.analyticsView = 'responses';
+    state.live.responseReport = { status: 'ready', loadedAt: 1, value: {
+      measured: 1, averageSeconds: 10, medianSeconds: 10, buckets: [{ bucket: '<5m', count: 1 }],
+      byAgent: [{ membershipId: null, name: 'Unattributed', measured: 1, averageSeconds: 10, medianSeconds: 10 }], byChannel: [],
+    } };
+    expect(renderAnalytics(state).textContent).toContain('Unattributed');
+  });
+
+  it('renders empty and failed lifecycle report states without inventing data', () => {
+    const state = screen();
+    state.analyticsView = 'responses';
+    state.live.responseReport = { status: 'ready', loadedAt: 1, value: {
+      measured: 0, averageSeconds: null, medianSeconds: null, buckets: [], byAgent: [], byChannel: [],
+    } };
+    expect(renderAnalytics(state).textContent).toContain('No measured responses');
+    state.analyticsView = 'resolutions';
+    state.live.resolutionReport = { status: 'error', error: { code: 'internal', message: 'Failed', requestId: 'r-10', status: 500, details: [] } };
+    expect(renderAnalytics(state).textContent).toContain('r-10');
+  });
+});
+
+describe('focused operational report screens', () => {
+  it('renders the channel report with zero-safe timing values and drill-down rows', () => {
+    const state = screen();
+    state.analyticsView = 'channels';
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
+    const root = renderAnalytics(state);
+    expect(root.textContent).toContain('Channel performance');
+    expect(root.textContent).toContain('Website chat');
+    const link = root.querySelector('[data-channel="website_chat"] a') as HTMLAnchorElement;
+    expect(JSON.parse(parseHash(link.getAttribute('href') ?? '').params.filters ?? '[]')).toEqual([
+      { key: 'channel', operator: 'eq', value: 'website_chat' },
+    ]);
+  });
+
+  it('renders report loading and error states for the focused agent screen', () => {
+    const state = screen();
+    state.analyticsView = 'agents';
+    state.live.operationalReport = { status: 'loading' };
+    expect(renderAnalytics(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+    state.live.operationalReport = { status: 'error', error: { code: 'internal', message: 'Failed', requestId: 'r-11', status: 500, details: [] } };
+    expect(renderAnalytics(state).textContent).toContain('r-11');
+  });
 });
 
 describe('a failed report', () => {
