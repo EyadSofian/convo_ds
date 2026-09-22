@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { InboxQuery, QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
+import type { InboxQuery, Principal, QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
 import { authorize, projectQueueCard, reachFor, REALTIME_SCHEMA_VERSION } from '@convo/domain';
 import type { Pool } from 'pg';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
@@ -81,7 +81,7 @@ export interface SupervisorAgent { readonly membershipId: string; readonly name:
  */
 const CURSOR_TTL_SECONDS = 3600;
 
-function assertSupervisor(principal: import('@convo/domain').Principal): void {
+function assertSupervisor(principal: Principal): void {
   const reach = reachFor(principal, 'conversation.read');
   if (reach === 'none' || reach === 'own') throw denied();
 }

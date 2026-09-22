@@ -80,7 +80,8 @@ export class ConversationController {
     const session = await this.auth.authenticate(request.headers.cookie);
     const agentMembershipId = optionalUuid(agent, 'agent');
     if (agentMembershipId === null) throw queryError('agent', 'Choose an agent.');
-    const { agent: _agent, ...inboxQuery } = query;
+    const inboxQuery = { ...query };
+    delete inboxQuery.agent;
     const page = await this.conversations.supervisorList(session, tenantId, agentMembershipId, parseInboxQuery(inboxQuery));
     return pageEnvelope(page.items, page.nextCursor, request.id);
   }

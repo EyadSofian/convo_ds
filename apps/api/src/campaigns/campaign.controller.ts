@@ -7,6 +7,7 @@ import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCamp
 import { CampaignReportExportService } from './report-export.service.js';
 import { CampaignService } from './campaign.service.js';
 import { CampaignReportingService } from './reporting.service.js';
+import { OperationalReportingService, parseOperationalReportFilters } from './operational-report.service.js';
 
 @Controller()
 export class CampaignController {
@@ -14,6 +15,7 @@ export class CampaignController {
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(CampaignService) private readonly campaigns: CampaignService,
     @Inject(CampaignReportingService) private readonly reporting: CampaignReportingService,
+    @Inject(OperationalReportingService) private readonly operationalReporting: OperationalReportingService,
     @Inject(CampaignReportExportService) private readonly exports: CampaignReportExportService,
   ) {}
 
@@ -28,6 +30,12 @@ export class CampaignController {
     const session = await this.auth.authenticate(request.headers.cookie);
     const filters = parseReportFilters(query);
     return { data: await this.reporting.report(session, tenantId, filters), request_id: request.id };
+  }
+
+  @Get('tenants/:tenantId/reports/operations')
+  async operationsReport(@Param('tenantId') tenantId: string, @Query() query: unknown, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return { data: await this.operationalReporting.report(session, tenantId, parseOperationalReportFilters(query)), request_id: request.id };
   }
 
   @Post('tenants/:tenantId/reports/campaigns/exports')

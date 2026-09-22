@@ -2239,6 +2239,22 @@ describe('supervisor inbox lens', () => {
     const denied = await send(api, agentA, 'GET', '/supervisor/agents');
     expect(denied.statusCode).toBe(403);
   });
+
+  it('aggregates operational timing from durable episodes and actor evidence', async () => {
+    expect((await send(api, agentA, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'text', text: 'سأتابع الطلب', trafficClass: 'interactive', clientMessageId: 'supervisor-report-reply',
+    })).statusCode).toBe(202);
+    const current = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationId}/transitions`, {
+      version: (current.json() as { data: { version: number } }).data.version, command: 'resolve', resolution: 'تمت المتابعة',
+    })).statusCode).toBe(200);
+    const report = await send(api, owner, 'GET', '/reports/operations');
+    expect(report.statusCode, report.payload).toBe(200);
+    const data = (report.json() as { data: { timing: { firstResponseMeasured: number; resolutionMeasured: number }; agents: { name: string; firstResponses: number }[] } }).data;
+    expect(data.timing.firstResponseMeasured).toBeGreaterThan(0);
+    expect(data.timing.resolutionMeasured).toBeGreaterThan(0);
+    expect(data.agents.some((agent) => agent.firstResponses > 0)).toBe(true);
+  });
 });
 
 describe('the conversation lifecycle', () => {
