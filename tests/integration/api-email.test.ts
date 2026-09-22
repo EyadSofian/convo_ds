@@ -12,7 +12,7 @@ import type {
 } from '../../apps/api/src/email/email-provider.port.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { readMetadataBatch } from '../../apps/api/src/metadata/metadata.service.js';
-import { applyInstallationConfig } from '../../packages/domain/src/index.js';
+import { applyInstallationConfig, type SqlExecutor } from '../../packages/domain/src/index.js';
 import type { DatabaseNames } from '../../packages/database/src/types.js';
 import {
   clusterCredentials,
@@ -570,6 +570,23 @@ describe('metadata batching across both targets', () => {
       labels: [],
       customFields: [],
     });
+  });
+
+  it('keeps a 50-conversation Inbox page to two metadata queries', async () => {
+    const ids = Array.from({ length: 50 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`);
+    let queries = 0;
+    await withTenant(harness.pool, tenantId, async (client) => {
+      const base = asExecutor(client);
+      const counting: SqlExecutor = {
+        query: async <R>(text: string, values?: readonly unknown[]) => {
+          queries += 1;
+          return base.query<R>(text, values);
+        },
+      };
+      const result = await readMetadataBatch(counting, 'conversation', ids);
+      expect(result.size).toBe(50);
+    });
+    expect(queries).toBe(2);
   });
 
   it('touches the database not at all for an empty list', async () => {

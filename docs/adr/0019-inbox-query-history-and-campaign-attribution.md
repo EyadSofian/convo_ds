@@ -49,7 +49,7 @@ with a newer first page could duplicate or skip a conversation.
   customer activity or changing lifecycle/SLA state.
 - A realtime update can make a loaded page shorter or re-ordered. This is
   intentional: correctness beats a stale infinite-scroll snapshot.
-- Campaign `in` label semantics are explicit in the Inbox: all selected labels
+- Label `in` semantics are explicit in the Inbox: all selected labels
   must be present. `not_in` means none are present.
 
 ## Alternatives rejected
@@ -77,3 +77,8 @@ with a newer first page could duplicate or skip a conversation.
 - Browser unit coverage proves the Inbox obtains named picker values rather
   than accepting raw IDs, appends cursor pages safely, and refreshes the
   server-owned first page after a realtime event.
+- Metadata measurement is structural and integration-tested: before this
+  decision a 50-row page made one labels query and one custom-fields query per
+  row (**100 metadata reads**). The page now calls `readMetadataBatch` once,
+  which performs exactly **two** metadata reads for 50 IDs; the integration test
+  counts those two queries against PostgreSQL.

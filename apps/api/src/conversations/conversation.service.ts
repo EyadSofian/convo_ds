@@ -383,6 +383,9 @@ export class ConversationService {
         params,
       );
       const pageRows=rows.rows.slice(0,query.limit);const items: ConversationListRow[] = [];
+      // Metadata is a page concern, not a row concern. The batch has a fixed
+      // two-query cost (labels and fields) for a 50-row Inbox page.
+      const metadata = await this.metadata.conversationMetadataBatch(sql, pageRows.map((row) => row.id));
       for (const row of pageRows) {
         const participants = row.participant_membership_ids;
         // This is an equivalence guard, not a post-page filter. The SQL scope
@@ -403,7 +406,7 @@ export class ConversationService {
           unread:
             row.read_through === null ||
             row.read_through.getTime() < row.last_activity_at.getTime(),
-          ...(await this.metadata.conversationMetadata(sql, row.id)),
+          ...(metadata.get(row.id) ?? { labels: [], customFields: [] }),
         });
       }
       const last=pageRows.at(-1);return{items,nextCursor:rows.rows.length>query.limit&&last!==undefined?codec.encode(binding,{value:last.cursor_value,id:last.id},900):null};
