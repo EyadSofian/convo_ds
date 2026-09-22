@@ -128,6 +128,7 @@ describe('convo-db entry point', () => {
       'applied 0035_conversation_episode_actor_evidence.sql',
       'applied 0036_conversation_event_binding.sql',
       'applied 0037_conversation_identity_history_index.sql',
+      'applied 0038_conversation_episode_actor_fk_set_null.sql',
     ]);
 
     const second = await runBin(['migrate'], env);
