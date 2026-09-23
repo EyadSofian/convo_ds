@@ -25,11 +25,35 @@ function harness(rows: readonly Record<string, unknown>[], currentPrincipal: Pri
   const sql = { query: vi.fn(async <T>(text: string) => text.includes('FROM conversations c') ? { rows: rows as T[], rowCount: rows.length } : { rows: [], rowCount: 0 }) } as unknown as SqlExecutor;
   const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal: currentPrincipal, tenantId })) } as unknown as AuthorizationService;
   const metadata = { conversationMetadataBatch: vi.fn(async () => new Map()) } as unknown as MetadataService;
-  const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata);
+  const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never);
   return { service, sql };
 }
 
 describe('ConversationService Inbox boundaries', () => {
+  it('reports the WhatsApp service window as not applicable, closed, or unknown from its evidence', async () => {
+    const readHarness = (kind: string, inbound: Date | null, serverNow = new Date('2026-09-23T12:00:00Z')) => {
+      const sql = { query: vi.fn(async <T>(text: string) => {
+        if (text.includes('JOIN channel_connections')) return { rows: [{ ...raw(idA, '2026-09-23T11:00:00Z'), display_name: 'Inbox', kind }] as T[], rowCount: 1 };
+        if (text.includes('FROM conversation_participants')) return { rows: [] as T[], rowCount: 0 };
+        if (text.includes('SELECT max(inbound.occurred_at)')) return { rows: [{ last_inbound_at: inbound, server_now: serverNow }] as T[], rowCount: 1 };
+        return { rows: [] as T[], rowCount: 0 };
+      }) } as unknown as SqlExecutor;
+      const authorization = { assertTenantId: vi.fn(), withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal, tenantId })) } as unknown as AuthorizationService;
+      const metadata = { conversationMetadata: vi.fn(async () => ({})) } as unknown as MetadataService;
+      const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never);
+      return service;
+    };
+
+    await expect(readHarness('messenger', null).read({ userId: 'user' } as never, tenantId, idA))
+      .resolves.toMatchObject({ serviceWindow: { status: 'not_applicable' } });
+    await expect(readHarness('whatsapp', null).read({ userId: 'user' } as never, tenantId, idA))
+      .resolves.toMatchObject({ serviceWindow: { status: 'closed', lastCustomerInboundAt: null, serviceWindowExpiresAt: null } });
+    await expect(readHarness('whatsapp', new Date(Number.NaN), new Date(Number.NaN)).read({ userId: 'user' } as never, tenantId, idA))
+      .resolves.toMatchObject({ serviceWindow: { status: 'unknown', lastCustomerInboundAt: null, serviceWindowExpiresAt: null } });
+    await expect(readHarness('whatsapp', new Date('2026-09-22T12:00:00Z')).read({ userId: 'user' } as never, tenantId, idA))
+      .resolves.toMatchObject({ serviceWindow: { status: 'closed', lastCustomerInboundAt: '2026-09-22T12:00:00.000Z', serviceWindowExpiresAt: '2026-09-23T12:00:00.000Z' } });
+  });
+
   it('denies readers with no conversation reach and handles an empty page', async () => {
     const denied = harness([], { ...principal, grants: {} });
     await expect(denied.service.list({ userId: 'user' } as never, tenantId, base)).rejects.toMatchObject({ status: 403 });
@@ -72,7 +96,7 @@ describe('ConversationService Inbox boundaries', () => {
       : { rows: [], rowCount: 0 }) } as unknown as SqlExecutor;
     const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal, tenantId })) } as unknown as AuthorizationService;
     const metadata = { conversationMetadataBatch: vi.fn(async () => new Map()) } as unknown as MetadataService;
-    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata);
+    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never);
     await expect(service.supervisorWorkload({ userId: 'user' } as never, tenantId, member)).rejects.toThrow('supervisor workload returned no row');
   });
 });

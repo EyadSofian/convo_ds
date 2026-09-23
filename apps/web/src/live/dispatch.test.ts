@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createState } from '../state.js';
+import { ready } from './store.js';
 import type { LiveContext } from './actions.js';
 import { LIVE_ACTIONS, roleNameField, splitArg, teamMemberField } from './dispatch.js';
 
@@ -451,6 +452,42 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
       vi.useRealTimers();
     }
     expect(state.inboxQueue).toBe('mine');
+  });
+});
+
+describe('WhatsApp template dispatch table', () => {
+  it('connects every rendered picker action and rejects invalid selections', async () => {
+    const state = createState(new Date('2026-09-17T00:00:00Z'));
+    state.lang = 'en';
+    state.live.session = { status: 'signed_in', email: 'owner@test.local', memberships: [], tenantId: 'tenant-1' };
+    const context: LiveContext = { state, live: state.live, refresh: vi.fn(), now: () => 1, newKey: () => 'test-key', endSession: vi.fn(), switchWorkspace: vi.fn() };
+    state.live.openConversationId = 'conversation-1';
+    state.live.openConversation = ready({ id: 'conversation-1', connectionId: 'connection-1', channel: 'whatsapp' } as never, 1);
+    const template = {
+      id: 'template-1', providerTemplateId: 'provider-1', name: 'welcome', language: 'en', category: 'utility', status: 'approved',
+      components: [], parameters: [], sendSupported: true, unsupportedReason: null, lastSyncedAt: new Date().toISOString(),
+    };
+    const whatsappTemplates = vi.fn()
+      .mockResolvedValueOnce({ ok: true, data: { items: [template], nextCursor: '50' } })
+      .mockResolvedValue({ ok: true, data: { items: [template], nextCursor: null } });
+    Object.assign(context.live, {
+      conversationsApi: {
+        whatsappTemplates,
+        replyTemplate: vi.fn().mockResolvedValue({ ok: true, data: {} }),
+        timeline: vi.fn().mockResolvedValue({ ok: true, data: { messages: [], nextCursor: null } }),
+      },
+      channels: { syncWhatsAppTemplates: vi.fn().mockResolvedValue({ ok: true, data: {} }) },
+    });
+    expect(await LIVE_ACTIONS['live-whatsapp-template-open']?.(context, '')).toBe(true);
+    expect(await LIVE_ACTIONS['live-whatsapp-template-select']?.(context, 'missing')).toBe(false);
+    expect(await LIVE_ACTIONS['live-whatsapp-template-select']?.(context, 'template-1')).toBe(true);
+    expect(await LIVE_ACTIONS['live-whatsapp-template-search']?.(context, '')).toBe(true);
+    context.live.conversationTemplateCursor = '50';
+    expect(await LIVE_ACTIONS['live-whatsapp-template-more']?.(context, '')).toBe(true);
+    expect(await LIVE_ACTIONS['live-whatsapp-template-refresh']?.(context, '')).toBe(true);
+    expect(await LIVE_ACTIONS['live-whatsapp-template-select']?.(context, 'template-1')).toBe(true);
+    expect(await LIVE_ACTIONS['live-whatsapp-template-send']?.(context, '')).toBe(true);
+    expect(await LIVE_ACTIONS['live-whatsapp-template-select']?.(context, 'template-1')).toBe(false);
   });
 });
 

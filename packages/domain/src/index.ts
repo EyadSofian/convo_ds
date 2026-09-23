@@ -110,6 +110,15 @@ export type {
   Readiness,
   ReadinessInput,
 } from './channels/kinds.js';
+export { buildWhatsAppTemplateComponents, defineWhatsAppTemplate, renderWhatsAppTemplatePreview } from './channels/whatsapp-template.js';
+export type {
+  WhatsAppTemplateComponentKind,
+  WhatsAppTemplateDefinition,
+  WhatsAppTemplateParameter,
+  WhatsAppTemplateParameterDefinition,
+  WhatsAppTemplateSendComponent,
+  WhatsAppTemplateViewComponent,
+} from './channels/whatsapp-template.js';
 
 export {
   CAPABILITY_MATRICES,

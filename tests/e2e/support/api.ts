@@ -53,7 +53,7 @@ function queueCards(): readonly Record<string, unknown>[] {
 function mine(): readonly Record<string, unknown>[] {
   return NAMES.slice(0, 9).map((_name, index) => ({
     id: index === 0 ? CONVERSATION : `own-${String(index).padStart(2, '0')}`,
-    connectionId: 'cn-1',
+    connectionId: index === 0 ? CONNECTION : 'cn-1',
     peerIdentity: `1555000${String(index).padStart(4, '0')}`,
     teamId: null,
     assigneeMembershipId: MEMBERSHIP,
@@ -63,6 +63,9 @@ function mine(): readonly Record<string, unknown>[] {
     waitingSince: null,
     inboxLabel: 'خط التسجيل',
     channel: ['whatsapp', 'messenger', 'instagram', 'web_chat'][index % 4],
+    serviceWindow: index % 4 === 0
+      ? { status: 'open', lastCustomerInboundAt: new Date(Date.UTC(2026, 8, 9, 9, 0)).toISOString(), serviceWindowExpiresAt: new Date(Date.UTC(2026, 8, 10, 9, 0)).toISOString() }
+      : { status: 'not_applicable', lastCustomerInboundAt: null, serviceWindowExpiresAt: null },
     participantMembershipIds: [MEMBERSHIP],
     contactId: index === 0 ? CONTACT : null,
     pendingReason: null,
@@ -423,6 +426,14 @@ function paged(rows: readonly unknown[]): unknown {
 export interface ApiOptions {
   /** Whether the browser starts with a session. Sign-in and sign-out change it. */
   readonly signedIn?: boolean;
+  readonly notifications?: readonly {
+    readonly id: string;
+    readonly kind: string;
+    readonly targetType: string;
+    readonly targetId: string;
+    readonly createdAt: string;
+    readonly readAt: string | null;
+  }[];
 }
 
 /** The one password the scripted sign-in accepts. */
@@ -430,11 +441,13 @@ export const PASSWORD = 'correct horse battery staple';
 export const EMAIL = 'hana@digital-school.example';
 
 const USER = { data: { user: { id: 'u1', email: EMAIL } } };
+const FROZEN_NOTIFICATION_READ_AT = '2026-09-09T09:30:00.000Z';
 const UNAUTHENTICATED = { error: { code: 'unauthenticated', message: 'Sign in to continue.', request_id: 'e2e' } };
 
 export async function installApi(page: Page, options: ApiOptions = {}): Promise<void> {
   let signedIn = options.signedIn ?? true;
   let automationRows = [...automations()];
+  let notificationRows = [...(options.notifications ?? [])];
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
     const method = route.request().method();
@@ -479,6 +492,28 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
           },
         ],
       });
+    }
+    if (path.endsWith('/notifications/unread-count')) {
+      return json(route, { data: { count: notificationRows.filter((entry) => entry.readAt === null).length }, request_id: 'e2e' });
+    }
+    if (path.endsWith('/notifications/push-config')) {
+      return json(route, { data: { publicKey: null }, request_id: 'e2e' });
+    }
+    if (path.endsWith('/notifications/read-all') && method === 'POST') {
+      const changed = notificationRows.filter((entry) => entry.readAt === null).length;
+      notificationRows = notificationRows.map((entry) => entry.readAt === null
+        ? { ...entry, readAt: FROZEN_NOTIFICATION_READ_AT } : entry);
+      return json(route, { data: { changed }, request_id: 'e2e' });
+    }
+    if (path.includes('/notifications/') && path.endsWith('/read') && method === 'POST') {
+      const id = path.split('/').at(-2);
+      if (!notificationRows.some((entry) => entry.id === id)) return json(route, { error: { code: 'resource_not_found' } }, 404);
+      notificationRows = notificationRows.map((entry) => entry.id === id
+        ? { ...entry, readAt: entry.readAt ?? FROZEN_NOTIFICATION_READ_AT } : entry);
+      return json(route, { data: { read: true }, request_id: 'e2e' });
+    }
+    if (path.endsWith('/notifications')) {
+      return json(route, paged(notificationRows));
     }
     if (path.endsWith('/labels')) {
       return json(route, paged([
@@ -537,6 +572,17 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     }
     if (path.endsWith('/automation-templates')) {
       return json(route, paged(automationTemplates()));
+    }
+    if (path.includes('/conversations/') && path.endsWith('/whatsapp-templates')) {
+      return json(route, {
+        data: [{
+          id: 'whatsapp-template-1', providerTemplateId: 'meta-template-1', name: 'welcome_message', language: 'en', category: 'utility', status: 'approved',
+          components: [{ type: 'body', text: 'Hello {{1}}', format: null, buttons: [] }],
+          parameters: [{ key: 'body:1', component: 'body', index: null, position: 1, example: null }],
+          sendSupported: true, unsupportedReason: null, lastSyncedAt: '2026-09-09T09:00:00.000Z',
+        }],
+        page: { next_cursor: null, has_more: false }, request_id: 'e2e',
+      });
     }
     if (path.endsWith('/whatsapp-templates')) {
       return json(route, paged([]));

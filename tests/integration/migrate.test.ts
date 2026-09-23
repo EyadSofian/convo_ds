@@ -83,6 +83,8 @@ describe('migrate', () => {
       '0036_conversation_event_binding.sql',
       '0037_conversation_identity_history_index.sql',
       '0038_conversation_episode_actor_fk_set_null.sql',
+      '0039_notifications.sql',
+      '0040_whatsapp_template_send_evidence.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -163,6 +165,9 @@ describe('migrate', () => {
       'membership_scopes',
       'memberships',
       'metadata_audit',
+      'notification_devices',
+      'notification_push_queue',
+      'notifications',
       'outbound_attempts',
       'outbound_messages',
       'outbox',

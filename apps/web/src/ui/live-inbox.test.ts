@@ -207,4 +207,66 @@ describe('Inbox list controls', () => {
     expect(root.querySelector('.composer')).toBeNull();
     expect(root.querySelector('[data-act="live-conversation-transition"]')).toBeNull();
   });
+
+  it('fails closed on free-form WhatsApp replies when the service window is unknown', () => {
+    const app = state();
+    app.live.openConversationId = 'conversation-1';
+    app.live.openConversation = { status: 'ready', loadedAt: 1, value: {
+      id: 'conversation-1', contactId: null, connectionId: 'connection-1', peerIdentity: '15550001111',
+      inboxLabel: 'WhatsApp', channel: 'whatsapp', teamId: null, assigneeMembershipId: 'member-1',
+      status: 'open', priority: 'normal', version: 2, labels: [], customFields: [],
+    } as never };
+    app.live.timeline = ready([], 1);
+    const root = renderInbox(app);
+    expect(root.querySelector('.composer__input')).toBeNull();
+    expect(root.querySelector('.composer__closed-window')).not.toBeNull();
+    expect(root.textContent).toContain('We cannot verify an active WhatsApp customer service window');
+    expect(root.textContent).not.toContain('24-hour messaging window closed');
+  });
+
+  it('renders the template action, distinguishes closed windows, and shows durable template content in the timeline', () => {
+    const app = state();
+    app.live.openConversationId = 'conversation-1';
+    app.live.openConversation = { status: 'ready', loadedAt: 1, value: {
+      id: 'conversation-1', contactId: null, connectionId: 'connection-1', peerIdentity: 'visitor',
+      inboxLabel: 'WhatsApp', channel: 'whatsapp', teamId: null, assigneeMembershipId: 'member-1',
+      status: 'open', priority: 'normal', version: 2, labels: [], customFields: [],
+      serviceWindow: { status: 'closed', lastCustomerInboundAt: null, serviceWindowExpiresAt: null },
+    } as never };
+    app.live.timeline = ready([{
+      id: 'message-1', direction: 'out', text: '', at: NOW.toISOString(), deliveryState: 'delivered',
+      template_name: 'welcome', template_language: 'ar', template_preview: 'مرحبًا يا Sara',
+    }] as never, 1);
+    app.live.connections = ready([{ id: 'connection-1', kind: 'whatsapp', capabilities: { templates: true } }] as never, 1);
+    let root = renderInbox(app);
+    expect(root.querySelector('.composer__input')).toBeNull();
+    expect(root.querySelector('[data-act="live-whatsapp-template-open"]')).not.toBeNull();
+    expect(root.textContent).toContain('24-hour messaging window closed');
+    expect(root.textContent).toContain('WhatsApp template · welcome');
+    expect(root.textContent).toContain('مرحبًا يا Sara');
+    app.live.connections = ready([{ id: 'connection-1', kind: 'whatsapp', capabilities: { templates: false } }] as never, 1);
+    root = renderInbox(app);
+    expect(root.querySelector('[data-act="live-whatsapp-template-open"]')).toBeNull();
+    app.live.connections = { status: 'loading' };
+    expect(renderInbox(app).querySelector('[data-act="live-whatsapp-template-open"]')).toBeNull();
+  });
+
+  it('keeps free-form reply available in an open window but hides template controls in the supervisor lens', () => {
+    const app = state();
+    app.live.openConversationId = 'conversation-1';
+    app.live.openConversation = { status: 'ready', loadedAt: 1, value: {
+      id: 'conversation-1', contactId: null, connectionId: 'connection-1', peerIdentity: 'visitor',
+      inboxLabel: 'WhatsApp', channel: 'whatsapp', teamId: null, assigneeMembershipId: 'member-1',
+      status: 'open', priority: 'normal', version: 2, labels: [], customFields: [],
+      serviceWindow: { status: 'open', lastCustomerInboundAt: NOW.toISOString(), serviceWindowExpiresAt: new Date(NOW.getTime() + 86400000).toISOString() },
+    } as never };
+    app.live.connections = ready([{ id: 'connection-1', kind: 'whatsapp', capabilities: { templates: true } }] as never, 1);
+    let root = renderInbox(app);
+    expect(root.querySelector('.composer__input')).not.toBeNull();
+    expect(root.querySelector('[data-act="live-whatsapp-template-open"]')).not.toBeNull();
+    app.live.supervisorAgentId = 'member-1';
+    root = renderInbox(app);
+    expect(root.querySelector('.composer__input')).toBeNull();
+    expect(root.querySelector('[data-act="live-whatsapp-template-open"]')).toBeNull();
+  });
 });

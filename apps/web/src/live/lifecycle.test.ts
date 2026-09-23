@@ -958,7 +958,7 @@ describe('when the record moves under the agent', () => {
     expect(root.querySelector(control(root, 'live-lifecycle-do', 'reopen'))).not.toBeNull();
   });
 
-  it('leaves the record alone for an event that only adds a message', async () => {
+  it('refreshes the conversation capability for an inbound event without adding duplicate reads', async () => {
     const api = threadApi();
     await open(api);
     const before = api.countOf(`GET /tenants/${TENANT}/conversations/${CONVERSATION}`);
@@ -966,9 +966,10 @@ describe('when the record moves under the agent', () => {
     FakeStream.last?.emit('message.inbound', event('message.inbound'));
     await settle();
 
-    // The timeline is re-read; the record is not. An inbound message does not
-    // move the status, and a re-read per message would be a request per message.
-    expect(api.countOf(`GET /tenants/${TENANT}/conversations/${CONVERSATION}`)).toBe(before);
+    // The timeline and service-window capability are both refreshed. The
+    // capability read is required because inbound evidence can reopen the
+    // WhatsApp reply window without changing the conversation's lifecycle.
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations/${CONVERSATION}`)).toBe(before + 1);
     expect(
       api.countOf(`GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`),
     ).toBeGreaterThan(1);

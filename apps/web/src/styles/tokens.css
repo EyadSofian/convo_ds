@@ -60,7 +60,7 @@
     --brand-telegram: #1f8fcb;
     --brand-web-chat: #004fef;
     --brand-custom: #4c5260;
-    --brand-highlight: #d9ff3f;
+    --brand-highlight: #ddff57;
     --on-brand: #ffffff;
 
     /* Not contrast-bearing: hairlines, layers and elevation. */
@@ -81,6 +81,14 @@
     --note-edge: rgba(138, 90, 0, 0.35);
     --chart-bar: rgba(95, 102, 116, 0.28);
     --skeleton: rgba(20, 24, 32, 0.07);
+
+    /* DS Omnichannel authentication: lime brand panel and blue typography. */
+    --auth-visual: #ddff57;
+    --auth-visual-line: rgba(0, 79, 239, 0.22);
+    --auth-panel: #ffffff;
+    --auth-control: #ffffff;
+    --auth-control-border: #858a95;
+    --auth-visual-foreground: #004fef;
 
     color-scheme: light;
 
@@ -199,7 +207,7 @@
     --brand-telegram: #1f8fcb;
     --brand-web-chat: #004fef;
     --brand-custom: #4c5260;
-    --brand-highlight: #d9ff3f;
+    --brand-highlight: #ddff57;
     --on-brand: #ffffff;
 
     --border: rgba(255, 255, 255, 0.08);
@@ -219,6 +227,13 @@
     --note-edge: rgba(227, 179, 90, 0.38);
     --chart-bar: rgba(149, 158, 174, 0.3);
     --skeleton: rgba(255, 255, 255, 0.06);
+
+    --auth-visual: #111a2a;
+    --auth-visual-line: rgba(255, 255, 255, 0.18);
+    --auth-panel: #0e1928;
+    --auth-control: #142338;
+    --auth-control-border: #718096;
+    --auth-visual-foreground: #ffffff;
 
     color-scheme: dark;
   }

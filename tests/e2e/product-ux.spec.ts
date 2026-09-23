@@ -1,8 +1,30 @@
 import { expect, test } from '@playwright/test';
 import { PASSWORD } from './support/api';
-import { openScreen } from './support/workspace';
+import { openInbox, openScreen } from './support/workspace';
 
 test.describe('focused product UX repairs', () => {
+  test('WhatsApp template picker previews parameters and submits a catalog-backed send', async ({ page }) => {
+    let payload: Record<string, unknown> | undefined;
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && /\/conversations\/[^/]+\/messages$/.test(request.url())) {
+        payload = request.postDataJSON() as Record<string, unknown>;
+      }
+    });
+    await openInbox(page);
+    await page.locator('[data-act="live-whatsapp-template-open"]').click();
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible();
+    await dialog.locator('[data-act="live-whatsapp-template-select"][data-arg="whatsapp-template-1"]').click();
+    await dialog.locator('[data-form="whatsappTemplateParameter_body_1"]').fill('Ahmed');
+    await expect(dialog.locator('.wa-template-preview')).toContainText('Hello Ahmed');
+    await dialog.locator('[data-act="live-whatsapp-template-send"]').click();
+    await expect.poll(() => payload).toMatchObject({
+      messageType: 'template',
+      template: { id: 'whatsapp-template-1', parameters: { 'body:1': 'Ahmed' } },
+    });
+    await expect(dialog).toBeHidden();
+  });
+
   test('using an automation template opens the newly-created draft editor', async ({ page }) => {
     await openScreen(page, 'automations');
     const card = page.locator('.automation-template-card').first();
@@ -44,8 +66,10 @@ test.describe('focused product UX repairs', () => {
     await page.locator('.nav__item[data-arg="settings"]').click();
     await expect(page.locator('.settings-section')).toHaveCount(4);
     await expect(page.locator('.settings-section').first()).toBeVisible();
-    const settingsWidth = await page.locator('.settings-section').first().boundingBox();
-    expect(settingsWidth?.width).toBeCloseTo(pageWidth?.width ?? 0, 0);
+    // Route data and the notification count may both redraw the shell. Measure
+    // the current section after those harmless refreshes, not a detached node.
+    await expect.poll(async () => (await page.locator('.settings-section').first().boundingBox())?.width ?? 0)
+      .toBeCloseTo(pageWidth?.width ?? 0, 0);
   });
 
   test('native selects reserve a stable mirrored chevron area in RTL and LTR', async ({ page }) => {

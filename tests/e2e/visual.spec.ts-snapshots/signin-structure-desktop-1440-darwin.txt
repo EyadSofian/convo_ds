@@ -1,44 +1,57 @@
-div.gate
-  div.gate__top
-    button.btn.btn--ghost.btn--sm.lang-toggle [lang]
-      svg
-        path
-        path
-        path
-        path
-        path
-        path
-      span.btn__label
-    button.btn.btn--ghost.btn--sm.btn--icon.theme-toggle [theme]
-      svg
-        path
-  main.gate__main
-    section.auth-card
-      span.brand
-        img.logomark.logomark--lg
-        span.brand__name
-      div.auth-card__intro
-        h1.auth-card__title
-        p.auth-card__lede
-      div.inline-error
+div.auth-layout
+  aside.auth-visual
+    div.auth-visual__top
+      img.auth-visual__logo
+    div.auth-visual__copy
+      p.auth-visual__kicker
+      h2
+      p
+    div.auth-visual__foot
+      span
+  section.auth-panel
+    div.auth-panel__controls
+      button.btn.btn--ghost.btn--sm.lang-toggle [lang]
         svg
           path
           path
-          circle
-        div
-          p.inline-error__title
-      form.auth-form
-        div.field
-          label.field__label
-          input.input [form]
-        div.field
-          label.field__label
-          div.input-affix
+          path
+          path
+          path
+          path
+        span.btn__label
+      button.btn.btn--ghost.btn--sm.btn--icon.theme-toggle [theme]
+        svg
+          path
+    main.auth-panel__main
+      section.auth-card
+        div.convo-lockup
+          span.convo-lockup__mark
+            img
+          span.convo-lockup__name
+        div.auth-card__intro
+          h1.auth-card__title
+          p.auth-card__lede
+        div.inline-error
+          svg
+            path
+            path
+            circle
+          div
+            p.inline-error__title
+        form.auth-form
+          div.field
+            label.field__label
             input.input [form]
-            button.btn.btn--ghost.btn--sm.btn--icon.input-affix__button [password-visibility]
-              svg
-                path
-                circle
-        button.btn.btn--primary.auth-form__submit [live-signin]
-          span.btn__label
-    p.gate__foot
+          div.field
+            label.field__label
+            div.input-affix
+              input.input [form]
+              button.btn.btn--ghost.btn--sm.btn--icon.input-affix__button [password-visibility]
+                svg
+                  path
+                  circle
+          div.auth-form__meta
+            a.auth-form__forgot
+          button.btn.btn--primary.auth-form__submit [live-signin]
+            span.btn__label
+    p.auth-panel__foot

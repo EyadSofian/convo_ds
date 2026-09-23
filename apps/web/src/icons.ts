@@ -86,6 +86,7 @@ export const ICON_PATHS = {
   flask: '<path d="M9.5 3.5h5M10.5 3.5v5.5L5 18.5a1.3 1.3 0 0 0 1.1 2h11.8a1.3 1.3 0 0 0 1.1-2L13.5 9V3.5"/><path d="M7.5 14h9"/>',
   contacts: '<rect x="4" y="4.5" width="16" height="15" rx="2"/><circle cx="12" cy="10.5" r="2.6"/><path d="M8 16.5a4.2 4.2 0 0 1 8 0"/>',
   mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-6"/>',
+  bell: '<path d="M5 17.5h14l-1.7-2.2V10a5.3 5.3 0 0 0-10.6 0v5.3z"/><path d="M10 20a2.2 2.2 0 0 0 4 0"/>',
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

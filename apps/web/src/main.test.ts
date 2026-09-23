@@ -12,7 +12,7 @@ describe('main', () => {
       root.id = 'app';
       document.body.appendChild(root);
       await import('./main');
-      expect(root.querySelector('.gate')).not.toBeNull();
+      expect(root.querySelector('.auth-layout')).not.toBeNull();
       // Nothing of the workspace exists before the server confirms a session.
       expect(root.querySelector('.nav, .inbox, .header')).toBeNull();
     } finally {

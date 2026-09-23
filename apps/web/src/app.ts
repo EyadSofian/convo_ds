@@ -8,6 +8,7 @@ import { MetadataApi } from './api/metadata';
 import { CampaignsApi } from './api/campaigns';
 import { AutomationsApi } from './api/automations';
 import { SavedViewsApi } from './api/saved-views';
+import { NotificationsApi } from './api/notifications';
 import {
   disconnectedApi,
   disconnectedChannelsApi,
@@ -30,6 +31,7 @@ import { loadAnalyticsReport, loadCampaignsScreen, refreshCampaignReportExport }
 import { loadAutomationsScreen } from './live/automation-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
+import { refreshNotificationCount, runNotificationAction } from './live/notification-actions';
 import { createLiveState, renewLiveState } from './live/store';
 import type { LiveState } from './live/store';
 import { attrOf, closestWithAttr, replace } from './dom';
@@ -346,7 +348,8 @@ export function mount(options: MountOptions): AppHandle {
    * computes. In production nothing is supplied and this is `new Date()`.
    */
   const clock = (): Date => options.now ?? new Date();
-  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata, campaigns, automations, savedViews));
+  const notifications = client === null ? null : new NotificationsApi(client);
+  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata, campaigns, automations, savedViews, notifications));
   const store = options.preferences ?? null;
   const stored = readPreferences(store);
   state.theme = stored.theme ?? ((options.prefersDark?.() ?? false) ? 'dark' : 'light');
@@ -577,6 +580,11 @@ export function mount(options: MountOptions): AppHandle {
   };
 
   const dispatch = (name: string, arg = ''): void => {
+    const notification = runNotificationAction(liveContext, name, arg);
+    if (notification !== null) {
+      void notification;
+      return;
+    }
     const pending = runLiveAction(liveContext, name, arg);
     if (pending !== null) {
       void pending;
@@ -639,7 +647,15 @@ export function mount(options: MountOptions): AppHandle {
     if (act === null) return;
     const formName = target.getAttribute('data-form');
     const arg = formName === null ? target.value : `${formName}:${target.value}`;
+    const previousInputValue = formName === null ? undefined : state.dialogForm[formName];
     dispatch(act, arg);
+    const waParameter = target.getAttribute('data-wa-parameter');
+    if (waParameter !== null) {
+      if (previousInputValue !== target.value) delete state.dialogForm['whatsappTemplateClientMessageId'];
+      for (const preview of root.querySelectorAll<HTMLElement>('[data-template-preview-key]')) {
+        if (preview.getAttribute('data-template-preview-key') === waParameter) preview.textContent = target.value || `{{${waParameter.split(':').at(-1)!}}}`;
+      }
+    }
     if (formName !== null && target instanceof HTMLSelectElement && act === 'form') refresh();
     // A draft is recorded without a re-render, so the caret never jumps; the one
     // control its emptiness gates is updated in place instead. Without this the
@@ -778,18 +794,27 @@ export function mount(options: MountOptions): AppHandle {
   };
 
   /**
-   * Opens the live stream once the inbox has something to update, and follows a
-   * conversation named in the URL. A workspace that never opens the Inbox holds
-   * no socket, and one that opens it holds exactly one.
+   * Opens the live stream for the signed-in workspace, including non-Inbox
+   * routes, so a member's bell can update while they work elsewhere.
    */
   const afterLoad = (screen: ScreenId, loadedWith: LiveContext): void => {
     // The session this load belonged to has ended; its answers go nowhere.
-    if (screen !== 'inbox' || loadedWith !== liveContext || !workspaceOpen(state)) {
+    if (loadedWith !== liveContext || !workspaceOpen(state)) {
       return;
     }
-    const deepLinked = state.route.conversationId;
-    if (deepLinked !== null && state.live.openConversationId !== deepLinked) {
-      void openConversation(liveContext, deepLinked);
+    if (screen === 'inbox') {
+      const deepLinked = state.route.conversationId;
+      if (deepLinked !== null && state.live.openConversationId !== deepLinked) {
+        void openConversation(liveContext, deepLinked);
+      }
+    }
+    // The bell needs only a count at boot. Fetching the full drawer after the
+    // route loads is unnecessary traffic and delays useful first content.
+    if (state.live.notificationUnreadCount.status === 'idle') void refreshNotificationCount(liveContext);
+    if (options.openEventSource === undefined && typeof EventSource === 'undefined') {
+      state.live.realtime = { status: 'stopped', reason: 'unsupported_browser' };
+      refresh();
+      return;
     }
     startRealtime(liveContext, {
       baseUrl: API_BASE_URL,

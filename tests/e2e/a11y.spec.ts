@@ -61,6 +61,13 @@ function describeViolations(violations: readonly AxeViolation[]): string[] {
 }
 
 test.describe('axe: no WCAG 2.1 AA violations', () => {
+  test('notification drawer and explicit device-alert control', async ({ page }) => {
+    await openScreen(page, 'channels');
+    await page.locator('.notification-bell').click();
+    await expect(page.locator('.notification-menu')).toBeVisible();
+    expect(describeViolations(await audit(page))).toEqual([]);
+  });
+
   for (const theme of ['light', 'dark'] as const) {
     test(`the sign-in page — ${theme}`, async ({ page }) => {
       await openSignedOut(page);

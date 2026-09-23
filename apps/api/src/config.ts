@@ -56,6 +56,12 @@ export interface ApiConfig extends InstallationConfig {
    * database write. Read from `CONVO_CHANNEL_SECRET_<REF>`.
    */
   readonly channelSecrets: Readonly<Record<string, string>>;
+  /** Web Push is optional and independent of notification persistence. */
+  readonly webPush: {
+    readonly publicKey: string | null;
+    readonly privateKey: string | null;
+    readonly subject: string | null;
+  };
   /** Concurrency for a worker role. Ignored by the HTTP roles. */
   readonly workerConcurrency: number;
   /**
@@ -143,6 +149,7 @@ export function parseApiConfig(env: EnvironmentSource): ApiConfig {
   const idempotencyHash = readSecret(env, 'CONVO_IDEMPOTENCY_HASH_SECRET', issues);
   const credentialKeys = readCredentialKeys(env, issues);
   const channelSecrets = readChannelSecrets(env);
+  const webPush = readWebPush(env, issues, processRole === 'worker-integration');
   const email = readEmailConfig(env, issues, processRole === 'worker-integration');
   const trustedProxyHops = readTrustedProxyHops(env, issues);
   const channelTransport = readChannelTransport(env, issues);
@@ -166,6 +173,7 @@ export function parseApiConfig(env: EnvironmentSource): ApiConfig {
     processRole,
     secrets: Object.freeze({ authHash, bootstrapToken, idempotencyHash, credentialKeys }),
     channelSecrets: Object.freeze(channelSecrets),
+    webPush,
     email,
     trustedProxyHops,
     channelTransport,
@@ -277,6 +285,28 @@ function readRealtime(env: EnvironmentSource, issues: ErrorDetail[]): ApiConfig[
     maxBatch: readBounded(env, 'CONVO_REALTIME_MAX_BATCH', 200, 1, 1_000, issues),
     maxBacklog: readBounded(env, 'CONVO_REALTIME_MAX_BACKLOG', 5_000, 1, 100_000, issues),
   });
+}
+
+function readWebPush(env: EnvironmentSource, issues: ErrorDetail[], worker: boolean): ApiConfig['webPush'] {
+  const publicKey = optional(env, 'CONVO_WEB_PUSH_PUBLIC_KEY') ?? null;
+  const privateKey = worker ? optional(env, 'CONVO_WEB_PUSH_PRIVATE_KEY') ?? null : null;
+  const subject = worker ? optional(env, 'CONVO_WEB_PUSH_SUBJECT') ?? null : null;
+  if (publicKey !== null && Buffer.from(publicKey, 'base64url').length !== 65) {
+    issues.push(issue('CONVO_WEB_PUSH_PUBLIC_KEY', 'invalid', 'Web Push public key must be a P-256 VAPID key.'));
+  }
+  if (worker && (privateKey !== null || subject !== null || publicKey !== null)) {
+    if (publicKey === null || privateKey === null || subject === null) {
+      issues.push(issue('CONVO_WEB_PUSH_PUBLIC_KEY', 'incomplete', 'Web Push requires public key, private key and subject together.'));
+    } else {
+      if (Buffer.from(privateKey, 'base64url').length !== 32) {
+        issues.push(issue('CONVO_WEB_PUSH_PRIVATE_KEY', 'invalid', 'Web Push private key must be a P-256 VAPID key.'));
+      }
+      if (!/^mailto:[^\s@]+@[^\s@]+$|^https:\/\/[^\s]+$/.test(subject)) {
+        issues.push(issue('CONVO_WEB_PUSH_SUBJECT', 'invalid', 'Web Push subject must be mailto: or HTTPS.'));
+      }
+    }
+  }
+  return Object.freeze({ publicKey, privateKey, subject });
 }
 
 function readBounded(

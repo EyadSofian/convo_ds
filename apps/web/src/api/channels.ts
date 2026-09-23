@@ -70,6 +70,13 @@ export interface ChannelCatalogueEntry {
   readonly capabilities: CapabilityMatrix;
 }
 
+export interface TemplateSyncResult {
+  readonly connection_id: string;
+  readonly imported: number;
+  readonly disabled: number;
+  readonly synced_at: string;
+}
+
 export interface ChannelTestRecipient {
   readonly id: string;
   readonly connection_id: string;
@@ -122,6 +129,10 @@ export class ChannelsApi {
     return this.client.post<ChannelConnection>(
       `/tenants/${tenantId}/channels/${connectionId}/test`,
     );
+  }
+
+  syncWhatsAppTemplates(tenantId: string, connectionId: string): Promise<ApiResult<TemplateSyncResult>> {
+    return this.client.post<TemplateSyncResult>(`/tenants/${tenantId}/channels/${connectionId}/templates/sync`);
   }
 
   rotate(

@@ -2247,6 +2247,108 @@
         }
       }
     },
+    "/tenants/{tenantId}/conversations/{conversationId}/whatsapp-templates": {
+      "get": {
+        "operationId": "listConversationWhatsAppTemplates",
+        "summary": "List the synchronized WhatsApp templates available to this conversation",
+        "description": "Returns at most 50 templates from the selected conversation's WhatsApp connection. Opening the picker reads the locally synchronized catalogue; Meta is contacted only by the explicit channel template sync action. Sendable entries are approved templates whose supported component schema can be represented safely. Provider credentials are never returned.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 20
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["approved", "pending", "paused", "rejected", "disabled"],
+              "default": "approved"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A bounded page of safe catalogue metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppTemplatePageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/tenants/{tenantId}/invitations": {
       "get": {
         "operationId": "listInvitations",
@@ -2902,6 +3004,77 @@
             "$ref": "#/components/responses/Error"
           }
         }
+      }
+    },
+    "/tenants/{tenantId}/notifications": {
+      "get": {
+        "operationId": "listNotifications",
+        "summary": "Page the authenticated member's durable notifications",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 512 } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 50 } }
+        ],
+        "responses": { "200": { "description": "Recipient-owned page; no message or customer content.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationPageResponse" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/notifications/unread-count": {
+      "get": {
+        "operationId": "countUnreadNotifications", "summary": "Count this member's unread notifications",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }],
+        "responses": { "200": { "description": "Unread count.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationCountResponse" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/notifications/push-config": {
+      "get": {
+        "operationId": "getPushConfig", "summary": "Get the public Web Push application-server key",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }],
+        "responses": { "200": { "description": "Public key only; never the private VAPID key.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationPushConfigResponse" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/notifications/devices": {
+      "get": {
+        "operationId": "listNotificationDevices", "summary": "List this member's devices without push tokens",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }],
+        "responses": { "200": { "description": "Device metadata, not endpoints or keys.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationDeviceListResponse" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/notifications/devices/{deviceId}": {
+      "post": {
+        "operationId": "registerNotificationDevice", "summary": "Register this member's encrypted Web Push subscription",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "name": "deviceId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationDeviceRegistration" } } } },
+        "responses": { "200": { "description": "Registered; subscription is not echoed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationMutationResponse" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/notifications/devices/{deviceId}/revoke": {
+      "post": {
+        "operationId": "revokeNotificationDevice", "summary": "Stop push delivery to a device",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "name": "deviceId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Revoked.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationMutationResponse" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/notifications/{notificationId}/read": {
+      "post": {
+        "operationId": "markNotificationRead", "summary": "Mark an owned notification read",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "name": "notificationId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Read state updated.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationMutationResponse" } } } }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/notifications/read-all": {
+      "post": {
+        "operationId": "markAllNotificationsRead", "summary": "Mark this member's unread notifications read",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }],
+        "responses": { "200": { "description": "Number changed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationMutationResponse" } } } }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/tenants/{tenantId}/realtime/events": {
@@ -6850,6 +7023,59 @@
       }
     },
     "schemas": {
+      "NotificationRecord": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "kind", "targetType", "targetId", "createdAt", "readAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "kind": { "type": "string", "enum": ["new_message", "assignment", "handoff", "campaign", "automation_failure"] },
+          "targetType": { "type": "string", "enum": ["conversation", "handoff", "campaign", "automation"] },
+          "targetId": { "type": "string", "format": "uuid" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "readAt": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "NotificationPageResponse": {
+        "type": "object", "additionalProperties": false, "required": ["data", "page", "request_id"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/NotificationRecord" } },
+          "page": { "type": "object", "additionalProperties": false, "required": ["next_cursor", "has_more"],
+            "properties": { "next_cursor": { "type": ["string", "null"] }, "has_more": { "type": "boolean" } } },
+          "request_id": { "type": "string" }
+        }
+      },
+      "NotificationCountResponse": {
+        "type": "object", "additionalProperties": false, "required": ["data", "request_id"],
+        "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["count"],
+          "properties": { "count": { "type": "integer", "minimum": 0 } } }, "request_id": { "type": "string" } }
+      },
+      "NotificationPushConfigResponse": {
+        "type": "object", "additionalProperties": false, "required": ["data", "request_id"],
+        "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["publicKey"],
+          "properties": { "publicKey": { "type": ["string", "null"] } } }, "request_id": { "type": "string" } }
+      },
+      "NotificationDeviceRegistration": {
+        "type": "object", "additionalProperties": false, "required": ["subscription"],
+        "properties": { "subscription": { "type": "object", "required": ["endpoint", "keys"],
+          "properties": { "endpoint": { "type": "string", "format": "uri", "maxLength": 2048 },
+            "keys": { "type": "object", "required": ["p256dh", "auth"],
+              "properties": { "p256dh": { "type": "string" }, "auth": { "type": "string" } } } } } }
+      },
+      "NotificationDeviceListResponse": {
+        "type": "object", "additionalProperties": false, "required": ["data", "request_id"],
+        "properties": { "data": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+          "required": ["deviceId", "platform", "createdAt", "lastSeenAt", "enabled"],
+          "properties": { "deviceId": { "type": "string", "format": "uuid" }, "platform": { "type": "string", "enum": ["web_push", "android", "ios"] },
+            "createdAt": { "type": "string", "format": "date-time" }, "lastSeenAt": { "type": "string", "format": "date-time" },
+            "enabled": { "type": "boolean" } } } }, "request_id": { "type": "string" } }
+      },
+      "NotificationMutationResponse": {
+        "type": "object", "additionalProperties": false, "required": ["data", "request_id"],
+        "properties": { "data": { "type": "object", "additionalProperties": false,
+          "properties": { "registered": { "type": "boolean" }, "revoked": { "type": "boolean" },
+            "read": { "type": "boolean" }, "changed": { "type": "integer", "minimum": 0 } } },
+          "request_id": { "type": "string" } }
+      },
       "AcceptInvitationRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -8668,17 +8894,24 @@
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
-                  "name",
-                  "language"
+                  "id",
+                  "parameters"
                 ],
                 "properties": {
-                  "name": {
+                  "id": {
                     "type": "string",
-                    "example": "order_update"
+                    "format": "uuid",
+                    "description": "A template id from this conversation's synchronized WhatsApp catalogue. The server re-resolves its connection, approval state and schema before queuing."
                   },
-                  "language": {
-                    "type": "string",
-                    "example": "ar"
+                  "parameters": {
+                    "type": "object",
+                    "maxProperties": 40,
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    "description": "Values keyed by server-provided parameter keys such as body:1 or button:0:1."
                   }
                 }
               },
@@ -8686,7 +8919,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only meaningful where the channel has templates. A template approved for another channel is refused, and a channel with no template concept refuses one outright."
+            "description": "For a WhatsApp template send, select a catalogue id and supply the parameter values. The API ignores no caller-defined template structure: it resolves the canonical schema itself and sends through the durable outbox."
           },
           "clientMessageId": {
             "type": "string",
@@ -9656,6 +9889,61 @@
           "request_id": {
             "type": "string"
           }
+        }
+      },
+      "WhatsAppTemplatePageResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "page", "request_id"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "maxItems": 50,
+            "items": { "$ref": "#/components/schemas/WhatsAppTemplate" }
+          },
+          "page": { "$ref": "#/components/schemas/Page" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "WhatsAppTemplate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "providerTemplateId", "name", "language", "category", "status", "components", "parameters", "sendSupported", "unsupportedReason", "lastSyncedAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "providerTemplateId": { "type": "string" },
+          "name": { "type": "string" },
+          "language": { "type": "string" },
+          "category": { "type": "string" },
+          "status": { "type": "string", "enum": ["approved", "pending", "paused", "rejected", "disabled"] },
+          "components": { "type": "array", "items": { "$ref": "#/components/schemas/WhatsAppTemplateComponent" } },
+          "parameters": { "type": "array", "items": { "$ref": "#/components/schemas/WhatsAppTemplateParameter" } },
+          "sendSupported": { "type": "boolean" },
+          "unsupportedReason": { "type": ["string", "null"] },
+          "lastSyncedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "WhatsAppTemplateComponent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "text", "format", "buttons"],
+        "properties": {
+          "type": { "type": "string", "enum": ["header", "body", "footer", "buttons"] },
+          "text": { "type": ["string", "null"] },
+          "format": { "type": ["string", "null"] },
+          "buttons": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["type", "text"], "properties": { "type": { "type": "string" }, "text": { "type": "string" } } } }
+        }
+      },
+      "WhatsAppTemplateParameter": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "component", "index", "position", "example"],
+        "properties": {
+          "key": { "type": "string" },
+          "component": { "type": "string", "enum": ["header", "body", "button"] },
+          "index": { "type": ["integer", "null"] },
+          "position": { "type": "integer", "minimum": 1 },
+          "example": { "type": ["string", "null"] }
         }
       },
       "ContactIdentity": {

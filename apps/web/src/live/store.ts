@@ -10,6 +10,7 @@ import type {
   Note,
   QueueCard,
   TimelineMessage,
+  WhatsAppTemplateCatalogueItem,
   SupervisorAgent,
   SupervisorWorkload,
 } from '../api/conversations.js';
@@ -34,6 +35,7 @@ import { disconnectedMetadataApi } from '../api/people.js';
 import { disconnectedSavedViewsApi } from '../api/people.js';
 import type { SavedView, SavedViewsApi } from '../api/saved-views.js';
 import type { RealtimeSubscription } from './realtime.js';
+import type { Notification, NotificationsApi } from '../api/notifications.js';
 import type {
   Invitation,
   MembershipSummary,
@@ -125,6 +127,12 @@ export interface LiveState {
   readonly campaignsApi: CampaignsApi;
   readonly automationsApi: AutomationsApi;
   readonly savedViewsApi: SavedViewsApi;
+  readonly notificationsApi: NotificationsApi | null;
+  notifications: Resource<readonly Notification[]>;
+  notificationNextCursor: string | null;
+  notificationUnreadCount: Resource<number>;
+  pushStatus: 'idle' | 'checking' | 'enabling' | 'enabled' | 'denied' | 'unavailable' | 'error';
+  pushPublicKey: string | null;
   session: SessionState;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
@@ -248,6 +256,8 @@ export interface LiveState {
   automationRunsQuery: Omit<AutomationRunsQuery, 'cursor'>;
   automationRunsNextCursor: string | null;
   whatsappTemplates: Resource<readonly WhatsAppTemplate[]>;
+  conversationTemplates: Resource<readonly WhatsAppTemplateCatalogueItem[]>;
+  conversationTemplateCursor: string | null;
   selectedCampaignId: string | null;
   /** Single authoritative readable-Inbox query, shared by load and realtime. */
   inboxQuery: InboxQuery;
@@ -288,9 +298,16 @@ export function createLiveState(
   campaignsApi: CampaignsApi = disconnectedCampaignsApi(),
   automationsApi: AutomationsApi = disconnectedAutomationsApi(),
   savedViewsApi: SavedViewsApi = disconnectedSavedViewsApi(),
+  notificationsApi: NotificationsApi | null = null,
 ): LiveState {
   return {
     api,
+    notificationsApi,
+    notifications: IDLE,
+    notificationNextCursor: null,
+    notificationUnreadCount: IDLE,
+    pushStatus: 'idle',
+    pushPublicKey: null,
     channels,
     conversations: IDLE,
     supervisorAgents: IDLE,
@@ -359,6 +376,8 @@ export function createLiveState(
     automationRunsQuery: DEFAULT_AUTOMATION_RUNS_QUERY,
     automationRunsNextCursor: null,
     whatsappTemplates: IDLE,
+    conversationTemplates: IDLE,
+    conversationTemplateCursor: null,
     selectedCampaignId: null,
     inboxQuery: INBOX_QUERY_DEFAULT,
     inboxSearchDraft: '',
@@ -395,6 +414,7 @@ export function renewLiveState(previous: LiveState): LiveState {
     previous.campaignsApi,
     previous.automationsApi,
     previous.savedViewsApi,
+    previous.notificationsApi,
   );
 }
 

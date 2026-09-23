@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, withTenant } from '@convo/database';
-import type { DeliveryFold, Offer, SendOutcome, SqlExecutor } from '@convo/domain';
+import type { DeliveryFold, Offer, SendOutcome, SqlExecutor, WhatsAppTemplateSendComponent } from '@convo/domain';
 import { foldDelivery, permitSend } from '@convo/domain';
 import type { Pool } from 'pg';
 import { API_POOL, CHANNEL_TRANSPORT } from '../tokens.js';
@@ -13,6 +13,7 @@ import { ConversationService } from '../conversations/conversation.service.js';
 import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
 import { capabilitiesOf } from './outbound.service.js';
+import { latestConversationInbound } from '../conversations/event-boundary.js';
 
 /**
  * The outbound dispatcher.
@@ -55,10 +56,12 @@ interface ClaimRow {
   readonly message_id: string;
   readonly connection_id: string;
   readonly peer_identity: string;
+  readonly conversation_id: string | null;
   readonly message_type: string;
   readonly text_body: string | null;
   readonly template_name: string | null;
   readonly template_language: string | null;
+  readonly template_components: readonly WhatsAppTemplateSendComponent[];
   readonly dispatch_version: number;
   readonly attempts: number;
   readonly kind: string;
@@ -264,7 +267,8 @@ export class ChannelDispatcherService {
             AND m.id = o.message_id
             AND c.id = m.connection_id
           RETURNING o.message_id::text, o.connection_id::text, o.peer_identity,
-                    m.message_type, m.text_body, m.template_name, m.template_language,
+                    m.conversation_id::text AS conversation_id,
+                    m.message_type, m.text_body, m.template_name, m.template_language, m.template_components,
                     m.dispatch_version, o.attempts,
                     c.kind, c.capabilities, c.status AS connection_status,c.disconnected_at,
                     cr.id::text AS campaign_recipient_id,cts.id::text AS campaign_test_send_id`,
@@ -351,7 +355,7 @@ export class ChannelDispatcherService {
       template:
         claim.template_name === null || claim.template_language === null
           ? null
-          : { name: claim.template_name, language: claim.template_language },
+          : { name: claim.template_name, language: claim.template_language, components: claim.template_components },
       attachments: [],
       idempotencyKey: prepared.attemptId,
     });
@@ -378,18 +382,20 @@ export class ChannelDispatcherService {
       'SELECT 1 FROM channel_suppressions WHERE kind = $1 AND peer_identity = $2',
       [claim.kind, claim.peer_identity],
     );
-    const lastInbound = await sql.query<{ occurred_at: Date }>(
-      `SELECT max(occurred_at) AS occurred_at FROM inbound_events
-        WHERE connection_id = $1 AND peer_identity = $2 AND kind = 'message'`,
-      [claim.connection_id, claim.peer_identity],
-    );
+    const lastInboundAt = claim.conversation_id === null
+      ? (await sql.query<{ occurred_at: Date | null }>(
+          `SELECT max(occurred_at) AS occurred_at FROM inbound_events
+            WHERE connection_id = $1 AND peer_identity = $2 AND kind = 'message'`,
+          [claim.connection_id, claim.peer_identity],
+        )).rows[0]?.occurred_at ?? null
+      : (await latestConversationInbound(sql, claim.conversation_id)).lastInboundAt;
     const permit = permitSend({
       kind: claim.kind as never,
       capabilities: capabilitiesOf({ kind: claim.kind as never, capabilities: claim.capabilities }),
       messageType: claim.message_type,
       isPrivateNote: false,
       text: claim.text_body ?? '',
-      lastInboundAt: lastInbound.rows[0]?.occurred_at ?? null,
+      lastInboundAt,
       now: new Date(),
       template:
         claim.template_name === null

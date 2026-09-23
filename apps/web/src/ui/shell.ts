@@ -12,6 +12,7 @@ import { screenTitle } from '../state.js';
 import { logomark } from './brand.js';
 import { t } from './copy.js';
 import { button } from './parts.js';
+import type { Notification } from '../api/notifications.js';
 
 /**
  * The application frame: navigation, header and the screen area.
@@ -84,7 +85,7 @@ function renderNav(state: AppState): HTMLElement {
     [
       h('div', { class: 'nav__head' }, [
         logomark('sm'),
-        h('span', { class: 'nav__wordmark' }, ['CONVO']),
+        h('span', { class: 'nav__wordmark' }, ['DS Omnichannel']),
         state.navOpen
           ? button({
               icon: 'close',
@@ -170,6 +171,7 @@ function renderHeader(state: AppState): HTMLElement {
       membership === null ? null : tenantControl(state, membership.tenant.name),
     ]),
     h('div', { class: 'header__tools' }, [
+      renderNotifications(state),
       button({
         label: state.lang === 'ar' ? 'EN' : 'ع',
         act: 'lang',
@@ -208,6 +210,74 @@ function renderHeader(state: AppState): HTMLElement {
         state.openMenu === 'user' ? userMenu(state, email, membership?.role.name ?? null) : null,
       ]),
     ]),
+  ]);
+}
+
+function notificationTitle(state: AppState, entry: Notification): string {
+  switch (entry.kind) {
+    case 'new_message': return t(state, 'رسالة عميل جديدة', 'New customer message');
+    case 'assignment': return t(state, 'محادثة أُسندت إليك', 'New conversation assigned to you');
+    case 'handoff': return t(state, 'طلب تسليم محادثة', 'Handoff request');
+    case 'campaign': return t(state, 'تحديث حملة', 'Campaign update');
+    case 'automation_failure': return t(state, 'فشل في التشغيل الآلي', 'Automation failure');
+  }
+}
+
+function renderNotifications(state: AppState): HTMLElement {
+  const open = state.openMenu === 'notifications';
+  const count = state.live.notificationUnreadCount.status === 'ready'
+    ? state.live.notificationUnreadCount.value : 0;
+  const resource = state.live.notifications;
+  return h('div', { class: 'menu-anchor' }, [
+    h('button', {
+      type: 'button', class: 'notification-bell', 'data-act': 'notification-toggle',
+      'aria-haspopup': 'menu', 'aria-expanded': String(open), 'aria-controls': 'notification-menu',
+      'aria-label': count > 0
+        ? t(state, `الإشعارات، ${String(count)} غير مقروءة`, `Notifications, ${String(count)} unread`)
+        : t(state, 'الإشعارات', 'Notifications'),
+    }, [icon('bell', 19), count > 0 ? h('span', { class: 'notification-bell__badge' }, [count > 99 ? '99+' : String(count)]) : null]),
+    open ? h('div', { class: 'menu notification-menu', id: 'notification-menu', role: 'menu', 'data-overlay': 'menu',
+      'aria-label': t(state, 'الإشعارات', 'Notifications') }, [
+      h('div', { class: 'notification-menu__head' }, [
+        h('strong', {}, [t(state, 'الإشعارات', 'Notifications')]),
+        h('button', { type: 'button', class: 'notification-menu__all', role: 'menuitem',
+          'data-act': 'notification-read-all', disabled: count === 0 }, [t(state, 'تحديد الكل كمقروء', 'Mark all read')]),
+      ]),
+      resource.status === 'loading' || resource.status === 'idle'
+        ? h('p', { class: 'notification-menu__status', role: 'status' }, [t(state, 'جارٍ تحميل الإشعارات…', 'Loading notifications…')])
+        : resource.status === 'error'
+          ? h('p', { class: 'notification-menu__status', role: 'alert' }, [t(state, 'تعذّر تحميل الإشعارات.', 'Could not load notifications.')])
+          : resource.value.length === 0
+            ? h('p', { class: 'notification-menu__status' }, [t(state, 'لا توجد إشعارات بعد.', 'No notifications yet.')])
+            : h('div', { class: 'notification-menu__list' }, resource.value.map((entry) =>
+              h('button', { type: 'button', role: 'menuitem', class: entry.readAt === null ? 'notification-row notification-row--unread' : 'notification-row',
+                'data-act': 'notification-open', 'data-arg': entry.id,
+                'aria-label': notificationTitle(state, entry),
+              }, [
+                h('span', { class: 'notification-row__dot', 'aria-hidden': 'true' }),
+                h('span', { class: 'notification-row__content' }, [
+                  h('span', { class: 'notification-row__title' }, [notificationTitle(state, entry)]),
+                  h('time', { datetime: entry.createdAt }, [new Date(entry.createdAt).toLocaleString(state.lang === 'ar' ? 'ar-EG' : 'en-US')]),
+                ]),
+              ]))),
+      state.live.notificationNextCursor === null ? null : h('button', { type: 'button', role: 'menuitem', class: 'notification-menu__more',
+        'data-act': 'notification-more', disabled: state.live.busy === 'notification-more' }, [t(state, 'تحميل المزيد', 'Load more')]),
+      h('div', { class: 'notification-menu__push' }, [
+        state.live.pushStatus === 'enabled'
+          ? h('span', {}, [t(state, 'تنبيهات هذا الجهاز مفعّلة', 'Device alerts enabled')])
+          : state.live.pushStatus === 'checking'
+            ? h('span', {}, [t(state, 'جارٍ فحص تنبيهات الجهاز…', 'Checking device alerts…')])
+          : h('button', { type: 'button', role: 'menuitem', class: 'notification-menu__more',
+              'data-act': 'notification-enable-push', disabled: state.live.pushStatus === 'enabling' || state.live.pushPublicKey === null },
+              [t(state, 'تفعيل تنبيهات الجهاز', 'Enable device alerts')]),
+        state.live.pushStatus === 'denied'
+          ? h('span', { class: 'notification-menu__hint' }, [t(state, 'رفض المتصفح الإذن. غيّره من إعدادات الموقع.', 'Browser permission was denied. Change it in site settings.')])
+          : state.live.pushStatus === 'unavailable'
+            ? h('span', { class: 'notification-menu__hint' }, [t(state, 'التنبيهات غير متاحة على هذا الجهاز أو لم تُضبط بعد.', 'Device alerts are unavailable or not configured.')])
+            : state.live.pushStatus === 'error'
+              ? h('span', { class: 'notification-menu__hint' }, [t(state, 'تعذّر تسجيل هذا الجهاز.', 'Could not register this device.')]) : null,
+      ]),
+    ]) : null,
   ]);
 }
 

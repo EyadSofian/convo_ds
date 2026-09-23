@@ -59,6 +59,11 @@ export interface Conversation extends EntityMetadata {
   /** ADR-0008's bot-versus-human dimension. Always `human_active` in this build. */
   readonly ownerState: string;
   readonly ownerVersion: number;
+  readonly serviceWindow?: {
+    readonly status: 'not_applicable' | 'open' | 'closed' | 'unknown';
+    readonly lastCustomerInboundAt: string | null;
+    readonly serviceWindowExpiresAt: string | null;
+  };
   /**
    * Whether **this** caller has seen the newest activity.
    *
@@ -153,7 +158,32 @@ export interface TimelineMessage {
   readonly delivery_state: string | null;
   readonly delivery_anomaly: string | null;
   readonly provider_message_id: string | null;
+  readonly template_name?: string | null;
+  readonly template_language?: string | null;
+  readonly template_preview?: string | null;
 }
+
+export interface WhatsAppTemplateParameterDefinition {
+  readonly key: string;
+  readonly component: 'header' | 'body' | 'button';
+  readonly index: number | null;
+  readonly position: number;
+  readonly example: string | null;
+}
+export interface WhatsAppTemplateCatalogueItem {
+  readonly id: string;
+  readonly providerTemplateId: string;
+  readonly name: string;
+  readonly language: string;
+  readonly category: string;
+  readonly status: 'approved' | 'pending' | 'paused' | 'rejected' | 'disabled';
+  readonly components: readonly { readonly type: 'header' | 'body' | 'footer' | 'buttons'; readonly text: string | null; readonly format: string | null; readonly buttons: readonly { readonly type: string; readonly text: string }[] }[];
+  readonly parameters: readonly WhatsAppTemplateParameterDefinition[];
+  readonly sendSupported: boolean;
+  readonly unsupportedReason: string | null;
+  readonly lastSyncedAt: string;
+}
+export interface WhatsAppTemplatePage { readonly items: readonly WhatsAppTemplateCatalogueItem[]; readonly nextCursor: string | null; }
 
 export interface TimelinePage {
   readonly messages: readonly TimelineMessage[];
@@ -245,6 +275,15 @@ export class ConversationsApi {
     return result.ok
       ? { ok: true, data: { messages: result.data.data, nextCursor: result.data.nextCursor } }
       : result;
+  }
+
+  async whatsappTemplates(tenantId: string, conversationId: string, query: { search?: string; language?: string; category?: string; status?: string; cursor?: string | null } = {}): Promise<ApiResult<WhatsAppTemplatePage>> {
+    const params = new URLSearchParams();
+    for (const key of ['search', 'language', 'category', 'status'] as const) if (query[key] !== undefined && query[key] !== '') params.set(key, query[key]!);
+    if (query.cursor) params.set('cursor', query.cursor);
+    const suffix = params.size === 0 ? '' : `?${params.toString()}`;
+    const response = await this.client.page<WhatsAppTemplateCatalogueItem>(`/tenants/${tenantId}/conversations/${conversationId}/whatsapp-templates${suffix}`);
+    return response.ok ? { ok: true, data: { items: response.data.data, nextCursor: response.data.nextCursor } } : response;
   }
 
   /**
@@ -443,5 +482,11 @@ export class ConversationsApi {
       `/tenants/${tenantId}/conversations/${conversationId}/messages`,
       { body: { messageType: 'text', text: input.text, clientMessageId: input.clientMessageId } },
     );
+  }
+
+  replyTemplate(tenantId: string, conversationId: string, input: { templateId: string; parameters: Readonly<Record<string, string>>; clientMessageId: string }): Promise<ApiResult<OutboundMessage>> {
+    return this.client.post<OutboundMessage>(`/tenants/${tenantId}/conversations/${conversationId}/messages`, {
+      body: { messageType: 'template', text: '', template: { id: input.templateId, parameters: input.parameters }, clientMessageId: input.clientMessageId },
+    });
   }
 }

@@ -478,6 +478,23 @@ describe('parseSendMessage', () => {
     expect(result.value.trafficClass).toBe('bulk');
   });
 
+  it('accepts a catalogue template id with a bounded text parameter map', () => {
+    const result = parseSendMessage({ ...VALID_SEND, messageType: 'template', template: {
+      id: '11111111-1111-4111-8111-111111111111', parameters: { 'body:1': 'Ahmed' },
+    } });
+    expect(result).toMatchObject({ ok: true, value: { template: { id: '11111111-1111-4111-8111-111111111111', parameters: { 'body:1': 'Ahmed' } } } });
+  });
+
+  it.each([
+    ['bad catalogue id', { id: 'not-a-uuid', parameters: {} }],
+    ['missing parameter map', { id: '11111111-1111-4111-8111-111111111111' }],
+    ['unknown parameter key', { id: '11111111-1111-4111-8111-111111111111', parameters: { injected: 'x' } }],
+    ['non-text parameter', { id: '11111111-1111-4111-8111-111111111111', parameters: { 'body:1': 1 } }],
+    ['oversized parameter', { id: '11111111-1111-4111-8111-111111111111', parameters: { 'body:1': 'x'.repeat(1025) } }],
+  ])('rejects %s', (_label, template) => {
+    expect(parseSendMessage({ ...VALID_SEND, messageType: 'template', template })).toMatchObject({ ok: false, details: [{ field: 'template' }] });
+  });
+
   it('accepts a private note rather than rejecting it as malformed', () => {
     // A note is a real thing an operator writes. The permit is the one place
     // that decides what may reach a provider, so it is accepted here and

@@ -6,6 +6,7 @@ import type { LiveState } from './store.js';
 import { pushToast } from '../state.js';
 import { ERROR_CODES, phrase } from '../ui/copy.js';
 import { currentTenantId, fromResult, LOADING, reloading } from './store.js';
+import { disableBrowserPush } from './notification-actions.js';
 
 /**
  * Server-backed actions for the People, Roles and Teams screens.
@@ -125,6 +126,7 @@ export async function signOut(context: LiveContext): Promise<void> {
   const { live } = context;
   live.busy = 'sign-out';
   context.refresh();
+  await disableBrowserPush(context);
   await live.api.logout();
   live.busy = null;
   context.endSession();

@@ -789,7 +789,8 @@ function timelineView(state: AppState, live: LiveState): Child {
 
 function messageBubble(state: AppState, message: TimelineMessage): HTMLElement {
   return h('article', { class: message.direction === 'out' ? 'msg msg--out' : 'msg msg--in', 'data-message': message.id }, [
-    h('div', { class: 'msg__bubble' }, [message.text ?? '']),
+    message.template_name === undefined || message.template_name === null ? null : h('div', { class: 'msg__template-label' }, [t(state, `قالب واتساب · ${message.template_name}`, `WhatsApp template · ${message.template_name}`)]),
+    h('div', { class: 'msg__bubble' }, [message.template_preview ?? message.text ?? '']),
     h('div', { class: 'msg__meta' }, [
       h('time', { datetime: message.at }, [clockTime(message.at, state.lang)]),
       ...deliveryNote(state, message),
@@ -894,6 +895,21 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
       }),
     ]);
   }
+  // Fail closed if the server could not determine the WhatsApp window. Sending
+  // free-form text is only legal when current conversation evidence says open.
+  if (conversation.channel === 'whatsapp' && conversation.serviceWindow?.status !== 'open') {
+    const unknown = conversation.serviceWindow?.status === 'unknown' || conversation.serviceWindow === undefined;
+    return h('div', { class: 'composer__closed-window' }, [
+      tabs,
+      h('div', { class: 'composer__closed-window-copy', role: 'status', 'aria-live': 'polite' }, [
+        h('strong', {}, [unknown
+          ? t(state, 'تعذّر التحقق من نافذة خدمة واتساب', 'We cannot verify an active WhatsApp customer service window')
+          : t(state, 'انتهت نافذة المحادثة لمدة 24 ساعة', '24-hour messaging window closed')]),
+        h('p', {}, [t(state, 'استخدم قالبًا معتمدًا لمتابعة المحادثة.', 'Use an approved template to continue this conversation.')]),
+      ]),
+      whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
+    ]);
+  }
   return h('div', { class: 'composer__box' }, [
     // The text is the element's **content**, not a `value` attribute: a textarea
     // ignores that attribute, so rendering it that way would empty the composer
@@ -925,8 +941,15 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
         busy: live.busy === 'send-reply',
         disabled: live.composer.trim() === '',
       }),
+      whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
     ]),
   ]);
+}
+
+function whatsappTemplateButton(state: AppState, live: LiveState, conversationId: string, connectionId: string): HTMLElement | null {
+  const connection = live.connections.status === 'ready' ? live.connections.value.find((item) => item.id === connectionId) : undefined;
+  if (connection?.kind !== 'whatsapp' || !connection.capabilities.templates) return null;
+  return button({ label: t(state, 'قوالب واتساب', 'WhatsApp Templates'), icon: 'chat', act: 'live-whatsapp-template-open', arg: conversationId, variant: 'default', small: true });
 }
 
 function noteComposer(state: AppState, live: LiveState, tabs: HTMLElement): HTMLElement {

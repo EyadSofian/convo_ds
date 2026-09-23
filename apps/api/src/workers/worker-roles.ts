@@ -10,6 +10,7 @@ import { CampaignPlannerService } from '../campaigns/campaign-planner.service.js
 import { CampaignReportExportService } from '../campaigns/report-export.service.js';
 import { AutomationRunnerService } from '../automations/automation-runner.service.js';
 import { EmailOutboxService } from '../email/email-outbox.service.js';
+import { PushOutboxService } from '../notifications/push-outbox.service.js';
 import type { WorkerTick } from './worker-loop.js';
 
 /**
@@ -182,6 +183,7 @@ const ROUND_MULTIPLIER = 4;
 async function integrationTick(context: WorkerContext): Promise<WorkerTick> {
   const email = context.app.get(EmailOutboxService);
   const delivered = await email.drain(context.concurrency * 5, 'worker-integration');
+  const pushed = await context.app.get(PushOutboxService).drain(context.concurrency * 5);
 
   // Skipped rather than failed when no broker is configured: the relay's own
   // outbox grows visibly, which is the correct and observable behaviour for a
@@ -189,7 +191,7 @@ async function integrationTick(context: WorkerContext): Promise<WorkerTick> {
   const relay = context.app.get(BrokerRelayService);
   const relayed = await relay.drain(context.concurrency * 10);
 
-  return { handled: delivered.claimed + relayed.claimed };
+  return { handled: delivered.claimed + pushed + relayed.claimed };
 }
 
 /**

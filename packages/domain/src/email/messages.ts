@@ -193,7 +193,7 @@ function button(url: string, label: string, locale: EmailLocale): string {
   // `href` is built from the configured origin plus a URL-encoded token, so the
   // only escaping it needs is HTML attribute escaping.
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
-<tr><td align="${locale === 'ar' ? 'right' : 'left'}" bgcolor="#111827" style="border-radius:8px;">
+<tr><td align="${locale === 'ar' ? 'right' : 'left'}" bgcolor="#004FEF" style="border-radius:8px;">
 <a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">${escapeHtml(label)}</a>
 </td></tr></table>`;
 }

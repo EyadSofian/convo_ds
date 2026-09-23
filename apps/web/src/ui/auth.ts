@@ -2,7 +2,6 @@ import type { ApiError } from '../api/client.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import type { AppState } from '../state.js';
-import { brandLockup } from './brand.js';
 import { t } from './copy.js';
 import { button, requestIdLine } from './parts.js';
 
@@ -86,7 +85,7 @@ function recoveryRequestForm(state: AppState): HTMLElement {
   const error = state.live.error;
   return frame(state, [
     h('section', { class: 'auth-card', 'aria-labelledby': 'auth-title' }, [
-      brandLockup(),
+      convoLockup(),
       h('div', { class: 'auth-card__intro' }, [
         h('h1', { class: 'auth-card__title', id: 'auth-title' }, [t(state, 'استعادة الوصول', 'Recover access')]),
         h('p', { class: 'auth-card__lede' }, [t(state, 'أدخل بريد العمل وسنرسل رابطًا إذا كان الحساب موجودًا.', 'Enter your work email and we will send a link if the account exists.')]),
@@ -110,7 +109,7 @@ function credentialForm(state: AppState, title: string, token: string, action: s
   const busy = state.live.busy === action;
   return frame(state, [
     h('section', { class: 'auth-card', 'aria-labelledby': 'auth-title' }, [
-      brandLockup(),
+      convoLockup(),
       h('div', { class: 'auth-card__intro' }, [h('h1', { class: 'auth-card__title', id: 'auth-title' }, [title]), h('p', { class: 'auth-card__lede' }, [lede])]),
       token === '' || malformed
         ? h('div', { class: 'inline-error', role: 'alert' }, [icon('alert', 16), h('p', { class: 'inline-error__title' }, [t(state, 'هذا الرابط غير صالح. اطلب رابطًا جديدًا.', 'This link is invalid. Request a new one.')])])
@@ -147,45 +146,88 @@ function publicFailure(state: AppState, error: ApiError): HTMLElement {
 
 function successScreen(state: AppState, title: string, body: string): HTMLElement {
   return frame(state, [h('section', { class: 'auth-card auth-card--status', 'aria-labelledby': 'auth-title' }, [
-    brandLockup(),
+    convoLockup(),
     h('div', { class: 'auth-card__intro' }, [h('h1', { class: 'auth-card__title', id: 'auth-title' }, [title]), h('p', { class: 'auth-card__lede' }, [body])]),
     h('a', { class: 'button button--primary auth-form__submit', href: '#/inbox' }, [t(state, 'تسجيل الدخول', 'Sign in')]),
   ])]);
 }
 
-/** The branded wait while the session probe is in flight. */
+/** A data-free shell while the session is checked; no protected nav is built. */
 export function loadingScreen(state: AppState): HTMLElement {
-  return h('div', { class: 'gate gate--loading' }, [
-    h('div', { class: 'gate__loading', role: 'status', 'aria-live': 'polite' }, [
-      brandLockup(),
-      h('span', { class: 'spinner spinner--lg', 'aria-hidden': 'true' }),
-      h('p', { class: 'gate__status' }, [t(state, 'جارٍ التحقق من الجلسة…', 'Checking your session…')]),
+  const inbox = state.route.screen === 'inbox';
+  return h('div', { class: 'app app--pending', 'data-nav': 'collapsed', role: 'status', 'aria-live': 'polite' }, [
+    h('div', { class: 'app-pending__nav', 'aria-hidden': 'true' }, [
+      h('span', { class: 'app-pending__brand', 'aria-label': 'DS' }, ['DS']),
+      ...Array.from({ length: 5 }, () => h('span', { class: 'app-pending__nav-item' })),
+    ]),
+    h('div', { class: 'app__main' }, [
+      h('div', { class: 'app-pending__header', 'aria-hidden': 'true' }, [
+        h('span', { class: 'app-pending__line app-pending__line--title' }),
+        h('span', { class: 'app-pending__line app-pending__line--short' }),
+      ]),
+      h('main', { class: inbox ? 'app-pending__screen app-pending__screen--inbox' : 'app-pending__screen' }, [
+        inbox ? h('div', { class: 'app-pending__list', 'aria-hidden': 'true' },
+          Array.from({ length: 6 }, () => h('span', { class: 'app-pending__row' }))) : null,
+        h('div', { class: 'app-pending__content' }, [
+          h('div', { class: 'app-pending__identity' }, [
+            convoLockup(),
+            h('strong', {}, [t(state, 'نجهّز مساحة عملك', 'Preparing your workspace')]),
+          ]),
+          h('span', { class: 'app-pending__line app-pending__line--wide', 'aria-hidden': 'true' }),
+          h('span', { class: 'app-pending__line', 'aria-hidden': 'true' }),
+          h('p', { class: 'app-pending__status' }, [t(state, 'جارٍ التحقق من الجلسة…', 'Checking your session…')]),
+        ]),
+      ]),
     ]),
   ]);
 }
 
 function frame(state: AppState, children: readonly HTMLElement[]): HTMLElement {
-  return h('div', { class: 'gate' }, [
-    h('div', { class: 'gate__top' }, [
-      button({
-        label: state.lang === 'ar' ? 'English' : 'العربية',
-        icon: 'language',
-        act: 'lang',
-        arg: state.lang === 'ar' ? 'en' : 'ar',
-        variant: 'ghost',
-        small: true,
-        extraClass: 'lang-toggle',
-      }),
-      button({
-        icon: state.theme === 'light' ? 'moon' : 'sun',
-        act: 'theme',
-        variant: 'ghost',
-        small: true,
-        title: state.theme === 'light' ? t(state, 'الوضع الداكن', 'Dark theme') : t(state, 'الوضع الفاتح', 'Light theme'),
-        extraClass: 'theme-toggle',
-      }),
+  return authFrame(state, children);
+}
+
+/** DS Omnichannel sign-in: the supplied Digital School mark leads the brand. */
+function authFrame(state: AppState, children: readonly HTMLElement[]): HTMLElement {
+  return h('div', { class: 'auth-layout', dir: 'ltr' }, [
+    h('aside', { class: 'auth-visual', dir: state.lang, 'aria-label': t(state, 'دي إس أومني تشانل', 'DS Omnichannel') }, [
+      h('div', { class: 'auth-visual__top' }, [
+        h('img', { class: 'auth-visual__logo', src: '/brand/digital-school-by-berlitz.png', alt: 'Digital School by Berlitz' }),
+      ]),
+      h('div', { class: 'auth-visual__copy' }, [
+        h('p', { class: 'auth-visual__kicker' }, ['DS']),
+        h('h2', {}, [t(state, 'أومني\nتشانل', 'OMNI\nCHANNEL')]),
+        h('p', {}, [t(state, 'صندوق واحد. كل المحادثات.', 'One Inbox. Every conversation.')]),
+      ]),
+      h('div', { class: 'auth-visual__foot' }, [
+        h('span', {}, [t(state, 'مساحة عمل موحّدة لفريقك', 'One workspace for your team')]),
+      ]),
     ]),
-    h('main', { class: 'gate__main', id: 'main', tabindex: '-1' }, children),
+    h('section', { class: 'auth-panel', dir: state.lang }, [
+      h('div', { class: 'auth-panel__controls' }, [
+        button({
+          label: state.lang === 'ar' ? 'English' : 'العربية', icon: 'language', act: 'lang',
+          arg: state.lang === 'ar' ? 'en' : 'ar', variant: 'ghost', small: true, extraClass: 'lang-toggle',
+        }),
+        button({
+          icon: state.theme === 'light' ? 'moon' : 'sun', act: 'theme', variant: 'ghost', small: true,
+          title: state.theme === 'light' ? t(state, 'الوضع الداكن', 'Dark theme') : t(state, 'الوضع الفاتح', 'Light theme'),
+          extraClass: 'theme-toggle',
+        }),
+      ]),
+      h('main', { class: 'auth-panel__main', id: 'main', tabindex: '-1' }, children),
+      h('p', { class: 'auth-panel__foot' }, [
+        t(state, 'يدير مسؤول مساحة العمل الدعوات واستعادة الوصول.', 'Your workspace administrator manages invitations and access recovery.'),
+      ]),
+    ]),
+  ]);
+}
+
+function convoLockup(): HTMLElement {
+  return h('div', { class: 'convo-lockup', 'aria-label': 'DS Omnichannel' }, [
+    h('span', { class: 'convo-lockup__mark', 'aria-hidden': 'true' }, [
+      h('img', { src: '/brand/digital-school-by-berlitz.png', alt: '' }),
+    ]),
+    h('span', { class: 'convo-lockup__name' }, ['DS Omnichannel']),
   ]);
 }
 
@@ -201,13 +243,13 @@ function signIn(state: AppState, error: ApiError | null, expired: boolean): HTML
   const busy = state.live.busy === 'sign-in';
   const errors = state.formErrors;
   const alert = error === null ? null : signInFailure(state, error);
-  return frame(state, [
+  return authFrame(state, [
     h('section', { class: 'auth-card', 'aria-labelledby': 'auth-title' }, [
-      brandLockup(),
+      convoLockup(),
       h('div', { class: 'auth-card__intro' }, [
-        h('h1', { class: 'auth-card__title', id: 'auth-title' }, [t(state, 'تسجيل الدخول', 'Sign in')]),
+        h('h1', { class: 'auth-card__title', id: 'auth-title' }, [t(state, 'مرحبًا بعودتك', 'Welcome back')]),
         h('p', { class: 'auth-card__lede' }, [
-          t(state, 'استخدم بريد العمل للدخول إلى مساحة عملك.', 'Use your work email to open your workspace.'),
+          t(state, 'سجّل الدخول إلى مساحة العمل للمتابعة.', 'Sign in to your workspace to continue.'),
         ]),
       ]),
       expired && error === null
@@ -268,6 +310,9 @@ function signIn(state: AppState, error: ApiError | null, expired: boolean): HTML
           ]),
           fieldError('signin-password-error', errors['signinPassword']),
         ]),
+        h('div', { class: 'auth-form__meta' }, [
+          h('a', { class: 'auth-form__forgot', href: '#/reset-password' }, [t(state, 'نسيت كلمة المرور؟', 'Forgot password?')]),
+        ]),
         button({
           label: busy ? t(state, 'جارٍ الدخول…', 'Signing in…') : t(state, 'دخول', 'Sign in'),
           act: 'live-signin',
@@ -277,9 +322,6 @@ function signIn(state: AppState, error: ApiError | null, expired: boolean): HTML
           extraClass: 'auth-form__submit',
         }),
       ]),
-    ]),
-    h('p', { class: 'gate__foot' }, [
-      t(state, 'يدير مسؤول مساحة العمل الدعوات واستعادة الوصول.', 'Your workspace administrator manages invitations and access recovery.'),
     ]),
   ]);
 }
@@ -315,7 +357,7 @@ function signInFailure(state: AppState, error: ApiError): HTMLElement {
 function unavailable(state: AppState, error: ApiError): HTMLElement {
   return frame(state, [
     h('section', { class: 'auth-card auth-card--status', 'aria-labelledby': 'auth-title' }, [
-      brandLockup(),
+      convoLockup(),
       h('div', { class: 'auth-card__intro' }, [
         h('h1', { class: 'auth-card__title', id: 'auth-title' }, [
           error.code === 'network'
@@ -343,7 +385,7 @@ function unavailable(state: AppState, error: ApiError): HTMLElement {
 function noWorkspace(state: AppState): HTMLElement {
   return frame(state, [
     h('section', { class: 'auth-card auth-card--status', 'aria-labelledby': 'auth-title' }, [
-      brandLockup(),
+      convoLockup(),
       h('div', { class: 'auth-card__intro' }, [
         h('h1', { class: 'auth-card__title', id: 'auth-title' }, [
           t(state, 'لا توجد مساحة عمل نشطة', 'No active workspace'),

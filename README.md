@@ -1,6 +1,6 @@
-# CONVO
+# DS Omnichannel
 
-منصة لإدارة المحادثات والقنوات والحملات للشركات، من مصدر واحد وبنمطَي تشغيل:
+منصة DS Omnichannel لإدارة المحادثات والقنوات والحملات للشركات، من مصدر واحد وبنمطَي تشغيل:
 
 - **SaaS متعدد الشركات** (`CONVO_DEPLOYMENT_MODE=saas`)
 - **Self-hosted لشركة واحدة** (`CONVO_DEPLOYMENT_MODE=self_hosted_single`)

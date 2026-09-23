@@ -14,8 +14,13 @@ import {
   loadSupervisorInbox,
   loadInboxScreen,
   loadMoreInbox,
+  loadMoreWhatsAppTemplates,
   loadOlderMessages,
   openConversation,
+  openWhatsAppTemplates,
+  refreshWhatsAppTemplates,
+  searchWhatsAppTemplates,
+  sendWhatsAppTemplate,
   sendReply,
 } from './inbox-actions.js';
 import {
@@ -1111,6 +1116,19 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-inbox-send': async (context) => sendReply(context),
+  'live-whatsapp-template-open': async (context) => openWhatsAppTemplates(context),
+  'live-whatsapp-template-search': async (context) => searchWhatsAppTemplates(context),
+  'live-whatsapp-template-more': async (context) => loadMoreWhatsAppTemplates(context),
+  'live-whatsapp-template-refresh': async (context) => refreshWhatsAppTemplates(context),
+  'live-whatsapp-template-send': async (context) => sendWhatsAppTemplate(context),
+  'live-whatsapp-template-select': async (context, arg) => {
+    if (context.state.dialog?.kind !== 'whatsapp-template' || !rowsOf(context.live.conversationTemplates).some((template) => template.id === arg)) return false;
+    const retained = Object.fromEntries(Object.entries(context.state.dialogForm).filter(([key]) => !key.startsWith('whatsappTemplateParameter_') && key !== 'whatsappTemplateClientMessageId'));
+    context.state.dialogForm = { ...retained, whatsappTemplateId: arg };
+    context.live.error = null;
+    context.refresh();
+    return true;
+  },
 
   /**
    * Connects the kind the dialog was opened for.

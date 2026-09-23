@@ -9,7 +9,7 @@ import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
-import type { TemplateFetchResult } from '../../apps/api/src/channels/channel-transport.js';
+import type { ProviderTemplate, TemplateFetchResult } from '../../apps/api/src/channels/channel-transport.js';
 import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig } from '../../packages/domain/src/index.js';
@@ -1501,6 +1501,7 @@ describe('the outbound path', () => {
   let answer: SendOutcome;
   let sent: SendCommand[];
   let delay: number;
+  let templateCatalogue: readonly ProviderTemplate[] = [];
 
   const accepted = (id: string): SendOutcome => ({
     status: 'accepted',
@@ -1517,6 +1518,7 @@ describe('the outbound path', () => {
         name: 'test-stub',
         validateConnection: () =>
           Promise.resolve({ ok: true, assetIdentity: PHONE_ID, code: null, message: null }),
+        fetchTemplates: () => Promise.resolve({ ok: true as const, templates: templateCatalogue }),
         send: async (_kind, _credential, command) => {
           sent.push(command);
           if (delay > 0) {
@@ -1560,11 +1562,25 @@ describe('the outbound path', () => {
     return `1555${String(counter).padStart(7, '0')}`;
   }
 
+  async function syncApprovedTemplate(name = 'order_update', targetConnectionId = connectionId): Promise<string> {
+    templateCatalogue = [{
+      providerId: `provider-${name}-${randomUUID()}`, name, language: 'ar', category: 'utility', status: 'approved',
+      components: [{ type: 'BODY', text: 'تحديث الطلب {{1}}' }], variables: ['{{1}}'],
+    }];
+    const synced = await send(api, owner, 'POST', `/channels/${targetConnectionId}/templates/sync`);
+    expect(synced.statusCode, synced.body).toBe(201);
+    const rows = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `SELECT id::text FROM whatsapp_templates WHERE connection_id=$1 AND template_name=$2 AND status='approved' ORDER BY last_synced_at DESC LIMIT 1`,
+      [targetConnectionId, name],
+    ));
+    return rows.rows[0]!.id;
+  }
+
   /** Opens the reply window by having the customer write first. */
-  async function openWindow(identity: string): Promise<void> {
+  async function openWindow(identity: string, timestamp?: string): Promise<void> {
     await deliver(
       api,
-      messageDelivery([textMessage(`wamid.open-${identity}`, 'مرحبا', identity)]),
+      messageDelivery([textMessage(`wamid.open-${identity}`, 'مرحبا', identity, timestamp)]),
     );
     await normalizer.drain(api.tenantId);
   }
@@ -1965,10 +1981,20 @@ describe('the outbound path', () => {
     // Outside the window WhatsApp needs an approved template, and the template
     // has to reach the provider rather than being dropped on the way.
     const to = peer();
-    const response = await queue({
-      peerIdentity: to,
-      text: '',
-      template: { name: 'order_update', language: 'ar' },
+    // Keep the provider event immutable and make it genuinely older than the
+    // service window at ingestion time. The app role cannot rewrite inbound
+    // evidence, by design.
+    await openWindow(to, String(Math.floor((Date.now() - 25 * 60 * 60 * 1000) / 1000)));
+    const conversationRows = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> 'archived'`, [connectionId, to],
+    ));
+    const conversationId = conversationRows.rows[0]!.id;
+    const templateId = await syncApprovedTemplate();
+    const catalogue = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates`);
+    expect(catalogue.statusCode, catalogue.body).toBe(200);
+    expect(catalogue.json()).toMatchObject({ data: [{ id: templateId, name: 'order_update', sendSupported: true, parameters: [{ key: 'body:1' }] }] });
+    const response = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'template', text: '', template: { id: templateId, parameters: { 'body:1': 'A-52' } }, clientMessageId: clientId(),
     });
     expect(response.statusCode).toBe(202);
     const id = (response.json() as { data: { id: string } }).data.id;
@@ -1977,7 +2003,7 @@ describe('the outbound path', () => {
     const result = await dispatcher.dispatch(api.tenantId);
     expect(result.accepted).toBe(1);
     const command = sent.at(-1);
-    expect(command?.template).toEqual({ name: 'order_update', language: 'ar' });
+    expect(command?.template).toEqual({ name: 'order_update', language: 'ar', components: [{ type: 'body', parameters: [{ type: 'text', text: 'A-52' }] }] });
     // A template-only message carries no text, and that is not an error.
     expect(command?.text).toBeNull();
 
@@ -1985,17 +2011,86 @@ describe('the outbound path', () => {
     expect((read.json() as { data: { command_state: string } }).data.command_state).toBe(
       'provider_accepted',
     );
+    const timeline = await send(api, owner, 'GET', `/conversations/${conversationId}/messages`);
+    expect(timeline.json()).toMatchObject({ data: expect.arrayContaining([expect.objectContaining({ template_name: 'order_update', template_language: 'ar', template_preview: 'تحديث الطلب A-52' })]) });
+  });
+
+  it('filters and paginates the authorized conversation catalogue with escaped search semantics', async () => {
+    const to = peer();
+    await openWindow(to);
+    const conversationRows = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> 'archived'`, [connectionId, to],
+    ));
+    const conversationId = conversationRows.rows[0]!.id;
+    await syncApprovedTemplate('catalogue_page_match');
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `INSERT INTO whatsapp_templates(tenant_id,connection_id,provider_template_id,template_name,language,category,status,components,variables,last_synced_at)
+       SELECT $1,$2,'coverage-'||n,'coverage_template_'||lpad(n::text,2,'0'),'en_US','utility','approved',
+              '[{"type":"BODY","text":"Hello"}]'::jsonb,'[]'::jsonb,now()
+       FROM generate_series(1,51) n`, [api.tenantId, connectionId],
+    ));
+    const filtered = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates?search=catalogue_page_match&language=ar&category=UTILITY&status=approved`);
+    expect(filtered.statusCode).toBe(200);
+    expect(filtered.json()).toMatchObject({ data: [expect.objectContaining({ name: 'catalogue_page_match', language: 'ar', category: 'utility' })] });
+
+    const first = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates?status=approved`);
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toMatchObject({ data: expect.any(Array), page: { next_cursor: '50', has_more: true } });
+    const second = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates?status=approved&cursor=50`);
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({ page: { next_cursor: null, has_more: false } });
+    const invalidCursor = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates?cursor=-1`);
+    expect(invalidCursor.statusCode).toBe(400);
+  });
+
+  it('fails closed for conversation sends without inbound evidence and revalidates template identity, status and values', async () => {
+    const outboundPeer = peer();
+    const opened = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `INSERT INTO conversations(tenant_id,connection_id,peer_identity) VALUES($1,$2,$3) RETURNING id::text`, [api.tenantId, connectionId, outboundPeer],
+    ));
+    const noInbound = await send(api, owner, 'POST', `/conversations/${opened.rows[0]!.id}/messages`, {
+      messageType: 'text', text: 'This has no opening inbound.', clientMessageId: clientId(),
+    });
+    expect(noInbound.statusCode).toBe(422);
+    expect(noInbound.json()).toMatchObject({ error: { code: 'outside_service_window' } });
+
+    const to = peer();
+    await openWindow(to);
+    const conversations = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> 'archived'`, [connectionId, to],
+    ));
+    const conversationId = conversations.rows[0]!.id;
+    const templateId = await syncApprovedTemplate('validate_template');
+    const missingSelection = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'template', text: '', template: { name: 'validate_template', language: 'ar' }, clientMessageId: clientId(),
+    });
+    expect(missingSelection.statusCode).toBe(422);
+    expect(missingSelection.json()).toMatchObject({ error: { code: 'template_selection_required' } });
+    const mismatch = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'text', text: 'Mismatch', template: { id: templateId, parameters: { 'body:1': 'X' } }, clientMessageId: clientId(),
+    });
+    expect(mismatch.statusCode).toBe(400);
+    const incomplete = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'template', text: '', template: { id: templateId, parameters: {} }, clientMessageId: clientId(),
+    });
+    expect(incomplete.statusCode).toBe(422);
+    expect(incomplete.json()).toMatchObject({ error: { code: 'template_parameters_invalid' } });
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`UPDATE whatsapp_templates SET status='paused' WHERE id=$1`, [templateId]));
+    const stale = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'template', text: '', template: { id: templateId, parameters: { 'body:1': 'X' } }, clientMessageId: clientId(),
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ error: { code: 'template_not_sendable' } });
   });
 
   it('refuses to dispatch when the credential has gone, without sending', async () => {
     const created = await connect(api, owner, 'phone-outbound-nocred');
     const cid = (created.json() as { data: { id: string } }).data.id;
     const to = peer();
+    const templateId = await syncApprovedTemplate('order_update', cid);
     const queued = await send(api, owner, 'POST', `/channels/${cid}/messages`, {
       peerIdentity: to,
-      messageType: 'text',
-      text: '',
-      template: { name: 'order_update', language: 'ar' },
+      messageType: 'template', text: '', template: { id: templateId, parameters: { 'body:1': 'A-53' } },
       clientMessageId: clientId(),
     });
     const id = (queued.json() as { data: { id: string } }).data.id;
@@ -2021,11 +2116,10 @@ describe('the outbound path', () => {
     const created = await connect(api, owner, 'phone-outbound-later-gone');
     const cid = (created.json() as { data: { id: string } }).data.id;
     const to = peer();
+    const templateId = await syncApprovedTemplate('order_update', cid);
     const queued = await send(api, owner, 'POST', `/channels/${cid}/messages`, {
       peerIdentity: to,
-      messageType: 'text',
-      text: '',
-      template: { name: 'order_update', language: 'ar' },
+      messageType: 'template', text: '', template: { id: templateId, parameters: { 'body:1': 'A-54' } },
       clientMessageId: clientId(),
     });
     const id = (queued.json() as { data: { id: string } }).data.id;

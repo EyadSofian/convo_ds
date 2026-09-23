@@ -107,6 +107,26 @@ describe('sending a text message', () => {
     });
   });
 
+  it('sends the canonical template component parameters without converting them to free text', async () => {
+    const { adapter, calls } = transport(() => ACCEPTED);
+    await adapter.send('whatsapp', TOKEN, {
+      ...TEXT,
+      messageType: 'template',
+      text: null,
+      template: { name: 'hello', language: 'ar', components: [
+        { type: 'body', parameters: [{ type: 'text', text: 'Ahmed' }, { type: 'text', text: 'Monday' }] },
+        { type: 'button', subType: 'url', index: '0', parameters: [{ type: 'text', text: 'order-7' }] },
+      ] },
+    });
+    expect(calls[0]?.body).toEqual({
+      messaging_product: 'whatsapp', recipient_type: 'individual', to: '201234567890', type: 'template',
+      template: { name: 'hello', language: { code: 'ar' }, components: [
+        { type: 'body', parameters: [{ type: 'text', text: 'Ahmed' }, { type: 'text', text: 'Monday' }] },
+        { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: 'order-7' }] },
+      ] },
+    });
+  });
+
   it('refuses a message type it cannot actually send, rather than dropping content', async () => {
     const { adapter, calls } = transport(() => ACCEPTED);
     const outcome = await adapter.send('whatsapp', TOKEN, {

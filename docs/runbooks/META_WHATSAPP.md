@@ -22,7 +22,7 @@ not be reported as passing until a real send has been made and evidenced.
 | | |
 | --- | --- |
 | Outbound text | yes |
-| Outbound template | yes (name + language; no variable substitution yet) |
+| Outbound template | yes (approved catalogue entries, positional text parameters, durable preview evidence) |
 | Outbound media | **no** — requires uploading to Meta and holding a media id, a separate flow |
 | Inbound text, media, reactions, identity change | yes (normalization, already fixture-tested) |
 | Delivery and read receipts | yes, folded onto the message by provider id |
@@ -34,6 +34,50 @@ Messenger and Instagram share the app registration and webhook signature
 scheme, but not the send contract, messaging window or template rules. CONVO
 uses each product's own Graph payload and validates its own asset before the
 channel can become healthy.
+
+### WhatsApp template send contract
+
+The operator flow reads a bounded, paginated catalogue through the authorized
+conversation endpoint. It never calls Meta when the picker opens. A manual
+refresh requires channel-management permission and uses the existing
+connection-scoped sync. Queueing a send accepts the local template id and text
+values only; the API re-reads the row under the caller's tenant and exact
+conversation connection, and requires the current provider status to be
+`approved`. The worker sends through the existing outbox and rebuilds the Meta
+components from the persisted canonical send evidence.
+
+Supported today:
+
+- no-variable templates;
+- positional `{{n}}` text parameters in TEXT HEADER and BODY components;
+- positional text values for dynamic URL buttons, using Meta's button index;
+- static footer and button labels in the preview.
+
+The product explicitly refuses media headers (image, video, document, location),
+named or malformed placeholders, Flow/OTP/copy-code buttons, and any component
+whose parameter contract is not implemented. Those rows remain visible with a
+non-sendable explanation when returned by a non-approved status filter. They
+are never sent after silently dropping an unsupported component. The approved
+send view shows only approved rows.
+
+Meta's maintained Cloud API collection shows the template envelope as
+`type: "template"` with `name`, `language.code`, and optional `components`; its
+examples cover body text parameters and button parameters. This implementation
+matches that envelope for its supported subset, and has exact JSON transport
+tests: [Meta send sample template](https://www.postman.com/meta/whatsapp-business-platform/request/v43klng/send-sample-issue-resolution-template),
+[Meta Cloud API collection](https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api?entity=request-13382743-071cfa60-0704-41d2-bca2-36ba6bd33dfe).
+
+The outbound record stores the chosen template name/language, canonical
+parameter component snapshot and rendered body preview. Historical outbound
+rows are not backfilled with guessed parameters. The timeline additionally
+binds inbound history to the conversation's half-open creation/archive interval;
+outbound rows use their durable `conversation_id`, with the same temporal
+interval as a compatibility boundary only for pre-existing rows without an id.
+
+The service-window rule is unchanged: free-form text is accepted only when the
+current conversation has a recent inbound event; an approved template is still
+eligible outside that window. Inbound realtime invalidates the open conversation
+projection so the composer can become writable without a browser refresh.
 
 ## Connecting
 

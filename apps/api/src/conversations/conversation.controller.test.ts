@@ -19,7 +19,8 @@ function controller() {
     supervisorList: vi.fn(async () => ({ items: [], nextCursor: null })),
     supervisorWorkload: vi.fn(async () => ({ assigned: 0 })),
   } as unknown as ConversationService;
-  return { instance: new ConversationController(auth, conversations, {} as OutboundService, {} as LifecycleService, {} as NoteService, {} as RoutingService), conversations };
+  const outbound = { templates: vi.fn(async () => ({ items: [], nextCursor: null })) } as unknown as OutboundService;
+  return { instance: new ConversationController(auth, conversations, outbound, {} as LifecycleService, {} as NoteService, {} as RoutingService), conversations, outbound };
 }
 
 describe('ConversationController query boundaries', () => {
@@ -46,5 +47,16 @@ describe('ConversationController query boundaries', () => {
     await expect(instance.supervisorList(id, 'bad', {}, request)).rejects.toMatchObject({ status: 400 });
     await expect(instance.supervisorList(id, id, { queue: 'all', sort: 'activity_desc', limit: '1' }, request)).resolves.toMatchObject({ data: [] });
     expect(conversations.supervisorList).toHaveBeenCalledWith(expect.anything(), id, id, expect.objectContaining({ queue: 'all', limit: 1 }));
+  });
+
+  it('validates the WhatsApp template status filter and bounds the catalogue query before delegation', async () => {
+    const { instance, outbound } = controller();
+    await expect(instance.whatsappTemplates(id, id, { status: 'sending' }, request)).rejects.toMatchObject({ status: 400, code: 'invalid_input' });
+    await expect(instance.whatsappTemplates(id, id, {
+      search: '  hello  ', language: ' en_US ', category: ' UTILITY ', cursor: '50',
+    }, request)).resolves.toMatchObject({ data: [], page: { next_cursor: null } });
+    expect(outbound.templates).toHaveBeenCalledWith(expect.anything(), id, id, {
+      search: 'hello', language: 'en_US', category: 'utility', status: 'approved', cursor: '50',
+    });
   });
 });

@@ -1,15 +1,18 @@
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import argon2 from 'argon2';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import type { Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
 import { AuthService } from '../../apps/api/src/auth/auth.service.js';
+import { NotificationService } from '../../apps/api/src/notifications/notification.service.js';
+import { PushOutboxService } from '../../apps/api/src/notifications/push-outbox.service.js';
+import type { PushSender } from '../../apps/api/src/notifications/push-outbox.service.js';
 import { OutboundService } from '../../apps/api/src/channels/outbound.service.js';
 import { LifecycleService } from '../../apps/api/src/conversations/lifecycle.service.js';
 import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
@@ -25,6 +28,7 @@ import {
   scratchRuntimePool,
   superuserPool,
 } from '../support/scratch.js';
+
 
 /**
  * Realtime, against a real database with FORCE RLS.
@@ -76,6 +80,7 @@ function envFor(names: DatabaseNames, overrides: Record<string, string> = {}): R
     CONVO_BOOTSTRAP_TOKEN: BOOTSTRAP_TOKEN,
     CONVO_IDEMPOTENCY_HASH_SECRET: 'realtime-idempotency-secret-000001',
     CONVO_CREDENTIAL_KEYS: CREDENTIAL_KEY,
+    CONVO_WEB_PUSH_PUBLIC_KEY: Buffer.alloc(65, 4).toString('base64url'),
     CONVO_CHANNEL_SECRET_META_APP: APP_SECRET,
     // A one-second connection: long enough to prove frames flow, short enough
     // that a test finishes. Production runs this at five minutes.
@@ -928,11 +933,21 @@ describe('a conversation that is already somebody’s', () => {
     // written, so nobody is waiting, and the card has to say so rather than
     // inventing a start time.
     const peer = '15557000080';
+    const template = await withTenant(api.pool, api.tenantId, async (client) => {
+      const result = await client.query<{ id: string }>(
+        `INSERT INTO whatsapp_templates
+           (tenant_id,connection_id,provider_template_id,template_name,language,category,status,components,variables,last_synced_at)
+         VALUES($1,$2,$3,'order_update','ar','utility','approved','[{"type":"BODY","text":"تحديث الطلب"}]'::jsonb,'[]'::jsonb,now())
+         RETURNING id::text`,
+        [api.tenantId, inboxA, `ptid-${randomUUID()}`],
+      );
+      return result.rows[0]!.id;
+    });
     const queued = await send(api, owner, 'POST', `/channels/${inboxA}/messages`, {
       peerIdentity: peer,
-      messageType: 'text',
+      messageType: 'template',
       text: '',
-      template: { name: 'order_update', language: 'ar' },
+      template: { id: template, parameters: {} },
       clientMessageId: 'realtime-template-1',
     });
     expect(queued.statusCode).toBe(202);
@@ -2062,6 +2077,25 @@ describe('the stream', () => {
     expect(events[0]?.data['payload']).toMatchObject({ text: 'بعد إعادة الاتصال' });
   }, 20_000);
 
+  it('does not skip later frames when a batch is interrupted after its first event', async () => {
+    const before = await feed(owner);
+    await customerWrites(INBOX_A, '15557000091', 'batch first', 'wamid.rt-batch-91');
+    await customerWrites(INBOX_A, '15557000092', 'batch second', 'wamid.rt-batch-92');
+    const first = await stream(owner, `?cursor=${encodeURIComponent(before.cursor)}`);
+    const inbound = framesOf(first.payload).filter((frame) =>
+      frame.event === 'message.inbound' &&
+      (frame.data['payload'] as Record<string, unknown> | undefined)?.['text']?.toString().startsWith('batch '),
+    );
+    expect(inbound).toHaveLength(2);
+    const firstCursor = inbound[0]?.data['cursor'];
+    expect(typeof firstCursor).toBe('string');
+    expect(firstCursor).not.toBe(inbound[1]?.data['cursor']);
+    const resumed = await stream(owner, '', { 'last-event-id': firstCursor as string });
+    const replayed = framesOf(resumed.payload).filter((frame) => frame.event === 'message.inbound');
+    expect(replayed.some((frame) => (frame.data['payload'] as Record<string, unknown>)['text'] === 'batch second')).toBe(true);
+    expect(replayed.some((frame) => (frame.data['payload'] as Record<string, unknown>)['text'] === 'batch first')).toBe(false);
+  }, 20_000);
+
   it('projects for an agent on the stream exactly as it does on the page', async () => {
     await customerWrites(INBOX_A, '15557000050', 'قبل المطالبة', 'wamid.rt-50');
     const conversation = await withTenant(api.pool, api.tenantId, (client) =>
@@ -2132,6 +2166,235 @@ describe('the stream', () => {
     expect(last?.event).toBe('stream_closed');
     expect(last?.data['reason']).toBe('access_revoked');
   }, 20_000);
+});
+
+describe('durable member notifications', () => {
+  it('paginates a member-owned history and marks all unread records without affecting another member', async () => {
+    const memberId = await addMember(api, 'notification-pager@realtime.test', 'agent', [{ type: 'inbox', id: inboxA }]);
+    const browser = await login(api, 'notification-pager@realtime.test', MEMBER_PASSWORD);
+    const service = api.app.get(NotificationService);
+    const targets = [randomUUID(), randomUUID(), randomUUID()];
+    for (const targetId of targets) {
+      await withTenant(api.pool, api.tenantId, (client) => service.create(asExecutor(client), api.tenantId, {
+        recipientMembershipId: memberId, kind: 'assignment', targetType: 'conversation', targetId,
+        dedupeKey: `pagination:${targetId}`,
+      }));
+    }
+    const first = await send(api, browser, 'GET', '/notifications?limit=2');
+    expect(first.statusCode, first.payload).toBe(200);
+    const firstPage = first.json() as { data: { id: string }[]; page: { next_cursor: string | null } };
+    expect(firstPage.data).toHaveLength(2);
+    expect(firstPage.page.next_cursor).not.toBeNull();
+    const second = await send(api, browser, 'GET', `/notifications?limit=2&cursor=${encodeURIComponent(firstPage.page.next_cursor!)}`);
+    expect(second.statusCode, second.payload).toBe(200);
+    const secondPage = second.json() as { data: { id: string }[]; page: { next_cursor: string | null } };
+    expect(secondPage.data).toHaveLength(1);
+    expect(secondPage.page.next_cursor).toBeNull();
+    expect(new Set([...firstPage.data, ...secondPage.data].map((row) => row.id)).size).toBe(3);
+    expect((await send(api, browser, 'GET', '/notifications/unread-count')).json()).toMatchObject({ data: { count: 3 } });
+    expect((await send(api, browser, 'POST', '/notifications/read-all')).json()).toMatchObject({ data: { changed: 3 } });
+    expect((await send(api, browser, 'GET', '/notifications/unread-count')).json()).toMatchObject({ data: { count: 0 } });
+    expect((await send(api, owner, 'GET', '/notifications/unread-count')).statusCode).toBe(200);
+    expect((await send(api, owner, 'POST', `/notifications/${firstPage.data[0]?.id}/read`)).statusCode).toBe(404);
+    expect((await send(api, browser, 'GET', '/notifications?unexpected=1')).statusCode).toBe(400);
+  });
+
+  it('creates a private generic notification from an assigned customer message', async () => {
+    const peer = '15557000990';
+    await customerWrites(INBOX_A, peer, 'opening message', 'wamid.rt-notify-open');
+    const row = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string; version: number }>(
+      'SELECT id::text,version FROM conversations WHERE peer_identity=$1', [peer],
+    ));
+    const conversation = row.rows[0]!;
+    const assigned = await send(api, owner, 'POST', `/conversations/${conversation.id}/assignments`, {
+      version: conversation.version, assigneeMembershipId: agentAMembershipId,
+    });
+    expect(assigned.statusCode, assigned.payload).toBe(200);
+    await customerWrites(INBOX_A, peer, 'private customer words', 'wamid.rt-notify-reply');
+    const list = await send(api, agentA, 'GET', '/notifications?limit=25');
+    expect(list.statusCode).toBe(200);
+    const matching = (list.json() as { data: { kind: string; targetId: string }[] }).data
+      .filter((entry) => entry.targetId === conversation.id);
+    expect(matching.map((entry) => entry.kind).sort()).toEqual(['assignment', 'new_message']);
+    expect(list.payload).not.toContain('private customer words');
+    const ownerList = await send(api, owner, 'GET', '/notifications?limit=25');
+    expect(ownerList.payload).not.toContain(conversation.id);
+  });
+
+  it('dedupes records, isolates recipients, and synchronizes read state over SSE', async () => {
+    const service = api.app.get(NotificationService);
+    const targetId = randomUUID();
+    const deviceId = randomUUID();
+    const endpoint = 'https://fcm.googleapis.com/fcm/send/test-subscription-opaque';
+    const registered = await send(api, agentA, 'POST', `/notifications/devices/${deviceId}`, {
+      subscription: { endpoint, keys: {
+        p256dh: Buffer.alloc(65, 5).toString('base64url'),
+        auth: Buffer.alloc(16, 6).toString('base64url'),
+      } },
+    });
+    expect(registered.statusCode, registered.payload).toBe(200);
+    const secondDeviceId = randomUUID();
+    const secondEndpoint = 'https://updates.push.services.mozilla.com/wpush/v2/another-opaque-subscription';
+    const secondRegistered = await send(api, agentA, 'POST', `/notifications/devices/${secondDeviceId}`, {
+      subscription: { endpoint: secondEndpoint, keys: {
+        p256dh: Buffer.alloc(65, 7).toString('base64url'),
+        auth: Buffer.alloc(16, 8).toString('base64url'),
+      } },
+    });
+    expect(secondRegistered.statusCode, secondRegistered.payload).toBe(200);
+    const devices = await send(api, agentA, 'GET', '/notifications/devices');
+    expect(devices.statusCode).toBe(200);
+    expect(devices.payload).not.toContain(endpoint);
+    expect(devices.payload).not.toContain(secondEndpoint);
+    expect((devices.json() as { data: unknown[] }).data).toHaveLength(2);
+    const beforeAgent = await feed(agentA);
+    const beforeOwner = await feed(owner);
+    const create = () => withTenant(api.pool, api.tenantId, async (client) =>
+      service.create(asExecutor(client), api.tenantId, {
+        recipientMembershipId: agentAMembershipId,
+        kind: 'assignment', targetType: 'conversation', targetId,
+        dedupeKey: `integration:${targetId}`,
+      }));
+    await create();
+    await create();
+
+    const own = await send(api, agentA, 'GET', '/notifications?limit=25');
+    expect(own.statusCode).toBe(200);
+    const records = (own.json() as { data: { id: string; targetId: string; readAt: string | null }[] }).data
+      .filter((row) => row.targetId === targetId);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.readAt).toBeNull();
+    const queued = await api.pool.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM notification_push_queue WHERE notification_id=$1', [records[0]?.id],
+    );
+    expect(Number(queued.rows[0]?.count)).toBe(2);
+    const other = await send(api, owner, 'GET', '/notifications?limit=25');
+    expect((other.json() as { data: { targetId: string }[] }).data.some((row) => row.targetId === targetId)).toBe(false);
+    expect((await feed(agentA, beforeAgent.cursor)).events.some((event) => event.type === 'notification.changed')).toBe(true);
+    expect((await feed(owner, beforeOwner.cursor)).events.some((event) => event.type === 'notification.changed')).toBe(false);
+
+    const id = records[0]?.id as string;
+    expect((await send(api, owner, 'POST', `/notifications/${id}/read`)).statusCode).toBe(404);
+    expect((await send(api, agentA, 'POST', `/notifications/${id}/read`)).statusCode).toBe(200);
+    const reread = await send(api, agentA, 'GET', '/notifications?limit=25');
+    expect((reread.json() as { data: { id: string; readAt: string | null }[] }).data.find((row) => row.id === id)?.readAt).not.toBeNull();
+
+    // Account switching on the same browser subscription must retire the old
+    // member's registration before the new member can receive OS pushes.
+    const ownerDevice = randomUUID();
+    const switched = await send(api, owner, 'POST', `/notifications/devices/${ownerDevice}`, {
+      subscription: { endpoint, keys: {
+        p256dh: Buffer.alloc(65, 5).toString('base64url'),
+        auth: Buffer.alloc(16, 6).toString('base64url'),
+      } },
+    });
+    expect(switched.statusCode, switched.payload).toBe(200);
+    const oldDevices = (await send(api, agentA, 'GET', '/notifications/devices')).json() as
+      { data: { deviceId: string; enabled: boolean }[] };
+    expect(oldDevices.data.find((entry) => entry.deviceId === deviceId)?.enabled).toBe(false);
+    expect(oldDevices.data.find((entry) => entry.deviceId === secondDeviceId)?.enabled).toBe(true);
+    const newDevices = (await send(api, owner, 'GET', '/notifications/devices')).json() as
+      { data: { deviceId: string; enabled: boolean }[] };
+    expect(newDevices.data.find((entry) => entry.deviceId === ownerDevice)?.enabled).toBe(true);
+  });
+
+  it('drains generic Web Push delivery, retries temporary failures, and revokes expired subscriptions', async () => {
+    // This is a scratch database, never a provider call. The mock captures the
+    // exact lock-screen payload without contacting a real customer device.
+    await api.pool.query("UPDATE notification_push_queue SET state='skipped' WHERE state='pending'");
+    const sendPush = vi.fn();
+    const membershipId = await addMember(api, 'push-worker@realtime.test', 'agent', [{ type: 'inbox', id: inboxA }]);
+    const browser = await login(api, 'push-worker@realtime.test', MEMBER_PASSWORD);
+    const deviceId = randomUUID();
+    const endpoint = 'https://fcm.googleapis.com/fcm/send/push-worker-opaque';
+    const registered = await send(api, browser, 'POST', `/notifications/devices/${deviceId}`, {
+      subscription: { endpoint, keys: {
+        p256dh: Buffer.alloc(65, 11).toString('base64url'),
+        auth: Buffer.alloc(16, 12).toString('base64url'),
+      } },
+    });
+    expect(registered.statusCode, registered.payload).toBe(200);
+    const worker = new PushOutboxService(api.pool, parseApiConfig(envFor(api.names, {
+      CONVO_PROCESS_ROLE: 'worker-integration',
+      CONVO_WEB_PUSH_PRIVATE_KEY: Buffer.alloc(32, 13).toString('base64url'),
+      CONVO_WEB_PUSH_SUBJECT: 'mailto:ops@example.test',
+    })), sendPush as PushSender);
+    const notifications = api.app.get(NotificationService);
+    const queueFor = async (targetId: string) => {
+      const rows = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string; state: string; attempt_count: number }>(
+        `SELECT q.id::text,q.state,q.attempt_count FROM notification_push_queue q
+           JOIN notifications n ON n.tenant_id=q.tenant_id AND n.id=q.notification_id
+          WHERE n.target_id=$1`, [targetId],
+      ));
+      return rows.rows[0]!;
+    };
+    const create = async () => {
+      const targetId = randomUUID();
+      await withTenant(api.pool, api.tenantId, (client) => notifications.create(asExecutor(client), api.tenantId, {
+        recipientMembershipId: membershipId, kind: 'new_message', targetType: 'conversation', targetId,
+        dedupeKey: `push-worker:${targetId}`,
+      }));
+      return targetId;
+    };
+
+    const acceptedTarget = await create();
+    sendPush.mockResolvedValueOnce({ statusCode: 201, body: '', headers: {} });
+    expect(await worker.drain(1)).toBe(1);
+    expect((await queueFor(acceptedTarget)).state).toBe('sent');
+    const payload = JSON.parse(String(sendPush.mock.calls[0]?.[1])) as Record<string, unknown>;
+    expect(payload).toMatchObject({ kind: 'new_message', targetType: 'conversation', targetId: acceptedTarget });
+    expect(JSON.stringify(payload)).not.toContain(endpoint);
+    expect(JSON.stringify(payload)).not.toContain('customer');
+
+    const retryTarget = await create();
+    sendPush.mockRejectedValueOnce({ statusCode: 503 });
+    expect(await worker.drain(1)).toBe(1);
+    expect(await queueFor(retryTarget)).toMatchObject({ state: 'pending', attempt_count: 1 });
+    await api.pool.query('UPDATE notification_push_queue SET next_attempt_at=now() WHERE id=$1', [(await queueFor(retryTarget)).id]);
+    sendPush.mockResolvedValueOnce({ statusCode: 201, body: '', headers: {} });
+    expect(await worker.drain(1)).toBe(1);
+    expect(await queueFor(retryTarget)).toMatchObject({ state: 'sent', attempt_count: 2 });
+
+    const readTarget = await create();
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      'UPDATE notifications SET read_at=now() WHERE target_id=$1', [readTarget],
+    ));
+    expect(await worker.drain(1)).toBe(1);
+    expect((await queueFor(readTarget)).state).toBe('skipped');
+    expect(sendPush).toHaveBeenCalledTimes(3);
+
+    const permanentTarget = await create();
+    sendPush.mockRejectedValueOnce({ statusCode: 401 });
+    expect(await worker.drain(1)).toBe(1);
+    expect((await queueFor(permanentTarget)).state).toBe('failed');
+
+    const networkTarget = await create();
+    sendPush.mockRejectedValueOnce(new Error('connection reset: private provider detail'));
+    expect(await worker.drain(1)).toBe(1);
+    expect((await queueFor(networkTarget)).state).toBe('pending');
+
+    const expiredTarget = await create();
+    sendPush.mockRejectedValueOnce({ statusCode: 410 });
+    expect(await worker.drain(1)).toBe(1);
+    expect((await queueFor(expiredTarget)).state).toBe('failed');
+    const device = (await send(api, browser, 'GET', '/notifications/devices')).json() as
+      { data: { deviceId: string; enabled: boolean }[] };
+    expect(device.data.find((entry) => entry.deviceId === deviceId)?.enabled).toBe(false);
+
+    const reenabled = await send(api, browser, 'POST', `/notifications/devices/${deviceId}`, {
+      subscription: { endpoint, keys: {
+        p256dh: Buffer.alloc(65, 11).toString('base64url'),
+        auth: Buffer.alloc(16, 12).toString('base64url'),
+      } },
+    });
+    expect(reenabled.statusCode).toBe(200);
+    const invalidTarget = await create();
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      'UPDATE notification_devices SET ciphertext=$1 WHERE device_id=$2', [Buffer.from('invalid'), deviceId],
+    ));
+    expect(await worker.drain(1)).toBe(1);
+    expect((await queueFor(invalidTarget)).state).toBe('failed');
+  });
 });
 
 describe('a stream that ends badly', () => {

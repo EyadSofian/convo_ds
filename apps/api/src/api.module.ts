@@ -47,6 +47,10 @@ import { NoteService } from './conversations/note.service.js';
 import { RoutingService } from './conversations/routing.service.js';
 import { RealtimeController } from './realtime/realtime.controller.js';
 import { RealtimeService } from './realtime/realtime.service.js';
+import { NotificationController } from './notifications/notification.controller.js';
+import { NotificationService } from './notifications/notification.service.js';
+import { NotificationDeviceService } from './notifications/device.service.js';
+import { PushOutboxService } from './notifications/push-outbox.service.js';
 import { PermissionController } from './authorization/permission.controller.js';
 import { PermissionService } from './authorization/permission.service.js';
 import { IdempotencyService } from './idempotency/idempotency.service.js';
@@ -142,6 +146,7 @@ export class ApiModule {
         MetadataController,
         CampaignController,
         RealtimeController,
+        NotificationController,
         SegmentController,
         AutomationController,
       ],
@@ -194,6 +199,9 @@ export class ApiModule {
         SelfHostedIngressService,
         BrokerRelayService,
         RealtimeService,
+        NotificationService,
+        NotificationDeviceService,
+        PushOutboxService,
         ContactService,
         MetadataService,
         CampaignService,

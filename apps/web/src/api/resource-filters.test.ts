@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from './client.js';
+import { ChannelsApi } from './channels.js';
 import { ContactsApi } from './contacts.js';
 import { ConversationsApi } from './conversations.js';
 import { MetadataApi } from './metadata.js';
@@ -21,6 +22,29 @@ function client() {
 }
 
 describe('resource query clients', () => {
+  it('uses the channel sync route and catalogue-backed conversation template contracts', async () => {
+    const fake = client();
+    const channels = new ChannelsApi(fake.value);
+    const conversations = new ConversationsApi(fake.value);
+    await channels.syncWhatsAppTemplates('tenant', 'connection');
+    await conversations.whatsappTemplates('tenant', 'conversation');
+    await conversations.whatsappTemplates('tenant', 'conversation', {
+      search: 'hello world', language: 'en_US', category: 'UTILITY', status: 'approved', cursor: '50',
+    });
+    await conversations.replyTemplate('tenant', 'conversation', {
+      templateId: 'template', parameters: { 'body:1': 'Hello' }, clientMessageId: 'message-key',
+    });
+    expect(fake.post).toHaveBeenNthCalledWith(1, '/tenants/tenant/channels/connection/templates/sync');
+    expect(fake.page).toHaveBeenNthCalledWith(1, '/tenants/tenant/conversations/conversation/whatsapp-templates');
+    expect(fake.page).toHaveBeenNthCalledWith(2, '/tenants/tenant/conversations/conversation/whatsapp-templates?search=hello+world&language=en_US&category=UTILITY&status=approved&cursor=50');
+    expect(fake.post).toHaveBeenNthCalledWith(2, '/tenants/tenant/conversations/conversation/messages', {
+      body: { messageType: 'template', text: '', template: { id: 'template', parameters: { 'body:1': 'Hello' } }, clientMessageId: 'message-key' },
+    });
+    const failure = { ok: false as const, error: { code: 'unavailable', message: 'Try again.', requestId: null, status: 503, details: [] } };
+    fake.page.mockResolvedValueOnce(failure);
+    expect(await conversations.whatsappTemplates('tenant', 'conversation')).toEqual(failure);
+  });
+
   it('puts only complete contact filters on the wire', async () => {
     const fake = client();
     const api = new ContactsApi(fake.value);

@@ -293,6 +293,7 @@ company.
 | Inbox | `GET T/conversations` | `listConversations` | `conversation.read`, per row | P2 |
 | Inbox | `GET T/conversations/{id}/messages` | `listConversationMessages` | `conversation.read` for that conversation | P2 |
 | Inbox | `POST T/conversations/{id}/messages` | `replyToConversation` | `conversation.reply` + CSRF | P2 |
+| Inbox | `GET T/conversations/{id}/whatsapp-templates` | `listConversationWhatsAppTemplates` | `conversation.reply`, tenant + conversation connection scope | implemented; bounded local catalogue page, explicit sync only |
 | Lifecycle | `POST T/conversations/{id}/transitions` | `transitionConversation` | `conversation.close` (wait/snooze/resolve/reopen/archive) + CSRF + version | P2 |
 | Lifecycle | `GET T/conversations/{id}/episodes` | `listConversationEpisodes` | `conversation.read` for that conversation | P2 |
 | Notes | `GET T/conversations/{id}/notes` | `listConversationNotes` | `conversation.note` for that conversation | P2 |

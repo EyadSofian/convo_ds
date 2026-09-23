@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createState } from '../state.js';
+import type { NotificationsApi } from '../api/notifications.js';
 import type { LiveContext } from './actions.js';
 import { startRealtime, stopRealtime } from './inbox-actions.js';
 import { subscribe } from './realtime.js';
@@ -264,6 +265,32 @@ describe('the realtime subscription', () => {
 });
 
 describe('the stream an open workspace holds', () => {
+  it('refreshes only recipient notification state on the existing SSE feed', async () => {
+    const state = createState(new Date('2026-09-09T10:00:00.000Z'));
+    state.live.session = { status: 'signed_in', email: 'agent@example.test', memberships: [], tenantId: 't-1' };
+    const list = vi.fn().mockResolvedValue({ ok: true, data: { data: [], nextCursor: null, hasMore: false } });
+    const unreadCount = vi.fn().mockResolvedValue({ ok: true, data: { count: 1 } });
+    Object.assign(state.live, { notificationsApi: { list, unreadCount } as unknown as NotificationsApi });
+    let source: FakeSource | null = null;
+    const context: LiveContext = { state, live: state.live, refresh: vi.fn(), now: () => 0,
+      newKey: () => 'k', endSession: vi.fn(), switchWorkspace: vi.fn() };
+    startRealtime(context, { baseUrl: '/api/v1', open: (url) => { source = new FakeSource(url); return source; } });
+    source!.emit('notification.changed', event({ id: 'n1', seq: 1, type: 'notification.changed',
+      entity: { type: 'notification', id: 'notice', version: 1 },
+      scope: { conversationId: '', inboxId: '', teamId: null, assigneeMembershipId: null }, payload: {} }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(unreadCount).toHaveBeenCalledTimes(1);
+    expect(list).not.toHaveBeenCalled();
+    state.openMenu = 'notifications';
+    source!.emit('notification.changed', event({ id: 'n2', seq: 2, type: 'notification.changed',
+      entity: { type: 'notification', id: 'notice', version: 1 },
+      scope: { conversationId: '', inboxId: '', teamId: null, assigneeMembershipId: null }, payload: {} }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(unreadCount).toHaveBeenCalledTimes(2);
+    stopRealtime(context);
+  });
+
   it('opens exactly one per workspace, and none without a company', () => {
     const state = createState(new Date('2026-09-09T10:00:00.000Z'));
     const opened: string[] = [];

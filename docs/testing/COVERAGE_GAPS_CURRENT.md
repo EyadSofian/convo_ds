@@ -1,21 +1,18 @@
-# Current coverage gate
+# Current Coverage Gap Register
 
-Fresh `pnpm test:coverage` result on 2026-09-22:
+Generated from the fresh `coverage/coverage-final.json` after `pnpm test:coverage` on 2026-09-23. This replaces all earlier snapshots. The full coverage command passed its unchanged 100% gate: 225 instrumented files, 29,813/29,813 statements, 29,813/29,813 lines, 2,212/2,212 functions, and 11,789/11,789 branch outcomes.
 
-| Metric | Covered | Total | Result |
-| --- | ---: | ---: | ---: |
-| Statements | 28,497 | 28,497 | 100% |
-| Functions | 2,120 | 2,120 | 100% |
-| Branches | 10,941 | 10,941 | 100% |
+## Uncovered items
 
-Remaining gaps: none.
+None. The fresh coverage JSON contains no uncovered statements, functions, or branch outcomes.
 
-Coverage thresholds remain unchanged. No coverage exclusions or ignore
-directives were added. The existing process-entry exclusions are unchanged.
+## Last resolved gaps
 
-The final uncovered UI cases were covered with focused rendered tests. Two
-redundant fallbacks were removed where their input had already been narrowed by
-the surrounding code: an operator fallback after operator normalization, and
-unreachable Agent/Channel selection paths in the Overview renderer. Custom
-boolean filter forms now retain their actual custom-field type when building a
-query, correcting the boolean-value mapping at that same public form boundary.
+- Added direct OutboundService tests for conflicting idempotency ownership and rejecting a WhatsApp catalogue template on a non-WhatsApp connection.
+- Added ConversationService service-window tests for non-applicable channels, no inbound, invalid timestamps, and exact expiry boundary.
+- Added an Inbox action test for refreshing while conversation state is loading.
+- The template preview fallback branches were removed where the underlying RegExp iterator guarantees an index and captured token; the label branch now also covers a body variable example.
+- Removed the unused auth lockup class parameter and its unreachable conditional.
+- Passed the conversation's authoritative connection ID into the template action renderer instead of conditionally reading the same ID from global open-conversation state.
+
+No thresholds were changed, no coverage exclusions were added, and no ignore directives were added.

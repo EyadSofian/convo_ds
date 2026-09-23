@@ -22,6 +22,7 @@ import { loadPrincipalForMembership } from '../authorization/authorization.servi
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
+import { NotificationService } from '../notifications/notification.service.js';
 import { API_POOL } from '../tokens.js';
 import { denied, notFound, readDetail, recordParticipation, resourceOf } from './record.js';
 import type { ConversationDetail } from './record.js';
@@ -104,6 +105,7 @@ export class RoutingService {
   constructor(
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(RealtimeService) private readonly realtime: RealtimeService,
+    @Inject(NotificationService) private readonly notifications: NotificationService,
     @Inject(API_POOL) private readonly pool: Pool,
   ) {}
 
@@ -231,6 +233,13 @@ export class RoutingService {
         act,
       },
     });
+    if (toMembershipId !== null && toMembershipId !== actorMembershipId) {
+      await this.notifications.create(sql, tenantId, {
+        recipientMembershipId: toMembershipId,
+        kind: 'assignment', targetType: 'conversation', targetId: detail.id,
+        dedupeKey: `assignment:${detail.id}:${row.version}`,
+      });
+    }
     return row.version;
   }
 
@@ -552,6 +561,13 @@ export class RoutingService {
       occurredAt: new Date(),
       payload: { handoffId, state, toMembershipId },
     });
+    if (state === 'pending' && toMembershipId !== null) {
+      await this.notifications.create(sql, tenantId, {
+        recipientMembershipId: toMembershipId,
+        kind: 'handoff', targetType: 'conversation', targetId: detail.id,
+        dedupeKey: `handoff:${handoffId}`,
+      });
+    }
   }
 
   /* ---------------------------------------------------------- priority -- */

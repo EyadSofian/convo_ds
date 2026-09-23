@@ -11,6 +11,7 @@ import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
 import { currentTenantId, failed, forTenant, fromResult, LOADING, ready, rowsOf } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadSavedViews } from './saved-view-actions.js';
+import { loadNotifications, refreshNotificationCount } from './notification-actions.js';
 
 /**
  * The Inbox, against the real API.
@@ -386,6 +387,12 @@ export async function sendReply(context: LiveContext): Promise<boolean> {
     live.busy = null;
     if (!result.ok) {
       live.error = result.error;
+      if (result.error.code === 'outside_service_window' && live.openConversation.status === 'ready') {
+        live.openConversation = ready({
+          ...live.openConversation.value,
+          serviceWindow: { status: 'closed', lastCustomerInboundAt: live.openConversation.value.serviceWindow?.lastCustomerInboundAt ?? null, serviceWindowExpiresAt: live.openConversation.value.serviceWindow?.serviceWindowExpiresAt ?? null },
+        }, context.now());
+      }
       // The composer is deliberately kept: retyping a reply because the network
       // blinked is the worst small thing a messaging tool can do to somebody.
       pushToast(context.state, result.error.message, 'danger');
@@ -397,6 +404,122 @@ export async function sendReply(context: LiveContext): Promise<boolean> {
     return true;
   });
 }
+
+export async function openWhatsAppTemplates(context: LiveContext): Promise<boolean> {
+  const conversation = context.live.openConversation.status === 'ready' ? context.live.openConversation.value : null;
+  if (conversation === null || conversation.channel !== 'whatsapp' || context.live.supervisorAgentId !== null) return false;
+  context.state.dialog = { kind: 'whatsapp-template', arg: conversation.id };
+  context.state.dialogForm = {};
+  context.live.conversationTemplates = LOADING;
+  context.live.conversationTemplateCursor = null;
+  context.refresh();
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return false;
+  const result = await context.live.conversationsApi.whatsappTemplates(tenantId, conversation.id);
+  context.live.conversationTemplates = result.ok ? ready(result.data.items, context.now()) : failed(result.error);
+  context.live.conversationTemplateCursor = result.ok ? result.data.nextCursor : null;
+  if (!result.ok) context.live.error = result.error;
+  context.refresh();
+  return result.ok;
+}
+
+export async function searchWhatsAppTemplates(context: LiveContext): Promise<boolean> {
+  const conversationId = context.state.dialog?.kind === 'whatsapp-template' ? context.state.dialog.arg : null;
+  const tenantId = currentTenantId(context.live);
+  if (conversationId === null || tenantId === null) return false;
+  context.live.conversationTemplates = LOADING;
+  context.live.conversationTemplateCursor = null;
+  context.refresh();
+  const result = await context.live.conversationsApi.whatsappTemplates(tenantId, conversationId, {
+    search: (context.state.dialogForm['whatsappTemplateSearch'] ?? '').trim(),
+    language: context.state.dialogForm['whatsappTemplateLanguage'] ?? '',
+    category: context.state.dialogForm['whatsappTemplateCategory'] ?? '',
+    status: context.state.dialogForm['whatsappTemplateStatus'] ?? 'approved',
+  });
+  context.live.conversationTemplates = result.ok ? ready(result.data.items, context.now()) : failed(result.error);
+  context.live.conversationTemplateCursor = result.ok ? result.data.nextCursor : null;
+  if (!result.ok) context.live.error = result.error;
+  context.refresh();
+  return result.ok;
+}
+
+export async function loadMoreWhatsAppTemplates(context: LiveContext): Promise<boolean> {
+  const conversationId = context.state.dialog?.kind === 'whatsapp-template' ? context.state.dialog.arg : null;
+  const tenantId = currentTenantId(context.live);
+  const cursor = context.live.conversationTemplateCursor;
+  if (conversationId === null || tenantId === null || cursor === null || context.live.busy === 'whatsapp-template-more') return false;
+  context.live.busy = 'whatsapp-template-more';
+  context.refresh();
+  const result = await context.live.conversationsApi.whatsappTemplates(tenantId, conversationId, {
+    search: (context.state.dialogForm['whatsappTemplateSearch'] ?? '').trim(),
+    language: context.state.dialogForm['whatsappTemplateLanguage'] ?? '',
+    category: context.state.dialogForm['whatsappTemplateCategory'] ?? '',
+    status: context.state.dialogForm['whatsappTemplateStatus'] ?? 'approved',
+    cursor,
+  });
+  context.live.busy = null;
+  if (result.ok) {
+    const previous = rowsOf(context.live.conversationTemplates);
+    context.live.conversationTemplates = ready([...previous, ...result.data.items], context.now());
+    context.live.conversationTemplateCursor = result.data.nextCursor;
+  } else context.live.error = result.error;
+  context.refresh();
+  return result.ok;
+}
+
+export async function refreshWhatsAppTemplates(context: LiveContext): Promise<boolean> {
+  const conversationId = context.state.dialog?.kind === 'whatsapp-template' ? context.state.dialog.arg : null;
+  const conversation = context.live.openConversation.status === 'ready' ? context.live.openConversation.value : null;
+  const tenantId = currentTenantId(context.live);
+  if (conversationId === null || conversation === null || tenantId === null || conversation.id !== conversationId) return false;
+  context.live.busy = 'whatsapp-template-refresh';
+  context.live.error = null;
+  context.refresh();
+  const synced = await context.live.channels.syncWhatsAppTemplates(tenantId, conversation.connectionId);
+  if (!synced.ok) {
+    context.live.busy = null;
+    context.live.error = synced.error;
+    context.refresh();
+    return false;
+  }
+  context.live.busy = null;
+  context.state.dialogForm = { ...context.state.dialogForm, whatsappTemplateId: '' };
+  return searchWhatsAppTemplates(context);
+}
+
+export async function sendWhatsAppTemplate(context: LiveContext): Promise<boolean> {
+  const { live, state } = context;
+  const conversationId = state.dialog?.kind === 'whatsapp-template' ? state.dialog.arg : null;
+  const tenantId = currentTenantId(live);
+  const templateId = state.dialogForm['whatsappTemplateId'] ?? '';
+  const template = rowsOf(live.conversationTemplates).find((item) => item.id === templateId);
+  if (conversationId === null || tenantId === null || template === undefined || !template.sendSupported || template.status !== 'approved') return false;
+  const parameters = Object.fromEntries(template.parameters.map((parameter) => [parameter.key, state.dialogForm[templateParameterKey(parameter.key)] ?? '']));
+  if (template.parameters.some((parameter) => parameters[parameter.key]?.trim() === '')) {
+    live.error = { status: 422, code: 'template_parameters_invalid', message: t(context, 'أكمل كل متغيرات القالب قبل الإرسال.', 'Fill in every template parameter before sending.'), requestId: null, details: [] };
+    context.refresh();
+    return false;
+  }
+  live.busy = 'send-template';
+  live.error = null;
+  const clientMessageId = state.dialogForm['whatsappTemplateClientMessageId'] ?? context.newKey();
+  state.dialogForm = { ...state.dialogForm, whatsappTemplateClientMessageId: clientMessageId };
+  context.refresh();
+  const result = await live.conversationsApi.replyTemplate(tenantId, conversationId, { templateId, parameters, clientMessageId });
+  live.busy = null;
+  if (!result.ok) {
+    live.error = result.error;
+    pushToast(state, result.error.message, 'danger');
+    context.refresh();
+    return false;
+  }
+  state.dialog = null;
+  state.dialogForm = {};
+  await loadTimeline(context, conversationId);
+  return true;
+}
+
+export function templateParameterKey(key: string): string { return `whatsappTemplateParameter_${key.replaceAll(':', '_')}`; }
 
 /* --------------------------------------------------------------- realtime -- */
 
@@ -425,6 +548,11 @@ export function startRealtime(context: LiveContext, wiring: RealtimeWiring): voi
     open: wiring.open,
     handlers: {
       onEvent: (event) => {
+        if (event.type === 'notification.changed') {
+          if (context.state.openMenu === 'notifications') void loadNotifications(context, true);
+          else void refreshNotificationCount(context);
+          return;
+        }
         void applyRealtimeEvent(context, event);
       },
       onReset: (reason) => {
@@ -484,6 +612,12 @@ export async function applyRealtimeEvent(
   }
   if (event.scope.conversationId === live.openConversationId) {
     tasks.push(loadTimeline(context, event.scope.conversationId));
+    if (event.type === 'message.inbound') {
+      // The new customer message is the durable evidence that reopens the
+      // WhatsApp service window. Refresh the conversation capability projection
+      // as well as its timeline so Reply can become available without a reload.
+      tasks.push(refreshOpenConversation(context, event.scope.conversationId));
+    }
     if (event.type === 'conversation.handoff') {
       // The offers moved; the record did not. Re-reading the whole conversation
       // for an offer somebody made would be a request for a banner.

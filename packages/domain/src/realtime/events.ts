@@ -57,6 +57,8 @@ export const REALTIME_EVENT_TYPES = [
    * agent deciding what to pick up is entitled to know it moved.
    */
   'conversation.routing',
+  /** Recipient-only invalidation. The notification table owns the content. */
+  'notification.changed',
 ] as const;
 
 export type RealtimeEventType = (typeof REALTIME_EVENT_TYPES)[number];
@@ -87,7 +89,7 @@ export interface RealtimeEnvelope {
    * reads the payload.
    */
   readonly entity: {
-    readonly type: 'conversation' | 'message' | 'note';
+    readonly type: 'conversation' | 'message' | 'note' | 'notification';
     readonly id: string;
     readonly version: number;
   };
