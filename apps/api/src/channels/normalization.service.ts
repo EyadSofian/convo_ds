@@ -189,6 +189,7 @@ export class ChannelNormalizationService {
       { source: 'inbound_message', providerMessageId: inbound.providerMessageId },
     );
     await this.conversations.noteInbound(sql, tenantId, conversation, {
+      inboundEventId,
       occurredAt: inbound.occurredAt,
       contactId: contact.contactId,
       payload: {

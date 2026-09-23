@@ -185,6 +185,21 @@ function protectedContent(root: HTMLElement): readonly Element[] {
 /* ------------------------------------------------------------- the gate -- */
 
 describe('the authentication boundary', () => {
+  it('dispatches the notification bell through the durable notification action', async () => {
+    const api = signedIn()
+      .on(`GET /tenants/${TENANT}/notifications?limit=25`, {
+        status: 200, body: { data: [], page: { next_cursor: null, has_more: false } },
+      })
+      .on(`GET /tenants/${TENANT}/notifications/unread-count`, { status: 200, body: { data: { count: 0 } } })
+      .on(`GET /tenants/${TENANT}/notifications/push-config`, { status: 200, body: { data: { publicKey: null } } });
+    const { app, root } = start('#/channels', api);
+    await settle();
+    app.dispatch('notification-toggle');
+    await settle();
+    expect(root.querySelector('#notification-menu')?.textContent).toContain('لا توجد إشعارات بعد');
+    expect(api.called(`GET /tenants/${TENANT}/notifications?limit=25`)).toBe(true);
+  });
+
   it('shows only the sign-in page at /#/inbox when there is no session', async () => {
     const api = new FakeApi().on('GET /auth/session', NO_SESSION);
     const { root, host } = start('#/inbox', api);
@@ -202,7 +217,7 @@ describe('the authentication boundary', () => {
     const release = api.hold('GET /auth/session');
     const { root } = start('#/channels', api);
     await settle();
-    expect(root.querySelector('.gate--loading')).not.toBeNull();
+    expect(root.querySelector('.app--pending')).not.toBeNull();
     expect(protectedContent(root)).toEqual([]);
     expect(root.textContent).not.toContain('Digital School');
     release({ status: 200, body: { data: { user: { id: 'u', email: 'hana@school.example' } } } });

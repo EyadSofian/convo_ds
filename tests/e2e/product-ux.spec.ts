@@ -44,8 +44,10 @@ test.describe('focused product UX repairs', () => {
     await page.locator('.nav__item[data-arg="settings"]').click();
     await expect(page.locator('.settings-section')).toHaveCount(4);
     await expect(page.locator('.settings-section').first()).toBeVisible();
-    const settingsWidth = await page.locator('.settings-section').first().boundingBox();
-    expect(settingsWidth?.width).toBeCloseTo(pageWidth?.width ?? 0, 0);
+    // Route data and the notification count may both redraw the shell. Measure
+    // the current section after those harmless refreshes, not a detached node.
+    await expect.poll(async () => (await page.locator('.settings-section').first().boundingBox())?.width ?? 0)
+      .toBeCloseTo(pageWidth?.width ?? 0, 0);
   });
 
   test('native selects reserve a stable mirrored chevron area in RTL and LTR', async ({ page }) => {

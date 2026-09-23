@@ -134,6 +134,8 @@ function invitation(overrides: Record<string, unknown> = {}): Record<string, unk
 function signedInApi(): FakeApi {
   return new FakeApi()
     .on('GET /auth/session', SESSION)
+    .on(`GET /tenants/${TENANT}/notifications?limit=25`, { status: 200, body: { data: [], page: { next_cursor: null, has_more: false } } })
+    .on(`GET /tenants/${TENANT}/notifications/unread-count`, { status: 200, body: { data: { count: 0 } } })
     .on('GET /me/memberships', {
       status: 200,
       body: {
@@ -1119,6 +1121,7 @@ describe('the transport the browser actually gets', () => {
       '/me/memberships',
       '/auth/sessions',
       `/tenants/${TENANT}/labels?includeRetired=true`,
+      `/tenants/${TENANT}/notifications/unread-count`,
     ]);
   });
 
@@ -1156,6 +1159,7 @@ describe('the transport the browser actually gets', () => {
       `/tenants/${TENANT}/teams`,
       `/tenants/${TENANT}/channels`,
       `/tenants/${TENANT}/campaigns`,
+      `/tenants/${TENANT}/notifications/unread-count`,
     ]);
   });
 
@@ -1370,6 +1374,7 @@ describe('the Channels screen', () => {
       `/tenants/${TENANT}/channels`,
       `/tenants/${TENANT}/channels/catalogue`,
       `/tenants/${TENANT}/channels/cn-1/test-recipients`,
+      `/tenants/${TENANT}/notifications/unread-count`,
     ]);
   });
 

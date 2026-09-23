@@ -12,7 +12,7 @@ import { fontsReady, freezeClock, openInbox, openSignedOut } from './support/wor
  */
 
 /** Everything that belongs to an open workspace. None of it may exist at the gate. */
-const PROTECTED = '.app, .nav, .header, .inbox, .page, [data-act="nav"], .header__tenant';
+const PROTECTED = '.app:not(.app--pending), .nav, .header, .inbox, .page, [data-act="nav"], .header__tenant';
 
 test.describe('without a session', () => {
   test('shows only the sign-in page at /#/inbox, and asks the server for nothing else', async ({ page }) => {
@@ -32,7 +32,7 @@ test.describe('without a session', () => {
     expect(requests).toEqual(['/api/v1/auth/session']);
   });
 
-  test('draws a branded wait, and nothing protected, while the session is being checked', async ({ page }) => {
+  test('draws a data-free app-shell skeleton, and nothing protected, while checking the session', async ({ page }) => {
     await freezeClock(page);
     let release: () => void = () => undefined;
     const answered = new Promise<void>((resolve) => {
@@ -44,8 +44,8 @@ test.describe('without a session', () => {
       await route.fallback();
     });
     await page.goto('/#/channels');
-    await expect(page.locator('.gate--loading')).toBeVisible();
-    await expect(page.locator('.gate--loading [role="status"]')).toContainText('جارٍ التحقق من الجلسة');
+    await expect(page.locator('.app--pending')).toBeVisible();
+    await expect(page.locator('.app--pending[role="status"]')).toContainText('جارٍ التحقق من الجلسة');
     await expect(page.locator(PROTECTED)).toHaveCount(0);
     release();
     await expect(page.locator('.page--channels')).toBeVisible();

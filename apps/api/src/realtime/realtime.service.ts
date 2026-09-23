@@ -80,11 +80,12 @@ interface FeedRow {
   readonly seq: string;
   readonly schema_version: number;
   readonly type: RealtimeEventType;
-  readonly entity_type: 'conversation' | 'message' | 'note';
+  readonly entity_type: 'conversation' | 'message' | 'note' | 'notification';
   readonly entity_id: string;
   readonly entity_version: number;
-  readonly conversation_id: string;
-  readonly connection_id: string;
+  readonly conversation_id: string | null;
+  readonly connection_id: string | null;
+  readonly recipient_membership_id: string | null;
   readonly team_id: string | null;
   readonly assignee_membership_id: string | null;
   readonly payload: Record<string, unknown>;
@@ -134,6 +135,24 @@ export class RealtimeService {
       ],
     );
     return seq;
+  }
+
+  /** Emit a payload-free invalidation for one member in the same transaction. */
+  async emitNotification(sql: SqlExecutor, tenantId: string, recipientMembershipId: string, notificationId: string): Promise<void> {
+    const allocated = await sql.query<{ next_seq: string }>(
+      `INSERT INTO tenant_event_sequences (tenant_id) VALUES ($1)
+       ON CONFLICT (tenant_id) DO UPDATE SET next_seq = tenant_event_sequences.next_seq + 1
+       RETURNING next_seq::text`,
+      [tenantId],
+    );
+    const seq = Number(requireRow(allocated.rows, 'the event sequence returned no row').next_seq);
+    await sql.query(
+      `INSERT INTO realtime_events
+         (tenant_id, seq, schema_version, type, entity_type, entity_id, entity_version,
+          recipient_membership_id, payload)
+       VALUES ($1, $2, $3, 'notification.changed', 'notification', $4, 1, $5, '{}'::jsonb)`,
+      [tenantId, seq, REALTIME_SCHEMA_VERSION, notificationId, recipientMembershipId],
+    );
   }
 
   /** The digest a cursor is stamped with, so a permission change invalidates it. */
@@ -194,7 +213,7 @@ export class RealtimeService {
       const rows = await sql.query<FeedRow>(
         `SELECT id::text, seq::text, schema_version, type, entity_type, entity_id::text,
                 entity_version, conversation_id::text, connection_id::text, team_id::text,
-                assignee_membership_id::text, payload, occurred_at
+                assignee_membership_id::text, recipient_membership_id::text, payload, occurred_at
            FROM realtime_events
           WHERE seq > $1
           -- Qualified on purpose: the select list renames seq::text to seq,
@@ -207,7 +226,7 @@ export class RealtimeService {
 
       const participants = await participantsFor(
         sql,
-        rows.rows.map((row) => row.conversation_id),
+        rows.rows.flatMap((row) => row.conversation_id === null ? [] : [row.conversation_id]),
       );
 
       const events: RealtimeEnvelope[] = [];
@@ -215,6 +234,11 @@ export class RealtimeService {
       for (const row of rows.rows) {
         last = Number(row.seq);
         const envelope = envelopeOf(row);
+        if (row.type === 'notification.changed') {
+          if (row.recipient_membership_id === principal.membershipId) events.push(envelope);
+          continue;
+        }
+        if (row.conversation_id === null) continue;
         const visibility = visibilityOf(
           principal,
           envelope,
@@ -306,8 +330,8 @@ function envelopeOf(row: FeedRow): RealtimeEnvelope {
     type: row.type,
     entity: { type: row.entity_type, id: row.entity_id, version: row.entity_version },
     scope: {
-      conversationId: row.conversation_id,
-      inboxId: row.connection_id,
+      conversationId: row.conversation_id ?? '',
+      inboxId: row.connection_id ?? '',
       teamId: row.team_id,
       assigneeMembershipId: row.assignee_membership_id,
     },

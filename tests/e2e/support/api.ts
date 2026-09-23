@@ -423,6 +423,14 @@ function paged(rows: readonly unknown[]): unknown {
 export interface ApiOptions {
   /** Whether the browser starts with a session. Sign-in and sign-out change it. */
   readonly signedIn?: boolean;
+  readonly notifications?: readonly {
+    readonly id: string;
+    readonly kind: string;
+    readonly targetType: string;
+    readonly targetId: string;
+    readonly createdAt: string;
+    readonly readAt: string | null;
+  }[];
 }
 
 /** The one password the scripted sign-in accepts. */
@@ -430,11 +438,13 @@ export const PASSWORD = 'correct horse battery staple';
 export const EMAIL = 'hana@digital-school.example';
 
 const USER = { data: { user: { id: 'u1', email: EMAIL } } };
+const FROZEN_NOTIFICATION_READ_AT = '2026-09-09T09:30:00.000Z';
 const UNAUTHENTICATED = { error: { code: 'unauthenticated', message: 'Sign in to continue.', request_id: 'e2e' } };
 
 export async function installApi(page: Page, options: ApiOptions = {}): Promise<void> {
   let signedIn = options.signedIn ?? true;
   let automationRows = [...automations()];
+  let notificationRows = [...(options.notifications ?? [])];
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
     const method = route.request().method();
@@ -479,6 +489,28 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
           },
         ],
       });
+    }
+    if (path.endsWith('/notifications/unread-count')) {
+      return json(route, { data: { count: notificationRows.filter((entry) => entry.readAt === null).length }, request_id: 'e2e' });
+    }
+    if (path.endsWith('/notifications/push-config')) {
+      return json(route, { data: { publicKey: null }, request_id: 'e2e' });
+    }
+    if (path.endsWith('/notifications/read-all') && method === 'POST') {
+      const changed = notificationRows.filter((entry) => entry.readAt === null).length;
+      notificationRows = notificationRows.map((entry) => entry.readAt === null
+        ? { ...entry, readAt: FROZEN_NOTIFICATION_READ_AT } : entry);
+      return json(route, { data: { changed }, request_id: 'e2e' });
+    }
+    if (path.includes('/notifications/') && path.endsWith('/read') && method === 'POST') {
+      const id = path.split('/').at(-2);
+      if (!notificationRows.some((entry) => entry.id === id)) return json(route, { error: { code: 'resource_not_found' } }, 404);
+      notificationRows = notificationRows.map((entry) => entry.id === id
+        ? { ...entry, readAt: entry.readAt ?? FROZEN_NOTIFICATION_READ_AT } : entry);
+      return json(route, { data: { read: true }, request_id: 'e2e' });
+    }
+    if (path.endsWith('/notifications')) {
+      return json(route, paged(notificationRows));
     }
     if (path.endsWith('/labels')) {
       return json(route, paged([

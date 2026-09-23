@@ -15,6 +15,7 @@ const types = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.webp': 'image/webp',
+  '.webmanifest': 'application/manifest+json',
   '.woff2': 'font/woff2',
 };
 const hopByHop = new Set([
@@ -124,7 +125,10 @@ function serveFile(pathname, request, response) {
   }
   response.writeHead(200, {
     'Content-Type': types[extname(file)] || 'application/octet-stream',
-    'Cache-Control': extname(file) === '.html' ? 'no-cache' : 'public, max-age=86400',
+    // Browsers must revalidate the worker script after a release; caching it
+    // for a day can strand old push-click routes on an otherwise new build.
+    'Cache-Control': ['.html', '.webmanifest'].includes(extname(file)) || file.endsWith('/sw.js')
+      ? 'no-cache' : 'public, max-age=86400',
     ...securityHeaders(request),
   });
   createReadStream(file).pipe(response);

@@ -34,6 +34,7 @@ import { disconnectedMetadataApi } from '../api/people.js';
 import { disconnectedSavedViewsApi } from '../api/people.js';
 import type { SavedView, SavedViewsApi } from '../api/saved-views.js';
 import type { RealtimeSubscription } from './realtime.js';
+import type { Notification, NotificationsApi } from '../api/notifications.js';
 import type {
   Invitation,
   MembershipSummary,
@@ -125,6 +126,12 @@ export interface LiveState {
   readonly campaignsApi: CampaignsApi;
   readonly automationsApi: AutomationsApi;
   readonly savedViewsApi: SavedViewsApi;
+  readonly notificationsApi: NotificationsApi | null;
+  notifications: Resource<readonly Notification[]>;
+  notificationNextCursor: string | null;
+  notificationUnreadCount: Resource<number>;
+  pushStatus: 'idle' | 'checking' | 'enabling' | 'enabled' | 'denied' | 'unavailable' | 'error';
+  pushPublicKey: string | null;
   session: SessionState;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
@@ -288,9 +295,16 @@ export function createLiveState(
   campaignsApi: CampaignsApi = disconnectedCampaignsApi(),
   automationsApi: AutomationsApi = disconnectedAutomationsApi(),
   savedViewsApi: SavedViewsApi = disconnectedSavedViewsApi(),
+  notificationsApi: NotificationsApi | null = null,
 ): LiveState {
   return {
     api,
+    notificationsApi,
+    notifications: IDLE,
+    notificationNextCursor: null,
+    notificationUnreadCount: IDLE,
+    pushStatus: 'idle',
+    pushPublicKey: null,
     channels,
     conversations: IDLE,
     supervisorAgents: IDLE,
@@ -395,6 +409,7 @@ export function renewLiveState(previous: LiveState): LiveState {
     previous.campaignsApi,
     previous.automationsApi,
     previous.savedViewsApi,
+    previous.notificationsApi,
   );
 }
 

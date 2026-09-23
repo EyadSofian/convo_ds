@@ -1,0 +1,12 @@
+{
+  "name": "CONVO — Digital School Operations",
+  "short_name": "CONVO",
+  "start_url": "/#/inbox",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fcfcfc",
+  "theme_color": "#3867c9",
+  "icons": [
+    { "src": "/brand/digital-school-by-berlitz.png", "sizes": "2482x2482", "type": "image/png", "purpose": "any" }
+  ]
+}

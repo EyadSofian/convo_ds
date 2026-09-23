@@ -6,8 +6,21 @@
     <meta name="theme-color" content="#fcfcfc" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1d1d1d" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="description" content="Digital School — منصة تشغيل المحادثات والقنوات والحملات" />
     <title>Digital School Operations</title>
+    <style>
+      html[data-theme='light'] { background: #fcfcfc; color: #1d1d1d; }
+      html[data-theme='dark'] { background: #1d1d1d; color: #f3f3f3; }
+      body { margin: 0; }
+      #app.app-boot { display: grid; grid-template-columns: 64px minmax(0, 1fr); height: 100dvh; overflow: hidden; }
+      .app-boot__nav { border-inline-end: 1px solid rgba(128,128,128,.16); padding: 15px; }
+      .app-boot__mark { display: block; width: 32px; height: 32px; border-radius: 9px; background: #3867c9; }
+      .app-boot__main { display: grid; grid-template-rows: 56px minmax(0, 1fr); }
+      .app-boot__header { border-block-end: 1px solid rgba(128,128,128,.16); padding: 20px; }
+      .app-boot__line { display: block; width: 140px; height: 12px; border-radius: 6px; background: rgba(128,128,128,.13); }
+      .app-boot__body { padding: 26px; }
+    </style>
     <!--
       Theme and language are decided before the first paint from local visual
       preferences. They carry no identity, tenant or authorization information;
@@ -76,8 +89,12 @@
       hand-over from this placeholder to the first render does not flash. No
       navigation, tenant or screen exists until the server confirms a session.
     -->
-    <div id="app" class="app-boot" role="status" aria-live="polite">
-      <span>DIGITAL SCHOOL</span>
+    <div id="app" class="app-boot" role="status" aria-live="polite" aria-label="Loading CONVO">
+      <div class="app-boot__nav" aria-hidden="true"><span class="app-boot__mark"></span></div>
+      <div class="app-boot__main" aria-hidden="true">
+        <div class="app-boot__header"><span class="app-boot__line"></span></div>
+        <div class="app-boot__body"><span class="app-boot__line"></span></div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -87,6 +87,41 @@ describe('navigation', () => {
 });
 
 describe('header', () => {
+  it('renders durable notification count, all drawer states, and safe localized summaries', () => {
+    const state = signedIn();
+    const bell = () => renderShell(state, screen());
+    expect(bell().querySelector('.notification-bell__badge')).toBeNull();
+    state.live.notificationUnreadCount = { status: 'ready', loadedAt: 1, value: 101 };
+    expect(bell().querySelector('.notification-bell__badge')?.textContent).toBe('99+');
+    state.live.notificationUnreadCount = { status: 'ready', loadedAt: 1, value: 3 };
+    expect(bell().querySelector('.notification-bell__badge')?.textContent).toBe('3');
+    state.openMenu = 'notifications';
+    expect(bell().querySelector('.notification-menu__status')?.textContent).toContain('Loading');
+    state.live.notifications = { status: 'error', error: { code: 'network', message: 'no', requestId: null, status: null, details: [] } };
+    expect(bell().querySelector('[role="alert"]')?.textContent).toContain('Could not load');
+    state.live.notifications = { status: 'ready', loadedAt: 1, value: [] };
+    expect(bell().querySelector('.notification-menu__status')?.textContent).toContain('No notifications');
+    state.live.notifications = { status: 'ready', loadedAt: 1, value: [
+      { id: 'n1', kind: 'new_message', targetType: 'conversation', targetId: 'c', createdAt: NOW.toISOString(), readAt: null },
+      { id: 'n2', kind: 'assignment', targetType: 'conversation', targetId: 'c', createdAt: NOW.toISOString(), readAt: NOW.toISOString() },
+      { id: 'n3', kind: 'handoff', targetType: 'handoff', targetId: 'c', createdAt: NOW.toISOString(), readAt: null },
+      { id: 'n4', kind: 'campaign', targetType: 'campaign', targetId: 'c', createdAt: NOW.toISOString(), readAt: null },
+      { id: 'n5', kind: 'automation_failure', targetType: 'automation', targetId: 'c', createdAt: NOW.toISOString(), readAt: null },
+    ] };
+    state.live.notificationNextCursor = 'more';
+    state.live.pushPublicKey = 'public';
+    const open = bell();
+    expect(open.querySelectorAll('.notification-row')).toHaveLength(5);
+    expect(open.querySelector('.notification-row--unread')?.textContent).toContain('New customer message');
+    expect(open.querySelector('.notification-menu__more[data-act="notification-more"]')).not.toBeNull();
+    expect(open.querySelector('[data-act="notification-enable-push"]')).not.toBeNull();
+    for (const status of ['enabled', 'checking', 'denied', 'unavailable', 'error'] as const) {
+      state.live.pushStatus = status;
+      expect(bell().querySelector('.notification-menu__push')?.textContent).toBeTruthy();
+    }
+    state.lang = 'ar';
+    expect(bell().querySelector('.notification-row--unread')?.textContent).toContain('رسالة عميل جديدة');
+  });
   it('shows the page title and the company name, never its slug', () => {
     const shell = renderShell(signedIn(), screen());
     expect(shell.querySelector('h1.header__title')?.textContent).toBe('Inbox');

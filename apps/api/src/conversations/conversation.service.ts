@@ -9,6 +9,7 @@ import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG, API_POOL } from '../tokens.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
+import { NotificationService } from '../notifications/notification.service.js';
 import { LifecycleService } from './lifecycle.service.js';
 import {
   denied,
@@ -98,6 +99,7 @@ export class ConversationService {
     @Inject(RealtimeService) private readonly realtime: RealtimeService,
     @Inject(LifecycleService) private readonly lifecycle: LifecycleService,
     @Inject(MetadataService) private readonly metadata: MetadataService,
+    @Inject(NotificationService) private readonly notifications: NotificationService,
   ) {}
 
   /**
@@ -174,6 +176,7 @@ export class ConversationService {
     tenantId: string,
     conversation: ConversationRow,
     inbound: {
+      readonly inboundEventId: string;
       readonly occurredAt: Date;
       readonly payload: Readonly<Record<string, unknown>>;
       /**
@@ -219,6 +222,15 @@ export class ConversationService {
         waitingSinceAt: row.waitingSince?.toISOString() ?? null,
       },
     });
+    if (conversation.assigneeMembershipId !== null) {
+      await this.notifications.create(sql, tenantId, {
+        recipientMembershipId: conversation.assigneeMembershipId,
+        kind: 'new_message',
+        targetType: 'conversation',
+        targetId: conversation.id,
+        dedupeKey: `inbound:${inbound.inboundEventId}`,
+      });
+    }
   }
 
   /**

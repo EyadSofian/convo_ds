@@ -153,13 +153,28 @@ function successScreen(state: AppState, title: string, body: string): HTMLElemen
   ])]);
 }
 
-/** The branded wait while the session probe is in flight. */
+/** A data-free shell while the session is checked; no protected nav is built. */
 export function loadingScreen(state: AppState): HTMLElement {
-  return h('div', { class: 'gate gate--loading' }, [
-    h('div', { class: 'gate__loading', role: 'status', 'aria-live': 'polite' }, [
-      brandLockup(),
-      h('span', { class: 'spinner spinner--lg', 'aria-hidden': 'true' }),
-      h('p', { class: 'gate__status' }, [t(state, 'جارٍ التحقق من الجلسة…', 'Checking your session…')]),
+  const inbox = state.route.screen === 'inbox';
+  return h('div', { class: 'app app--pending', 'data-nav': 'collapsed', role: 'status', 'aria-live': 'polite' }, [
+    h('div', { class: 'app-pending__nav', 'aria-hidden': 'true' }, [
+      h('span', { class: 'app-pending__brand' }, ['D']),
+      ...Array.from({ length: 5 }, () => h('span', { class: 'app-pending__nav-item' })),
+    ]),
+    h('div', { class: 'app__main' }, [
+      h('div', { class: 'app-pending__header', 'aria-hidden': 'true' }, [
+        h('span', { class: 'app-pending__line app-pending__line--title' }),
+        h('span', { class: 'app-pending__line app-pending__line--short' }),
+      ]),
+      h('main', { class: inbox ? 'app-pending__screen app-pending__screen--inbox' : 'app-pending__screen' }, [
+        inbox ? h('div', { class: 'app-pending__list', 'aria-hidden': 'true' },
+          Array.from({ length: 6 }, () => h('span', { class: 'app-pending__row' }))) : null,
+        h('div', { class: 'app-pending__content' }, [
+          h('span', { class: 'app-pending__line app-pending__line--wide', 'aria-hidden': 'true' }),
+          h('span', { class: 'app-pending__line', 'aria-hidden': 'true' }),
+          h('p', { class: 'app-pending__status' }, [t(state, 'جارٍ التحقق من الجلسة…', 'Checking your session…')]),
+        ]),
+      ]),
     ]),
   ]);
 }

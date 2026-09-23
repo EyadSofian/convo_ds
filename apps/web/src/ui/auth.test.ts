@@ -26,17 +26,18 @@ function gate(lang: 'ar' | 'en' = 'en'): AppState {
 }
 
 function expectNothingProtected(element: HTMLElement): void {
-  expect(element.querySelector('nav, .nav, .header, .app, .inbox, .page')).toBeNull();
+  expect(element.querySelector('nav, .nav, .header, .inbox, .page')).toBeNull();
   expect(element.textContent).not.toContain('Digital School');
 }
 
 describe('while the session is being checked', () => {
-  it('shows only a branded wait', () => {
+  it('shows a data-free route-aware shell', () => {
     const state = gate();
     const element = renderGate(state);
-    expect(element.className).toBe('gate gate--loading');
-    expect(element.querySelector('[role="status"]')?.textContent).toContain('Checking your session');
-    expect(element.querySelector('.brand')?.textContent).toBe('DIGITAL SCHOOL');
+    expect(element.className).toBe('app app--pending');
+    expect(element.getAttribute('role')).toBe('status');
+    expect(element.textContent).toContain('Checking your session');
+    expect(element.querySelector('.app-pending__brand')?.textContent).toBe('D');
     expectNothingProtected(element);
     expect(loadingScreen(gate('ar')).textContent).toContain('جارٍ التحقق من الجلسة');
   });

@@ -35,6 +35,7 @@ describe('parseApiConfig', () => {
       credentialKeys: [],
     });
     expect(config.channelSecrets).toEqual({});
+    expect(config.webPush).toEqual({ publicKey: null, privateKey: null, subject: null });
     expect(config.email.provider).toBe('disabled');
     expect(config.workerConcurrency).toBe(4);
     expect(config.host).toBe('0.0.0.0');
@@ -87,6 +88,36 @@ describe('parseApiConfig', () => {
         CONVO_EMAIL_PROVIDER: 'resend',
       }).email.provider,
     ).toBe('disabled');
+  });
+
+  it('keeps Web Push optional but requires a complete integration-worker key set', () => {
+    const publicKey = Buffer.alloc(65, 7).toString('base64url');
+    const privateKey = Buffer.alloc(32, 8).toString('base64url');
+    expect(parseApiConfig({ ...validEnv(), CONVO_WEB_PUSH_PUBLIC_KEY: publicKey }).webPush)
+      .toEqual({ publicKey, privateKey: null, subject: null });
+    expect(() => parseApiConfig({ ...validEnv(), CONVO_PROCESS_ROLE: 'worker-integration',
+      CONVO_WEB_PUSH_PUBLIC_KEY: publicKey })).toThrow(ApiConfigurationError);
+    expect(parseApiConfig({ ...validEnv(), CONVO_PROCESS_ROLE: 'worker-integration',
+      CONVO_WEB_PUSH_PUBLIC_KEY: publicKey, CONVO_WEB_PUSH_PRIVATE_KEY: privateKey,
+      CONVO_WEB_PUSH_SUBJECT: 'mailto:ops@example.test' }).webPush)
+      .toEqual({ publicKey, privateKey, subject: 'mailto:ops@example.test' });
+  });
+
+  it('rejects malformed Web Push keys and subjects without exposing private material', () => {
+    const publicKey = Buffer.alloc(65, 7).toString('base64url');
+    const privateKey = Buffer.alloc(32, 8).toString('base64url');
+    expect(() => parseApiConfig({ ...validEnv(), CONVO_WEB_PUSH_PUBLIC_KEY: 'short' }))
+      .toThrow(/CONVO_WEB_PUSH_PUBLIC_KEY/);
+    for (const env of [
+      { CONVO_WEB_PUSH_PUBLIC_KEY: publicKey, CONVO_WEB_PUSH_PRIVATE_KEY: privateKey },
+      { CONVO_WEB_PUSH_PRIVATE_KEY: privateKey, CONVO_WEB_PUSH_SUBJECT: 'mailto:ops@example.test' },
+      { CONVO_WEB_PUSH_PUBLIC_KEY: publicKey, CONVO_WEB_PUSH_SUBJECT: 'mailto:ops@example.test' },
+      { CONVO_WEB_PUSH_PUBLIC_KEY: publicKey, CONVO_WEB_PUSH_PRIVATE_KEY: 'short', CONVO_WEB_PUSH_SUBJECT: 'mailto:ops@example.test' },
+      { CONVO_WEB_PUSH_PUBLIC_KEY: publicKey, CONVO_WEB_PUSH_PRIVATE_KEY: privateKey, CONVO_WEB_PUSH_SUBJECT: 'javascript:bad' },
+    ]) {
+      expect(() => parseApiConfig({ ...validEnv(), CONVO_PROCESS_ROLE: 'worker-integration', ...env }))
+        .toThrow(ApiConfigurationError);
+    }
   });
 
   it('reads channel app secrets from the environment, by reference name', () => {

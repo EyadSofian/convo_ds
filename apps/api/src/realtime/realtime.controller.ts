@@ -6,6 +6,7 @@ import { API_CONFIG } from '../tokens.js';
 import type { ApiConfig } from '../config.js';
 import { RealtimeService } from './realtime.service.js';
 import type { FeedPage } from './realtime.service.js';
+import { encodeCursor } from '@convo/domain';
 
 /**
  * The subscription surface.
@@ -127,13 +128,17 @@ export class RealtimeController {
           break;
         }
         for (const event of page.events) {
+          // A page can contain several events. Advancing the browser's
+          // Last-Event-ID to the page end on its first frame would skip the
+          // remaining frames if the connection broke mid-write.
+          const eventCursor = encodeCursor({ tenantId, seq: event.seq, authority: page.authority });
           raw.write(
-            frame(event.type, frameId(page.cursor), {
+            frame(event.type, frameId(eventCursor), {
               ...event,
               // Repeated in the data as well as the frame id: a consumer that
               // stores events keeps the cursor with them, and the frame id is
               // gone by then.
-              cursor: page.cursor,
+              cursor: eventCursor,
             }),
           );
           lastFrameAt = Date.now();

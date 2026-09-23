@@ -25,6 +25,7 @@ const CONFIG = {
   email: { provider: 'logging', from: '', resendApiKey: '', smtp: { host: '', port: 0, secure: false, username: '', password: '' } },
   trustedProxyHops: 0,
   channelTransport: 'none',
+  webPush: { publicKey: null, privateKey: null, subject: null },
   logLevel: 'info',
   workerConcurrency: 4,
   realtime: {

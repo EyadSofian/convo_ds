@@ -25,7 +25,7 @@ function harness(rows: readonly Record<string, unknown>[], currentPrincipal: Pri
   const sql = { query: vi.fn(async <T>(text: string) => text.includes('FROM conversations c') ? { rows: rows as T[], rowCount: rows.length } : { rows: [], rowCount: 0 }) } as unknown as SqlExecutor;
   const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal: currentPrincipal, tenantId })) } as unknown as AuthorizationService;
   const metadata = { conversationMetadataBatch: vi.fn(async () => new Map()) } as unknown as MetadataService;
-  const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata);
+  const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never);
   return { service, sql };
 }
 
@@ -72,7 +72,7 @@ describe('ConversationService Inbox boundaries', () => {
       : { rows: [], rowCount: 0 }) } as unknown as SqlExecutor;
     const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal, tenantId })) } as unknown as AuthorizationService;
     const metadata = { conversationMetadataBatch: vi.fn(async () => new Map()) } as unknown as MetadataService;
-    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata);
+    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never);
     await expect(service.supervisorWorkload({ userId: 'user' } as never, tenantId, member)).rejects.toThrow('supervisor workload returned no row');
   });
 });

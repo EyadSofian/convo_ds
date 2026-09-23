@@ -11,6 +11,7 @@ import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
 import { currentTenantId, failed, forTenant, fromResult, LOADING, ready, rowsOf } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadSavedViews } from './saved-view-actions.js';
+import { loadNotifications, refreshNotificationCount } from './notification-actions.js';
 
 /**
  * The Inbox, against the real API.
@@ -425,6 +426,11 @@ export function startRealtime(context: LiveContext, wiring: RealtimeWiring): voi
     open: wiring.open,
     handlers: {
       onEvent: (event) => {
+        if (event.type === 'notification.changed') {
+          if (context.state.openMenu === 'notifications') void loadNotifications(context, true);
+          else void refreshNotificationCount(context);
+          return;
+        }
         void applyRealtimeEvent(context, event);
       },
       onReset: (reason) => {
