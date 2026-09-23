@@ -262,16 +262,17 @@ describe('the realtime subscription', () => {
   });
 
   it('goes quiet once it is closed', () => {
-    const { source, events, resets, disconnects, subscription } = harness();
+    const { source, connections, events, resets, disconnects, subscription } = harness();
     subscription.close();
     expect(source.closed).toBe(true);
+    source.emit('open', '');
     source.emit('message.inbound', event());
     source.emit('reset_required', { reason: 'expired' });
     source.emit('stream_cycled', { reason: 'max_stream_age' });
     source.emit('error', '');
     // A closed subscription that still pushed into the screen would repopulate
     // an inbox the operator has navigated away from.
-    expect([events.length, resets.length, disconnects.length]).toEqual([0, 0, 0]);
+    expect([connections.length, events.length, resets.length, disconnects.length]).toEqual([0, 0, 0, 0]);
   });
 });
 
