@@ -162,17 +162,29 @@ export class OutboundService {
           return requireRow(await readMessages(sql, already.id), 'the message vanished');
         }
 
+        if (conversationId !== null) {
+          const boundConversation = await sql.query<{ id: string }>(
+            `SELECT id::text FROM conversations
+              WHERE id=$1 AND tenant_id=$2 AND connection_id=$3 AND peer_identity=$4 AND status <> 'archived'`,
+            [conversationId, tenantId, connectionId, request.peerIdentity],
+          );
+          if (boundConversation.rows[0] === undefined) {
+            throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+          }
+        }
+
         const inserted = await sql.query<{ id: string }>(
           `INSERT INTO outbound_messages
-             (tenant_id, connection_id, peer_identity, author_membership, message_type,
+             (tenant_id, connection_id, peer_identity, conversation_id, author_membership, message_type,
               text_body, template_name, template_language, client_message_id,
               permitted_owner_version)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
            RETURNING id::text`,
           [
             tenantId,
             connectionId,
             request.peerIdentity,
+            conversationId,
             principal.membershipId,
             request.messageType,
             request.text === '' ? null : request.text,
@@ -199,7 +211,7 @@ export class OutboundService {
         if (conversationId !== null) {
           // The first response is the first: `noteResponse` coalesces, so a
           // second reply cannot move the number a report is computed from.
-          await this.lifecycle.noteResponse(sql, conversationId, new Date());
+          await this.lifecycle.noteResponse(sql, conversationId, new Date(), principal.membershipId);
         }
 
         return requireRow(await readMessages(sql, messageId), 'the message vanished');

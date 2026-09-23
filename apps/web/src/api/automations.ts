@@ -1,6 +1,26 @@
-import { API_BASE_URL, ApiClient, type ApiResult } from './client.js';
+import { API_BASE_URL, ApiClient, type ApiResult, type PagedData } from './client.js';
 
 export type AutomationState = 'draft' | 'active' | 'paused' | 'archived';
+export type AutomationSort = 'updated_desc' | 'name_asc' | 'name_desc';
+
+export interface AutomationListQuery {
+  readonly search: string;
+  readonly state: AutomationState | '';
+  readonly sort: AutomationSort;
+  readonly cursor: string | null;
+  readonly limit: number;
+}
+
+export interface AutomationRunsQuery {
+  readonly cursor: string | null;
+  readonly limit: number;
+}
+
+export const DEFAULT_AUTOMATION_LIST_QUERY: Omit<AutomationListQuery, 'cursor'> = {
+  search: '', state: '', sort: 'updated_desc', limit: 25,
+};
+
+export const DEFAULT_AUTOMATION_RUNS_QUERY: Omit<AutomationRunsQuery, 'cursor'> = { limit: 25 };
 
 export interface AutomationTrigger {
   readonly type: string;
@@ -76,11 +96,11 @@ export class AutomationsApi {
     return this.client.get(`/tenants/${tenantId}/automation-templates`);
   }
   whatsappTemplates(tenantId:string):Promise<ApiResult<readonly WhatsAppTemplate[]>>{return this.client.get(`/tenants/${tenantId}/whatsapp-templates`);}
-  list(tenantId: string): Promise<ApiResult<readonly Automation[]>> {
-    return this.client.get(`/tenants/${tenantId}/automations`);
+  list(tenantId: string, query: AutomationListQuery = { ...DEFAULT_AUTOMATION_LIST_QUERY, cursor: null }): Promise<ApiResult<PagedData<Automation>>> {
+    return this.client.page(`/tenants/${tenantId}/automations${queryString(query)}`);
   }
-  runs(tenantId: string): Promise<ApiResult<readonly AutomationRun[]>> {
-    return this.client.get(`/tenants/${tenantId}/automation-runs`);
+  runs(tenantId: string, query: AutomationRunsQuery = { ...DEFAULT_AUTOMATION_RUNS_QUERY, cursor: null }): Promise<ApiResult<PagedData<AutomationRun>>> {
+    return this.client.page(`/tenants/${tenantId}/automation-runs${queryString(query)}`);
   }
   useTemplate(tenantId: string, key: string, name: string): Promise<ApiResult<Automation>> {
     return this.client.post(`/tenants/${tenantId}/automation-templates/${encodeURIComponent(key)}/use`, { body: { name } });
@@ -94,6 +114,18 @@ export class AutomationsApi {
   transition(tenantId: string, automation: Automation, action: 'activate' | 'pause' | 'resume' | 'archive'): Promise<ApiResult<Automation>> {
     return this.client.post(`/tenants/${tenantId}/automations/${automation.id}/${action}`, { body: { version: automation.version } });
   }
+  deleteDraft(tenantId: string, automation: Automation): Promise<ApiResult<{ readonly id: string }>> {
+    return this.client.delete(`/tenants/${tenantId}/automations/${automation.id}`, { body: { version: automation.version } });
+  }
+}
+
+function queryString(query: object): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query as Record<string, string | number | null>)) {
+    if (value !== null && value !== '') params.set(key, String(value));
+  }
+  const encoded = params.toString();
+  return encoded === '' ? '' : `?${encoded}`;
 }
 
 export function disconnectedAutomationsApi(): AutomationsApi {

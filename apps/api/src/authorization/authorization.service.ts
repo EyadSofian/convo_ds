@@ -121,6 +121,27 @@ export class AuthorizationService {
       return work({ ...context, decision, scope: decision.scope });
     });
   }
+
+  /**
+   * Reports are collection reads, but an `own` report grant still has a
+   * principal-owned resource: this membership's own report. The query itself
+   * must continue applying its readable conversation predicate before every
+   * aggregate; this only makes the permission decision expressible.
+   */
+  async authorizedOwnReport<T>(
+    session: AuthenticatedSession,
+    tenantId: string,
+    work: (context: AuthorizedContext) => Promise<T>,
+  ): Promise<T> {
+    this.assertTenantId(tenantId);
+    return withTenant(this.pool, tenantId, async (client) => {
+      const sql = asExecutor(client);
+      const principal = await this.requirePrincipal(sql, session);
+      const decision = authorize(principal, 'report.read', { assigneeMembershipId: principal.membershipId });
+      if (!decision.allowed) throw denial(decision);
+      return work({ sql, principal, tenantId, decision, scope: decision.scope });
+    });
+  }
 }
 
 export interface PrincipalContext {

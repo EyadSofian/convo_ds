@@ -5,6 +5,13 @@ import {
   disconnectedContactsApi,
   disconnectedConversationsApi,
 } from './api/people';
+import {
+  INBOX_FILTER_CATALOGUE,
+  INBOX_QUERY_DEFAULT,
+  INBOX_SORTS,
+  type InboxFilter,
+  type InboxSort,
+} from '@convo/domain';
 import type { LiveState } from './live/store';
 import { createLiveState } from './live/store';
 import type { Route, ScreenId } from './router';
@@ -43,11 +50,19 @@ export interface DialogState {
 export interface AnalyticsFilters {
   readonly from: string;
   readonly to: string;
+  readonly agentId: string;
+  readonly teamId: string;
   readonly channel: string;
+  readonly connectionId: string;
+  readonly labelId: string;
   readonly campaignId: string;
+  readonly priority: string;
+  readonly status: string;
 }
 
-export const NO_ANALYTICS_FILTERS: AnalyticsFilters = { from: '', to: '', channel: '', campaignId: '' };
+export type AnalyticsView = 'overview' | 'agents' | 'teams' | 'responses' | 'resolutions' | 'assignments' | 'channels' | 'campaigns';
+
+export const NO_ANALYTICS_FILTERS: AnalyticsFilters = { from: '', to: '', agentId: '', teamId: '', channel: '', connectionId: '', labelId: '', campaignId: '', priority: '', status: '' };
 
 export interface AppState {
   lang: Lang;
@@ -89,6 +104,7 @@ export interface AppState {
   /** The connection whose management details are expanded. */
   expandedConnection: string | null;
   analyticsFilters: AnalyticsFilters;
+  analyticsView: AnalyticsView;
   /**
    * The moment the screen was last drawn.
    *
@@ -143,6 +159,7 @@ export function createState(
     channelKind: '',
     expandedConnection: null,
     analyticsFilters: NO_ANALYTICS_FILTERS,
+    analyticsView: 'campaigns',
     clock: now,
     toasts: [],
     sequence: 0,
@@ -172,12 +189,29 @@ export function routeParamsFor(state: AppState): Record<string, string> {
   if (state.route.screen === 'inbox' && state.inboxQueue !== 'unassigned') {
     params.queue = state.inboxQueue;
   }
+  if (state.route.screen === 'inbox') {
+    const query = state.live.inboxQuery;
+    if (query.queue !== 'mine') params.scope = query.queue;
+    if (query.sort !== 'activity_desc') params.sort = query.sort;
+    if (query.filters.length > 0) params.filters = JSON.stringify(query.filters);
+  }
   if (state.route.screen === 'analytics') {
+    if (state.analyticsView !== 'campaigns') params.view = state.analyticsView;
     const filters = state.analyticsFilters;
     if (filters.from !== '') params.from = filters.from;
     if (filters.to !== '') params.to = filters.to;
+    if (filters.agentId !== '') params.agentFilter = filters.agentId;
+    if (filters.teamId !== '') params.team = filters.teamId;
     if (filters.channel !== '') params.channel = filters.channel;
+    if (filters.connectionId !== '') params.connection = filters.connectionId;
+    if (filters.labelId !== '') params.label = filters.labelId;
     if (filters.campaignId !== '') params.campaign = filters.campaignId;
+    if (filters.priority !== '') params.priority = filters.priority;
+    if (filters.status !== '') params.status = filters.status;
+    // Agent-detail navigation is identity based. It is deliberately not a
+    // display name, because names are neither unique nor stable identifiers.
+    const agent = state.route.params.agent;
+    if (agent !== undefined && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(agent)) params.agent = agent;
   }
   if (state.route.screen === 'automations') {
     const view = state.route.params['view'];
@@ -188,23 +222,104 @@ export function routeParamsFor(state: AppState): Record<string, string> {
   return params;
 }
 
+/**
+ * Carries the global presentation language into a manually authored route.
+ *
+ * The normal navigation path goes through `routeParamsFor`, but anchors in
+ * independently-rendered screens must use this helper as well. A copied deep
+ * link therefore retains its language even in a fresh browser with no stored
+ * preference. It deliberately carries only a presentation preference, never
+ * identity, tenant or permission state.
+ */
+export function routeParamsWithLanguage(
+  state: Pick<AppState, 'lang'>,
+  params: Readonly<Record<string, string>>,
+): Record<string, string> {
+  return { ...params, lang: state.lang };
+}
+
 export function applyRoute(state: AppState, route: Route): void {
   const params = route.params;
   state.route = route;
-  state.lang = params.lang === 'en' ? 'en' : 'ar';
+  // An absent language parameter means "keep the operator's persisted choice",
+  // not "reset to Arabic". Deep links must not overwrite a presentation
+  // preference just because they omit it.
+  if (params.lang === 'en' || params.lang === 'ar') state.lang = params.lang;
   if (route.screen === 'inbox') {
     // Which half of the inbox is showing is worth sharing in a link; nothing
     // else about it is local state any more.
     state.inboxQueue = params.queue === 'mine' ? 'mine' : 'unassigned';
+    state.live.inboxQuery = {
+      ...INBOX_QUERY_DEFAULT,
+      queue: params.scope === 'all' ? 'all' : 'mine',
+      sort: isInboxSort(params.sort) ? params.sort : 'activity_desc',
+      filters: routeFilters(params.filters),
+    };
   }
   if (route.screen === 'analytics') {
+    const requestedView = params.view === 'operations' ? 'overview' : params.view;
+    state.analyticsView = requestedView === 'overview' || requestedView === 'agents' || requestedView === 'teams' || requestedView === 'responses' || requestedView === 'resolutions' || requestedView === 'assignments' || requestedView === 'channels' || requestedView === 'campaigns'
+      ? requestedView : 'campaigns';
     state.analyticsFilters = {
       from: params.from ?? '',
       to: params.to ?? '',
+      agentId: params.agentFilter ?? '',
+      teamId: params.team ?? '',
       channel: params.channel ?? '',
+      connectionId: params.connection ?? '',
+      labelId: params.label ?? '',
       campaignId: params.campaign ?? '',
+      priority: params.priority ?? '',
+      status: params.status ?? '',
     };
   }
+}
+
+function isInboxSort(value: string | undefined): value is InboxSort {
+  return typeof value === 'string' && (INBOX_SORTS as readonly string[]).includes(value);
+}
+
+function routeFilters(value: string | undefined): readonly InboxFilter[] {
+  if (value === undefined || value.length > 6000) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed) || parsed.length > 20) return [];
+    return parsed.every(isRouteFilter) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Reject malformed or unsupported deep-link filters before they enter client
+ * state. This intentionally stays structural: the API compiler remains the
+ * authority for tenancy, database values and custom-field semantics.
+ */
+function isRouteFilter(value: unknown): value is InboxFilter {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const filter = value as Record<string, unknown>;
+  if (typeof filter['key'] !== 'string' || typeof filter['operator'] !== 'string') return false;
+  const definition = INBOX_FILTER_CATALOGUE.find((entry) => entry.key === filter['key']);
+  if (definition === undefined || !definition.operators.includes(filter['operator'])) return false;
+
+  const fieldId = filter['fieldId'];
+  if (definition.key === 'custom_field') {
+    if (typeof fieldId !== 'string' || !isUuid(fieldId)) return false;
+  } else if (fieldId !== undefined) {
+    return false;
+  }
+
+  const filterValue = filter['value'];
+  if (filter['operator'] === 'is_set' || filter['operator'] === 'is_not_set') return filterValue === undefined;
+  if (filterValue === undefined) return false;
+  if (definition.valueType === 'boolean') return typeof filterValue === 'boolean';
+  if (typeof filterValue === 'string') return filterValue.length > 0 && filterValue.length <= 500;
+  return Array.isArray(filterValue) && filterValue.length > 0 && filterValue.length <= 20 &&
+    filterValue.every((item) => typeof item === 'string' && item.length > 0 && item.length <= 500);
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 export function screenTitle(screen: ScreenId, lang: Lang): string {

@@ -53,8 +53,10 @@ const MAX_GROUP_CHILDREN = 20;
 const FIELD_SETS: Readonly<Record<ConditionContext, ReadonlySet<string>>> = {
   conversation: new Set([
     'channel', 'team_id', 'assigned_agent_id', 'status', 'priority', 'label_id',
-    'customer_name', 'customer_phone', 'created_at', 'last_message_at', 'unread',
-    'unassigned', 'campaign_name',
+    'customer_name', 'customer_phone', 'created_at', 'last_message_at', 'waiting_since',
+    'unread', 'unreplied', 'unassigned', 'connection_id', 'campaign_id',
+    // Kept only to surface old saved views as deprecated; new UI never writes it.
+    'campaign_name',
   ]),
   audience: new Set([
     'channel', 'customer_status', 'label_id', 'last_contact_at', 'consent',

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { CONNECTION, installApi } from './support/api';
+import { CONNECTION, installApi, MEMBERSHIP } from './support/api';
 import {
   box,
   freezeClock,
@@ -160,6 +160,28 @@ test.describe('the navigation drawer below 960px', () => {
     await expect(page.locator('.page--settings')).toBeVisible();
     await expect(page.locator('.nav')).toBeHidden();
     expect(await overflowsHorizontally(page)).toBe(false);
+  });
+});
+
+test.describe('the inbox filter drawer on a phone', () => {
+  test('uses the viewport, traps focus, and closes with Escape', async ({ page }) => {
+    await openInbox(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.thread__listtoggle').click();
+    const opener = page.locator('[data-act="menu"][data-arg="inbox-filters"]');
+    await opener.click();
+    const drawer = page.locator('.inbox-filter-popover');
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toHaveAttribute('data-trap', 'mobile-inbox-filters');
+    const box = await drawer.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(389);
+    expect(box?.height).toBeGreaterThanOrEqual(843);
+    for (let index = 0; index < 12; index += 1) {
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.querySelector('.inbox-filter-popover')?.contains(document.activeElement))).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
   });
 });
 
@@ -566,5 +588,83 @@ test.describe('Analytics', () => {
     await page.clock.runFor(3_000);
     await expect(page.locator('[data-export]')).toHaveAttribute('data-export', 'expired');
     await expect(page.locator('[data-export-ready]')).toHaveCount(0);
+  });
+
+  test('opens the paginated Assignments report, loads its next page, and fits on a phone', async ({ page }) => {
+    await openScreen(page, 'analytics');
+    await page.route('**/reports/operations*', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { agentOptions: [], agents: [] }, request_id: 'e2e' }),
+    }));
+    await page.route('**/reports/assignments*', (route) => {
+      const secondPage = new URL(route.request().url()).searchParams.has('cursor');
+      const item = secondPage
+        ? { id: 'audit-2', timestamp: '2026-09-08T09:00:00.000Z', conversationId: 'conversation-1', customer: 'Mona Khalil', action: 'assign', previousAssignee: null, assignedTo: { membershipId: 'member-1', displayName: 'Ahmed Fouad' }, actor: null }
+        : { id: 'audit-1', timestamp: '2026-09-09T09:00:00.000Z', conversationId: 'conversation-1', customer: 'Mona Khalil', action: 'claim', previousAssignee: null, assignedTo: { membershipId: 'member-1', displayName: 'Ahmed Fouad' }, actor: { membershipId: 'member-1', displayName: 'Ahmed Fouad' } };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [item], page: { next_cursor: secondPage ? null : 'e2e-cursor-page-2', has_more: !secondPage }, request_id: 'e2e' }) });
+    });
+    await page.locator('[data-act="analytics-view"][data-arg="assignments"]').click();
+    await expect(page.locator('[data-assignment-id="audit-1"]')).toBeVisible();
+    await expect(page.locator('thead')).toContainText('المحادثة / العميل');
+    await page.locator('[data-act="live-assignments-more"]').click();
+    await expect(page.locator('[data-assignment-id="audit-2"]')).toBeVisible();
+    await expect(page.locator('[data-assignment-id]')).toHaveCount(2);
+    await page.setViewportSize({ width: 430, height: 900 });
+    expect(await overflowsHorizontally(page)).toBe(false);
+    await setDirection(page, 'rtl');
+    expect(await overflowsHorizontally(page)).toBe(false);
+  });
+
+  test('opens the separate Responses and Resolutions screens with real report responses', async ({ page }) => {
+    await openScreen(page, 'analytics');
+    await page.route('**/reports/operations*', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { agentOptions: [], agents: [] }, request_id: 'e2e' }),
+    }));
+    await page.route('**/reports/responses*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      data: { measured: 2, averageSeconds: 420, medianSeconds: 300, buckets: [{ bucket: '5–15m', count: 2 }], byAgent: [{ membershipId: MEMBERSHIP, name: 'Ahmed Fouad', measured: 2, averageSeconds: 420, medianSeconds: 300 }], byChannel: [{ channel: 'whatsapp', measured: 2, averageSeconds: 420, medianSeconds: 300 }] }, request_id: 'e2e',
+    }) }));
+    await page.route('**/reports/resolutions*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      data: { resolvedEpisodes: 1, averageSeconds: 2100, medianSeconds: 2100, reopenedEpisodes: 0, byAgent: [{ membershipId: null, name: 'Unattributed', measured: 1, averageSeconds: 2100, medianSeconds: 2100 }], byChannel: [{ channel: 'whatsapp', measured: 1, averageSeconds: 2100, medianSeconds: 2100 }] }, request_id: 'e2e',
+    }) }));
+    await setDirection(page, 'ltr');
+    await page.locator('[data-act="analytics-view"][data-arg="responses"]').click();
+    await expect(page.getByRole('heading', { name: 'First-response time buckets' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'By agent' }).locator('tbody')).toContainText('Ahmed Fouad');
+    await page.locator('[data-act="analytics-view"][data-arg="resolutions"]').click();
+    await expect(page.getByRole('heading', { name: 'Reopened episodes' })).toHaveCount(0);
+    await expect(page.locator('body')).toContainText('Unattributed');
+    await expect(page.locator('section[aria-label="Resolution measures"]')).toContainText('Reopened episodes');
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await overflowsHorizontally(page)).toBe(false);
+    await setDirection(page, 'rtl');
+    expect(await overflowsHorizontally(page)).toBe(false);
+  });
+
+  test('opens focused Agents and scoped Teams reports and preserves mobile RTL layout', async ({ page }) => {
+    await openScreen(page, 'analytics');
+    await page.route('**/reports/operations*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
+      generatedAt: '2026-09-09T09:00:00.000Z', filters: {}, agentOptions: [],
+      conversations: { open: 0, unassigned: 0, new: 0, resolved: 0, assignedInPeriod: 0, humanMessages: 0, internalNotes: 0, reassignments: 0, backlogByStatus: [], backlogByChannel: [], backlogByTeam: [], assignmentWorkload: [] },
+      timing: { firstResponseMeasured: 0, firstResponseAverageSeconds: null, firstResponseMedianSeconds: null, resolutionMeasured: 0, resolutionAverageSeconds: null, resolutionMedianSeconds: null }, responseBuckets: [], channels: [],
+      agents: [{ membershipId: MEMBERSHIP, name: 'Ahmed Hassan', email: 'ahmed@example.test', teams: ['Support'], currentAssigned: 0, currentOpen: 0, currentPending: 0, currentSnoozed: 0, currentUnreplied: 0, currentUrgent: 0, currentHigh: 0, currentByStatus: [], currentByChannel: [], assignedInPeriod: 0, handledConversations: 0, humanMessages: 0, internalNotes: 0, firstResponses: 0, firstResponseAverageSeconds: null, firstResponseMedianSeconds: null, resolutions: 0, resolutionAverageSeconds: null, resolutionMedianSeconds: null, reassignments: 0 }],
+    }, request_id: 'e2e' }) }));
+    await page.route('**/reports/teams*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [
+      { teamId: '00000000-0000-4000-8000-000000000010', name: 'Support', activeAgentCount: 1, currentActive: 0, currentOpen: 0, currentPending: 0, currentSnoozed: 0, handledConversations: 0, humanMessages: 0, firstResponses: 0, firstResponseAverageSeconds: null, firstResponseMedianSeconds: null, resolutions: 0, resolutionAverageSeconds: null, resolutionMedianSeconds: null },
+    ], request_id: 'e2e' }) }));
+    await setDirection(page, 'ltr');
+    await page.locator('[data-act="analytics-view"][data-arg="agents"]').click();
+    await expect(page.locator(`[data-agent-id="${MEMBERSHIP}"]`)).toContainText('Ahmed Hassan');
+    await expect(page.locator('body')).toContainText('Median response');
+    await page.locator('[data-act="analytics-view"][data-arg="teams"]').click();
+    const teamRow = page.locator('[data-team-id="00000000-0000-4000-8000-000000000010"]');
+    await expect(teamRow).toContainText('Support');
+    await expect(page.locator('body')).toContainText('Current team grouping');
+    const allCurrent = teamRow.locator('a[href*="/inbox"]').first();
+    const teamHref = await allCurrent.getAttribute('href');
+    const params = new URLSearchParams((teamHref ?? '').split('?')[1] ?? '');
+    expect(JSON.parse(params.get('filters') ?? '[]')).toEqual([{ key: 'team_id', operator: 'eq', value: '00000000-0000-4000-8000-000000000010' }]);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await overflowsHorizontally(page)).toBe(false);
+    await setDirection(page, 'rtl');
+    expect(await overflowsHorizontally(page)).toBe(false);
   });
 });

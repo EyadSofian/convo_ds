@@ -1117,7 +1117,8 @@ describe('the inbox surface', () => {
   });
 
   it('lists everything an owner may read, and filters by status', async () => {
-    const all = await send(api, owner, 'GET', '/conversations?queue=all&status=open');
+    const status = encodeURIComponent(JSON.stringify({ key: 'status', operator: 'eq', value: 'open' }));
+    const all = await send(api, owner, 'GET', `/conversations?queue=all&filter=${status}`);
     expect(all.statusCode).toBe(200);
     const rows = (all.json() as { data: { id: string; status: string }[] }).data;
     // An owner reads at tenant level, so `queue=all` is genuinely everything —
@@ -1125,12 +1126,10 @@ describe('the inbox surface', () => {
     expect(rows.map((row) => row.id)).toContain(conversationId);
     expect(rows.every((row) => row.status === 'open')).toBe(true);
 
-    // A filter nobody recognises is not an error: the honest answer to "show me
-    // conversations that are flurble" is the unfiltered list, not a 400 that
-    // hides the inbox.
-    const odd = await send(api, owner, 'GET', '/conversations?queue=all&status=flurble');
-    expect(odd.statusCode).toBe(200);
-    expect((odd.json() as { data: unknown[] }).data.length).toBeGreaterThanOrEqual(rows.length);
+    // The structured query is strict: unknown enums must not silently widen a
+    // saved or shareable Inbox query into an unfiltered list.
+    const odd = encodeURIComponent(JSON.stringify({ key: 'status', operator: 'eq', value: 'flurble' }));
+    expect((await send(api, owner, 'GET', `/conversations?queue=all&filter=${odd}`)).statusCode).toBe(400);
   });
 
   it('reaches a team-routed conversation through the list, the timeline and a reply', async () => {
@@ -1812,8 +1811,9 @@ describe('contacts', () => {
     expect((await send(api, owner, 'GET', `/contacts?${repeatedLabels.toString()}`)).statusCode).toBe(400);
 
     const validId = '99999999-9999-4999-8999-999999999999';
-    expect((await send(api, owner, 'GET', `/conversations?queue=all&unread=true&priority=high&channel=whatsapp&inboxId=${validId}&teamId=${validId}&assigneeId=${validId}`)).statusCode).toBe(200);
-    expect((await send(api, owner, 'GET', '/conversations?unread=false')).statusCode).toBe(200);
+    const inboxFilter = (filter: unknown): string => `filter=${encodeURIComponent(JSON.stringify(filter))}`;
+    expect((await send(api, owner, 'GET', `/conversations?queue=all&${inboxFilter({ key: 'status', operator: 'eq', value: 'open' })}`)).statusCode).toBe(200);
+    expect((await send(api, owner, 'GET', `/conversations?${inboxFilter({ key: 'unread', operator: 'eq', value: false })}`)).statusCode).toBe(200);
     expect((await send(api, owner, 'GET', `/conversations/unassigned?priority=urgent&channel=instagram&inboxId=${validId}`)).statusCode).toBe(200);
     for (const path of [
       '/conversations?unread=maybe',
@@ -2207,6 +2207,511 @@ describe('a stream that ends badly', () => {
 });
 
 /** Reads the authority digest back out of a cursor this build issued. */
+describe('supervisor inbox lens', () => {
+  const peer = '15557000910';
+  let conversationId: string;
+
+  beforeAll(async () => {
+    await customerWrites(INBOX_A, peer, 'متابعة للمشرف', 'wamid.rt-supervisor-1');
+    conversationId = (await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string }>('SELECT id::text FROM conversations WHERE peer_identity=$1', [peer]),
+    )).rows[0]!.id;
+    const current = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationId}/assignments`, {
+      version: (current.json() as { data: { version: number } }).data.version,
+      assigneeMembershipId: agentAMembershipId,
+    })).statusCode).toBe(200);
+  });
+
+  it('shows a scoped supervisor zero-work agents in the same readable inbox', async () => {
+    const directory = await send(api, supervisor, 'GET', '/supervisor/agents');
+    expect(directory.statusCode, directory.payload).toBe(200);
+    const agents = (directory.json() as { data: { membershipId: string; name: string; email: string; teams: string[] }[] }).data;
+    expect(agents).toEqual(expect.arrayContaining([expect.objectContaining({ membershipId: agentAMembershipId, email: 'agent-a@realtime.test' })]));
+    expect(agents).toEqual(expect.arrayContaining([expect.objectContaining({ membershipId: secondAgentAMembershipId, email: 'agent-a2@realtime.test' })]));
+    expect(agents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(false);
+  });
+
+  it('keeps the supervisor principal and applies the chosen-agent filter server-side', async () => {
+    const response = await send(api, supervisor, 'GET', `/supervisor/conversations?agent=${agentAMembershipId}&queue=mine`);
+    expect(response.statusCode, response.payload).toBe(200);
+    const rows = (response.json() as { data: { id: string; assigneeMembershipId: string }[] }).data;
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ id: conversationId, assigneeMembershipId: agentAMembershipId })]));
+    const denied = await send(api, agentA, 'GET', '/supervisor/agents');
+    expect(denied.statusCode).toBe(403);
+  });
+
+  it('reports current selected-agent workload through the supervisor scope only', async () => {
+    const workload = await send(api, supervisor, 'GET', `/supervisor/workload?agent=${agentAMembershipId}`);
+    expect(workload.statusCode, workload.payload).toBe(200);
+    const data = (workload.json() as { data: { agent: { membershipId: string }; current: { assigned: number; open: number }; byStatus: { status: string; count: number }[] } }).data;
+    expect(data.agent.membershipId).toBe(agentAMembershipId);
+    expect(data.current.assigned).toBeGreaterThanOrEqual(1);
+    expect(data.current.open).toBeGreaterThanOrEqual(1);
+    expect(data.byStatus).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'open' })]));
+    const outsideScope = await send(api, supervisor, 'GET', `/supervisor/workload?agent=${agentBMembershipId}`);
+    expect(outsideScope.statusCode).toBe(404);
+  });
+
+  it('aggregates operational timing from durable episodes and actor evidence', async () => {
+    expect((await send(api, agentA, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'text', text: 'سأتابع الطلب', trafficClass: 'interactive', clientMessageId: 'supervisor-report-reply',
+    })).statusCode).toBe(202);
+    const current = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationId}/transitions`, {
+      version: (current.json() as { data: { version: number } }).data.version, command: 'resolve', resolution: 'تمت المتابعة',
+    })).statusCode).toBe(200);
+    const report = await send(api, owner, 'GET', '/reports/operations');
+    expect(report.statusCode, report.payload).toBe(200);
+    const data = (report.json() as { data: { timing: { firstResponseMeasured: number; resolutionMeasured: number }; agents: { membershipId: string; name: string; firstResponses: number; resolutions: number }[] } }).data;
+    expect(data.timing.firstResponseMeasured).toBeGreaterThan(0);
+    expect(data.timing.resolutionMeasured).toBeGreaterThan(0);
+    expect(data.agents.some((agent) => agent.firstResponses > 0)).toBe(true);
+    // The report directory is identity-first: a visible active agent with no
+    // qualifying event remains a real zero row, never an absent name bucket.
+    expect(data.agents).toEqual(expect.arrayContaining([expect.objectContaining({ membershipId: secondAgentAMembershipId, firstResponses: 0, resolutions: 0 })]));
+  });
+
+  it('keeps report endpoint aggregates inside Owner, scoped Agent, and report permission boundaries', async () => {
+    const surfaces = ['/reports/operations', '/reports/responses', '/reports/resolutions', '/reports/assignments', '/reports/teams'];
+    for (const path of surfaces) {
+      const ownerResponse = await send(api, owner, 'GET', path);
+      expect(ownerResponse.statusCode, `${path}: ${ownerResponse.payload}`).toBe(200);
+      const ownResponse = await send(api, agentA, 'GET', path);
+      expect(ownResponse.statusCode, `${path}: ${ownResponse.payload}`).toBe(200);
+    }
+    const ownOperations = (await send(api, agentA, 'GET', '/reports/operations')).json() as {
+      data: { agents: { membershipId: string }[]; agentOptions: { membershipId: string }[] };
+    };
+    expect(ownOperations.data.agents.map((row) => row.membershipId)).toEqual([agentAMembershipId]);
+    expect(ownOperations.data.agentOptions.map((row) => row.membershipId)).toEqual([agentAMembershipId]);
+
+    const zeroAgentMembership = await addMember(api, 'zero-activity-report-agent@realtime.test', 'agent', [
+      { type: 'inbox', id: inboxA },
+    ]);
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `UPDATE memberships duplicate SET display_name=source.display_name
+         FROM memberships source WHERE duplicate.id=$1 AND source.id=$2`, [zeroAgentMembership, agentAMembershipId],
+    ));
+    const duplicateRowsResponse = await send(api, owner, 'GET', '/reports/operations');
+    const identityReport = (duplicateRowsResponse.json() as { data: { agents: { membershipId: string; name: string; currentAssigned: number; humanMessages: number; firstResponses: number; resolutions: number }[] } }).data.agents;
+    expect(duplicateRowsResponse.statusCode).toBe(200);
+    const sameNameRows = identityReport.filter((agent) => agent.membershipId === agentAMembershipId || agent.membershipId === zeroAgentMembership);
+    expect(sameNameRows).toHaveLength(2);
+    expect(new Set(sameNameRows.map((agent) => agent.membershipId)).size).toBe(2);
+    expect(sameNameRows.find((agent) => agent.membershipId === zeroAgentMembership)).toMatchObject({ currentAssigned: 0, humanMessages: 0, firstResponses: 0, resolutions: 0 });
+    expect(new Set(sameNameRows.map((agent) => agent.name)).size).toBe(1);
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`UPDATE memberships SET status='revoked' WHERE id=$1`, [zeroAgentMembership]));
+
+    const hash = await argon2.hash(MEMBER_PASSWORD, { type: argon2.argon2id });
+    const user = await api.pool.query<{ id: string }>(
+      `INSERT INTO users (email,password_hash,status) VALUES ('no-report-reader@realtime.test',$1,'active') RETURNING id::text`, [hash],
+    );
+    const noReportMembershipId = await withTenant(api.pool, api.tenantId, async (client) => {
+      const role = await client.query<{ id: string }>(
+        `INSERT INTO roles (tenant_id,key,name,is_builtin) VALUES ($1,'no_report_reader','No report reader',false) RETURNING id::text`, [api.tenantId],
+      );
+      const membership = await client.query<{ id: string }>(
+        `INSERT INTO memberships (tenant_id,user_id,role_id,status) VALUES ($1,$2,$3,'active') RETURNING id::text`,
+        [api.tenantId,user.rows[0]?.id,role.rows[0]?.id],
+      );
+      return membership.rows[0]!.id;
+    });
+    void noReportMembershipId;
+    const noReportReader = await login(api, 'no-report-reader@realtime.test', MEMBER_PASSWORD);
+    for (const path of surfaces) expect((await send(api, noReportReader, 'GET', path)).statusCode, path).toBe(403);
+
+    const admin = superuserPool(api.names.database);
+    let foreignTeamId = '';
+    try {
+      const foreignTenant = await admin.query<{ id: string }>(
+        `INSERT INTO tenants (name,slug,status) VALUES ('Foreign reporting tenant','foreign-reporting-tenant','active') RETURNING id::text`,
+      );
+      const foreignTeam = await admin.query<{ id: string }>(
+        `INSERT INTO teams (tenant_id,name) VALUES ($1,'Private team') RETURNING id::text`, [foreignTenant.rows[0]?.id],
+      );
+      foreignTeamId = foreignTeam.rows[0]!.id;
+    } finally {
+      await admin.end();
+    }
+    expect((await send(api, owner, 'GET', `/reports/teams?teamId=${foreignTeamId}`)).statusCode).toBe(404);
+
+    // Team identity can be valid in the tenant yet absent from the reportable
+    // directory once it is archived. Keep this indistinguishable from missing
+    // or out-of-scope teams at the team-report boundary.
+    const archivedTeam = await withTenant(api.pool, api.tenantId, async (client) => {
+      const created = await client.query<{ id: string }>(
+        `INSERT INTO teams (tenant_id,name,archived_at) VALUES ($1,'Archived reporting team',now()) RETURNING id::text`,
+        [api.tenantId],
+      );
+      return created.rows[0]!.id;
+    });
+    expect((await send(api, owner, 'GET', `/reports/teams?teamId=${archivedTeam}`)).statusCode).toBe(404);
+    expect((await send(api, owner, 'GET', '/reports/teams')).statusCode).toBe(200);
+  });
+
+  it('reports response and resolution episodes using event timestamps and proven actors', async () => {
+    const peer = '15557000945';
+    await customerWrites(INBOX_A, peer, 'قياس زمن الاستجابة والحل', 'wamid.rt-lifecycle-report');
+    const conversation = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2', [inboxA, peer],
+    ))).rows[0]!;
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      await client.query(`UPDATE conversation_episodes
+        SET opened_at='2026-09-01T09:00:00Z',first_inbound_at='2026-09-01T09:01:00Z',
+            first_response_at='2026-09-01T09:08:00Z',first_response_by_membership_id=$3,
+            closed_at='2026-09-02T09:00:00Z',closed_by_membership_id=NULL
+        WHERE conversation_id=$1 AND tenant_id=$2 AND seq=1`, [conversation.id, api.tenantId, agentAMembershipId]);
+      await client.query(`INSERT INTO conversation_episodes
+        (tenant_id,conversation_id,seq,opened_at,opened_by,first_inbound_at,first_response_at,closed_at,closed_by_membership_id)
+        VALUES ($1,$2,2,'2026-09-02T10:00:00Z','agent_reopen','2026-09-02T10:01:00Z','2026-09-02T10:05:00Z','2026-09-03T10:00:00Z',NULL)`,
+      [api.tenantId, conversation.id]);
+    });
+
+    const responses = await send(api, owner, 'GET', '/reports/responses?from=2026-09-01&to=2026-09-01');
+    expect(responses.statusCode, responses.payload).toBe(200);
+    const responseData = (responses.json() as { data: { measured: number; averageSeconds: number; medianSeconds: number; buckets: { bucket: string; count: number }[]; byAgent: { membershipId: string }[] } }).data;
+    expect(responseData).toMatchObject({ measured: 1, averageSeconds: 420, medianSeconds: 420 });
+    expect(responseData.buckets).toEqual([{ bucket: '5–15m', count: 1 }]);
+    expect(responseData.byAgent).toEqual([expect.objectContaining({ membershipId: agentAMembershipId, measured: 1 })]);
+    const outOfScopeAgentResponse = await send(api, supervisor, 'GET', `/reports/responses?agentId=${agentBMembershipId}`);
+    expect(outOfScopeAgentResponse.statusCode).toBe(404);
+    const unknownActorResponse = await send(api, owner, 'GET', '/reports/responses?from=2026-09-02&to=2026-09-02');
+    expect(unknownActorResponse.statusCode, unknownActorResponse.payload).toBe(200);
+    expect((unknownActorResponse.json() as { data: { measured: number; byAgent: { membershipId: string | null; name: string }[] } }).data).toMatchObject({
+      measured: 1, byAgent: [expect.objectContaining({ membershipId: null, name: 'Unattributed' })],
+    });
+    const filteredResponses = await send(api, owner, 'GET', `/reports/responses?from=2026-09-01&to=2026-09-01&agentId=${agentBMembershipId}`);
+    expect((filteredResponses.json() as { data: { measured: number; byAgent: unknown[] } }).data).toEqual({
+      measured: 0, averageSeconds: null, medianSeconds: null, buckets: [], byAgent: [], byChannel: [],
+    });
+
+    const resolutions = await send(api, owner, 'GET', '/reports/resolutions?from=2026-09-02&to=2026-09-03');
+    expect(resolutions.statusCode, resolutions.payload).toBe(200);
+    const resolutionData = (resolutions.json() as { data: { resolvedEpisodes: number; reopenedEpisodes: number; byAgent: { membershipId: string | null; name: string; measured: number }[] } }).data;
+    expect(resolutionData.resolvedEpisodes).toBe(2);
+    expect(resolutionData.reopenedEpisodes).toBe(1);
+    expect(resolutionData.byAgent).toEqual([expect.objectContaining({ membershipId: null, name: 'Unattributed', measured: 2 })]);
+    const outOfScopeAgentResolution = await send(api, supervisor, 'GET', `/reports/resolutions?agentId=${agentBMembershipId}`);
+    expect(outOfScopeAgentResolution.statusCode).toBe(404);
+  });
+
+  it('pages assignment events by immutable ownership changes with filter-bound cursors', async () => {
+    const peer = '15557000939';
+    await customerWrites(INBOX_A, peer, 'تعيين للاختبار', 'wamid.rt-assignment-report');
+    const id = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE peer_identity=$1', [peer],
+    ))).rows[0]!.id;
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`
+      INSERT INTO conversation_audit (tenant_id,conversation_id,actor_membership_id,act,from_value,to_value,at_version,at)
+      VALUES ($1,$2,NULL,'claim',NULL,$3,2,'2026-09-01T10:00:00Z'),
+             ($1,$2,NULL,'assign',$3,$4,3,'2026-09-01T11:00:00Z'),
+             ($1,$2,NULL,'handoff',$3,$4,4,'2026-09-01T12:00:00Z'),
+             ($1,$2,NULL,'handoff_requested',$4,$3,5,'2026-09-01T13:00:00Z'),
+             ($1,$2,NULL,'handoff_declined',$4,$3,6,'2026-09-01T14:00:00Z')`,
+    [api.tenantId, id, agentAMembershipId, agentBMembershipId]));
+
+    const first = await send(api, owner, 'GET', `/reports/assignments?agentId=${agentBMembershipId}&limit=1`);
+    expect(first.statusCode, first.payload).toBe(200);
+    const firstPage = first.json() as { data: { id: string; conversationId: string; action: string; assignedTo: { membershipId: string } }[]; page: { next_cursor: string | null; has_more: boolean } };
+    expect(firstPage.data).toHaveLength(1);
+    expect(firstPage.data[0]).toMatchObject({ conversationId: id, action: 'handoff', assignedTo: { membershipId: agentBMembershipId } });
+    expect(firstPage.page.has_more).toBe(true);
+    expect(firstPage.page.next_cursor).toBeTruthy();
+
+    const second = await send(api, owner, 'GET', `/reports/assignments?agentId=${agentBMembershipId}&limit=1&cursor=${encodeURIComponent(firstPage.page.next_cursor!)}`);
+    expect(second.statusCode, second.payload).toBe(200);
+    const secondPage = second.json() as { data: { id: string; action: string; assignedTo: { membershipId: string } }[]; page: { next_cursor: string | null; has_more: boolean } };
+    expect(secondPage.data).toHaveLength(1);
+    expect(secondPage.data[0]).toMatchObject({ conversationId: id, action: 'assign', assignedTo: { membershipId: agentBMembershipId } });
+    expect(secondPage.page.has_more).toBe(false);
+    // The filter selects the target, so the preceding claim to Agent A is
+    // excluded; ownership offer/decline rows are not assignment events.
+    expect((await send(api, owner, 'GET', `/reports/assignments?agentId=${agentBMembershipId}&limit=1&cursor=bad`)).statusCode).toBe(400);
+    expect((await send(api, owner, 'GET', `/reports/assignments?agentId=${agentAMembershipId}&limit=1&cursor=${encodeURIComponent(firstPage.page.next_cursor!)}`)).statusCode).toBe(400);
+    expect((await send(api, owner, 'GET', '/reports/assignments?limit=101')).statusCode).toBe(400);
+  });
+
+  it('applies Inbox-readable scope before assignment keyset limits', async () => {
+    const peerA = '15557000940';
+    const peerB = '15557000941';
+    await customerWrites(INBOX_A, peerA, 'داخل نطاق الصندوق', 'wamid.rt-assignment-scope-a');
+    await customerWrites(INBOX_B, peerB, 'خارج نطاق الصندوق', 'wamid.rt-assignment-scope-b');
+    const ids = await withTenant(api.pool, api.tenantId, async (client) => {
+      const rows = await client.query<{ peer_identity: string; id: string }>(
+        'SELECT peer_identity,id::text FROM conversations WHERE peer_identity=ANY($1::text[])', [[peerA, peerB]],
+      );
+      return new Map(rows.rows.map((row) => [row.peer_identity, row.id]));
+    });
+    const readableConversationId = ids.get(peerA)!;
+    const unreadableConversationId = ids.get(peerB)!;
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`
+      INSERT INTO conversation_audit (tenant_id,conversation_id,actor_membership_id,act,from_value,to_value,at_version,at)
+      VALUES ($1,$2,NULL,'claim',NULL,$4,20,'2026-08-25T10:00:00Z'),
+             ($1,$2,NULL,'assign',$4,$5,21,'2026-08-25T09:00:00Z'),
+             ($1,$3,NULL,'claim',NULL,$5,20,'2026-08-25T15:00:00Z'),
+             ($1,$3,NULL,'assign',$5,$4,21,'2026-08-25T14:00:00Z')`,
+    [api.tenantId, readableConversationId, unreadableConversationId, agentAMembershipId, agentBMembershipId]));
+    await addMember(api, 'assignment-inbox-reader@realtime.test', 'supervisor', [{ type: 'inbox', id: inboxA }]);
+    const inboxReader = await login(api, 'assignment-inbox-reader@realtime.test', MEMBER_PASSWORD);
+    const first = await send(api, inboxReader, 'GET', '/reports/assignments?from=2026-08-25&to=2026-08-25&limit=1');
+    expect(first.statusCode, first.payload).toBe(200);
+    const firstPage = first.json() as { data: { conversationId: string }[]; page: { next_cursor: string | null } };
+    expect(firstPage.data).toHaveLength(1);
+    expect(firstPage.data[0]?.conversationId).toBe(readableConversationId);
+    expect(firstPage.page.next_cursor).toBeTruthy();
+    const second = await send(api, inboxReader, 'GET', `/reports/assignments?from=2026-08-25&to=2026-08-25&limit=1&cursor=${encodeURIComponent(firstPage.page.next_cursor!)}`);
+    expect(second.statusCode, second.payload).toBe(200);
+    const secondPage = second.json() as { data: { conversationId: string }[]; page: { has_more: boolean } };
+    expect(secondPage.data).toHaveLength(1);
+    expect(secondPage.data[0]?.conversationId).toBe(readableConversationId);
+    expect(secondPage.page.has_more).toBe(false);
+  });
+
+  it('keeps resolved and archived records out of the selected agent’s current workload', async () => {
+    // A fresh, in-scope agent makes the projection deterministic even though
+    // the wider realtime suite has already exercised agent A's live queue.
+    const isolatedAgentId = await addMember(api, 'workload-isolated@realtime.test', 'agent', [
+      { type: 'inbox', id: inboxA },
+    ]);
+    const workloadPeers = [
+      ['15557000921', 'open'], ['15557000922', 'open'], ['15557000923', 'pending'], ['15557000924', 'snoozed'],
+      ['15557000925', 'resolved'], ['15557000926', 'resolved'], ['15557000927', 'resolved'], ['15557000928', 'archived'],
+    ] as const;
+    for (const [peer, status] of workloadPeers) {
+      await customerWrites(INBOX_A, peer, `حمل ${status}`, `wamid.rt-supervisor-workload-${peer}`);
+      const id = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+        'SELECT id::text FROM conversations WHERE peer_identity=$1', [peer],
+      ))).rows[0]!.id;
+      const current = await send(api, owner, 'GET', `/conversations/${id}`);
+      expect((await send(api, owner, 'POST', `/conversations/${id}/assignments`, {
+        version: (current.json() as { data: { version: number } }).data.version,
+        assigneeMembershipId: isolatedAgentId,
+      })).statusCode).toBe(200);
+      if (status !== 'open') {
+        const afterAssignment = await send(api, owner, 'GET', `/conversations/${id}`);
+        const version = (afterAssignment.json() as { data: { version: number } }).data.version;
+        const command = status === 'pending'
+          ? { command: 'wait', reason: 'اختبار الحمل' }
+          : status === 'snoozed'
+            ? { command: 'snooze', wakeAt: '2027-01-01T12:00:00.000Z', timezone: 'UTC' }
+            : { command: 'resolve', resolution: 'اختبار الحمل' };
+        expect((await send(api, owner, 'POST', `/conversations/${id}/transitions`, { version, ...command })).statusCode).toBe(200);
+        if (status === 'archived') {
+          const resolved = await send(api, owner, 'GET', `/conversations/${id}`);
+          expect((await send(api, owner, 'POST', `/conversations/${id}/transitions`, {
+            version: (resolved.json() as { data: { version: number } }).data.version, command: 'archive',
+          })).statusCode).toBe(200);
+        }
+      }
+    }
+    const workload = await send(api, supervisor, 'GET', `/supervisor/workload?agent=${isolatedAgentId}`);
+    expect(workload.statusCode, workload.payload).toBe(200);
+    const current = (workload.json() as { data: { current: { assigned: number; open: number; pending: number; snoozed: number } } }).data.current;
+    expect(current).toEqual(expect.objectContaining({ assigned: 4, open: 2, pending: 1, snoozed: 1 }));
+  });
+
+  it('binds delayed inbound and human replies to one conversation across an archive boundary', async () => {
+    const peer = '15557000929';
+    const workloadBefore = await send(api, supervisor, 'GET', `/supervisor/workload?agent=${agentAMembershipId}`);
+    expect(workloadBefore.statusCode, workloadBefore.payload).toBe(200);
+    const unrepliedBefore = (workloadBefore.json() as { data: { current: { unreplied: number } } }).data.current.unreplied;
+    const before = await send(api, owner, 'GET', '/reports/operations');
+    expect(before.statusCode, before.payload).toBe(200);
+    const beforeAgent = (before.json() as { data: { agents: { membershipId: string; humanMessages: number; handledConversations: number }[] } }).data.agents
+      .find((row) => row.membershipId === agentAMembershipId)!;
+    const filteredBefore = await send(api, owner, 'GET', `/reports/operations?agentId=${agentAMembershipId}&connectionId=${inboxA}&channel=whatsapp&status=open`);
+    expect(filteredBefore.statusCode, filteredBefore.payload).toBe(200);
+
+    await customerWrites(INBOX_A, peer, 'المحادثة الأولى', 'wamid.rt-bound-a-in');
+    const conversationA = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> \'archived\'', [inboxA, peer],
+    ))).rows[0]!.id;
+    let current = await send(api, owner, 'GET', `/conversations/${conversationA}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationA}/assignments`, {
+      version: (current.json() as { data: { version: number } }).data.version, assigneeMembershipId: agentAMembershipId,
+    })).statusCode).toBe(200);
+    expect((await send(api, agentA, 'POST', `/conversations/${conversationA}/messages`, {
+      messageType: 'text', text: 'رد المحادثة الأولى', trafficClass: 'interactive', clientMessageId: 'supervisor-bound-a-out',
+    })).statusCode).toBe(202);
+    const outboundA = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string; created_at: Date }>(
+      'SELECT id::text,created_at FROM outbound_messages WHERE client_message_id=$1', ['supervisor-bound-a-out'],
+    ));
+    current = await send(api, owner, 'GET', `/conversations/${conversationA}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationA}/transitions`, {
+      version: (current.json() as { data: { version: number } }).data.version,
+      command: 'resolve', resolution: 'انتهى الاختبار الأول',
+    })).statusCode).toBe(200);
+    current = await send(api, owner, 'GET', `/conversations/${conversationA}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationA}/transitions`, {
+      version: (current.json() as { data: { version: number } }).data.version, command: 'archive',
+    })).statusCode).toBe(200);
+
+    await customerWrites(INBOX_A, peer, 'رسالة متأخرة زمنيًا للمحادثة الجديدة', 'wamid.rt-bound-b-in');
+    const conversationB = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> \'archived\'', [inboxA, peer],
+    ))).rows[0]!.id;
+    expect(conversationB).not.toBe(conversationA);
+    const inboundB = await withTenant(api.pool, api.tenantId, (client) => client.query<{ occurred_at: Date; conversation_id: string | null }>(
+      'SELECT occurred_at,conversation_id::text FROM inbound_events WHERE provider_message_id=$1', ['wamid.rt-bound-b-in'],
+    ));
+    expect(inboundB.rows[0]!.occurred_at.getTime()).toBeLessThan(outboundA.rows[0]!.created_at.getTime());
+    expect(inboundB.rows[0]!.conversation_id).toBe(conversationB);
+    current = await send(api, owner, 'GET', `/conversations/${conversationB}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationB}/assignments`, {
+      version: (current.json() as { data: { version: number } }).data.version, assigneeMembershipId: agentAMembershipId,
+    })).statusCode).toBe(200);
+
+    // Revert only the test rows to the legacy NULL state to exercise the
+    // deterministic temporal fallback used for data created before migration
+    // 0036. Production history is deliberately not backfilled by identity.
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      await client.query('UPDATE inbound_events SET conversation_id=NULL WHERE provider_message_id=$1', ['wamid.rt-bound-b-in']);
+    });
+
+    // The fixture's provider clock intentionally trails processing time by an
+    // hour. B is normalized after A's reply/archive, while its provider event
+    // timestamp precedes that reply. The durable binding must win over global
+    // peer chronology without rewriting the immutable inbound journal.
+    const filter = encodeURIComponent(JSON.stringify({ key: 'unreplied', operator: 'eq', value: true }));
+    const unrepliedInbox = await send(api, owner, 'GET', `/conversations?queue=all&filter=${filter}`);
+    expect(unrepliedInbox.statusCode, unrepliedInbox.payload).toBe(200);
+    const unrepliedIds = (unrepliedInbox.json() as { data: { id: string }[] }).data.map((row) => row.id);
+    expect(unrepliedIds).toContain(conversationB);
+
+    const workload = await send(api, supervisor, 'GET', `/supervisor/workload?agent=${agentAMembershipId}`);
+    expect(workload.statusCode, workload.payload).toBe(200);
+    expect((workload.json() as { data: { current: { unreplied: number } } }).data.current.unreplied).toBe(unrepliedBefore + 1);
+
+    expect((await send(api, agentA, 'POST', `/conversations/${conversationB}/messages`, {
+      messageType: 'text', text: 'رد المحادثة الثانية', trafficClass: 'interactive', clientMessageId: 'supervisor-bound-b-out',
+    })).statusCode).toBe(202);
+    const boundMessages = await withTenant(api.pool, api.tenantId, (client) => client.query<{ conversation_id: string | null }>(
+      `SELECT conversation_id::text FROM outbound_messages WHERE client_message_id = ANY($1::text[]) ORDER BY client_message_id`,
+      [['supervisor-bound-a-out', 'supervisor-bound-b-out']],
+    ));
+    expect(boundMessages.rows.map((row) => row.conversation_id)).toEqual(expect.arrayContaining([conversationA, conversationB]));
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      await client.query('UPDATE outbound_messages SET conversation_id=NULL WHERE client_message_id = ANY($1::text[])', [
+        ['supervisor-bound-a-out', 'supervisor-bound-b-out'],
+      ]);
+    });
+    const after = await send(api, owner, 'GET', '/reports/operations');
+    expect(after.statusCode, after.payload).toBe(200);
+    const afterAgent = (after.json() as { data: { agents: { membershipId: string; humanMessages: number; handledConversations: number }[] } }).data.agents
+      .find((row) => row.membershipId === agentAMembershipId)!;
+    expect(afterAgent.humanMessages - beforeAgent.humanMessages).toBe(2);
+    expect(afterAgent.handledConversations - beforeAgent.handledConversations).toBe(2);
+    const filteredAfter = await send(api, owner, 'GET', `/reports/operations?agentId=${agentAMembershipId}&connectionId=${inboxA}&channel=whatsapp&status=open`);
+    expect(filteredAfter.statusCode, filteredAfter.payload).toBe(200);
+    const filteredData = (filteredAfter.json() as { data: { agents: { membershipId: string; humanMessages: number; handledConversations: number }[] } }).data;
+    expect(filteredData.agents).toHaveLength(1);
+    expect(filteredData.agents[0]).toMatchObject({
+      membershipId: agentAMembershipId,
+      humanMessages: ((filteredBefore.json() as { data: { agents: { humanMessages: number }[] } }).data.agents[0]?.humanMessages ?? 0) + 1,
+    });
+    expect((await send(api, owner, 'GET', '/reports/operations?priority=critical')).statusCode).toBe(400);
+    expect((await send(api, owner, 'GET', '/reports/operations?agentId=not-a-uuid')).statusCode).toBe(400);
+    expect((await send(api, owner, 'GET', '/reports/operations?unknown=value')).statusCode).toBe(400);
+
+    const teams = await withTenant(api.pool, api.tenantId, async (client) => {
+      const rows = await client.query<{ id: string }>(
+        `INSERT INTO teams (tenant_id,name) VALUES ($1,'Boundary Team A'),($1,'Boundary Team B') RETURNING id::text`, [api.tenantId],
+      );
+      return rows.rows.map((row) => row.id);
+    });
+    const [teamA, teamB] = teams;
+    expect(teamA).toBeDefined(); expect(teamB).toBeDefined();
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      await client.query('INSERT INTO team_members (tenant_id,team_id,membership_id) VALUES ($1,$2,$3),($1,$4,$5)', [api.tenantId, teamA, agentAMembershipId, teamB, agentBMembershipId]);
+      await client.query('UPDATE conversations SET team_id=$2 WHERE id=$1', [conversationA, teamA]);
+      await client.query('UPDATE conversations SET team_id=$2 WHERE id=$1', [conversationB, teamB]);
+    });
+    const teamManagerAId = await addMember(api, 'boundary-team-a@realtime.test', 'supervisor', [{ type: 'team', id: teamA! }]);
+    const teamManagerBId = await addMember(api, 'boundary-team-b@realtime.test', 'supervisor', [{ type: 'team', id: teamB! }]);
+    void teamManagerAId; void teamManagerBId;
+    const teamManagerA = await login(api, 'boundary-team-a@realtime.test', MEMBER_PASSWORD);
+    const teamManagerB = await login(api, 'boundary-team-b@realtime.test', MEMBER_PASSWORD);
+    const readableA = await send(api, teamManagerA, 'GET', '/reports/operations');
+    const readableB = await send(api, teamManagerB, 'GET', '/reports/operations');
+    const teamReportA = await send(api, teamManagerA, 'GET', '/reports/teams');
+    const teamReportB = await send(api, teamManagerB, 'GET', '/reports/teams');
+    expect(readableA.statusCode, readableA.payload).toBe(200);
+    expect(readableB.statusCode, readableB.payload).toBe(200);
+    expect(teamReportA.statusCode, teamReportA.payload).toBe(200);
+    expect(teamReportB.statusCode, teamReportB.payload).toBe(200);
+    expect((readableA.json() as { data: { conversations: { humanMessages: number } } }).data.conversations.humanMessages).toBe(1);
+    expect((readableB.json() as { data: { conversations: { humanMessages: number } } }).data.conversations.humanMessages).toBe(1);
+    expect((readableA.json() as { data: { agentOptions: { membershipId: string }[] } }).data.agentOptions.map((row) => row.membershipId)).toContain(agentAMembershipId);
+    expect((readableA.json() as { data: { agentOptions: { membershipId: string }[] } }).data.agentOptions.map((row) => row.membershipId)).not.toContain(agentBMembershipId);
+    const scopedTeamIdsA = (teamReportA.json() as { data: { teamId: string }[] }).data.map((row) => row.teamId);
+    const scopedTeamIdsB = (teamReportB.json() as { data: { teamId: string }[] }).data.map((row) => row.teamId);
+    expect(scopedTeamIdsA).toEqual([teamA]);
+    expect(scopedTeamIdsB).toEqual([teamB]);
+    expect((await send(api, teamManagerA, 'GET', `/reports/teams?teamId=${teamB}`)).statusCode).toBe(404);
+    for (const surface of ['/reports/responses', '/reports/resolutions', '/reports/assignments']) {
+      expect((await send(api, teamManagerA, 'GET', surface)).statusCode, surface).toBe(200);
+      expect((await send(api, teamManagerB, 'GET', surface)).statusCode, surface).toBe(200);
+    }
+    for (const surface of ['/reports/operations', '/reports/responses', '/reports/resolutions', '/reports/assignments']) {
+      expect((await send(api, teamManagerA, 'GET', `${surface}?agentId=${agentBMembershipId}`)).statusCode, surface).toBe(404);
+    }
+  });
+
+  it('scopes operational aggregates through the supervisor readable inbox scope', async () => {
+    const peerB = '15557000911';
+    await customerWrites(INBOX_B, peerB, 'هذا العمل خارج نطاق المشرف', 'wamid.rt-supervisor-scope-b');
+    const conversationB = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE peer_identity=$1', [peerB],
+    ))).rows[0]!.id;
+    const currentB = await send(api, owner, 'GET', `/conversations/${conversationB}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationB}/assignments`, {
+      version: (currentB.json() as { data: { version: number } }).data.version, assigneeMembershipId: agentBMembershipId,
+    })).statusCode).toBe(200);
+    expect((await send(api, agentB, 'POST', `/conversations/${conversationB}/messages`, {
+      messageType: 'text', text: 'متابعة المحاسبة', trafficClass: 'interactive', clientMessageId: 'supervisor-scope-b-reply',
+    })).statusCode).toBe(202);
+
+    const scoped = await send(api, supervisor, 'GET', '/reports/operations');
+    const ownerReport = await send(api, owner, 'GET', '/reports/operations');
+    expect(scoped.statusCode, scoped.payload).toBe(200);
+    expect(ownerReport.statusCode, ownerReport.payload).toBe(200);
+    const scopedAgents = (scoped.json() as { data: { agents: { membershipId: string }[] } }).data.agents;
+    const ownerAgents = (ownerReport.json() as { data: { agents: { membershipId: string }[] } }).data.agents;
+    expect(scopedAgents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(false);
+    expect(ownerAgents.some((agent) => agent.membershipId === agentBMembershipId)).toBe(true);
+    expect((await send(api, supervisor, 'GET', `/reports/operations?agentId=${agentBMembershipId}`)).statusCode).toBe(404);
+    expect((await send(api, supervisor, 'GET', `/reports/operations?connectionId=${inboxB}`)).statusCode).toBe(404);
+  });
+
+  it('keeps an archived conversation in its historical creation volume but out of backlog', async () => {
+    const peer = '15557000912';
+    const before = await send(api, owner, 'GET', '/reports/operations');
+    expect(before.statusCode, before.payload).toBe(200);
+    const baselineOpen = (before.json() as { data: { conversations: { open: number } } }).data.conversations.open;
+    await customerWrites(INBOX_A, peer, 'أرشفة بعد الإنشاء', 'wamid.rt-supervisor-archived');
+    const conversationId = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE peer_identity=$1', [peer],
+    ))).rows[0]!.id;
+    const current = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationId}/transitions`, {
+      version: (current.json() as { data: { version: number } }).data.version, command: 'resolve', resolution: 'انتهى الاختبار',
+    })).statusCode).toBe(200);
+    const resolved = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationId}/transitions`, {
+      version: (resolved.json() as { data: { version: number } }).data.version, command: 'archive',
+    })).statusCode).toBe(200);
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      "UPDATE conversations SET created_at='2026-09-01T12:00:00.000Z' WHERE id=$1", [conversationId],
+    ));
+    const report = await send(api, owner, 'GET', '/reports/operations?from=2026-09-01&to=2026-09-01');
+    expect(report.statusCode, report.payload).toBe(200);
+    const data = (report.json() as { data: { conversations: { new: number; open: number } } }).data;
+    expect(data.conversations.new).toBe(1);
+    expect(data.conversations.open).toBe(baselineOpen);
+  });
+});
+
 describe('the conversation lifecycle', () => {
   const peer = '15557000500';
   let conversationId: string;
@@ -2438,8 +2943,9 @@ describe('the conversation lifecycle', () => {
     expect(first.statusCode).toBe(202);
 
     const after = await send(api, owner, 'GET', `/conversations/${conversationId}/episodes`);
-    const stamped = (after.json() as { data: { firstResponseAt: string | null }[] }).data.at(-1);
+    const stamped = (after.json() as { data: { firstResponseAt: string | null; firstResponseByMembershipId: string | null }[] }).data.at(-1);
     expect(stamped?.firstResponseAt).not.toBeNull();
+    expect(stamped?.firstResponseByMembershipId).not.toBeNull();
 
     await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
       messageType: 'text',
@@ -2452,6 +2958,9 @@ describe('the conversation lifecycle', () => {
     // every first-response report a measure of the last message instead.
     expect((again.json() as { data: { firstResponseAt: string | null }[] }).data.at(-1)?.firstResponseAt).toBe(
       stamped?.firstResponseAt,
+    );
+    expect((again.json() as { data: { firstResponseByMembershipId: string | null }[] }).data.at(-1)?.firstResponseByMembershipId).toBe(
+      stamped?.firstResponseByMembershipId,
     );
   });
 
@@ -2488,6 +2997,7 @@ describe('the conversation lifecycle', () => {
     const episodes = await episodesOf();
     expect(episodes[0]?.closedAt).not.toBeNull();
     expect(episodes[0]?.resolution).toBe('تم التسجيل');
+    expect((episodes[0] as unknown as { closedByMembershipId: string | null }).closedByMembershipId).not.toBeNull();
 
     // Resolving is not reading. The cursor is untouched, so an unread customer
     // message is still unread.
@@ -2711,7 +3221,7 @@ describe('the conversation lifecycle', () => {
   }
 
   async function episodesOf(): Promise<
-    readonly { seq: number; openedBy: string; closedAt: string | null; resolution: string | null; firstInboundAt: string | null }[]
+    readonly { seq: number; openedBy: string; closedAt: string | null; closedByMembershipId: string | null; resolution: string | null; firstInboundAt: string | null }[]
   > {
     const response = await send(api, owner, 'GET', `/conversations/${conversationId}/episodes`);
     return (
@@ -2720,6 +3230,7 @@ describe('the conversation lifecycle', () => {
           seq: number;
           openedBy: string;
           closedAt: string | null;
+          closedByMembershipId: string | null;
           resolution: string | null;
           firstInboundAt: string | null;
         }[];

@@ -28,11 +28,122 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'invite') return invite(state);
   if (dialog.kind === 'change-password') return changePasswordDialog(state);
   if (dialog.kind === 'ownership-offer') return ownershipOffer(state, dialog.arg);
+  if (dialog.kind === 'saved-inbox-view') return savedInboxView(state, dialog.arg);
+  if (dialog.kind === 'workspace-label') return workspaceLabel(state, dialog.arg);
+  if (dialog.kind === 'retire-label') return retireLabelDialog(state, dialog.arg);
+  if (dialog.kind === 'inline-label') return inlineLabel(state, dialog.arg);
+  if (dialog.kind === 'automation-delete') return automationDelete(state, dialog.arg);
   return dialogShell(
     state,
     t(state, 'غير متاح', 'Not available'),
     [h('p', {}, [t(state, 'لا يوجد محتوى لهذه النافذة.', 'There is nothing to show here.')])],
     [closeButton(state)],
+  );
+}
+
+function automationDelete(state: AppState, automationId: string): HTMLElement {
+  const automation = rowsOf(state.live.automations).find((item) => item.id === automationId);
+  const title = t(state, 'حذف مسودة الأتمتة؟', 'Delete automation draft?');
+  if (automation === undefined || automation.state !== 'draft') {
+    return dialogShell(state, title, [notice('warning', 'alert', t(state, 'لم تعد هذه المسودة متاحة للحذف. حدّث القائمة.', 'This draft is no longer available to delete. Refresh the list.'))], [closeButton(state)]);
+  }
+  return dialogShell(state, title, [
+    h('p', {}, [h('strong', {}, [`“${automation.name}”`]), ' ', t(state, 'لم تُشغّل من قبل. حذف هذه المسودة يزيلها نهائيًا.', 'has never run. Deleting this draft permanently removes it.')]),
+    inlineError(state, state.live.error),
+  ], [
+    closeButton(state),
+    button({ label: t(state, 'حذف المسودة', 'Delete Draft'), act: 'live-automation-delete-confirm', arg: automation.id, variant: 'danger', busy: state.live.busy === `automation-delete:${automation.id}` }),
+  ]);
+}
+
+function workspaceLabel(state: AppState, labelId: string): HTMLElement {
+  const label = rowsOf(state.live.workspaceLabels).find((item) => item.id === labelId);
+  const editing = label !== undefined;
+  const busy = state.live.busy === `metadata:${editing ? 'update-label' : 'create-label'}${editing ? `:${label.id}` : ''}`;
+  const selectedColor = labelColor(state.dialogForm['labelColor'] ?? label?.color ?? '#3B82F6');
+  return dialogShell(state, editing ? t(state, 'تعديل التصنيف', 'Edit label') : t(state, 'تصنيف جديد', 'New label'), [
+    inlineError(state, state.live.error),
+    h('form', { class: 'form-grid', 'data-submit': editing ? 'live-workspace-label-update' : 'live-workspace-label-create', novalidate: true }, [
+      textInput('labelName', state.dialogForm['labelName'] ?? label?.name ?? '', t(state, 'الاسم', 'Name'), { required: true }),
+      labelColorPicker(state, selectedColor),
+    ]),
+  ], [closeButton(state), button({ label: editing ? t(state, 'حفظ', 'Save') : t(state, 'إنشاء', 'Create'), act: editing ? 'live-workspace-label-update' : 'live-workspace-label-create', variant: 'primary', busy })]);
+}
+
+const LABEL_COLORS = ['#3B82F6', '#14B8A6', '#22C55E', '#EAB308', '#F97316', '#EF4444', '#EC4899', '#8B5CF6'] as const;
+
+function labelColorPicker(state: AppState, color: string): HTMLElement {
+  return h('div', { class: 'field' }, [
+    h('span', { class: 'field__label' }, [t(state, 'اللون', 'Color')]),
+    h('div', { class: 'button-row', 'aria-label': t(state, 'ألوان مقترحة', 'Suggested colours') }, LABEL_COLORS.map((value) => h('button', { type: 'button', class: 'btn btn--sm label-color-choice', style: `--label-color:${value};background:${value}`, title: value, 'aria-label': value, 'aria-pressed': String(value === color), 'data-act': 'form-toggle', 'data-arg': `labelColor:${value}` }, []))),
+    h('div', { class: 'input-affix' }, [
+      h('input', { class: 'input input--color', type: 'color', value: color, 'data-act': 'form-toggle', 'data-form': 'labelColor' }),
+      h('input', { class: 'input', value: state.dialogForm['labelColor'] ?? color, pattern: '^#[0-9A-Fa-f]{6}$', maxlength: 7, placeholder: '#3B82F6', 'data-act': 'form-toggle', 'data-form': 'labelColor', 'aria-label': t(state, 'رمز اللون HEX', 'HEX color') }),
+    ]),
+    h('div', { class: 'metadata__label', style: `--label-color:${color}` }, [h('span', { class: 'metadata__swatch', 'aria-hidden': 'true' }), t(state, 'معاينة التصنيف', 'Label preview')]),
+    fieldError(state, 'labelColor'),
+  ]);
+}
+
+function labelColor(value: string): string { return /^#[0-9A-Fa-f]{6}$/.test(value) ? value.toUpperCase() : '#3B82F6'; }
+
+function retireLabelDialog(state: AppState, labelId: string): HTMLElement {
+  const label = rowsOf(state.live.workspaceLabels).find((item) => item.id === labelId);
+  const title = t(state, 'إيقاف التصنيف؟', 'Retire label?');
+  if (label === undefined || label.state !== 'active') return dialogShell(state, title, [notice('warning', 'alert', t(state, 'لم يعد هذا التصنيف متاحًا للإيقاف. حدّث القائمة.', 'This label is no longer available to retire. Refresh the list.'))], [closeButton(state)]);
+  return dialogShell(state, title, [
+    h('p', {}, [h('strong', {}, [`“${label.name}”`]), ' ', t(state, 'لن يكون متاحًا لإسنادات جديدة. سيبقى استخدامه التاريخي ظاهرًا.', 'will no longer be available for new assignments. Existing historical usage will remain.')]),
+    inlineError(state, state.live.error),
+  ], [closeButton(state), button({ label: t(state, 'إيقاف التصنيف', 'Retire label'), act: 'live-workspace-label-retire-confirm', arg: label.id, variant: 'danger', busy: state.live.busy === `metadata:retire-label:${label.id}` })]);
+}
+
+function inlineLabel(state: AppState, arg: string): HTMLElement {
+  const [target, entityId] = arg.split('|');
+  if ((target !== 'contact' && target !== 'conversation') || entityId === undefined) return dialogShell(state, t(state, 'تصنيف جديد', 'New label'), [notice('warning', 'alert', t(state, 'السجل لم يعد متاحًا. أعد فتحه وحاول مرة أخرى.', 'This record is no longer available. Reopen it and try again.'))], [closeButton(state)]);
+  const color = labelColor(state.dialogForm['labelColor'] ?? '#3B82F6');
+  return dialogShell(state, t(state, 'تصنيف جديد', 'New label'), [
+    inlineError(state, state.live.error),
+    h('form', { class: 'form-grid', 'data-submit': 'live-inline-label-create', novalidate: true }, [
+      textInput('labelName', state.dialogForm['labelName'] ?? '', t(state, 'الاسم', 'Name'), { required: true }),
+      labelColorPicker(state, color),
+    ]),
+  ], [closeButton(state), button({ label: t(state, 'إنشاء وإضافة', 'Create and assign'), act: 'live-inline-label-create', arg, variant: 'primary', busy: state.live.busy === `metadata:${target}:${entityId}` })]);
+}
+
+function savedInboxView(state: AppState, mode: string): HTMLElement {
+  const editing = mode === 'update';
+  const selected = state.live.savedViews.status === 'ready'
+    ? state.live.savedViews.value.find((view) => view.id === state.live.selectedSavedViewId)
+    : undefined;
+  const form = state.dialogForm;
+  const visibility = form['savedViewVisibility'] ?? selected?.visibility ?? 'private';
+  const teams = rowsOf(state.live.teams).filter((team) => !team.archived);
+  const busy = state.live.busy === 'saved-view-create' || state.live.busy === `saved-view-update:${selected?.id ?? ''}`;
+  return dialogShell(
+    state,
+    editing ? t(state, 'تحديث العرض المحفوظ', 'Update saved view') : t(state, 'حفظ عرض', 'Save view'),
+    [
+      inlineError(state, state.live.error),
+      h('form', { class: 'form-grid', 'data-submit': editing ? 'live-inbox-saved-view-update' : 'live-inbox-saved-view-create', novalidate: true }, [
+        textInput('savedViewName', form['savedViewName'] ?? selected?.name ?? '', t(state, 'اسم العرض', 'View name'), { required: true }),
+        field(t(state, 'الوصول', 'Visibility'), selectControl({ act: 'form', form: 'savedViewVisibility', value: visibility, options: [
+          { value: 'private', label: t(state, 'خاص بي', 'Private') },
+          { value: 'team', label: t(state, 'الفريق', 'Team') },
+          { value: 'workspace', label: t(state, 'مساحة العمل', 'Workspace') },
+        ] })),
+        visibility === 'team'
+          ? field(t(state, 'الفريق', 'Team'), selectControl({ act: 'form', form: 'savedViewTeamId', value: form['savedViewTeamId'] ?? selected?.teamId ?? '', options: [
+            { value: '', label: t(state, 'اختر فريقًا', 'Choose a team') },
+            ...teams.map((team) => ({ value: team.id, label: team.name })),
+          ] }))
+          : null,
+        h('p', { class: 'field__hint' }, [t(state, 'سيُحفظ الفلتر الحالي فقط. الأرشيف خارج الـInbox التشغيلي.', 'Only the current filters are saved. Archived conversations stay outside the operational Inbox.')]),
+      ]),
+    ],
+    [
+      closeButton(state),
+      button({ label: editing ? t(state, 'تحديث', 'Update') : t(state, 'حفظ', 'Save'), act: editing ? 'live-inbox-saved-view-update' : 'live-inbox-saved-view-create', variant: 'primary', busy, disabled: editing && selected === undefined }),
+    ],
   );
 }
 

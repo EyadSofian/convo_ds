@@ -9,10 +9,9 @@
     <meta name="description" content="Digital School — منصة تشغيل المحادثات والقنوات والحملات" />
     <title>Digital School Operations</title>
     <!--
-      The theme is decided before the first paint, from the stored visual
-      preference or the system setting, so a dark-theme user never sees a light
-      flash. Only the theme is read here: nothing about the session is stored in
-      the browser and nothing about it is known until the server answers.
+      Theme and language are decided before the first paint from local visual
+      preferences. They carry no identity, tenant or authorization information;
+      the session remains an HTTP-only cookie confirmed by the API.
     -->
     <script>
       (function () {
@@ -26,6 +25,42 @@
           theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
         document.documentElement.setAttribute('data-theme', theme);
+        // This mirrors `src/prepaint-language.ts`, which supplies the
+        // deterministic regression cases. Keep the inline version small so it
+        // executes before the module and before the first protected frame.
+        // It accepts only the presentation language from the current hash.
+        var routeLang = null;
+        var queryAt = window.location.hash.indexOf('?');
+        if (queryAt !== -1) {
+          var parts = window.location.hash.slice(queryAt + 1).split('&');
+          for (var index = 0; index < parts.length; index += 1) {
+            var pair = parts[index].split('=', 2);
+            var key = '';
+            var value = '';
+            try {
+              key = decodeURIComponent(pair[0].replace(/\+/g, ' '));
+              value = decodeURIComponent((pair[1] || '').replace(/\+/g, ' '));
+            } catch (error) {
+              continue;
+            }
+            if (key === 'lang' && (value === 'en' || value === 'ar')) {
+              routeLang = value;
+              break;
+            }
+          }
+        }
+        var lang = null;
+        if (routeLang === null) {
+          try {
+            lang = window.localStorage.getItem('convo.lang');
+          } catch (error) {
+            lang = null;
+          }
+        }
+        if (routeLang === 'en' || routeLang === 'ar') lang = routeLang;
+        if (lang !== 'en' && lang !== 'ar') lang = 'ar';
+        document.documentElement.setAttribute('lang', lang);
+        document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
       })();
     </script>
     <!--

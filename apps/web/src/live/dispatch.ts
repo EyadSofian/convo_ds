@@ -10,7 +10,10 @@ import {
 } from './contact-actions.js';
 import {
   claimConversation,
+  loadSupervisorAgents,
+  loadSupervisorInbox,
   loadInboxScreen,
+  loadMoreInbox,
   loadOlderMessages,
   openConversation,
   sendReply,
@@ -30,8 +33,11 @@ import {
   setPriority,
   settleHandoff,
 } from './routing-actions.js';
-import { createField, createLabel, setEntityLabel, setFieldValue } from './metadata-actions.js';
+import { createAndAssignLabel, createField, createLabel, retireLabel, setEntityLabel, setFieldValue, updateLabel } from './metadata-actions.js';
 import { rowsOf } from './store.js';
+import { setSimpleFilter } from './inbox-query.js';
+import { INBOX_FILTER_CATALOGUE, INBOX_SORTS, type InboxFilter, type InboxSort } from '@convo/domain';
+import { applySavedView, retireSavedView, saveCurrentInboxView } from './saved-view-actions.js';
 import {
   approveCampaign,
   cloneCampaign,
@@ -40,7 +46,8 @@ import {
   createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
-  loadCampaignReport,
+  loadAssignmentReport,
+  loadAnalyticsReport,
   loadCampaignsScreen,
   refreshCampaignReportExport,
   retryCampaignFailures,
@@ -51,9 +58,14 @@ import {
 import {
   addAutomationStep,
   createBlankAutomation,
+  deleteAutomationDraft,
+  loadAutomationPage,
+  loadAutomationRunsPage,
   loadAutomationsScreen,
   removeAutomationStep,
   saveAutomation,
+  setAutomationQuery,
+  setAutomationRunsQuery,
   transitionAutomation,
   useAutomationTemplate,
 } from './automation-actions.js';
@@ -186,6 +198,25 @@ export function splitArg(arg: string): { readonly id: string; readonly value: st
   return separator === -1
     ? { id: arg, value: '' }
     : { id: arg.slice(0, separator), value: arg.slice(separator + 1) };
+}
+
+function asAutomationState(value: string): '' | 'draft' | 'active' | 'paused' | 'archived' {
+  return value === 'draft' || value === 'active' || value === 'paused' || value === 'archived' ? value : '';
+}
+
+function asAutomationSort(value: string): 'updated_desc' | 'name_asc' | 'name_desc' {
+  return value === 'name_asc' || value === 'name_desc' ? value : 'updated_desc';
+}
+
+function validLabelColor(context: LiveContext): string | null {
+  const color = form(context, 'labelColor').trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(color)) {
+    delete context.state.formErrors['labelColor'];
+    return color.toUpperCase();
+  }
+  context.state.formErrors = { ...context.state.formErrors, labelColor: text(context, 'استخدم لون HEX مثل #3B82F6.', 'Use a HEX colour such as #3B82F6.') };
+  context.refresh();
+  return null;
 }
 
 /** The fields the transition forms own, cleared whenever one opens or closes. */
@@ -348,6 +379,17 @@ export function metadataFieldValue(target: string, entityId: string, fieldId: st
 }
 
 export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
+  'analytics-view': async (context, arg) => {
+    if (arg !== 'campaigns' && arg !== 'overview' && arg !== 'agents' && arg !== 'teams' && arg !== 'responses' && arg !== 'resolutions' && arg !== 'assignments' && arg !== 'channels') return false;
+    context.state.analyticsView = arg;
+    const params = { ...context.state.route.params };
+    if (arg === 'campaigns') delete params.view;
+    else params.view = arg;
+    context.state.route = { ...context.state.route, params };
+    await loadAnalyticsReport(context);
+    return true;
+  },
+
   'live-request-recovery': async (context) => {
     if (context.live.busy !== null) return false;
     const email = form(context, 'recoveryEmail');
@@ -467,6 +509,22 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-automation-add-step': async (context, arg) => addAutomationStep(context, arg),
   'live-automation-remove-step': async (context, arg) => removeAutomationStep(context, arg),
   'live-automation-transition': async (context, arg) => transitionAutomation(context, arg),
+  'live-automation-delete-confirm': async (context, arg) => {
+    const deleted = await deleteAutomationDraft(context, arg);
+    if (deleted) context.state.dialog = null;
+    return deleted;
+  },
+  'live-automation-filter': async (context) => setAutomationQuery(context, {
+    search: (context.state.dialogForm['automationSearch'] ?? '').trim(),
+    state: asAutomationState(context.state.dialogForm['automationState'] ?? ''),
+    sort: asAutomationSort(context.state.dialogForm['automationSort'] ?? 'updated_desc'),
+    limit: 25,
+  }),
+  'live-automation-load-more': async (context) => loadAutomationPage(context, false),
+  'live-automation-runs-filter': async (context) => setAutomationRunsQuery(context, {
+    limit: context.state.dialogForm['automationRunsLimit'] === '50' ? 50 : 25,
+  }),
+  'live-automation-runs-load-more': async (context) => loadAutomationRunsPage(context, false),
 
   'live-campaign-create': async (context) => {
     const name = form(context, 'campaignName');
@@ -598,24 +656,51 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-report-filter': async (context, arg) => {
     const { id, value } = splitArg(arg);
     const filters = context.state.analyticsFilters;
-    if (!(id === 'from' || id === 'to' || id === 'channel' || id === 'campaignId') || filters[id] === value) return false;
+    if (!(id === 'from' || id === 'to' || id === 'agentId' || id === 'teamId' || id === 'channel' || id === 'connectionId' || id === 'labelId' || id === 'campaignId' || id === 'priority' || id === 'status') || filters[id] === value) return false;
     context.state.analyticsFilters = { ...filters, [id]: value };
-    await loadCampaignReport(context);
+    await loadAnalyticsReport(context);
     return true;
   },
 
   'live-report-filter-clear': async (context) => {
     context.state.analyticsFilters = NO_ANALYTICS_FILTERS;
-    await loadCampaignReport(context);
+    await loadAnalyticsReport(context);
   },
 
-  'live-report-reload': async (context) => loadCampaignReport(context),
+  'live-report-reload': async (context) => loadAnalyticsReport(context),
+  'live-assignments-more': async (context) => loadAssignmentReport(context, true),
   'live-report-export': async (context) => createCampaignReportExport(context),
   'live-report-export-refresh': async (context) => refreshCampaignReportExport(context),
 
   /* ----------------------------------------------------------------- inbox -- */
 
   'live-inbox-reload': async (context) => loadInboxScreen(context),
+  'live-supervisor-open': async (context) => loadSupervisorAgents(context),
+  'live-supervisor-agent': async (context, arg) => loadSupervisorInbox(context, arg),
+  'live-supervisor-open-report': async (context, arg) => {
+    // Preserve the opaque membership ID, rather than a display name, so two
+    // people with the same name cannot share a report or a drill-down route.
+    if (!rowsOf(context.live.supervisorAgents).some((agent) => agent.membershipId === arg)) return false;
+    context.state.analyticsView = 'overview';
+    context.state.route = {
+      screen: 'analytics',
+      conversationId: null,
+      params: { ...context.state.route.params, view: 'operations', agent: arg },
+    };
+    await loadAnalyticsReport(context);
+    return true;
+  },
+  'live-supervisor-exit': async (context) => {
+    context.live.supervisorAgentId = null;
+    context.live.supervisorWorkload = { status: 'idle' };
+    const { agent: ignoredAgent, ...params } = context.state.route.params;
+    // Explicitly discard the supervisor lens, rather than letting a copied
+    // Inbox URL restore it after exit.
+    void ignoredAgent;
+    context.state.route = { ...context.state.route, params };
+    await loadInboxScreen(context);
+    return true;
+  },
 
   'live-inbox-queue': (context, arg) => {
     // A local view switch, not a request: both halves are already loaded, and
@@ -639,6 +724,66 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-inbox-older': async (context) => loadOlderMessages(context),
+
+  'live-inbox-load-more': async (context) => loadMoreInbox(context),
+
+  'live-inbox-saved-view-apply': async (context, arg) => applySavedView(context, arg),
+
+  'live-inbox-saved-view-create': async (context) => saveCurrentInboxView(context, 'create'),
+
+  'live-inbox-saved-view-update': async (context) => saveCurrentInboxView(context, 'update'),
+
+  'live-inbox-saved-view-retire': async (context, arg) => retireSavedView(context, arg),
+
+  'live-inbox-search': (context, arg) => {
+    scheduleInboxSearch(context, arg);
+    return Promise.resolve();
+  },
+
+  // Label "any of" and "none of" values are chosen as visible names. This
+  // avoids both opaque-ID entry and the common mistake of treating `in` as an
+  // OR: the server's label predicate intentionally requires every selected
+  // label to be present.
+  'live-inbox-filter-value-toggle': (context, arg) => {
+    const selected = new Set((context.state.dialogForm['inboxFilterValue'] ?? '').split(',').filter(Boolean));
+    if (selected.has(arg)) selected.delete(arg);
+    else selected.add(arg);
+    context.state.dialogForm = { ...context.state.dialogForm, inboxFilterValue: [...selected].join(',') };
+    context.refresh();
+    return Promise.resolve();
+  },
+
+  'live-inbox-filter-apply': async (context) => {
+    const filter = inboxFilterFromForm(context);
+    if (filter === null) return false;
+    context.live.inboxQuery = { ...context.live.inboxQuery, filters: [...context.live.inboxQuery.filters, filter], cursor: null };
+    context.state.inboxQueue = 'mine';
+    context.state.dialogForm = {};
+    return loadInboxScreen(context);
+  },
+
+  'live-inbox-filter-remove': async (context, arg) => {
+    const index = Number(arg);
+    if (!Number.isInteger(index) || index < 0 || index >= context.live.inboxQuery.filters.length) return false;
+    context.live.inboxQuery = { ...context.live.inboxQuery, filters: context.live.inboxQuery.filters.filter((_, candidate) => candidate !== index), cursor: null };
+    context.live.selectedSavedViewId = null;
+    context.state.inboxQueue = 'mine';
+    return loadInboxScreen(context);
+  },
+
+  'live-inbox-filter-clear': async (context) => {
+    context.live.inboxQuery = { ...context.live.inboxQuery, filters: [], cursor: null };
+    context.live.selectedSavedViewId = null;
+    context.state.inboxQueue = 'mine';
+    return loadInboxScreen(context);
+  },
+
+  'live-inbox-sort': async (context, arg) => {
+    if (!(INBOX_SORTS as readonly string[]).includes(arg)) return false;
+    context.live.inboxQuery = { ...context.live.inboxQuery, sort: arg as InboxSort, cursor: null };
+    context.state.inboxQueue = 'mine';
+    return loadInboxScreen(context);
+  },
 
   /* ------------------------------------------------------------- lifecycle -- */
 
@@ -826,7 +971,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-inbox-filter': async (context, arg) => {
     const { id, value } = splitArg(arg);
     if (!['unread', 'priority', 'channel', 'labelId'].includes(id)) return false;
-    context.live.inboxFilters = { ...context.live.inboxFilters, [id]: value };
+    context.live.inboxQuery = setSimpleFilter(context.live.inboxQuery, id as 'unread' | 'priority' | 'channel' | 'labelId', value);
     return loadInboxScreen(context);
   },
 
@@ -858,6 +1003,44 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     );
     if (ok) clearForm(context, ['labelName', 'labelColor']);
     return ok;
+  },
+
+  'live-workspace-label-create': async (context) => {
+    const color = validLabelColor(context);
+    if (color === null) return false;
+    const ok = await createLabel(context, form(context, 'labelName'), color);
+    if (ok) { context.state.dialog = null; clearForm(context, ['labelName', 'labelColor']); }
+    return ok;
+  },
+
+  'live-workspace-label-update': async (context) => {
+    const label = rowsOf(context.live.workspaceLabels).find((item) => item.id === context.state.dialog?.arg);
+    if (label === undefined) return false;
+    const color = validLabelColor(context);
+    if (color === null) return false;
+    const ok = await updateLabel(context, label, form(context, 'labelName'), color);
+    if (ok) context.state.dialog = null;
+    return ok;
+  },
+
+  'live-workspace-label-retire-confirm': async (context, arg) => {
+    const label = rowsOf(context.live.workspaceLabels).find((item) => item.id === arg);
+    const retired = label === undefined ? false : await retireLabel(context, label);
+    if (retired) context.state.dialog = null;
+    return retired;
+  },
+
+  'live-inline-label-create': async (context, arg) => {
+    const [target, entityId] = arg.split('|');
+    if ((target !== 'contact' && target !== 'conversation') || entityId === undefined) return false;
+    const color = validLabelColor(context);
+    if (color === null) return false;
+    const created = await createAndAssignLabel(context, target, entityId, form(context, 'labelName'), color);
+    if (created) {
+      context.state.dialog = null;
+      clearForm(context, ['labelName', 'labelColor']);
+    }
+    return created;
   },
 
   'live-field-create': async (context) => {
@@ -1099,6 +1282,75 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return settleOwnership(context, id, value);
   },
 };
+
+let inboxSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Debounced free-text search; filters are only committed after typing pauses. */
+function scheduleInboxSearch(context: LiveContext, value: string): void {
+  // Keep the controlled input stable through unrelated renders while the
+  // request is debounced. Search itself stays intentionally out of the URL.
+  context.live.inboxSearchDraft = value;
+  if (inboxSearchTimer !== null) clearTimeout(inboxSearchTimer);
+  inboxSearchTimer = setTimeout(() => {
+    inboxSearchTimer = null;
+    const search = value.trim().slice(0, 200);
+    context.live.inboxSearchDraft = search;
+    if (context.live.inboxQuery.search === (search === '' ? null : search)) return;
+    context.live.inboxQuery = { ...context.live.inboxQuery, search: search === '' ? null : search, cursor: null };
+    context.live.selectedSavedViewId = null;
+    context.state.inboxQueue = 'mine';
+    void loadInboxScreen(context);
+  }, 250);
+}
+
+/** Builds only a catalogue-defined filter. The API remains final validator. */
+function inboxFilterFromForm(context: LiveContext): InboxFilter | null {
+  const key = form(context, 'inboxFilterKey');
+  const requestedOperator = form(context, 'inboxFilterOperator');
+  const definition = INBOX_FILTER_CATALOGUE.find((entry) => entry.key === key);
+  if (definition === undefined) return null;
+  let operator = requestedOperator;
+  let customFieldType: string | undefined;
+  const fieldId = form(context, 'inboxFilterFieldId');
+  if (definition.key === 'custom_field') {
+    const field = rowsOf(context.live.customFields).find((candidate) => candidate.id === fieldId && candidate.target === 'conversation' && candidate.state === 'active');
+    if (field === undefined) return null;
+    customFieldType = field.type;
+    const operators = customFieldOperators(field.type);
+    operator = operators.includes(requestedOperator) ? requestedOperator : operators[0]!;
+  }
+  if (!definition.operators.includes(operator)) return null;
+  const valuelessOperator = operator === 'is_set' || operator === 'is_not_set';
+  if (valuelessOperator) {
+    return {
+      key: definition.key,
+      operator,
+      ...(definition.key === 'custom_field' ? { fieldId } : {}),
+    };
+  }
+  const raw = form(context, 'inboxFilterValue');
+  if (raw === '') return null;
+  const valueType = definition.valueType === 'custom_field' ? customFieldType : definition.valueType;
+  const value = valueType === 'boolean'
+    ? raw === 'true' ? true : raw === 'false' ? false : null
+    : (operator === 'in' || operator === 'not_in')
+      ? raw.split(',').map((entry) => entry.trim()).filter(Boolean)
+      : raw;
+  if (value === null || Array.isArray(value) && value.length === 0) return null;
+  return {
+    key: definition.key,
+    operator,
+    value,
+    ...(definition.key === 'custom_field' ? { fieldId } : {}),
+  };
+}
+
+function customFieldOperators(type: string): readonly string[] {
+  if (type === 'boolean') return ['eq', 'neq', 'is_set', 'is_not_set'];
+  if (type === 'number' || type === 'date' || type === 'single_select') return ['eq', 'neq', 'is_set', 'is_not_set'];
+  if (type === 'text' || type === 'email' || type === 'phone') return ['eq', 'contains', 'is_set', 'is_not_set'];
+  return ['is_set', 'is_not_set'];
+}
 
 async function submitCredentialFlow(context: LiveContext, kind: 'invitation' | 'recovery'): Promise<boolean> {
   if (context.live.busy !== null) return false;

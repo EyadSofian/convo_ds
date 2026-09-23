@@ -45,7 +45,7 @@ describe('navigation', () => {
     const current = shell.querySelector('.nav__item[aria-current="page"]');
     expect(current?.getAttribute('data-arg')).toBe('channels');
     expect(current?.getAttribute('aria-label')).toBe('Channels');
-    expect(current?.getAttribute('href')).toBe('#/channels');
+    expect(current?.getAttribute('href')).toBe('#/channels?lang=en');
     expect(shell.querySelector('.nav__toggle')?.getAttribute('aria-expanded')).toBe('false');
     expect(shell.querySelector('.nav__toggle')?.getAttribute('aria-label')).toBe('Expand navigation');
   });

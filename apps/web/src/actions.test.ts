@@ -97,6 +97,16 @@ describe('navigation', () => {
     expect(selectedId(app.state)).toBe('cv-1');
   });
 
+  it('changes the analytics report view only for supported report names', () => {
+    runAction('analytics-view', app.context, 'agents');
+    expect(app.state.analyticsView).toBe('agents');
+    expect(app.navigations.at(-1)).toEqual({ screen: 'analytics', conversationId: null });
+    const before = app.navigations.length;
+    runAction('analytics-view', app.context, 'not-a-report');
+    expect(app.navigations).toHaveLength(before);
+    expect(app.state.analyticsView).toBe('agents');
+  });
+
   it('collapses and expands the navigation, and sets it explicitly', () => {
     runAction('nav-collapse', app.context, '');
     expect(app.state.navCollapsed).toBe(false);
@@ -313,7 +323,7 @@ describe('channels', () => {
 
 describe('campaigns and reports', () => {
   it('opens a campaign’s report narrowed to that campaign', () => {
-    app.state.analyticsFilters = { from: '2026-01-01', to: '', channel: 'whatsapp', campaignId: '' };
+    app.state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, from: '2026-01-01', channel: 'whatsapp' };
     runAction('campaign-report', app.context, 'c-7');
     expect(app.state.analyticsFilters).toEqual({ ...NO_ANALYTICS_FILTERS, campaignId: 'c-7' });
     expect(app.navigations.at(-1)).toEqual({ screen: 'analytics', conversationId: null });

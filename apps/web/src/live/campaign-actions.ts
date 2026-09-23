@@ -46,15 +46,139 @@ export async function loadCampaignsScreen(context: LiveContext): Promise<void> {
 export async function loadCampaignReport(context: LiveContext): Promise<void> {
   const tenantId = currentTenantId(context.live);
   if (tenantId === null) return;
+  const generation = beginAnalyticsRequest(context);
   const filters = context.state.analyticsFilters;
   context.live.campaignReport = LOADING;
   context.refresh();
   const result = await context.live.campaignsApi.report(tenantId, filters);
+  if (context.live.analyticsRequestGeneration !== generation) return;
   context.live.campaignReport = fromResult(result, context.now());
   if (result.ok && (filters.campaignId === '' || context.live.reportCampaigns.length === 0)) {
     context.live.reportCampaigns = result.data.campaigns.map((campaign) => ({ id: campaign.id, name: campaign.name }));
   }
   context.refresh();
+}
+
+/** Reads the operational report from its own server projection. */
+export async function loadOperationalReport(context: LiveContext): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  const generation = beginAnalyticsRequest(context);
+  context.live.operationalReport = LOADING;
+  const optionsLoads: Promise<void>[] = [];
+  if (context.live.teams.status === 'idle') {
+    context.live.teams = LOADING;
+    optionsLoads.push(context.live.api.teams(tenantId).then((result) => { context.live.teams = fromResult(result, context.now()); }));
+  }
+  if (context.live.connections.status === 'idle') {
+    context.live.connections = LOADING;
+    optionsLoads.push(context.live.channels.connections(tenantId).then((result) => { context.live.connections = fromResult(result, context.now()); }));
+  }
+  if (context.live.workspaceLabels.status === 'idle') {
+    context.live.workspaceLabels = LOADING;
+    optionsLoads.push(context.live.metadataApi.labels(tenantId, true).then((result) => { context.live.workspaceLabels = fromResult(result, context.now()); }));
+  }
+  if (context.live.campaigns.status === 'idle') {
+    context.live.campaigns = LOADING;
+    optionsLoads.push(context.live.campaignsApi.list(tenantId).then((result) => { context.live.campaigns = fromResult(result, context.now()); }));
+  }
+  context.refresh();
+  const [result] = await Promise.all([
+    context.live.campaignsApi.operationsReport(tenantId, context.state.analyticsFilters),
+    ...optionsLoads,
+  ]);
+  if (context.live.analyticsRequestGeneration !== generation) return;
+  context.live.operationalReport = fromResult(result, context.now());
+  if (result.ok && context.state.analyticsFilters.agentId === '') {
+    context.live.operationalAgentOptions = { tenantId, agents: result.data.agents };
+  }
+  context.refresh();
+}
+
+export async function loadAssignmentReport(context: LiveContext, append = false): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  const invocation = ++context.live.assignmentRequestGeneration;
+  // The existing scoped report response supplies the picker directory and
+  // filter catalogues; the assignment rows themselves always come from their
+  // own bounded, keyset-paginated endpoint.
+  if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
+  if (context.live.assignmentRequestGeneration !== invocation) return;
+  const generation = beginAnalyticsRequest(context);
+  const cursor = append ? context.live.assignmentNextCursor : null;
+  if (append && cursor === null) return;
+  context.live.assignmentLoadingMore = append;
+  if (!append) {
+    context.live.assignmentReport = LOADING;
+    context.live.assignmentNextCursor = null;
+  }
+  context.refresh();
+  const result = await context.live.campaignsApi.assignmentsReport(tenantId, context.state.analyticsFilters, cursor, 50);
+  if (context.live.analyticsRequestGeneration !== generation || context.live.assignmentRequestGeneration !== invocation) return;
+  context.live.assignmentLoadingMore = false;
+  if (!result.ok) {
+    context.live.assignmentReport = failed(result.error);
+    context.live.assignmentNextCursor = null;
+  } else {
+    const previous = append && context.live.assignmentReport.status === 'ready' ? context.live.assignmentReport.value : [];
+    context.live.assignmentReport = { status: 'ready', value: [...previous, ...result.data.data], loadedAt: context.now() };
+    context.live.assignmentNextCursor = result.data.nextCursor;
+  }
+  context.refresh();
+}
+
+export async function loadResponseReport(context: LiveContext): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
+  const generation = beginAnalyticsRequest(context);
+  context.live.responseReport = LOADING;
+  context.refresh();
+  const result = await context.live.campaignsApi.responseReport(tenantId, context.state.analyticsFilters);
+  if (context.live.analyticsRequestGeneration !== generation) return;
+  context.live.responseReport = fromResult(result, context.now());
+  context.refresh();
+}
+
+export async function loadResolutionReport(context: LiveContext): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
+  const generation = beginAnalyticsRequest(context);
+  context.live.resolutionReport = LOADING;
+  context.refresh();
+  const result = await context.live.campaignsApi.resolutionReport(tenantId, context.state.analyticsFilters);
+  if (context.live.analyticsRequestGeneration !== generation) return;
+  context.live.resolutionReport = fromResult(result, context.now());
+  context.refresh();
+}
+
+export async function loadTeamReport(context: LiveContext): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
+  const generation = beginAnalyticsRequest(context);
+  context.live.teamReport = LOADING;
+  context.refresh();
+  const result = await context.live.campaignsApi.teamReport(tenantId, context.state.analyticsFilters);
+  if (context.live.analyticsRequestGeneration !== generation) return;
+  context.live.teamReport = fromResult(result, context.now());
+  context.refresh();
+}
+
+export function loadAnalyticsReport(context: LiveContext): Promise<void> {
+  if (context.state.analyticsView === 'overview' || context.state.analyticsView === 'agents' || context.state.analyticsView === 'channels') return loadOperationalReport(context);
+  if (context.state.analyticsView === 'responses') return loadResponseReport(context);
+  if (context.state.analyticsView === 'resolutions') return loadResolutionReport(context);
+  if (context.state.analyticsView === 'teams') return loadTeamReport(context);
+  if (context.state.analyticsView === 'assignments') return loadAssignmentReport(context);
+  return loadCampaignReport(context);
+}
+
+function beginAnalyticsRequest(context: LiveContext): number {
+  const generation = context.live.analyticsRequestGeneration + 1;
+  context.live.analyticsRequestGeneration = generation;
+  return generation;
 }
 
 export async function createCampaignReportExport(context: LiveContext): Promise<boolean> {

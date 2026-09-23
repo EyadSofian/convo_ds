@@ -3,12 +3,14 @@ import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { loadOpenContact } from './contact-actions.js';
 import { refreshInboxLists } from './inbox-lists.js';
+import { unassignedFilterProjection } from './inbox-query.js';
 import { loadEpisodes, loadNotes, markConversationRead } from './lifecycle-actions.js';
 import { loadRouting } from './routing-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
-import { currentTenantId, failed, forTenant, fromResult, LOADING, ready } from './store.js';
+import { currentTenantId, failed, forTenant, fromResult, LOADING, ready, rowsOf } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
+import { loadSavedViews } from './saved-view-actions.js';
 
 /**
  * The Inbox, against the real API.
@@ -40,19 +42,134 @@ function t(context: LiveContext, ar: string, en: string): string {
 export async function loadInboxScreen(context: LiveContext): Promise<void> {
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
+    // A bookmarked supervisor lens is still validated by the server on every
+    // read. The browser restores only the opaque membership reference; it
+    // never restores a different session or an assumed directory entry.
+    if (live.supervisorAgentId === null && uuid(context.state.route.params['agent'])) {
+      live.supervisorAgentId = context.state.route.params['agent']!;
+    }
+    if (live.supervisorAgentId !== null) {
+      live.conversations = LOADING;
+      live.supervisorWorkload = LOADING;
+      context.refresh();
+      const [page, workload] = await Promise.all([
+        live.conversationsApi.supervisorList(tenantId, live.supervisorAgentId, { ...live.inboxQuery, cursor: null }),
+        live.conversationsApi.supervisorWorkload(tenantId, live.supervisorAgentId),
+      ]);
+      live.conversations = page.ok ? ready(page.data.items, context.now()) : failed(page.error);
+      live.supervisorWorkload = fromResult(workload, context.now());
+      live.inboxNextCursor = page.ok ? page.data.nextCursor : null;
+      if (!page.ok) live.error = page.error;
+      else if (!workload.ok) live.error = workload.error;
+      context.refresh();
+      return;
+    }
     live.unassigned = LOADING;
     live.conversations = LOADING;
     context.refresh();
 
     const [unassigned, mine] = await Promise.all([
-      live.conversationsApi.unassigned(tenantId, live.inboxFilters),
-      live.conversationsApi.list(tenantId, 'mine', live.inboxFilters),
+      live.conversationsApi.unassigned(tenantId, unassignedFilterProjection(live.inboxQuery)),
+      live.conversationsApi.list(tenantId, live.inboxQuery),
     ]);
     const now = context.now();
     live.unassigned = fromResult(unassigned, now);
-    live.conversations = fromResult(mine, now);
+    live.conversations = mine.ok ? ready(mine.data.items, now) : failed(mine.error);
+    live.inboxNextCursor = mine.ok ? mine.data.nextCursor : null;
     context.refresh();
     if (live.labels.status === 'idle') await loadMetadataCatalog(context);
+    if (live.savedViews.status === 'idle') await loadSavedViews(context);
+    if (live.people.status === 'idle' || live.teams.status === 'idle' || live.connections.status === 'idle' || live.campaigns.status === 'idle') {
+      await loadInboxPickerCatalogues(context, tenantId);
+    }
+  });
+}
+
+function uuid(value: string | undefined): value is string {
+  return value !== undefined && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+/** Opens the protected agent picker; a 403 is displayed as such, never faked. */
+export async function loadSupervisorAgents(context: LiveContext): Promise<void> {
+  return forTenant(context, undefined, async (tenantId) => {
+    context.live.supervisorAgents = LOADING;
+    context.refresh();
+    const result = await context.live.conversationsApi.supervisorAgents(tenantId);
+    context.live.supervisorAgents = fromResult(result, context.now());
+    if (!result.ok) context.live.error = result.error;
+    context.refresh();
+  });
+}
+
+/** Lists the selected agent's work under the signed-in supervisor's own RBAC. */
+export async function loadSupervisorInbox(context: LiveContext, agentMembershipId: string): Promise<boolean> {
+  if (!rowsOf(context.live.supervisorAgents).some((agent) => agent.membershipId === agentMembershipId)) return false;
+  return forTenant(context, false, async (tenantId) => {
+    context.live.conversations = LOADING;
+    context.live.supervisorWorkload = LOADING;
+    context.live.supervisorAgentId = agentMembershipId;
+    context.state.inboxQueue = 'mine';
+    context.state.route = { ...context.state.route, params: { ...context.state.route.params, agent: agentMembershipId } };
+    context.refresh();
+    const [result, workload] = await Promise.all([
+      context.live.conversationsApi.supervisorList(tenantId, agentMembershipId, { ...context.live.inboxQuery, cursor: null }),
+      context.live.conversationsApi.supervisorWorkload(tenantId, agentMembershipId),
+    ]);
+    context.live.conversations = result.ok ? ready(result.data.items, context.now()) : failed(result.error);
+    context.live.supervisorWorkload = fromResult(workload, context.now());
+    context.live.inboxNextCursor = result.ok ? result.data.nextCursor : null;
+    if (!result.ok) context.live.error = result.error;
+    else if (!workload.ok) context.live.error = workload.error;
+    context.refresh();
+    return result.ok;
+  });
+}
+
+/**
+ * Uses only server-provided labels for ID-backed Inbox filters. A browser must
+ * never invite an operator to paste a membership, connection, label or campaign
+ * UUID just to express a query.
+ */
+async function loadInboxPickerCatalogues(context: LiveContext, tenantId: string): Promise<void> {
+  const { live } = context;
+  const [people, teams, connections, campaigns] = await Promise.all([
+    live.api.people(tenantId),
+    live.api.teams(tenantId),
+    live.channels.connections(tenantId),
+    live.campaignsApi.list(tenantId),
+  ]);
+  const now = context.now();
+  live.people = fromResult(people, now);
+  live.teams = fromResult(teams, now);
+  live.connections = fromResult(connections, now);
+  live.campaigns = fromResult(campaigns, now);
+  context.refresh();
+}
+
+/** Appends one cursor page without changing the filter URL or duplicating rows. */
+export async function loadMoreInbox(context: LiveContext): Promise<void> {
+  const cursor = context.live.inboxNextCursor;
+  if (cursor === null || context.live.busy !== null) return;
+  return forTenant(context, undefined, async (tenantId) => {
+    context.live.busy = 'inbox-load-more';
+    context.refresh();
+    const result = context.live.supervisorAgentId === null
+      ? await context.live.conversationsApi.list(tenantId, { ...context.live.inboxQuery, cursor })
+      : await context.live.conversationsApi.supervisorList(tenantId, context.live.supervisorAgentId, { ...context.live.inboxQuery, cursor });
+    context.live.busy = null;
+    if (!result.ok) {
+      context.live.error = result.error;
+      context.refresh();
+      return;
+    }
+    const existing = context.live.conversations.status === 'ready' ? context.live.conversations.value : [];
+    const seen = new Set(existing.map((conversation) => conversation.id));
+    context.live.conversations = ready([...existing, ...result.data.items.filter((conversation) => !seen.has(conversation.id))], context.now());
+    context.live.inboxNextCursor = result.data.nextCursor;
+    // A continuation is a transport position, never part of the persisted
+    // operator query. Realtime therefore always re-reads its first page.
+    context.live.inboxQuery = { ...context.live.inboxQuery, cursor: null };
+    context.refresh();
   });
 }
 
@@ -118,7 +235,10 @@ export async function openConversation(context: LiveContext, id: string): Promis
     // Read last, and only once the contents are actually on screen: a cursor
     // moved before the messages arrived would mark as seen what a failed
     // timeline never showed anybody.
-    await markConversationRead(context, id);
+    // Supervisor inspection is observational. It never alters the selected
+    // agent's cursor and it also avoids manufacturing a supervisor read side
+    // effect merely from opening a read-only lens.
+    if (live.supervisorAgentId === null) await markConversationRead(context, id);
   });
 }
 
@@ -352,6 +472,16 @@ export async function applyRealtimeEvent(
   const { live } = context;
   live.realtime = { status: 'live', since: context.now() };
   const tasks: Promise<unknown>[] = [refreshInboxLists(context)];
+  // Assignment changes can remove the selected agent from the event scope. A
+  // state/routing event delivered inside the supervisor's readable scope is
+  // therefore the narrow safe invalidation set: message-only events leave the
+  // current workload unchanged, while any live-work mutation re-reads it.
+  if (
+    live.supervisorAgentId !== null &&
+    (event.type === 'conversation.state' || event.type === 'conversation.assigned' || event.type === 'conversation.routing')
+  ) {
+    tasks.push(refreshSupervisorWorkload(context));
+  }
   if (event.scope.conversationId === live.openConversationId) {
     tasks.push(loadTimeline(context, event.scope.conversationId));
     if (event.type === 'conversation.handoff') {
@@ -372,4 +502,16 @@ export async function applyRealtimeEvent(
     }
   }
   await Promise.all(tasks);
+}
+
+/** Refresh only the selected workload projection after relevant realtime work. */
+export async function refreshSupervisorWorkload(context: LiveContext): Promise<void> {
+  const agentId = context.live.supervisorAgentId;
+  if (agentId === null) return;
+  return forTenant(context, undefined, async (tenantId) => {
+    const result = await context.live.conversationsApi.supervisorWorkload(tenantId, agentId);
+    if (result.ok) context.live.supervisorWorkload = ready(result.data, context.now());
+    else context.live.error = result.error;
+    context.refresh();
+  });
 }

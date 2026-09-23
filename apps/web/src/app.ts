@@ -7,6 +7,7 @@ import { ConversationsApi } from './api/conversations';
 import { MetadataApi } from './api/metadata';
 import { CampaignsApi } from './api/campaigns';
 import { AutomationsApi } from './api/automations';
+import { SavedViewsApi } from './api/saved-views';
 import {
   disconnectedApi,
   disconnectedChannelsApi,
@@ -25,7 +26,7 @@ import {
   stopRealtime,
 } from './live/inbox-actions';
 import { loadContactsScreen } from './live/contact-actions';
-import { loadCampaignReport, loadCampaignsScreen, refreshCampaignReportExport } from './live/campaign-actions';
+import { loadAnalyticsReport, loadCampaignsScreen, refreshCampaignReportExport } from './live/campaign-actions';
 import { loadAutomationsScreen } from './live/automation-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
@@ -285,7 +286,7 @@ const SCREEN_LOADERS: Readonly<Record<Exclude<ScreenId, 'accept-invitation' | 'r
   contacts: loadContactsScreen,
   broadcasts: loadCampaignsScreen,
   automations: loadAutomationsScreen,
-  analytics: loadCampaignReport,
+  analytics: loadAnalyticsReport,
   settings: loadSettingsScreen,
 };
 
@@ -338,19 +339,22 @@ export function mount(options: MountOptions): AppHandle {
   const metadata = client === null ? disconnectedMetadataApi() : new MetadataApi(client);
   const campaigns = client === null ? undefined : new CampaignsApi(client);
   const automations = client === null ? undefined : new AutomationsApi(client);
+  const savedViews = client === null ? undefined : new SavedViewsApi(client);
   /**
    * The clock the whole screen reads. When `now` is supplied it is the clock —
    * frozen, and used for relative times *and* for any instant an action
    * computes. In production nothing is supplied and this is `new Date()`.
    */
   const clock = (): Date => options.now ?? new Date();
-  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata, campaigns, automations));
+  const state = createState(clock(), createLiveState(api, channels, conversations, contacts, metadata, campaigns, automations, savedViews));
   const store = options.preferences ?? null;
   const stored = readPreferences(store);
   state.theme = stored.theme ?? ((options.prefersDark?.() ?? false) ? 'dark' : 'light');
   state.navCollapsed = stored.navCollapsed ?? true;
+  state.lang = stored.lang ?? state.lang;
   let savedTheme = state.theme;
   let savedNav = state.navCollapsed;
+  let savedLang = state.lang;
 
   const root = options.root;
   const host = options.host;
@@ -383,10 +387,11 @@ export function mount(options: MountOptions): AppHandle {
     document_.documentElement.setAttribute('lang', state.lang);
     document_.documentElement.setAttribute('dir', state.lang === 'ar' ? 'rtl' : 'ltr');
     document_.documentElement.setAttribute('data-theme', state.theme);
-    if (state.theme !== savedTheme || state.navCollapsed !== savedNav) {
+    if (state.theme !== savedTheme || state.navCollapsed !== savedNav || state.lang !== savedLang) {
       savedTheme = state.theme;
       savedNav = state.navCollapsed;
-      writePreferences(store, { theme: state.theme, navCollapsed: state.navCollapsed });
+      savedLang = state.lang;
+      writePreferences(store, { theme: state.theme, navCollapsed: state.navCollapsed, lang: state.lang });
     }
     root.className = 'app-root';
     replace(root, [renderApp(state)]);
@@ -709,7 +714,9 @@ export function mount(options: MountOptions): AppHandle {
       return;
     }
 
-    if (keyboard.key === 'Tab' && (state.dialog !== null || state.navOpen)) {
+    const mobileFilterDrawer = state.openMenu === 'inbox-filters' &&
+      root.ownerDocument.defaultView?.matchMedia('(max-width: 599px)').matches === true;
+    if (keyboard.key === 'Tab' && (state.dialog !== null || state.navOpen || mobileFilterDrawer)) {
       if (trapTab(keyboard)) event.preventDefault();
       return;
     }
@@ -801,10 +808,20 @@ export function mount(options: MountOptions): AppHandle {
     const firstDraw = !drawn;
     drawn = true;
     const previousScreen = state.route.screen;
+    const previousRoute = state.route;
     applyRoute(state, route);
     if (!firstDraw && route.screen === 'analytics' && previousScreen === 'analytics') {
       // Back and forward through filter changes re-read the report they name.
       loadedScreen = null;
+    }
+    if (!firstDraw && route.screen === 'automations' && previousScreen === 'automations') {
+      // Automation tabs and draft links are distinct server-backed resources.
+      // A same-screen query change must load its list/editor data just like a
+      // top-level navigation, otherwise the screen remains on its prior
+      // skeleton/resource and the URL lies about the selected view.
+      const viewChanged = previousRoute.params['view'] !== route.params['view'];
+      const draftChanged = previousRoute.params['edit'] !== route.params['edit'];
+      if (viewChanged || draftChanged) loadedScreen = null;
     }
     syncUrl();
     refresh();

@@ -86,4 +86,28 @@ describe('settings', () => {
   it('speaks Arabic by default', () => {
     expect(renderSettings(screen('ar')).textContent).toContain('الجلسات النشطة');
   });
+
+  it('shows active and retired labels only to catalog managers, including loading/error/empty states', () => {
+    const state = screen();
+    const signedIn = state.live.session;
+    if (signedIn.status !== 'signed_in') throw new Error('expected signed-in test state');
+    state.live.session = { ...signedIn, memberships: [{ ...signedIn.memberships[0]!, permissions: ['catalog.manage'] }] };
+    state.live.workspaceLabels = { status: 'ready', loadedAt: 1, value: [
+      { id: 'active', name: 'VIP', color: '#abcdef', state: 'active', version: 1 },
+      { id: 'retired', name: 'Old', color: '#111111', state: 'retired', version: 1 },
+    ] };
+    const root = renderSettings(state);
+    expect(root.textContent).toContain('Workspace labels');
+    expect(root.querySelector('[data-arg="workspace-label:active"]')).not.toBeNull();
+    expect(root.querySelector('[data-arg="retire-label:active"]')).not.toBeNull();
+    expect(root.textContent).toContain('Kept for history');
+    state.live.workspaceLabels = { status: 'loading' };
+    expect(renderSettings(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+    state.live.workspaceLabels = { status: 'idle' };
+    expect(renderSettings(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+    state.live.workspaceLabels = { status: 'ready', loadedAt: 1, value: [] };
+    expect(renderSettings(state).textContent).toContain('No active labels');
+    state.live.workspaceLabels = { status: 'error', error: { code: 'x', message: 'Denied', requestId: 'labels-1', status: 500, details: [] } };
+    expect(renderSettings(state).textContent).toContain('labels-1');
+  });
 });

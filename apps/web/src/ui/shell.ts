@@ -6,6 +6,7 @@ import { activeMembership, allowedScreens } from '../live/ability.js';
 import { openSession, rowsOf } from '../live/store.js';
 import type { ScreenId } from '../router.js';
 import { formatHash } from '../router.js';
+import { routeParamsWithLanguage } from '../state.js';
 import type { AppState } from '../state.js';
 import { screenTitle } from '../state.js';
 import { logomark } from './brand.js';
@@ -106,7 +107,7 @@ function renderNav(state: AppState): HTMLElement {
               'a',
               {
                 class: 'nav__item',
-                href: formatHash({ screen, conversationId: null, params: {} }),
+                href: formatHash({ screen, conversationId: null, params: routeParamsWithLanguage(state, {}) }),
                 'data-act': 'nav',
                 'data-arg': screen,
                 'data-label': title,

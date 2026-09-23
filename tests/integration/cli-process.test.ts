@@ -124,6 +124,11 @@ describe('convo-db entry point', () => {
       'applied 0031_invitation_tenant_scope.sql',
       'applied 0032_automation_execution.sql',
       'applied 0033_account_security_events.sql',
+      'applied 0034_campaign_conversation_attribution.sql',
+      'applied 0035_conversation_episode_actor_evidence.sql',
+      'applied 0036_conversation_event_binding.sql',
+      'applied 0037_conversation_identity_history_index.sql',
+      'applied 0038_conversation_episode_actor_fk_set_null.sql',
     ]);
 
     const second = await runBin(['migrate'], env);

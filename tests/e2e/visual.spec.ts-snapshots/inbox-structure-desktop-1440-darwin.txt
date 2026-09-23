@@ -8,10 +8,25 @@ div.inbox
           span.segmented__count
       div.listhead__tools
         div.menu-anchor
-          button.btn.btn--ghost.btn--sm.btn--icon [menu]
+          button.btn.btn--ghost.btn--sm [menu]
             svg
               path
-              path
+            span.btn__label
+        button.btn.btn--ghost.btn--sm [live-supervisor-open]
+          svg
+            path
+            circle
+          span.btn__label
+        select.select [live-inbox-sort]
+          option
+          option
+          option
+          option
+          option
+          option
+        div.menu-anchor
+          button.btn.btn--ghost.btn--sm.btn--icon [menu]
+            svg
               path
         button.btn.btn--ghost.btn--sm.btn--icon [live-inbox-reload]
           svg
@@ -21,6 +36,11 @@ div.inbox
         button.btn.btn--ghost.btn--sm.btn--icon.listhead__close [close-overlays]
           svg
             path
+    div.inbox-search
+      svg
+        circle
+        path
+      input.inbox-search__input [live-inbox-search]
     p.realtime.realtime--live
       span.realtime__dot
     button.list-resizer [resize-list-step]

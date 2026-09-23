@@ -47,8 +47,8 @@ export interface MetadataResult {
 export class MetadataApi {
   constructor(private readonly client: ApiClient) {}
 
-  labels(tenantId: string): Promise<ApiResult<readonly Label[]>> {
-    return this.client.get<readonly Label[]>(`/tenants/${tenantId}/labels`);
+  labels(tenantId: string, includeRetired = false): Promise<ApiResult<readonly Label[]>> {
+    return this.client.get<readonly Label[]>(`/tenants/${tenantId}/labels${includeRetired ? '?includeRetired=true' : ''}`);
   }
 
   fields(tenantId: string): Promise<ApiResult<readonly CustomField[]>> {
@@ -57,6 +57,14 @@ export class MetadataApi {
 
   createLabel(tenantId: string, name: string, color: string): Promise<ApiResult<Label>> {
     return this.client.post<Label>(`/tenants/${tenantId}/labels`, { body: { name, color } });
+  }
+
+  updateLabel(tenantId: string, id: string, input: { readonly version: number; readonly name: string; readonly color: string }): Promise<ApiResult<Label>> {
+    return this.client.patch<Label>(`/tenants/${tenantId}/labels/${id}`, { body: input });
+  }
+
+  retireLabel(tenantId: string, id: string, version: number): Promise<ApiResult<Label>> {
+    return this.client.delete<Label>(`/tenants/${tenantId}/labels/${id}`, { body: { version } });
   }
 
   createField(

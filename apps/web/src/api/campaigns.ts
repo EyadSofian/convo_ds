@@ -1,4 +1,4 @@
-import { API_BASE_URL, ApiClient, type ApiResult } from './client.js';
+import { API_BASE_URL, ApiClient, type ApiResult, type PagedData } from './client.js';
 
 export type CampaignState = 'draft' | 'validating' | 'ready' | 'scheduled' | 'running' |
   'pausing' | 'paused' | 'dispatch_completed' | 'cancelling' | 'cancelled' | 'failed';
@@ -130,6 +130,115 @@ export interface CampaignReportExport {
   readonly download_url: string | null;
 }
 
+/** Current operational workload and durable episode timings, calculated by the API. */
+export interface OperationalReport {
+  readonly generatedAt: string;
+  readonly filters: { readonly from: string | null; readonly to: string | null; readonly agentId: string | null; readonly teamId: string | null; readonly channel: string | null; readonly connectionId: string | null; readonly labelId: string | null; readonly campaignId: string | null; readonly priority: string | null; readonly status: string | null };
+  readonly agentOptions: readonly { readonly membershipId: string; readonly name: string; readonly teams: readonly string[] }[];
+  readonly conversations: {
+    readonly open: number;
+    readonly unassigned: number;
+    readonly new: number;
+    readonly resolved: number;
+    readonly assignedInPeriod: number;
+    readonly humanMessages: number;
+    readonly internalNotes: number;
+    readonly reassignments: number;
+    readonly backlogByStatus: readonly { readonly status: string; readonly count: number }[];
+    readonly backlogByChannel: readonly { readonly channel: string; readonly count: number }[];
+    readonly backlogByTeam: readonly { readonly team: string; readonly count: number }[];
+    readonly assignmentWorkload: readonly { readonly name: string; readonly count: number }[];
+  };
+  readonly timing: {
+    readonly firstResponseMeasured: number;
+    readonly firstResponseAverageSeconds: number | null;
+    readonly firstResponseMedianSeconds: number | null;
+    readonly resolutionMeasured: number;
+    readonly resolutionAverageSeconds: number | null;
+    readonly resolutionMedianSeconds: number | null;
+  };
+  readonly responseBuckets: readonly { readonly bucket: string; readonly count: number }[];
+  readonly channels: readonly {
+    readonly channel: string; readonly currentActive: number; readonly newConversations: number;
+    readonly handledConversations: number; readonly humanMessages: number;
+    readonly firstResponses: number; readonly firstResponseAverageSeconds: number | null; readonly firstResponseMedianSeconds: number | null;
+    readonly resolutions: number; readonly resolutionAverageSeconds: number | null; readonly resolutionMedianSeconds: number | null;
+  }[];
+  readonly agents: readonly {
+    readonly membershipId: string; readonly name: string; readonly email: string; readonly teams: readonly string[];
+    readonly currentAssigned: number; readonly currentOpen: number; readonly currentPending: number; readonly currentSnoozed: number;
+    readonly currentUnreplied: number; readonly currentUrgent: number; readonly currentHigh: number;
+    readonly currentByStatus: readonly { readonly status: string; readonly count: number }[];
+    readonly currentByChannel: readonly { readonly channel: string; readonly count: number }[];
+    readonly assignedInPeriod: number; readonly handledConversations: number; readonly humanMessages: number; readonly internalNotes: number;
+    readonly firstResponses: number; readonly firstResponseAverageSeconds: number | null; readonly firstResponseMedianSeconds: number | null;
+    readonly resolutions: number; readonly resolutionAverageSeconds: number | null; readonly resolutionMedianSeconds: number | null;
+    readonly reassignments: number;
+  }[];
+}
+
+export interface OperationalReportFilterInput {
+  readonly from: string;
+  readonly to: string;
+  readonly agentId: string;
+  readonly teamId: string;
+  readonly channel: string;
+  readonly connectionId: string;
+  readonly labelId: string;
+  readonly campaignId: string;
+  readonly priority: string;
+  readonly status: string;
+}
+
+export interface AssignmentReportRow {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly conversationId: string;
+  readonly customer: string | null;
+  readonly action: 'claim' | 'assign' | 'handoff';
+  readonly previousAssignee: { readonly membershipId: string; readonly displayName: string } | null;
+  readonly assignedTo: { readonly membershipId: string; readonly displayName: string };
+  readonly actor: { readonly membershipId: string; readonly displayName: string } | null;
+}
+
+export interface TimingReportRow {
+  readonly membershipId: string | null;
+  readonly name: string;
+  readonly measured: number;
+  readonly averageSeconds: number | null;
+  readonly medianSeconds: number | null;
+}
+export interface TimingChannelReportRow {
+  readonly channel: string;
+  readonly measured: number;
+  readonly averageSeconds: number | null;
+  readonly medianSeconds: number | null;
+}
+export interface ResponseReport {
+  readonly measured: number;
+  readonly averageSeconds: number | null;
+  readonly medianSeconds: number | null;
+  readonly buckets: readonly { readonly bucket: string; readonly count: number }[];
+  readonly byAgent: readonly TimingReportRow[];
+  readonly byChannel: readonly TimingChannelReportRow[];
+}
+export interface ResolutionReport {
+  readonly resolvedEpisodes: number;
+  readonly averageSeconds: number | null;
+  readonly medianSeconds: number | null;
+  readonly reopenedEpisodes: number;
+  readonly byAgent: readonly TimingReportRow[];
+  readonly byChannel: readonly TimingChannelReportRow[];
+}
+
+export interface TeamReportRow {
+  readonly teamId: string; readonly name: string; readonly activeAgentCount: number;
+  readonly currentActive: number; readonly currentOpen: number; readonly currentPending: number; readonly currentSnoozed: number;
+  readonly handledConversations: number; readonly humanMessages: number;
+  readonly firstResponses: number; readonly firstResponseAverageSeconds: number | null; readonly firstResponseMedianSeconds: number | null;
+  readonly resolutions: number; readonly resolutionAverageSeconds: number | null; readonly resolutionMedianSeconds: number | null;
+}
+
 export interface CreateCampaignInput {
   readonly name: string;
   readonly objective: string | null;
@@ -195,6 +304,32 @@ export class CampaignsApi {
     const suffix = query.size === 0 ? '' : `?${query.toString()}`;
     return this.client.get(`/tenants/${tenantId}/reports/campaigns${suffix}`);
   }
+  operationsReport(tenantId: string, filters: OperationalReportFilterInput): Promise<ApiResult<OperationalReport>> {
+    const query = reportFilterQuery(filters);
+    const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+    return this.client.get(`/tenants/${tenantId}/reports/operations${suffix}`);
+  }
+  assignmentsReport(tenantId: string, filters: OperationalReportFilterInput, cursor: string | null = null, limit = 50): Promise<ApiResult<PagedData<AssignmentReportRow>>> {
+    const query = reportFilterQuery(filters);
+    if (cursor !== null) query.set('cursor', cursor);
+    query.set('limit', String(limit));
+    return this.client.page(`/tenants/${tenantId}/reports/assignments?${query.toString()}`);
+  }
+  responseReport(tenantId: string, filters: OperationalReportFilterInput): Promise<ApiResult<ResponseReport>> {
+    const query = reportFilterQuery(filters);
+    const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+    return this.client.get(`/tenants/${tenantId}/reports/responses${suffix}`);
+  }
+  resolutionReport(tenantId: string, filters: OperationalReportFilterInput): Promise<ApiResult<ResolutionReport>> {
+    const query = reportFilterQuery(filters);
+    const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+    return this.client.get(`/tenants/${tenantId}/reports/resolutions${suffix}`);
+  }
+  teamReport(tenantId: string, filters: OperationalReportFilterInput): Promise<ApiResult<readonly TeamReportRow[]>> {
+    const query = reportFilterQuery(filters);
+    const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+    return this.client.get(`/tenants/${tenantId}/reports/teams${suffix}`);
+  }
   createReportExport(tenantId: string, campaignId: string | null, key: string): Promise<ApiResult<CampaignReportExport>> {
     return this.client.post(`/tenants/${tenantId}/reports/campaigns/exports`, {
       body: { format: 'csv', campaignId }, idempotencyKey: key,
@@ -203,6 +338,15 @@ export class CampaignsApi {
   reportExport(tenantId: string, exportId: string): Promise<ApiResult<CampaignReportExport>> {
     return this.client.get(`/tenants/${tenantId}/reports/campaigns/exports/${exportId}`);
   }
+}
+
+function reportFilterQuery(filters: OperationalReportFilterInput): URLSearchParams {
+  const query = new URLSearchParams();
+  for (const key of ['from','to','agentId','teamId','channel','connectionId','labelId','campaignId','priority','status'] as const) {
+    const value = filters[key];
+    if (value !== '') query.set(key, value);
+  }
+  return query;
 }
 
 export function disconnectedCampaignsApi(): CampaignsApi {

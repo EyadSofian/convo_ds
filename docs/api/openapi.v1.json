@@ -1338,7 +1338,7 @@
       "get": {
         "operationId": "listConversations",
         "summary": "List the conversations this caller may read",
-        "description": "Returns **records**, and every row is one the caller passed `conversation.read` for — decided per row, not once for the list. Different from the Unassigned queue, which returns projected cards for work nobody holds. `queue=mine` (the default) returns the caller's own conversations; `queue=all` returns everything within their reach, which for an Agent is still only their own.",
+        "description": "Returns a cursor-paged, authorization-scoped InboxQuery result. Every record passed `conversation.read` before the final keyset LIMIT. `filter` is a repeatable JSON-encoded object using the documented closed filter catalogue; it never accepts SQL fields, operators, or sort fragments. `queue=mine` (the default) returns the caller's own conversations; `queue=all` returns everything within their reach, which for an Agent is still only their own.",
         "security": [
           {
             "SessionCookie": []
@@ -1365,17 +1365,39 @@
             }
           },
           {
-            "name": "status",
+            "name": "filter",
             "in": "query",
             "required": false,
             "schema": {
               "type": "string",
-              "enum": [
-                "open",
-                "snoozed",
-                "resolved"
-              ]
+              "description": "Repeatable JSON object: { key, operator, value?, fieldId? }. Keys: status, assignment_state, assigned_agent_id, team_id, channel, connection_id, label_id, priority, unread, unreplied, created_at, last_activity_at, waiting_since, customer_name, customer_phone, collaborator_id, participant_id, handoff_target_id, custom_field."
             }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "maxLength": 200 },
+            "description": "Case-insensitive search over conversation UUID, contact name, phone, and peer identity."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["activity_desc", "activity_asc", "created_desc", "created_asc", "waiting_desc", "priority_desc"], "default": "activity_desc" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "maxLength": 4096 },
+            "description": "Opaque signed keyset cursor bound to tenant, effective query, and sort."
           }
         ],
         "responses": {
@@ -1453,6 +1475,33 @@
             "$ref": "#/components/responses/Error"
           }
         }
+      }
+    },
+    "/tenants/{tenantId}/supervisor/agents": {
+      "get": {
+        "operationId": "listSupervisorAgents",
+        "summary": "List agents visible to the supervisor",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }],
+        "responses": { "200": { "description": "Scoped active agent directory" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/supervisor/conversations": {
+      "get": {
+        "operationId": "listSupervisorConversations",
+        "summary": "Read conversations in an agent workload using the supervisor's own scope",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "name": "agent", "in": "query", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Cursor-paginated scoped conversation page" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/supervisor/workload": {
+      "get": {
+        "operationId": "getSupervisorWorkload",
+        "summary": "Read current scoped workload for one agent",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "name": "agent", "in": "query", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Current workload, scoped by the supervisor principal" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
       }
     },
     "/tenants/{tenantId}/conversations/{conversationId}": {
@@ -6175,6 +6224,125 @@
         "description": "Every figure is computed over one scope. With no query the scope is every campaign the caller may report on. `from` and `to` are inclusive UTC calendar days compared against each execution launch instant; `channel` and `campaignId` select campaigns. The applied scope is echoed in `filters`."
       }
     },
+    "/tenants/{tenantId}/reports/operations": {
+      "get": {
+        "operationId": "getOperationalReport",
+        "summary": "Read scope-safe operational and agent performance measures",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "from", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "agentId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "teamId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "channel", "in": "query", "required": false, "schema": { "$ref": "#/components/schemas/ChannelKind" } },
+          { "name": "connectionId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "labelId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "campaignId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "priority", "in": "query", "required": false, "schema": { "type": "string", "enum": ["low", "normal", "high", "urgent"] } },
+          { "name": "status", "in": "query", "required": false, "schema": { "type": "string", "enum": ["open", "pending", "snoozed", "resolved", "archived"] } }
+        ],
+        "responses": { "200": { "description": "Operational report computed within caller-readable conversation scope" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/reports/assignments": {
+      "get": {
+        "operationId": "getAssignmentReport",
+        "summary": "List ownership-changing assignment events within caller-readable scope",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "from", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "agentId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" }, "description": "Assignment target membership UUID." },
+          { "name": "teamId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" }, "description": "Current team membership of the assignment target." },
+          { "name": "channel", "in": "query", "required": false, "schema": { "$ref": "#/components/schemas/ChannelKind" } },
+          { "name": "connectionId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "labelId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" }, "description": "Current conversation label." },
+          { "name": "campaignId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" }, "description": "Durable conversation attribution, not causal credit." },
+          { "name": "priority", "in": "query", "required": false, "schema": { "type": "string", "enum": ["low", "normal", "high", "urgent"] } },
+          { "name": "status", "in": "query", "required": false, "schema": { "type": "string", "enum": ["open", "pending", "snoozed", "resolved", "archived"] } },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 4096 }, "description": "Opaque cursor bound to tenant, filters, and descending timestamp/id order." },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } }
+        ],
+        "responses": {
+          "200": { "description": "A page of readable assignment events, filtered before keyset pagination." },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/tenants/{tenantId}/reports/responses": {
+      "get": {
+        "operationId": "getResponseReport",
+        "summary": "Read first-response timing by response timestamp within caller-readable scope",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "agentId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Attributed first-response actor membership UUID." },
+          { "name": "teamId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Current team membership of the attributed actor." },
+          { "name": "channel", "in": "query", "schema": { "$ref": "#/components/schemas/ChannelKind" } },
+          { "name": "connectionId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "labelId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Current conversation label." },
+          { "name": "campaignId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Durable attribution, not causal credit." },
+          { "name": "priority", "in": "query", "schema": { "type": "string", "enum": ["low", "normal", "high", "urgent"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["open", "pending", "snoozed", "resolved", "archived"] } }
+        ],
+        "responses": { "200": { "description": "Measured first responses, averages, medians, buckets, and evidence-backed actor/channel breakdowns." }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/reports/resolutions": {
+      "get": {
+        "operationId": "getResolutionReport",
+        "summary": "Read closed-episode timing by close timestamp within caller-readable scope",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "agentId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Attributed resolver membership UUID." },
+          { "name": "teamId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Current team membership of the attributed actor." },
+          { "name": "channel", "in": "query", "schema": { "$ref": "#/components/schemas/ChannelKind" } },
+          { "name": "connectionId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "labelId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Current conversation label." },
+          { "name": "campaignId", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Durable attribution, not causal credit." },
+          { "name": "priority", "in": "query", "schema": { "type": "string", "enum": ["low", "normal", "high", "urgent"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["open", "pending", "snoozed", "resolved", "archived"] } }
+        ],
+        "responses": { "200": { "description": "Closed episodes, resolution timings, reopen count (closed episode sequence > 1), and actor/channel breakdowns." }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/tenants/{tenantId}/reports/teams": {
+      "get": {
+        "operationId": "getTeamReport",
+        "summary": "Read current team workload and explicitly current-membership activity grouping within caller-readable scope",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "agentId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "teamId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "channel", "in": "query", "schema": { "$ref": "#/components/schemas/ChannelKind" } },
+          { "name": "connectionId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "labelId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "campaignId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "priority", "in": "query", "schema": { "type": "string", "enum": ["low", "normal", "high", "urgent"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["open", "pending", "snoozed", "resolved", "archived"] } }
+        ],
+        "responses": { "200": { "description": "Visible team metrics; historical agent activity is grouped by current team membership only." }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } }
+      }
+    },
     "/tenants/{tenantId}/campaigns/{campaignId}/retry": {
       "post": {
         "operationId": "retryCampaignFailures",
@@ -6533,6 +6701,7 @@
       "post": { "operationId": "createAutomation", "summary": "Create a custom draft automation", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } }, "responses": { "201": { "description": "Draft automation created" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
     },
     "/tenants/{tenantId}/automations/{id}": {
+      "delete": { "operationId": "deleteAutomationDraft", "summary": "Delete a never-run automation draft", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["version"], "properties": { "version": { "type": "integer", "minimum": 1 } } } } } }, "responses": { "200": { "description": "Draft deleted" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } },
       "patch": { "operationId": "updateAutomation", "summary": "Update an editable automation with version fencing", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }, { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } }, "responses": { "200": { "description": "Automation updated" }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
     },
     "/tenants/{tenantId}/automations/{id}/{act}": {

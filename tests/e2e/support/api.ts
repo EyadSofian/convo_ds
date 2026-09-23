@@ -489,6 +489,12 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     if (path.endsWith('/custom-fields')) {
       return json(route, paged([]));
     }
+    // The Inbox always asks for server-backed saved views alongside its first
+    // page. Keep this explicit so a new request remains visible as a 404,
+    // while the normal empty-state response does not become a browser error.
+    if (path.endsWith('/saved-views')) {
+      return json(route, paged([]));
+    }
     if (path.endsWith('/channels/catalogue')) {
       return json(route, paged(channelCatalogue()));
     }
@@ -518,6 +524,16 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     }
     if (path.endsWith('/reports/campaigns')) {
       return json(route, { data: campaignReport(), request_id: 'e2e' });
+    }
+    if (path.endsWith('/reports/operations')) {
+      return json(route, { data: { agentOptions: [], agents: [] }, request_id: 'e2e' });
+    }
+    if (path.endsWith('/reports/assignments')) {
+      const secondPage = new URL(route.request().url()).searchParams.has('cursor');
+      const item = secondPage
+        ? { id: 'audit-2', timestamp: '2026-09-08T09:00:00.000Z', conversationId: CONVERSATION, customer: 'Mona Khalil', action: 'assign', previousAssignee: null, assignedTo: { membershipId: MEMBERSHIP, displayName: 'Ahmed Fouad' }, actor: null }
+        : { id: 'audit-1', timestamp: '2026-09-09T09:00:00.000Z', conversationId: CONVERSATION, customer: 'Mona Khalil', action: 'claim', previousAssignee: null, assignedTo: { membershipId: MEMBERSHIP, displayName: 'Ahmed Fouad' }, actor: { membershipId: MEMBERSHIP, displayName: 'Ahmed Fouad' } };
+      return json(route, { data: [item], page: { next_cursor: secondPage ? null : 'e2e-cursor-page-2', has_more: !secondPage }, request_id: 'e2e' });
     }
     if (path.endsWith('/automation-templates')) {
       return json(route, paged(automationTemplates()));

@@ -531,6 +531,16 @@ campaign_recipients      (id, tenant_id, execution_id, contact_id, identity_id,
                           state ∈ planned|queued|in_flight|accepted|delivered|read
                                  |failed|skipped|cancelled|outcome_unknown
                           UNIQUE (tenant_id, execution_id, identity_id)
+campaign_conversation_attributions
+                         (id, tenant_id, campaign_id, execution_id, recipient_id,
+                          outbound_message_id, connection_id, peer_identity,
+                          sent_at, conversation_id NULLABLE, bound_at NULLABLE)
+                          UNIQUE (tenant_id, recipient_id)
+                          UNIQUE (tenant_id, outbound_message_id)
+                          Identity evidence is immutable; a row is bound from
+                          NULL to one conversation at most once. A campaign send
+                          therefore records delivery evidence without creating a
+                          conversation or changing lifecycle state.
 campaign_work_queue      (execution_id, tenant_id, available_at, stop_version, created_at)
                           PK (execution_id) -- contentless global due-work discovery
 campaign_retry_runs      (id, tenant_id, campaign_id, execution_id,
@@ -602,6 +612,9 @@ tool_approvals           (id, tenant_id, ai_run_id, tool, arguments_hash, approv
 - Timeline: `messages (tenant_id, conversation_id, seq)`.
 - Queue projection: partial index on `conversations` where `assignee_membership_id IS NULL AND status='open'`.
 - Recipient drill-down: `campaign_recipients (tenant_id, execution_id, state, id)`.
+- Campaign-to-conversation drill-down: `campaign_conversation_attributions
+  (tenant_id, campaign_id, conversation_id)`; unbound identity lookup uses
+  `(tenant_id, connection_id, peer_identity, sent_at)`.
 - Receipts: `delivery_receipts (tenant_id, provider_message_id)`.
 - **Partitioning is deferred until measured.** If `messages`, `raw_events`, `normalized_events` or `campaign_recipients` are partitioned by time, remember that a unique constraint on a partitioned table **must include the partition key** — so global dedupe (e.g. `normalized_events.dedupe_key`) needs its own non-partitioned uniqueness structure. This is called out here because it is the classic way a dedupe guarantee silently disappears.
 

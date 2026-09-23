@@ -66,6 +66,7 @@
     /* Not contrast-bearing: hairlines, layers and elevation. */
     --border: rgba(20, 24, 32, 0.1);
     --border-subtle: rgba(20, 24, 32, 0.06);
+    --label-swatch-outline: rgba(0, 0, 0, 0.28);
     --scrim: rgba(23, 25, 31, 0.32);
     --glass: rgba(252, 251, 249, 0.86);
     --glass-border: rgba(20, 24, 32, 0.08);
@@ -203,6 +204,7 @@
 
     --border: rgba(255, 255, 255, 0.08);
     --border-subtle: rgba(255, 255, 255, 0.05);
+    --label-swatch-outline: rgba(0, 0, 0, 0.28);
     --scrim: rgba(3, 4, 8, 0.62);
     --glass: rgba(11, 18, 32, 0.82);
     --glass-border: rgba(255, 255, 255, 0.07);

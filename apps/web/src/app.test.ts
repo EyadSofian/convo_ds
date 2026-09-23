@@ -6,7 +6,7 @@ import type { FetchLike } from './api/client';
 import type { AppHandle, Cancel, MountOptions } from './app';
 import { boot, browserEventSource, browserScheduler, EXPORT_POLL_MS, mount, renderApp, workspaceOpen } from './app';
 import type { PreferenceStore } from './preferences';
-import { NAV_KEY, THEME_KEY } from './preferences';
+import { LANG_KEY, NAV_KEY, THEME_KEY } from './preferences';
 import type { RouterHost } from './router';
 import { createState } from './state';
 
@@ -462,16 +462,25 @@ describe('screens and preferences', () => {
     }
   });
 
-  it('applies a stored theme and navigation width, and remembers changes', async () => {
-    const store = memoryStore({ [THEME_KEY]: 'dark', [NAV_KEY]: 'expanded' });
-    const { root, app } = start('#/settings', signedIn(), { preferences: store });
+  it('applies stored visual preferences and retains language through an Automation deep link', async () => {
+    const store = memoryStore({ [THEME_KEY]: 'dark', [NAV_KEY]: 'expanded', [LANG_KEY]: 'en' });
+    const { root, app, host } = start('#/settings', signedIn(), { preferences: store });
     await settle();
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.getAttribute('lang')).toBe('en');
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr');
     expect(root.querySelector('.app')?.getAttribute('data-nav')).toBe('expanded');
     click(root.querySelector('.nav__toggle'));
     click(root.querySelector('.theme-toggle'));
-    expect(store.values).toEqual({ [THEME_KEY]: 'light', [NAV_KEY]: 'collapsed' });
+    expect(store.values).toEqual({ [THEME_KEY]: 'light', [NAV_KEY]: 'collapsed', [LANG_KEY]: 'en' });
     expect(app.state.theme).toBe('light');
+
+    // The draft route intentionally omits `lang`. It must retain the current
+    // presentation preference rather than resetting to the app default.
+    host.go('#/automations?view=mine&edit=0df0f076-256c-49a6-ad0c-3e797b29ea49');
+    await settle();
+    expect(document.documentElement.getAttribute('lang')).toBe('en');
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr');
   });
 
   it('follows the system colour scheme on a first visit', async () => {
@@ -495,9 +504,43 @@ describe('screens and preferences', () => {
     expect(after.length).toBe(before + 1);
     expect(after.at(-1)?.path).toContain('channel=whatsapp');
   });
+
+  it('loads automation data when the same-screen tab or draft route changes', async () => {
+    const api = signedIn(new FakeApi(), [membership(TENANT, 'Digital School', [...ADMIN, 'automation.read'])]);
+    const { host } = start('#/settings', api);
+    await settle();
+    host.go('#/automations?view=templates');
+    await settle();
+    expect(api.called(`GET /tenants/${TENANT}/automation-templates`)).toBe(true);
+
+    host.go('#/automations?view=mine');
+    await settle();
+    expect(api.called(`GET /tenants/${TENANT}/automations`)).toBe(true);
+
+    const beforeEdit = api.calls.filter((call) => call.path.startsWith(`/tenants/${TENANT}/automations?`)).length;
+    host.go('#/automations?view=mine&edit=33333333-3333-4333-8333-333333333333');
+    await settle();
+    const afterEdit = api.calls.filter((call) => call.path.startsWith(`/tenants/${TENANT}/automations?`)).length;
+    expect(afterEdit).toBe(beforeEdit + 1);
+  });
 });
 
 describe('layers, focus and the keyboard', () => {
+  it('traps Tab in the mobile Inbox filter popover', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const { root, app } = start('#/inbox', signedIn());
+    await settle();
+    app.state.openMenu = 'inbox-filters';
+    app.render();
+    const popover = root.querySelector('[data-trap="mobile-inbox-filters"]') as HTMLElement;
+    expect(popover).not.toBeNull();
+    const stops = Array.from(popover.querySelectorAll<HTMLElement>('input, select, button:not([disabled])'));
+    expect(stops.length).toBeGreaterThan(1);
+    (stops.at(-1) as HTMLElement).focus();
+    expect(press(root, 'Tab').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(stops[0]);
+  });
+
   it('opens the navigation drawer, keeps Tab inside it, and returns focus when Escape closes it', async () => {
     const { root, app } = start('#/settings', signedIn());
     await settle();

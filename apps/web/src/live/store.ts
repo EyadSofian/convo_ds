@@ -10,14 +10,29 @@ import type {
   Note,
   QueueCard,
   TimelineMessage,
+  SupervisorAgent,
+  SupervisorWorkload,
 } from '../api/conversations.js';
+import { INBOX_QUERY_DEFAULT, type InboxQuery } from '@convo/domain';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
-import type { Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi } from '../api/campaigns.js';
+import type { AssignmentReportRow, Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport, ResponseReport, ResolutionReport, TeamReportRow } from '../api/campaigns.js';
 import { disconnectedCampaignsApi } from '../api/campaigns.js';
-import type { Automation, AutomationRun, AutomationTemplate, AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
+import {
+  DEFAULT_AUTOMATION_LIST_QUERY,
+  DEFAULT_AUTOMATION_RUNS_QUERY,
+  type Automation,
+  type AutomationListQuery,
+  type AutomationRun,
+  type AutomationRunsQuery,
+  type AutomationTemplate,
+  type AutomationsApi,
+  type WhatsAppTemplate,
+} from '../api/automations.js';
 import { disconnectedAutomationsApi } from '../api/automations.js';
 import { disconnectedMetadataApi } from '../api/people.js';
+import { disconnectedSavedViewsApi } from '../api/people.js';
+import type { SavedView, SavedViewsApi } from '../api/saved-views.js';
 import type { RealtimeSubscription } from './realtime.js';
 import type {
   Invitation,
@@ -109,6 +124,7 @@ export interface LiveState {
   readonly metadataApi: MetadataApi;
   readonly campaignsApi: CampaignsApi;
   readonly automationsApi: AutomationsApi;
+  readonly savedViewsApi: SavedViewsApi;
   session: SessionState;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
@@ -129,6 +145,11 @@ export interface LiveState {
   unassigned: Resource<readonly QueueCard[]>;
   /** Conversations this caller may read. Records, not cards. */
   conversations: Resource<readonly Conversation[]>;
+  /** Read-only staff list offered by the guarded Supervisor lens. */
+  supervisorAgents: Resource<readonly SupervisorAgent[]>;
+  supervisorAgentId: string | null;
+  /** Server-calculated active workload for the guarded Supervisor lens. */
+  supervisorWorkload: Resource<SupervisorWorkload>;
   openConversationId: string | null;
   openConversation: Resource<Conversation>;
   timeline: Resource<readonly TimelineMessage[]>;
@@ -195,21 +216,48 @@ export interface LiveState {
   selectedContactId: string | null;
   selectedContact: Resource<Contact>;
   labels: Resource<readonly Label[]>;
+  /** The complete catalogue for workspace management, including retired labels. */
+  workspaceLabels: Resource<readonly Label[]>;
   customFields: Resource<readonly CustomField[]>;
   /** This user's active sessions, for the Settings screen. */
   sessions: Resource<readonly SessionSummary[]>;
   campaigns: Resource<readonly Campaign[]>;
   campaignRecipients: Resource<readonly CampaignRecipient[]>;
   campaignReport: Resource<CampaignReport>;
+  operationalReport: Resource<OperationalReport>;
+  assignmentReport: Resource<readonly AssignmentReportRow[]>;
+  responseReport: Resource<ResponseReport>;
+  resolutionReport: Resource<ResolutionReport>;
+  teamReport: Resource<readonly TeamReportRow[]>;
+  assignmentNextCursor: string | null;
+  assignmentLoadingMore: boolean;
+  assignmentRequestGeneration: number;
+  /** Monotonic guard so a slower response for an old filter cannot replace newer data. */
+  analyticsRequestGeneration: number;
+  operationalAgentOptions: { readonly tenantId: string; readonly agents: OperationalReport['agents'] } | null;
   /** The campaigns the Analytics campaign filter can offer. */
   reportCampaigns: readonly { readonly id: string; readonly name: string }[];
   campaignReportExport: Resource<CampaignReportExport>;
   automationTemplates: Resource<readonly AutomationTemplate[]>;
   automations: Resource<readonly Automation[]>;
+  /** The server-side definition query currently shown in My Automations. */
+  automationQuery: Omit<AutomationListQuery, 'cursor'>;
+  automationNextCursor: string | null;
   automationRuns: Resource<readonly AutomationRun[]>;
+  /** The server-side query currently shown in Runs & Logs. */
+  automationRunsQuery: Omit<AutomationRunsQuery, 'cursor'>;
+  automationRunsNextCursor: string | null;
   whatsappTemplates: Resource<readonly WhatsAppTemplate[]>;
   selectedCampaignId: string | null;
-  inboxFilters: { unread: string; priority: string; channel: string; labelId: string };
+  /** Single authoritative readable-Inbox query, shared by load and realtime. */
+  inboxQuery: InboxQuery;
+  /** Text currently being typed before the debounced server search commits it. */
+  inboxSearchDraft: string;
+  /** Opaque continuation returned for the current readable Inbox query. */
+  inboxNextCursor: string | null;
+  /** Views loaded from the guarded API; never browser-local query presets. */
+  savedViews: Resource<readonly SavedView[]>;
+  selectedSavedViewId: string | null;
   contactFilters: { labelId: string; fieldId: string; fieldValue: string };
   busy: string | null;
   error: ApiError | null;
@@ -239,11 +287,15 @@ export function createLiveState(
   metadata: MetadataApi = disconnectedMetadataApi(),
   campaignsApi: CampaignsApi = disconnectedCampaignsApi(),
   automationsApi: AutomationsApi = disconnectedAutomationsApi(),
+  savedViewsApi: SavedViewsApi = disconnectedSavedViewsApi(),
 ): LiveState {
   return {
     api,
     channels,
     conversations: IDLE,
+    supervisorAgents: IDLE,
+    supervisorAgentId: null,
+    supervisorWorkload: IDLE,
     session: { status: 'unknown' },
     people: IDLE,
     roles: IDLE,
@@ -281,25 +333,45 @@ export function createLiveState(
     selectedContactId: null,
     selectedContact: IDLE,
     labels: IDLE,
+    workspaceLabels: IDLE,
     customFields: IDLE,
     sessions: IDLE,
     campaigns: IDLE,
     campaignRecipients: IDLE,
     campaignReport: IDLE,
+    operationalReport: IDLE,
+    assignmentReport: IDLE,
+    responseReport: IDLE,
+    resolutionReport: IDLE,
+    teamReport: IDLE,
+    assignmentNextCursor: null,
+    assignmentLoadingMore: false,
+    assignmentRequestGeneration: 0,
+    analyticsRequestGeneration: 0,
+    operationalAgentOptions: null,
     reportCampaigns: [],
     campaignReportExport: IDLE,
     automationTemplates: IDLE,
     automations: IDLE,
+    automationQuery: DEFAULT_AUTOMATION_LIST_QUERY,
+    automationNextCursor: null,
     automationRuns: IDLE,
+    automationRunsQuery: DEFAULT_AUTOMATION_RUNS_QUERY,
+    automationRunsNextCursor: null,
     whatsappTemplates: IDLE,
     selectedCampaignId: null,
-    inboxFilters: { unread: '', priority: '', channel: '', labelId: '' },
+    inboxQuery: INBOX_QUERY_DEFAULT,
+    inboxSearchDraft: '',
+    inboxNextCursor: null,
+    savedViews: IDLE,
+    selectedSavedViewId: null,
     contactFilters: { labelId: '', fieldId: '', fieldValue: '' },
     conversationsApi: conversations,
     contactsApi: contacts,
     metadataApi: metadata,
     campaignsApi,
     automationsApi,
+    savedViewsApi,
     busy: null,
     error: null,
     revision: 0,
@@ -322,6 +394,7 @@ export function renewLiveState(previous: LiveState): LiveState {
     previous.metadataApi,
     previous.campaignsApi,
     previous.automationsApi,
+    previous.savedViewsApi,
   );
 }
 

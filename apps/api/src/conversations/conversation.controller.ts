@@ -14,7 +14,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { HANDOFF_DEFAULT_TTL_MS, isConversationState } from '@convo/domain';
+import { HANDOFF_DEFAULT_TTL_MS } from '@convo/domain';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { OutboundService } from '../channels/outbound.service.js';
@@ -25,6 +25,7 @@ import type { LifecycleCommand } from './lifecycle.service.js';
 import { NoteService } from './note.service.js';
 import { isPriority, RoutingService } from './routing.service.js';
 import type { AssignmentCommand } from './routing.service.js';
+import { parseInboxQuery } from './inbox-query-request.js';
 
 /**
  * Conversations: the queue, the list, the record, the timeline and the reply.
@@ -55,30 +56,46 @@ export class ConversationController {
   @Get('tenants/:tenantId/conversations')
   async list(
     @Param('tenantId') tenantId: string,
-    @Query('queue') queue: string | undefined,
-    @Query('status') status: string | undefined,
-    @Query('unread') unread: string | undefined,
-    @Query('priority') priority: string | undefined,
-    @Query('channel') channel: string | undefined,
-    @Query('inboxId') inboxId: string | undefined,
-    @Query('teamId') teamId: string | undefined,
-    @Query('assigneeId') assigneeId: string | undefined,
-    @Query('label') label: string | string[] | undefined,
+    @Query() query: Record<string, string | string[] | undefined>,
     @Req() request: FastifyRequest,
   ) {
     const session = await this.auth.authenticate(request.headers.cookie);
-    const rows = await this.conversations.list(session, tenantId, {
-      queue: queue === 'all' ? 'all' : 'mine',
-      status: conversationStatus(status),
-      unread: optionalBoolean(unread),
-      priority: optionalPriority(priority),
-      channel: optionalChannel(channel),
-      inboxId: optionalUuid(inboxId, 'inboxId'),
-      teamId: optionalUuid(teamId, 'teamId'),
-      assigneeId: optionalUuid(assigneeId, 'assigneeId'),
-      labelIds: uuidList(label, 'label'),
-    });
-    return pageEnvelope(rows, null, request.id);
+    const page = await this.conversations.list(session, tenantId, parseInboxQuery(query));
+    return pageEnvelope(page.items, page.nextCursor, request.id);
+  }
+
+  @Get('tenants/:tenantId/supervisor/agents')
+  async supervisorAgents(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return pageEnvelope(await this.conversations.supervisorAgents(session, tenantId), null, request.id);
+  }
+
+  @Get('tenants/:tenantId/supervisor/conversations')
+  async supervisorList(
+    @Param('tenantId') tenantId: string,
+    @Query('agent') agent: string | undefined,
+    @Query() query: Record<string, string | string[] | undefined>,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const agentMembershipId = optionalUuid(agent, 'agent');
+    if (agentMembershipId === null) throw queryError('agent', 'Choose an agent.');
+    const inboxQuery = { ...query };
+    delete inboxQuery.agent;
+    const page = await this.conversations.supervisorList(session, tenantId, agentMembershipId, parseInboxQuery(inboxQuery));
+    return pageEnvelope(page.items, page.nextCursor, request.id);
+  }
+
+  @Get('tenants/:tenantId/supervisor/workload')
+  async supervisorWorkload(
+    @Param('tenantId') tenantId: string,
+    @Query('agent') agent: string | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const agentMembershipId = optionalUuid(agent, 'agent');
+    if (agentMembershipId === null) throw queryError('agent', 'Choose an agent.');
+    return { data: await this.conversations.supervisorWorkload(session, tenantId, agentMembershipId), request_id: request.id };
   }
 
   /** The Unassigned queue, as projected cards. Never a transcript. */
@@ -541,26 +558,8 @@ export class ConversationController {
   }
 }
 
-/**
- * The status filter, accepted only from the closed set the column allows.
- *
- * An unrecognised value is treated as no filter rather than as an error: it is
- * a list query, and the honest answer to "show me conversations that are
- * `flurble`" is the unfiltered list rather than a 400 that hides the inbox.
- */
-function conversationStatus(value: string | undefined): string | null {
-  return value !== undefined && isConversationState(value) ? value : null;
-}
-
 const CHANNELS = ['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function optionalBoolean(value: string | undefined): boolean | null {
-  if (value === undefined || value === '') return null;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  throw queryError('unread', 'Use true or false.');
-}
 
 function optionalPriority(value: string | undefined): string | null {
   if (value === undefined || value === '') return null;

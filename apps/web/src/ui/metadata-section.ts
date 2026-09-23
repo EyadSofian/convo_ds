@@ -2,6 +2,7 @@ import type { EntityMetadata, FieldTarget } from '../api/metadata.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { metadataFieldValue } from '../live/dispatch.js';
+import { hasPermission } from '../live/ability.js';
 import { rowsOf } from '../live/store.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
@@ -17,7 +18,9 @@ export function metadataSection(
   live: LiveState,
   target: FieldTarget,
   entity: { readonly id: string } & EntityMetadata,
+  options: { readonly readOnly?: boolean } = {},
 ): HTMLElement {
+  const readOnly = options.readOnly === true;
   const busy = live.busy === `metadata:${target}:${entity.id}`;
   // Keep rolling deployments readable while an older API response is still in
   // a browser cache. The new server always sends both arrays; absence means an
@@ -44,7 +47,7 @@ export function metadataSection(
           h('span', { class: 'metadata__label', style: `--label-color:${label.color}` }, [
             h('span', { class: 'metadata__swatch', 'aria-hidden': 'true' }),
             isolated(label.name),
-            button({
+            readOnly ? null : button({
               icon: 'close',
               act: 'live-metadata-label',
               arg: `${target}|${entity.id}|${label.id}|remove`,
@@ -56,7 +59,7 @@ export function metadataSection(
             }),
           ]),
         )),
-    available.length === 0
+    readOnly || available.length === 0
       ? null
       : field(
           t(state, 'إضافة تصنيف', 'Add label'),
@@ -72,6 +75,9 @@ export function metadataSection(
             ],
           }),
         ),
+    !readOnly && hasPermission(live, 'catalog.manage')
+      ? button({ label: t(state, 'تصنيف جديد', 'New label'), icon: 'plus', act: 'dialog', arg: `inline-label:${target}|${entity.id}`, variant: 'ghost', small: true, disabled: busy })
+      : null,
     fields.length === 0
       ? null
       : h('div', { class: 'metadata__fields' }, fields.map((definition) => {
@@ -79,12 +85,14 @@ export function metadataSection(
           const current = entry === undefined ? '' : Array.isArray(entry.value) ? entry.value.join(', ') : String(entry.value);
           const key = metadataFieldValue(target, entity.id, definition.id);
           return h('div', { class: 'metadata__field' }, [
-            field(
-              definition.name,
-              fieldControl(state, definition.type, definition.options, key, state.dialogForm[key] ?? current),
-              definition.key,
-            ),
-            button({
+            readOnly
+              ? field(definition.name, h('p', { class: 'field__hint' }, [current === '' ? '—' : current]), definition.key)
+              : field(
+                  definition.name,
+                  fieldControl(state, definition.type, definition.options, key, state.dialogForm[key] ?? current),
+                  definition.key,
+                ),
+            readOnly ? null : button({
               label: t(state, 'حفظ', 'Save'),
               act: 'live-metadata-field',
               arg: `${target}|${entity.id}|${definition.id}`,

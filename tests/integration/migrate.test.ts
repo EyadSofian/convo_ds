@@ -78,6 +78,11 @@ describe('migrate', () => {
       '0031_invitation_tenant_scope.sql',
       '0032_automation_execution.sql',
       '0033_account_security_events.sql',
+      '0034_campaign_conversation_attribution.sql',
+      '0035_conversation_episode_actor_evidence.sql',
+      '0036_conversation_event_binding.sql',
+      '0037_conversation_identity_history_index.sql',
+      '0038_conversation_episode_actor_fk_set_null.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -110,6 +115,7 @@ describe('migrate', () => {
       'builtin_role_grants',
       'campaign_approvals',
       'campaign_audit',
+      'campaign_conversation_attributions',
       'campaign_executions',
       'campaign_recipients',
       'campaign_report_export_queue',
@@ -192,6 +198,32 @@ describe('migrate', () => {
     // Counted from the directory rather than pinned: a forward-only migration
     // added by a later slice must not make this assertion a lie somebody edits.
     expect(recorded.rows[0]?.count).toBe(String(MIGRATION_FILES.length));
+  });
+
+  it('configures episode actor FKs to clear only actor IDs on membership deletion', async () => {
+    const constraints = await pool.query<{
+      conname: string;
+      confdeltype: string;
+      set_null_columns: string[];
+    }>(
+      `SELECT conname, confdeltype,
+              ARRAY(SELECT attribute.attname
+                      FROM unnest(confdelsetcols) WITH ORDINALITY AS column_ref(attnum,ordinality)
+                      JOIN pg_attribute attribute
+                        ON attribute.attrelid=pg_constraint.conrelid
+                       AND attribute.attnum=column_ref.attnum
+                     ORDER BY column_ref.ordinality)::text[] AS set_null_columns
+         FROM pg_constraint
+        WHERE conrelid='public.conversation_episodes'::regclass
+          AND conname IN ('conversation_episodes_first_response_actor_fk',
+                          'conversation_episodes_closed_actor_fk')
+        ORDER BY conname`,
+    );
+
+    expect(constraints.rows).toEqual([
+      { conname: 'conversation_episodes_closed_actor_fk', confdeltype: 'n', set_null_columns: ['closed_by_membership_id'] },
+      { conname: 'conversation_episodes_first_response_actor_fk', confdeltype: 'n', set_null_columns: ['first_response_by_membership_id'] },
+    ]);
   });
 
   it('serializes two migration jobs instead of racing schema writes', async () => {

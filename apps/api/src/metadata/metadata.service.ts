@@ -260,6 +260,18 @@ export class MetadataService {
     return readMetadata(sql, 'conversation', conversationId);
   }
 
+  /**
+   * Page-shaped Inbox reads use the batched path.  Calling the single-record
+   * helper in a 50-row loop would turn labels and fields into 100 extra
+   * queries; this keeps that work to the two fixed relation reads.
+   */
+  async conversationMetadataBatch(
+    sql: SqlExecutor,
+    conversationIds: readonly string[],
+  ): Promise<ReadonlyMap<string, EntityMetadata>> {
+    return readMetadataBatch(sql, 'conversation', conversationIds);
+  }
+
   async mutateConversation(
     session: AuthenticatedSession,
     tenantId: string,

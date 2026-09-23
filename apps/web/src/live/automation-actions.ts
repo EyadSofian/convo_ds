@@ -1,4 +1,4 @@
-import type { Automation, AutomationInput, AutomationStep } from '../api/automations.js';
+import type { Automation, AutomationInput, AutomationListQuery, AutomationRun, AutomationRunsQuery, AutomationStep } from '../api/automations.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { forTenant, fromResult, LOADING, rowsOf } from './store.js';
@@ -8,27 +8,95 @@ function copy(context: LiveContext, ar: string, en: string): string {
 }
 
 export async function loadAutomationsScreen(context: LiveContext): Promise<void> {
-  const { live } = context;
-  live.automationTemplates = LOADING;
-  live.automations = LOADING;
-  live.automationRuns = LOADING;
-  live.whatsappTemplates = LOADING;
+  const view = context.state.route.params['view'] ?? 'templates';
+  if (context.state.route.params['edit'] !== undefined || view === 'mine') {
+    await loadAutomationPage(context, true);
+    if (context.state.route.params['edit'] !== undefined) await loadWhatsAppTemplates(context);
+    return;
+  }
+  if (view === 'runs') {
+    await loadAutomationRunsPage(context, true);
+    return;
+  }
+  await loadAutomationTemplates(context);
+}
+
+async function loadAutomationTemplates(context: LiveContext): Promise<void> {
+  context.live.automationTemplates = LOADING;
   context.refresh();
   await forTenant(context, undefined, async (tenantId) => {
-    const [templates, automations, runs, whatsappTemplates] = await Promise.all([
-      live.automationsApi.templates(tenantId),
-      live.automationsApi.list(tenantId),
-      live.automationsApi.runs(tenantId),
-      live.automationsApi.whatsappTemplates(tenantId),
-    ]);
-    const now = context.now();
-    live.automationTemplates = fromResult(templates, now);
-    live.automations = fromResult(automations, now);
-    live.automationRuns = fromResult(runs, now);
-    live.whatsappTemplates = fromResult(whatsappTemplates,now);
-    live.error = !templates.ok ? templates.error : !automations.ok ? automations.error : !runs.ok ? runs.error : !whatsappTemplates.ok ? whatsappTemplates.error : null;
+    const result = await context.live.automationsApi.templates(tenantId);
+    context.live.automationTemplates = fromResult(result, context.now());
+    context.live.error = result.ok ? null : result.error;
     context.refresh();
   });
+}
+
+async function loadWhatsAppTemplates(context: LiveContext): Promise<void> {
+  context.live.whatsappTemplates = LOADING;
+  context.refresh();
+  await forTenant(context, undefined, async (tenantId) => {
+    const result = await context.live.automationsApi.whatsappTemplates(tenantId);
+    context.live.whatsappTemplates = fromResult(result, context.now());
+    context.live.error = result.ok ? null : result.error;
+    context.refresh();
+  });
+}
+
+export async function loadAutomationPage(context: LiveContext, reset: boolean): Promise<void> {
+  const { live } = context;
+  const cursor = reset ? null : live.automationNextCursor;
+  if (!reset && cursor === null) return;
+  live.automations = reset ? LOADING : live.automations;
+  context.refresh();
+  await forTenant(context, undefined, async (tenantId) => {
+    const result = await live.automationsApi.list(tenantId, { ...live.automationQuery, cursor });
+    if (!result.ok) {
+      if (reset) live.automations = fromResult(result, context.now());
+      live.error = result.error;
+      context.refresh();
+      return;
+    }
+    const previous = reset ? [] : rowsOf(live.automations);
+    live.automations = fromResult({ ok: true, data: uniqueAutomations([...previous, ...result.data.data]) }, context.now());
+    live.automationNextCursor = result.data.nextCursor;
+    live.error = null;
+    context.refresh();
+  });
+}
+
+export async function loadAutomationRunsPage(context: LiveContext, reset: boolean): Promise<void> {
+  const { live } = context;
+  const cursor = reset ? null : live.automationRunsNextCursor;
+  if (!reset && cursor === null) return;
+  live.automationRuns = reset ? LOADING : live.automationRuns;
+  context.refresh();
+  await forTenant(context, undefined, async (tenantId) => {
+    const result = await live.automationsApi.runs(tenantId, { ...live.automationRunsQuery, cursor });
+    if (!result.ok) {
+      if (reset) live.automationRuns = fromResult(result, context.now());
+      live.error = result.error;
+      context.refresh();
+      return;
+    }
+    const previous = reset ? [] : rowsOf(live.automationRuns);
+    live.automationRuns = fromResult({ ok: true, data: uniqueRuns([...previous, ...result.data.data]) }, context.now());
+    live.automationRunsNextCursor = result.data.nextCursor;
+    live.error = null;
+    context.refresh();
+  });
+}
+
+export async function setAutomationQuery(context: LiveContext, query: Omit<AutomationListQuery, 'cursor'>): Promise<void> {
+  context.live.automationQuery = query;
+  context.live.automationNextCursor = null;
+  await loadAutomationPage(context, true);
+}
+
+export async function setAutomationRunsQuery(context: LiveContext, query: Omit<AutomationRunsQuery, 'cursor'>): Promise<void> {
+  context.live.automationRunsQuery = query;
+  context.live.automationRunsNextCursor = null;
+  await loadAutomationRunsPage(context, true);
 }
 
 export async function useAutomationTemplate(context: LiveContext, key: string): Promise<boolean> {
@@ -46,7 +114,7 @@ export async function useAutomationTemplate(context: LiveContext, key: string): 
       context.refresh();
       return false;
     }
-    await loadAutomationsScreen(context);
+    insertAutomation(context, result.data);
     context.state.route = {
       screen: 'automations',
       conversationId: null,
@@ -140,6 +208,35 @@ export async function transitionAutomation(context: LiveContext, argument: strin
   return mutate(context, `automation-${action}:${id}`, (tenantId) => context.live.automationsApi.transition(tenantId, automation, action), copy(context, 'تم تحديث حالة الأتمتة.', 'Automation state updated.'));
 }
 
+/**
+ * A draft has no side effects, but deletion is still server-authorized and
+ * version-fenced. Refreshing just the definition list keeps run evidence on
+ * screen and avoids pretending a local removal was committed.
+ */
+export async function deleteAutomationDraft(context: LiveContext, automationId: string): Promise<boolean> {
+  const automation = rowsOf(context.live.automations).find((entry) => entry.id === automationId);
+  if (automation === undefined || automation.state !== 'draft') return false;
+  context.live.busy = `automation-delete:${automationId}`;
+  context.live.error = null;
+  context.refresh();
+  return forTenant(context, false, async (tenantId) => {
+    const result = await context.live.automationsApi.deleteDraft(tenantId, automation);
+    context.live.busy = null;
+    if (!result.ok) {
+      context.live.error = result.error;
+      context.refresh();
+      return false;
+    }
+    context.live.automations = fromResult({ ok: true, data: rowsOf(context.live.automations).filter((entry) => entry.id !== automation.id) }, context.now());
+    if (context.state.route.params['edit'] === automationId) {
+      context.state.route = { screen: 'automations', conversationId: null, params: { view: 'mine' } };
+    }
+    pushToast(context.state, copy(context, 'تم حذف المسودة.', 'Draft deleted.'));
+    context.refresh();
+    return true;
+  });
+}
+
 async function updateWorkflow(context: LiveContext, automation: Automation, steps: readonly AutomationStep[], message: string): Promise<boolean> {
   const input: AutomationInput = { name: automation.name, description: automation.description, timezone: automation.timezone, workflow: { ...automation.workflow, steps } };
   return mutate(context, `automation-steps:${automation.id}`, (tenantId) => context.live.automationsApi.update(tenantId, automation.id, automation.version, input), message);
@@ -161,9 +258,31 @@ async function mutate(context: LiveContext, busy: string, request: (tenantId: st
       context.refresh();
       return false;
     }
-    await loadAutomationsScreen(context);
+    insertAutomation(context, result.data);
     pushToast(context.state, success);
     context.refresh();
     return true;
   });
+}
+
+/** Reconcile one committed definition without fetching unrelated tabs. */
+function insertAutomation(context: LiveContext, automation: Automation): void {
+  const query = context.live.automationQuery;
+  const existing = rowsOf(context.live.automations).filter((entry) => entry.id !== automation.id);
+  const included = matchesAutomationQuery(automation, query);
+  context.live.automations = fromResult({ ok: true, data: included ? uniqueAutomations([automation, ...existing]) : existing }, context.now());
+}
+
+function matchesAutomationQuery(automation: Automation, query: Omit<AutomationListQuery, 'cursor'>): boolean {
+  if (query.state !== '' && automation.state !== query.state) return false;
+  if (query.search !== '' && !automation.name.toLocaleLowerCase().includes(query.search.toLocaleLowerCase())) return false;
+  return true;
+}
+
+function uniqueAutomations(items: readonly Automation[]): readonly Automation[] {
+  return [...new Map(items.map((item) => [item.id, item])).values()];
+}
+
+function uniqueRuns(items: readonly AutomationRun[]): readonly AutomationRun[] {
+  return [...new Map(items.map((item) => [item.id, item])).values()];
 }

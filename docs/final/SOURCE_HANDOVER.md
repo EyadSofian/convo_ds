@@ -67,7 +67,7 @@ pnpm db:migrate
 
 `bootstrap` establishes the least-privileged migration/runtime roles. `migrate`
 applies forward-only migrations under an advisory lock. At this release the
-expected final file is `0033_account_security_events.sql`.
+expected final file is `0038_conversation_episode_actor_fk_set_null.sql`.
 
 ## Run without Docker
 

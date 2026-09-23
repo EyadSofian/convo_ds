@@ -1,5 +1,7 @@
 import type { ApiClient, ApiResult } from './client.js';
 import type { EntityMetadata } from './metadata.js';
+import type { InboxQuery } from '@convo/domain';
+export { INBOX_QUERY_DEFAULT as DEFAULT_INBOX_QUERY } from '@convo/domain';
 
 /**
  * The inbox operations, typed against the pinned OpenAPI.
@@ -71,6 +73,13 @@ export interface DirectoryAgent {
   readonly membershipId: string;
   readonly label: string;
   readonly assigned: boolean;
+}
+export interface SupervisorAgent { readonly membershipId: string; readonly name: string; readonly email: string; readonly teams: readonly string[]; }
+export interface SupervisorWorkload {
+  readonly agent: SupervisorAgent;
+  readonly current: { readonly assigned: number; readonly open: number; readonly pending: number; readonly snoozed: number; readonly unreplied: number; readonly urgent: number; readonly high: number };
+  readonly byStatus: readonly { readonly status: string; readonly count: number }[];
+  readonly byChannel: readonly { readonly channel: string; readonly count: number }[];
 }
 
 export interface Handoff {
@@ -158,25 +167,46 @@ export interface OutboundMessage {
   readonly delivery_state: string | null;
 }
 
-export type ConversationQueue = 'mine' | 'all';
+export type { InboxFilter, InboxQuery, InboxSort } from '@convo/domain';
+
+export interface ConversationPage {
+  readonly items: readonly Conversation[];
+  readonly nextCursor: string | null;
+}
+
 
 export class ConversationsApi {
   constructor(private readonly client: ApiClient) {}
 
   /** Conversations the caller may read. Never a card. */
-  list(
-    tenantId: string,
-    queue: ConversationQueue,
-    filters: { readonly unread: string; readonly priority: string; readonly channel: string; readonly labelId: string } = { unread: '', priority: '', channel: '', labelId: '' },
-  ): Promise<ApiResult<readonly Conversation[]>> {
-    const query = new URLSearchParams({ queue });
-    if (filters.unread !== '') query.set('unread', filters.unread);
-    if (filters.priority !== '') query.set('priority', filters.priority);
-    if (filters.channel !== '') query.set('channel', filters.channel);
-    if (filters.labelId !== '') query.append('label', filters.labelId);
-    return this.client.get<readonly Conversation[]>(
-      `/tenants/${tenantId}/conversations?${query.toString()}`,
-    );
+  async list(tenantId: string, inboxQuery: InboxQuery): Promise<ApiResult<ConversationPage>> {
+    const query = new URLSearchParams({ queue: inboxQuery.queue });
+    if (inboxQuery.sort !== 'activity_desc') query.set('sort', inboxQuery.sort);
+    if (inboxQuery.limit !== 50) query.set('limit', String(inboxQuery.limit));
+    if (inboxQuery.cursor !== null) query.set('cursor', inboxQuery.cursor);
+    if (inboxQuery.search !== null && inboxQuery.search !== '') query.set('search', inboxQuery.search);
+    for (const filter of inboxQuery.filters) query.append('filter', JSON.stringify(filter));
+    const page = await this.client.page<Conversation>(`/tenants/${tenantId}/conversations?${query.toString()}`);
+    return page.ok ? { ok: true, data: { items: page.data.data, nextCursor: page.data.nextCursor } } : page;
+  }
+
+  supervisorAgents(tenantId: string): Promise<ApiResult<readonly SupervisorAgent[]>> {
+    return this.client.get(`/tenants/${tenantId}/supervisor/agents`);
+  }
+
+  supervisorWorkload(tenantId: string, agentMembershipId: string): Promise<ApiResult<SupervisorWorkload>> {
+    return this.client.get(`/tenants/${tenantId}/supervisor/workload?agent=${encodeURIComponent(agentMembershipId)}`);
+  }
+
+  async supervisorList(tenantId: string, agentMembershipId: string, inboxQuery: InboxQuery): Promise<ApiResult<ConversationPage>> {
+    const query = new URLSearchParams({ agent: agentMembershipId, queue: 'all' });
+    if (inboxQuery.sort !== 'activity_desc') query.set('sort', inboxQuery.sort);
+    if (inboxQuery.limit !== 50) query.set('limit', String(inboxQuery.limit));
+    if (inboxQuery.cursor !== null) query.set('cursor', inboxQuery.cursor);
+    if (inboxQuery.search !== null && inboxQuery.search !== '') query.set('search', inboxQuery.search);
+    for (const filter of inboxQuery.filters) query.append('filter', JSON.stringify(filter));
+    const page = await this.client.page<Conversation>(`/tenants/${tenantId}/supervisor/conversations?${query.toString()}`);
+    return page.ok ? { ok: true, data: { items: page.data.data, nextCursor: page.data.nextCursor } } : page;
   }
 
   /** The Unassigned queue. Never a transcript. */

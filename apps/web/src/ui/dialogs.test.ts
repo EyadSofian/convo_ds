@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { Campaign } from '../api/campaigns';
 import type { ChannelConnection } from '../api/channels';
 import { createState } from '../state';
+import { ready } from '../live/store';
 import type { AppState } from '../state';
 import { renderDialog } from './dialogs';
 
@@ -38,6 +39,73 @@ describe('renderDialog', () => {
     const state = base();
     expect(renderDialog(state)).toBeNull();
     expect(open(state, 'nonsense').textContent).toContain('There is nothing to show here.');
+  });
+});
+
+describe('label safety dialogs', () => {
+  it('confirms retirement and gives an inline creation path a HEX preview', () => {
+    const state = base();
+    state.live.workspaceLabels = ready([{ id: 'label-1', name: 'VIP', color: '#EF4444', state: 'active', version: 1 }], 0);
+    const retire = open(state, 'retire-label', 'label-1');
+    expect(retire.textContent).toContain('will no longer be available for new assignments');
+    expect(retire.querySelector('[data-act="live-workspace-label-retire-confirm"]')?.getAttribute('data-arg')).toBe('label-1');
+    const inline = open(state, 'inline-label', 'conversation|conversation-1');
+    expect(inline.querySelector('[data-act="live-inline-label-create"]')).not.toBeNull();
+    expect(inline.querySelector('input[pattern="^#[0-9A-Fa-f]{6}$"]')).not.toBeNull();
+    expect(inline.textContent).toContain('Label preview');
+  });
+
+  it('renders create/edit label forms and refuses invalid inline targets', () => {
+    const state = base();
+    state.live.workspaceLabels = ready([{ id: 'label-1', name: 'VIP', color: '#abcdef', state: 'active', version: 2 }], 0);
+    const create = open(state, 'workspace-label');
+    expect(create.querySelector('form')?.getAttribute('data-submit')).toBe('live-workspace-label-create');
+    expect(create.querySelectorAll('.label-color-choice')).toHaveLength(8);
+    state.dialogForm = { labelName: 'VIP 2', labelColor: '#123456' };
+    const edit = open(state, 'workspace-label', 'label-1');
+    expect(edit.querySelector('form')?.getAttribute('data-submit')).toBe('live-workspace-label-update');
+    expect((edit.querySelector('input[pattern]') as HTMLInputElement).value).toBe('#123456');
+    expect(open(state, 'inline-label', 'bad').querySelector('.notice--warning')).not.toBeNull();
+    state.dialogForm = {};
+    const entityFallback = open(state, 'workspace-label', 'label-1');
+    expect((entityFallback.querySelector('input[data-form="labelName"]') as HTMLInputElement).value).toBe('VIP');
+    expect((entityFallback.querySelector('input[type="color"]') as HTMLInputElement).value).toBe('#ABCDEF');
+    const missingLabel = open(state, 'workspace-label', 'gone');
+    expect(missingLabel.querySelector('form')?.getAttribute('data-submit')).toBe('live-workspace-label-create');
+    state.dialogForm = { labelColor: 'not-a-hex' };
+    expect((open(state, 'workspace-label').querySelector('input[type="color"]') as HTMLInputElement).value).toBe('#3B82F6');
+  });
+
+  it('renders saved-view visibility and safe automation delete states', () => {
+    const state = base();
+    state.live.teams = ready([{ id: 'team-1', name: 'Support', member_count: 1, archived: false, members: [] }], 0);
+    state.live.savedViews = ready([{ id: 'view-1', ownerMembershipId: 'm-1', name: 'Mine', visibility: 'team', teamId: 'team-1', resource: 'conversations', conditions: { version: 1, root: { kind: 'group', match: 'all', conditions: [] } }, version: 1 }], 0);
+    state.live.selectedSavedViewId = 'view-1';
+    const update = open(state, 'saved-inbox-view', 'update');
+    expect(update.querySelector('[data-submit="live-inbox-saved-view-update"]')).not.toBeNull();
+    expect(update.querySelector('[data-form="savedViewTeamId"]')).not.toBeNull();
+    const create = open(state, 'saved-inbox-view', 'create');
+    expect(create.querySelector('[data-submit="live-inbox-saved-view-create"]')).not.toBeNull();
+    state.live.selectedSavedViewId = 'missing';
+    state.dialogForm = {};
+    const privateDefault = open(state, 'saved-inbox-view', 'create');
+    expect((privateDefault.querySelector('[data-form="savedViewVisibility"]') as HTMLSelectElement).value).toBe('private');
+    state.live.selectedSavedViewId = 'view-1';
+    state.dialogForm = { savedViewVisibility: 'workspace' };
+    expect(open(state, 'saved-inbox-view', 'create').querySelector('[data-form="savedViewTeamId"]')).toBeNull();
+    state.dialogForm = { savedViewVisibility: 'team' };
+    expect(open(state, 'saved-inbox-view', 'create').querySelector('[data-form="savedViewTeamId"]')).not.toBeNull();
+    const missingUpdate = open(state, 'saved-inbox-view', 'update');
+    state.live.selectedSavedViewId = 'gone';
+    expect(renderDialog(state)?.querySelector('[data-act="live-inbox-saved-view-update"]')?.hasAttribute('disabled')).toBe(true);
+    state.live.automations = ready([{ id: 'a-1', name: 'Draft', state: 'draft' } as never], 0);
+    expect(open(state, 'automation-delete', 'a-1').textContent).toContain('has never run');
+    expect(open(state, 'automation-delete', 'gone').querySelector('.notice--warning')).not.toBeNull();
+    expect(missingUpdate).not.toBeNull();
+    state.live.savedViews = { status: 'idle' };
+    expect(open(state, 'saved-inbox-view', 'update').querySelector('[data-act="live-inbox-saved-view-update"]')?.hasAttribute('disabled')).toBe(true);
+    state.live.workspaceLabels = ready([{ id: 'label-1', name: 'VIP', color: '#EF4444', state: 'retired', version: 1 }], 1);
+    expect(open(state, 'retire-label', 'label-1').querySelector('.notice--warning')).not.toBeNull();
   });
 });
 

@@ -1,4 +1,5 @@
 import type { LiveContext } from './actions.js';
+import { unassignedFilterProjection } from './inbox-query.js';
 import { forTenant, ready } from './store.js';
 
 /**
@@ -17,15 +18,24 @@ export async function refreshInboxLists(context: LiveContext): Promise<void> {
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
     const [unassigned, mine] = await Promise.all([
-      live.conversationsApi.unassigned(tenantId),
-      live.conversationsApi.list(tenantId, 'mine'),
+      // A realtime event refreshes the first visible page of the *same*
+      // operational query. Dropping these would silently turn an Agent/Label
+      // queue into an unfiltered one after the first incoming message.
+      live.conversationsApi.unassigned(tenantId, unassignedFilterProjection(live.inboxQuery)),
+      live.supervisorAgentId === null
+        ? live.conversationsApi.list(tenantId, live.inboxQuery)
+        : live.conversationsApi.supervisorList(tenantId, live.supervisorAgentId, live.inboxQuery),
     ]);
     const now = context.now();
-    if (unassigned.ok) {
+    if (live.supervisorAgentId === null && unassigned.ok) {
       live.unassigned = ready(unassigned.data, now);
     }
     if (mine.ok) {
-      live.conversations = ready(mine.data, now);
+      live.conversations = ready(mine.data.items, now);
+      // Realtime always replaces the visible first page.  An old cursor points
+      // into a snapshot that may have changed, so continuing it could skip or
+      // duplicate work; expose only the new continuation from this response.
+      live.inboxNextCursor = mine.data.nextCursor;
     }
     context.refresh();
   });

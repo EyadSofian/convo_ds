@@ -25,6 +25,126 @@
     margin-inline-start: auto;
   }
 
+  .inbox-search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-2) var(--space-3) 0;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface-1);
+    color: var(--text-muted);
+  }
+
+  .inbox-search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  .inbox-search__input {
+    min-inline-size: 0;
+    inline-size: 100%;
+    block-size: 32px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text);
+  }
+
+  .inbox-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3) 0;
+  }
+
+  .inbox-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-half);
+    max-inline-size: 100%;
+    padding-inline-start: var(--space-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
+    background: var(--surface-selected);
+    color: var(--text-secondary);
+    font-size: var(--text-2xs);
+  }
+
+  .inbox-filter-chip .btn {
+    margin-inline-end: 1px;
+  }
+
+  .inbox-filter-popover {
+    max-block-size: min(70vh, 560px);
+    overflow: auto;
+  }
+
+  .inbox-filter-popover__head {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .inbox-filter-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .inbox-saved-views .btn {
+    justify-content: flex-start;
+    inline-size: 100%;
+  }
+
+  .inbox-saved-views__actions {
+    display: flex;
+    gap: var(--space-1);
+    padding-block-start: var(--space-1);
+    border-block-start: 1px solid var(--border-subtle);
+  }
+
+  .inbox-saved-views__actions .btn {
+    inline-size: auto;
+  }
+
+  .inbox-more {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-2);
+  }
+
+  /* The compact desktop popover becomes an actual focus-contained workspace
+     on a phone. It never tries to squeeze picker controls into the queue. */
+  @media (max-width: 599px) {
+    .inbox-filter-popover {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+      display: flex;
+      flex-direction: column;
+      max-block-size: none;
+      inline-size: 100vw;
+      padding: var(--space-4);
+      border-radius: 0;
+      background: var(--surface-1);
+      box-shadow: none;
+    }
+
+    .inbox-filter-popover__head {
+      display: flex;
+      flex: none;
+    }
+
+    .inbox-filter-popover .field--row,
+    .inbox-filter-popover .filter-value-editor {
+      flex: none;
+    }
+  }
+
   .realtime {
     display: flex;
     align-items: center;
@@ -653,6 +773,40 @@
     block-size: 8px;
     border-radius: var(--radius-full);
     background: var(--label-color);
+    /* Names remain in the neutral foreground; the colour is an indicator, not
+       a white-on-user-HEX contrast gamble. The double outline keeps both very
+       light and very dark custom colours visible against every surface. */
+    box-shadow: inset 0 0 0 1px var(--label-swatch-outline), 0 0 0 1px var(--surface-1);
+  }
+
+  .inbox-supervisor-banner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: var(--space-2) var(--space-3);
+    align-items: center;
+    margin: 0 var(--space-3) var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-inline-start: 3px solid var(--accent);
+    border-radius: var(--radius-md);
+    background: var(--surface-1);
+    min-inline-size: 0;
+  }
+
+  .inbox-supervisor-banner__identity { display: grid; gap: 2px; min-inline-size: 0; }
+  .inbox-supervisor-banner__identity strong,
+  .inbox-supervisor-banner__teams,
+  .inbox-supervisor-banner__count { overflow-wrap: anywhere; }
+  .inbox-supervisor-banner__teams { color: var(--text-muted); font-size: var(--text-2xs); }
+  .inbox-supervisor-banner__count { font-size: var(--text-xs); }
+  .inbox-supervisor-banner__metrics,
+  .inbox-supervisor-banner__actions { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; }
+  .inbox-supervisor-banner__metric { display: inline-flex; gap: 3px; align-items: baseline; font-size: var(--text-2xs); white-space: nowrap; }
+  .inbox-supervisor-banner__metric-label { color: var(--text-muted); }
+
+  @media (max-width: 640px) {
+    .inbox-supervisor-banner { grid-template-columns: minmax(0, 1fr); }
+    .inbox-supervisor-banner__actions { justify-content: flex-start; }
   }
 
   .metadata__remove {

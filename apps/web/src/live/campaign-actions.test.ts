@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Campaign, CampaignReport, CampaignReportExport, CampaignRetry, CampaignsApi, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
+import type { AssignmentReportRow, Campaign, CampaignReport, CampaignReportExport, CampaignRetry, CampaignsApi, CampaignTestSend, CreateCampaignInput, OperationalReport } from '../api/campaigns.js';
 import type { ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
+import type { MetadataApi } from '../api/metadata.js';
 import { createState, NO_ANALYTICS_FILTERS } from '../state.js';
 import type { LiveContext } from './actions.js';
 import {
@@ -12,7 +13,12 @@ import {
   createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
+  loadAssignmentReport,
   loadCampaignReport,
+  loadOperationalReport,
+  loadResponseReport,
+  loadResolutionReport,
+  loadTeamReport,
   loadCampaignsScreen,
   refreshCampaignReportExport,
   retryCampaignFailures,
@@ -78,6 +84,11 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     testSend: vi.fn().mockResolvedValue(ok(TEST_SEND)),
     recipients: vi.fn().mockResolvedValue(ok([])),
     report: vi.fn().mockResolvedValue(ok(REPORT)),
+    operationsReport: vi.fn().mockResolvedValue(ok({ agents: [], agentOptions: [] })),
+    assignmentsReport: vi.fn().mockResolvedValue(ok({ data: [], nextCursor: null, hasMore: false })),
+    responseReport: vi.fn().mockResolvedValue(ok({ measured: 0, averageSeconds: null, medianSeconds: null, buckets: [], byAgent: [], byChannel: [] })),
+    resolutionReport: vi.fn().mockResolvedValue(ok({ resolvedEpisodes: 0, averageSeconds: null, medianSeconds: null, reopenedEpisodes: 0, byAgent: [], byChannel: [] })),
+    teamReport: vi.fn().mockResolvedValue(ok([])),
     createReportExport: vi.fn().mockResolvedValue(ok(EXPORT)),
     reportExport: vi.fn().mockResolvedValue(ok({ ...EXPORT, state: 'completed' })),
   } as unknown as CampaignsApi;
@@ -85,8 +96,12 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     connections: vi.fn().mockResolvedValue(ok([])),
     testRecipients: vi.fn().mockResolvedValue(ok([])),
   } as unknown as ChannelsApi;
+  const api = { teams: vi.fn().mockResolvedValue(ok([])) };
+  const metadata = { labels: vi.fn().mockResolvedValue(ok([])) } as unknown as MetadataApi;
   Object.defineProperty(state.live, 'campaignsApi', { value: campaigns });
   Object.defineProperty(state.live, 'channels', { value: channels });
+  Object.defineProperty(state.live, 'api', { value: api });
+  Object.defineProperty(state.live, 'metadataApi', { value: metadata });
   const context: LiveContext = {
     state,
     live: state.live,
@@ -96,7 +111,7 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     endSession: vi.fn(),
     switchWorkspace: vi.fn(),
   };
-  return { state, context, campaigns, channels };
+  return { state, context, campaigns, channels, api, metadata };
 }
 
 describe('campaign actions', () => {
@@ -156,7 +171,7 @@ describe('campaign actions', () => {
     expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'from:2026-09-01')).toBe(true);
     expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'to:2026-09-09')).toBe(true);
     expect(await LIVE_ACTIONS['live-report-filter']?.(ready.context, 'channel:whatsapp')).toBe(true);
-    expect(vi.mocked(ready.campaigns.report).mock.calls.at(-1)?.[1]).toEqual({ from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaignId: 'campaign-2' });
+    expect(vi.mocked(ready.campaigns.report).mock.calls.at(-1)?.[1]).toEqual({ ...NO_ANALYTICS_FILTERS, from: '2026-09-01', to: '2026-09-09', channel: 'whatsapp', campaignId: 'campaign-2' });
     await LIVE_ACTIONS['live-report-filter-clear']?.(ready.context, '');
     expect(ready.state.analyticsFilters).toEqual(NO_ANALYTICS_FILTERS);
 
@@ -170,6 +185,200 @@ describe('campaign actions', () => {
     vi.mocked(ready.campaigns.report).mockResolvedValueOnce(fail());
     await LIVE_ACTIONS['live-report-reload']?.(ready.context, '');
     expect(ready.state.live.campaignReport).toEqual({ status: 'error', error: ERROR });
+  });
+
+  it('loads operational report filters lazily, preserves scoped options, and discards stale responses', async () => {
+    const app = setup();
+    await loadOperationalReport(app.context);
+    expect(app.api.teams).toHaveBeenCalledWith('tenant-1');
+    expect(app.channels.connections).toHaveBeenCalledWith('tenant-1');
+    expect(app.metadata.labels).toHaveBeenCalledWith('tenant-1', true);
+    expect(app.campaigns.list).toHaveBeenCalledWith('tenant-1');
+    expect(app.state.live.operationalReport).toMatchObject({ status: 'ready' });
+    expect(app.state.live.operationalAgentOptions).toEqual({ tenantId: 'tenant-1', agents: [] });
+
+    app.state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, agentId: 'agent-1' };
+    app.state.live.teams = { status: 'ready', value: [], loadedAt: NOW.getTime() };
+    app.state.live.connections = { status: 'ready', value: [], loadedAt: NOW.getTime() };
+    app.state.live.workspaceLabels = { status: 'ready', value: [], loadedAt: NOW.getTime() };
+    app.state.live.campaigns = { status: 'ready', value: [], loadedAt: NOW.getTime() };
+    app.state.live.operationalAgentOptions = { tenantId: 'original', agents: [] };
+    await loadOperationalReport(app.context);
+    expect(app.api.teams).toHaveBeenCalledTimes(1);
+    expect(app.state.live.operationalAgentOptions).toEqual({ tenantId: 'original', agents: [] });
+
+    const stale = setup();
+    let resolveOld: ((result: ApiResult<OperationalReport>) => void) | undefined;
+    vi.mocked(stale.campaigns.operationsReport).mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const oldRequest = loadOperationalReport(stale.context);
+    vi.mocked(stale.campaigns.operationsReport).mockResolvedValueOnce(ok({ agents: [], agentOptions: [] } as never));
+    await loadOperationalReport(stale.context);
+    resolveOld?.(ok({ agents: [], agentOptions: [] } as never));
+    await oldRequest;
+    expect(stale.state.live.operationalReport).toMatchObject({ status: 'ready' });
+
+    const absent = setup({ tenant: null });
+    await loadOperationalReport(absent.context);
+    expect(absent.campaigns.operationsReport).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for report reads without a tenant and loads the assignment directory on demand', async () => {
+    const absent = setup({ tenant: null });
+    await loadAssignmentReport(absent.context);
+    await loadResponseReport(absent.context);
+    await loadResolutionReport(absent.context);
+    await loadTeamReport(absent.context);
+    expect(absent.campaigns.operationsReport).not.toHaveBeenCalled();
+    expect(absent.campaigns.assignmentsReport).not.toHaveBeenCalled();
+    expect(absent.campaigns.responseReport).not.toHaveBeenCalled();
+    expect(absent.campaigns.resolutionReport).not.toHaveBeenCalled();
+    expect(absent.campaigns.teamReport).not.toHaveBeenCalled();
+
+    const app = setup();
+    await loadAssignmentReport(app.context);
+    expect(app.campaigns.operationsReport).toHaveBeenCalledOnce();
+    expect(app.campaigns.assignmentsReport).toHaveBeenCalledWith('tenant-1', NO_ANALYTICS_FILTERS, null, 50);
+    expect(app.state.live.assignmentReport).toMatchObject({ status: 'ready', value: [] });
+  });
+
+  it('discards stale assignment, resolution, and team report responses', async () => {
+    const assignment = setup();
+    let finishOperational: ((result: ApiResult<OperationalReport>) => void) | undefined;
+    vi.mocked(assignment.campaigns.operationsReport).mockReturnValueOnce(new Promise((resolve) => { finishOperational = resolve; }));
+    const pendingAssignment = loadAssignmentReport(assignment.context);
+    assignment.state.live.assignmentRequestGeneration += 1;
+    finishOperational?.(ok({ agents: [], agentOptions: [] } as unknown as OperationalReport));
+    await pendingAssignment;
+    expect(assignment.campaigns.assignmentsReport).not.toHaveBeenCalled();
+
+    const resolution = setup();
+    resolution.state.live.operationalReport = { status: 'ready', value: {} as never, loadedAt: 1 };
+    let finishResolution: ((result: ApiResult<never>) => void) | undefined;
+    vi.mocked(resolution.campaigns.resolutionReport).mockReturnValueOnce(new Promise((resolve) => { finishResolution = resolve; }));
+    const pendingResolution = loadResolutionReport(resolution.context);
+    resolution.state.live.analyticsRequestGeneration += 1;
+    finishResolution?.(ok({} as never));
+    await pendingResolution;
+    expect(resolution.state.live.resolutionReport).toMatchObject({ status: 'loading' });
+
+    const team = setup();
+    team.state.live.operationalReport = { status: 'ready', value: {} as never, loadedAt: 1 };
+    let finishTeam: ((result: ApiResult<never>) => void) | undefined;
+    vi.mocked(team.campaigns.teamReport).mockReturnValueOnce(new Promise((resolve) => { finishTeam = resolve; }));
+    const pendingTeam = loadTeamReport(team.context);
+    team.state.live.analyticsRequestGeneration += 1;
+    finishTeam?.(ok([] as never));
+    await pendingTeam;
+    expect(team.state.live.teamReport).toMatchObject({ status: 'loading' });
+  });
+
+  it('loads assignment pages independently and appends only the requested cursor page', async () => {
+    const ready = setup();
+    ready.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    vi.mocked(ready.campaigns.assignmentsReport).mockResolvedValueOnce(ok({ data: [{
+      id: 'assignment-1', timestamp: NOW.toISOString(), conversationId: 'conversation-1', customer: 'Mona', action: 'claim',
+      previousAssignee: null, assignedTo: { membershipId: 'member-1', displayName: 'Ahmed' }, actor: null,
+    }], nextCursor: 'cursor-2', hasMore: true }));
+    await loadAssignmentReport(ready.context);
+    expect(ready.campaigns.assignmentsReport).toHaveBeenCalledWith('tenant-1', NO_ANALYTICS_FILTERS, null, 50);
+    expect(ready.state.live.assignmentReport).toMatchObject({ status: 'ready', value: [{ id: 'assignment-1' }] });
+    expect(ready.state.live.assignmentNextCursor).toBe('cursor-2');
+
+    vi.mocked(ready.campaigns.assignmentsReport).mockResolvedValueOnce(ok({ data: [{
+      id: 'assignment-2', timestamp: NOW.toISOString(), conversationId: 'conversation-2', customer: null, action: 'assign',
+      previousAssignee: null, assignedTo: { membershipId: 'member-2', displayName: 'Sara' }, actor: null,
+    }], nextCursor: null, hasMore: false }));
+    await loadAssignmentReport(ready.context, true);
+    expect(ready.campaigns.assignmentsReport).toHaveBeenLastCalledWith('tenant-1', NO_ANALYTICS_FILTERS, 'cursor-2', 50);
+    expect(ready.state.live.assignmentReport).toMatchObject({ status: 'ready', value: [{ id: 'assignment-1' }, { id: 'assignment-2' }] });
+    expect(ready.state.live.assignmentNextCursor).toBeNull();
+  });
+
+  it('preserves assignment report refusals and skips append without a cursor', async () => {
+    const app = setup();
+    app.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    vi.mocked(app.campaigns.assignmentsReport).mockResolvedValueOnce(fail());
+    await loadAssignmentReport(app.context);
+    expect(app.state.live.assignmentReport).toEqual({ status: 'error', error: ERROR });
+    await loadAssignmentReport(app.context, true);
+    expect(app.campaigns.assignmentsReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads the selected assignment tab and preserves its report URL state', async () => {
+    const ready = setup();
+    ready.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    ready.state.route = { ...ready.state.route, params: { lang: 'en', agent: 'membership-1' } };
+    await expect(LIVE_ACTIONS['analytics-view']?.(ready.context, 'assignments')).resolves.toBe(true);
+    expect(ready.state.analyticsView).toBe('assignments');
+    expect(ready.state.route.params).toEqual({ lang: 'en', agent: 'membership-1', view: 'assignments' });
+    expect(ready.campaigns.assignmentsReport).toHaveBeenCalledOnce();
+  });
+
+  it('loads response and resolution reports through distinct endpoints and retains the selected view', async () => {
+    const ready = setup();
+    ready.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    await LIVE_ACTIONS['analytics-view']?.(ready.context, 'responses');
+    expect(ready.campaigns.responseReport).toHaveBeenCalledWith('tenant-1', NO_ANALYTICS_FILTERS);
+    expect(ready.state.live.responseReport).toMatchObject({ status: 'ready', value: { measured: 0 } });
+    await LIVE_ACTIONS['analytics-view']?.(ready.context, 'resolutions');
+    expect(ready.campaigns.resolutionReport).toHaveBeenCalledWith('tenant-1', NO_ANALYTICS_FILTERS);
+    expect(ready.state.live.resolutionReport).toMatchObject({ status: 'ready', value: { resolvedEpisodes: 0 } });
+  });
+
+  it('loads a dedicated team report after making the shared report filter catalogue available', async () => {
+    const ready = setup();
+    await LIVE_ACTIONS['analytics-view']?.(ready.context, 'teams');
+    expect(ready.campaigns.operationsReport).toHaveBeenCalledOnce();
+    expect(ready.campaigns.teamReport).toHaveBeenCalledWith('tenant-1', NO_ANALYTICS_FILTERS);
+    expect(ready.state.live.teamReport).toMatchObject({ status: 'ready', value: [] });
+  });
+
+  it('ignores an older response-report result after switching to a newer report', async () => {
+    const ready = setup();
+    ready.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    let resolveOld: ((result: ApiResult<{ measured: number; averageSeconds: number | null; medianSeconds: number | null; buckets: readonly []; byAgent: readonly []; byChannel: readonly [] }>) => void) | undefined;
+    vi.mocked(ready.campaigns.responseReport).mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const oldRequest = loadResponseReport(ready.context);
+    vi.mocked(ready.campaigns.resolutionReport).mockResolvedValueOnce(ok({ resolvedEpisodes: 3, averageSeconds: 15, medianSeconds: 12, reopenedEpisodes: 1, byAgent: [], byChannel: [] }));
+    await loadResolutionReport(ready.context);
+    resolveOld?.(ok({ measured: 1, averageSeconds: 99, medianSeconds: 99, buckets: [], byAgent: [], byChannel: [] }));
+    await oldRequest;
+    expect(ready.state.live.responseReport).toMatchObject({ status: 'loading' });
+    expect(ready.state.live.resolutionReport).toMatchObject({ status: 'ready', value: { resolvedEpisodes: 3 } });
+  });
+
+  it('does not let an older assignments response overwrite the current filter request', async () => {
+    const ready = setup();
+    ready.state.live.operationalReport = { status: 'ready', value: { agents: [], agentOptions: [] } as never, loadedAt: NOW.getTime() };
+    let resolveFirst: ((result: ApiResult<{ data: readonly AssignmentReportRow[]; nextCursor: string | null; hasMore: boolean }>) => void) | undefined;
+    const staleRow: AssignmentReportRow = { id: 'stale', timestamp: NOW.toISOString(), conversationId: 'c-stale', customer: null, action: 'claim', previousAssignee: null, assignedTo: { membershipId: 'member', displayName: 'Ahmed' }, actor: null };
+    const latestRow: AssignmentReportRow = { ...staleRow, id: 'latest', conversationId: 'c-latest' };
+    vi.mocked(ready.campaigns.assignmentsReport)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce(ok({ data: [latestRow], nextCursor: null, hasMore: false }));
+    const first = loadAssignmentReport(ready.context);
+    ready.state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, from: '2026-09-01' };
+    await loadAssignmentReport(ready.context);
+    resolveFirst?.(ok({ data: [staleRow], nextCursor: null, hasMore: false }));
+    await first;
+    expect(ready.state.live.assignmentReport).toMatchObject({ status: 'ready', value: [latestRow] });
+  });
+
+  it('prevents an older report filter response replacing the latest selected filters', async () => {
+    const ready = setup();
+    let resolveFirst: ((result: ApiResult<CampaignReport>) => void) | undefined;
+    let resolveSecond: ((result: ApiResult<CampaignReport>) => void) | undefined;
+    vi.mocked(ready.campaigns.report)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    const first = loadCampaignReport(ready.context);
+    ready.state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, from: '2026-09-01' };
+    const second = loadCampaignReport(ready.context);
+    resolveSecond?.(ok({ ...REPORT, generated_at: 'newer' } as CampaignReport));
+    await second;
+    resolveFirst?.(ok({ ...REPORT, generated_at: 'older' } as CampaignReport));
+    await first;
+    expect(ready.state.live.campaignReport).toMatchObject({ status: 'ready', value: { generated_at: 'newer' } });
   });
 
   it('queues a test only after the server commits and keeps a refusal in the dialog', async () => {

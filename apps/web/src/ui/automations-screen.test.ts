@@ -24,14 +24,16 @@ describe('automation screen',()=>{
   const denied=state('templates',['automation.read']); expect(renderAutomations(denied).querySelector('[data-act="live-automation-use"]')).toBeNull();
  });
  it('shows empty and populated automation lists with state-aware actions',()=>{
-  const s=state('mine'); s.live.automations={status:'idle'}; expect(renderAutomations(s).querySelector('[aria-busy="true"]')).not.toBeNull(); s.live.automations={status:'ready',value:[],loadedAt:1}; expect(renderAutomations(s).textContent).toContain('No automations yet');
+  const s=state('mine'); s.live.automations={status:'idle'}; expect(renderAutomations(s).querySelector('[aria-busy="true"]')).not.toBeNull(); s.live.automations={status:'ready',value:[],loadedAt:1}; expect(renderAutomations(s).textContent).toContain('No matching automations');
   s.live.automations={status:'ready',value:[AUTOMATION,{...AUTOMATION,id:'a-2',state:'active',name:'Live'},{...AUTOMATION,id:'a-3',state:'paused',name:'Paused'},{...AUTOMATION,id:'a-4',state:'archived',name:'Old'}],loadedAt:1}; const root=renderAutomations(s); expect(root.textContent).toContain('Editable workflow'); expect(root.querySelector('[data-arg="a-2:pause"]')).not.toBeNull(); expect(root.querySelector('[data-arg="a-3:resume"]')).not.toBeNull(); expect(root.querySelector('[data-arg="a-4:activate"]')).toBeNull();
+  s.live.automationNextCursor='next'; expect(renderAutomations(s).querySelector('[data-act="live-automation-load-more"]')).not.toBeNull();
  });
  it('renders the sequential builder without exposing JSON',()=>{
   const s=state('mine'); s.route={screen:'automations',conversationId:null,params:{view:'mine',edit:'a-1'}}; s.live.whatsappTemplates={status:'ready',value:[{id:'wa-1',connectionId:'c',providerTemplateId:'p',templateName:'class_reminder',language:'en',category:'UTILITY',status:'approved',components:[],variables:['1'],lastSyncedAt:NOW.toISOString()}],loadedAt:1}; const root=renderAutomations(s); expect(root.querySelectorAll('.workflow-block').length).toBe(4); expect(root.textContent).toContain('Execution safety'); expect(root.textContent).toContain('Approved WhatsApp template'); expect(root.textContent).not.toContain('"trigger"'); expect(root.querySelector('[data-act="live-automation-add-step"]')).not.toBeNull();
  });
  it('shows run evidence, empty history and load failures',()=>{
   const s=state('runs'); let root=renderAutomations(s); expect(root.textContent).toContain('TEST'); expect(root.textContent).toContain('Delivered');
+  s.live.automationRunsNextCursor='next'; expect(renderAutomations(s).querySelector('[data-act="live-automation-runs-load-more"]')).not.toBeNull();
   s.live.automationRuns={status:'ready',value:[],loadedAt:1}; root=renderAutomations(s); expect(root.textContent).toContain('No runs yet');
   s.live.automationRuns={status:'error',error:{code:'x',message:'x',requestId:'run-req',status:500,details:[]}}; expect(renderAutomations(s).textContent).toContain('run-req');
  });

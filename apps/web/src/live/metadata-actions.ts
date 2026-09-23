@@ -1,4 +1,4 @@
-import type { CustomField, FieldTarget } from '../api/metadata.js';
+import type { CustomField, FieldTarget, Label } from '../api/metadata.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { forTenant, fromResult, rowsOf } from './store.js';
@@ -23,6 +23,66 @@ export async function createLabel(
       pushToast(context.state, result.error.message, 'danger');
     }
     return result.ok;
+  });
+}
+
+/** Creates a label, then attaches the server-returned label to the current record. */
+export async function createAndAssignLabel(
+  context: LiveContext,
+  target: FieldTarget,
+  entityId: string,
+  name: string,
+  color: string,
+): Promise<boolean> {
+  const version = versionOf(context, target, entityId);
+  if (version === null) return false;
+  return forTenant(context, false, async (tenantId) => {
+    context.live.busy = `metadata:${target}:${entityId}`;
+    context.live.error = null;
+    context.refresh();
+    const created = await context.live.metadataApi.createLabel(tenantId, name, color);
+    if (!created.ok) {
+      context.live.busy = null;
+      context.live.error = created.error;
+      pushToast(context.state, created.error.message, 'danger');
+      context.refresh();
+      return false;
+    }
+    const input = { version, addLabels: [created.data.id], removeLabels: [] };
+    const assigned = target === 'contact'
+      ? await context.live.metadataApi.contact(tenantId, entityId, input)
+      : await context.live.metadataApi.conversation(tenantId, entityId, input);
+    context.live.busy = null;
+    if (!assigned.ok) {
+      // Creation is durable, attachment was not. Never show an invented chip.
+      context.live.error = assigned.error;
+      pushToast(context.state, t(context, 'أُنشئ التصنيف لكن تعذّر إسناده؛ حدّث السجل وحاول مرة أخرى.', 'The label was created but could not be assigned; refresh the record and try again.'), 'warning');
+      await loadMetadataCatalog(context);
+      return false;
+    }
+    await Promise.all([loadMetadataCatalog(context), refreshEntity(context, tenantId, target, entityId)]);
+    pushToast(context.state, t(context, 'أُنشئ التصنيف وأُضيف للسجل.', 'Label created and assigned.'));
+    return true;
+  });
+}
+
+export async function updateLabel(context: LiveContext, label: Label, name: string, color: string): Promise<boolean> {
+  return mutate(context, `metadata:update-label:${label.id}`, async (tenantId) => {
+    const result = await context.live.metadataApi.updateLabel(tenantId, label.id, { version: label.version, name, color });
+    if (!result.ok) { context.live.error = result.error; pushToast(context.state, result.error.message, 'danger'); return false; }
+    context.live.workspaceLabels = { status: 'ready', value: context.live.workspaceLabels.status === 'ready' ? context.live.workspaceLabels.value.map((item) => item.id === result.data.id ? result.data : item) : [result.data], loadedAt: context.now() };
+    pushToast(context.state, t(context, 'تحدّث التصنيف.', 'Label updated.'));
+    return true;
+  });
+}
+
+export async function retireLabel(context: LiveContext, label: Label): Promise<boolean> {
+  return mutate(context, `metadata:retire-label:${label.id}`, async (tenantId) => {
+    const result = await context.live.metadataApi.retireLabel(tenantId, label.id, label.version);
+    if (!result.ok) { context.live.error = result.error; pushToast(context.state, result.error.message, 'danger'); return false; }
+    context.live.workspaceLabels = { status: 'ready', value: context.live.workspaceLabels.status === 'ready' ? context.live.workspaceLabels.value.map((item) => item.id === result.data.id ? result.data : item) : [result.data], loadedAt: context.now() };
+    pushToast(context.state, t(context, 'أُوقف التصنيف.', 'Label retired.'));
+    return true;
   });
 }
 
