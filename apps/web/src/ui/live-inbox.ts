@@ -28,6 +28,7 @@ import {
   emptyState,
   errorState,
   isolated,
+  messageSkeleton,
   segmented,
   selectControl,
   skeleton,
@@ -47,8 +48,9 @@ import { movedAway, priorityBadge, routingSection } from './routing-panel.js';
  *   once it is theirs, and a private-note composer that never reaches the
  *   customer.
  *
- * The live connection's state is on screen, deliberately. A stream that has
- * stopped delivering looks exactly like a quiet inbox.
+ * The live connection's state is on screen, deliberately — as the status pill
+ * in the header (shell.ts). A stream that has stopped delivering looks exactly
+ * like a quiet inbox.
  */
 
 const DELIVERY_LABEL: Readonly<Record<string, Phrase>> = {
@@ -148,39 +150,77 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
   const activeFilters = activeFilterCount(live.inboxQuery);
   return h('section', { class: 'zone zone--list', 'aria-label': t(state, 'قائمة المحادثات', 'Conversation list') }, [
     h('header', { class: 'listhead' }, [
-      supervisorMode ? h('div', { class: 'listhead__supervisor', role: 'status' }, [
-        icon('eye', 15), t(state, 'عرض إشرافي للقراءة فقط', 'Read-only supervisor view'),
-      ]) : segmented(
-        [
-          { value: 'unassigned', label: t(state, 'غير مسندة', 'Unassigned'), count: countOf(live.unassigned) },
-          { value: 'mine', label: t(state, 'محادثاتي', 'Mine'), count: countOf(live.conversations) },
-        ],
-        state.inboxQueue,
-        'live-inbox-queue',
-        t(state, 'طابور المحادثات', 'Conversation queue'),
-      ),
-      h('div', { class: 'listhead__tools' }, [
-        h('div', { class: 'menu-anchor' }, [
+      h('div', { class: 'listhead__row' }, [
+        supervisorMode ? h('div', { class: 'listhead__supervisor', role: 'status' }, [
+          icon('eye', 15), t(state, 'عرض إشرافي للقراءة فقط', 'Read-only supervisor view'),
+        ]) : segmented(
+          [
+            { value: 'unassigned', label: t(state, 'غير مسندة', 'Unassigned'), count: countOf(live.unassigned) },
+            { value: 'mine', label: t(state, 'محادثاتي', 'Mine'), count: countOf(live.conversations) },
+          ],
+          state.inboxQueue,
+          'live-inbox-queue',
+          t(state, 'طابور المحادثات', 'Conversation queue'),
+        ),
+        h('div', { class: 'listhead__tools' }, [
           button({
-            label: t(state, 'إضافة فلتر', 'Add filter'),
-            icon: 'plus',
-            act: 'menu',
-            arg: 'inbox-filters',
+            icon: 'refresh',
+            act: 'live-inbox-reload',
             variant: 'ghost',
             small: true,
-            expanded: state.openMenu === 'inbox-filters',
-            haspopup: 'dialog',
-            title: activeFilters === 0
-              ? t(state, 'تصفية', 'Filter')
-              : t(state, `تصفية (${String(activeFilters)} مفعّلة)`, `Filter (${String(activeFilters)} active)`),
-            extraClass: activeFilters === 0 ? undefined : 'btn--active',
+            // The spinner belongs to a refresh somebody asked for. A background
+            // re-read after a realtime event or a returning tab keeps the rows
+            // and the icon still, so the list never looks like it is reloading.
+            busy: live.unassigned.status === 'loading' && live.conversations.status === 'loading',
+            title: t(state, 'تحديث', 'Refresh'),
           }),
-          state.openMenu === 'inbox-filters' ? inboxFilters(state, live) : null,
+          button({
+            icon: 'close',
+            act: 'close-overlays',
+            arg: 'list',
+            variant: 'ghost',
+            small: true,
+            title: t(state, 'إغلاق القائمة', 'Close list'),
+            extraClass: 'listhead__close',
+          }),
         ]),
-        button({
-          label: t(state, 'عرض فريق', 'View team'), icon: 'eye', act: 'live-supervisor-open', variant: 'ghost', small: true,
-          busy: live.supervisorAgents.status === 'loading', title: t(state, 'عرض المحادثات المسندة لوكيل ضمن نطاقك', 'View an in-scope agent’s assigned conversations'),
-        }),
+      ]),
+      h('div', { class: 'listhead__row' }, [
+        inboxSearch(state, live),
+        h('div', { class: 'listhead__tools' }, [
+          h('div', { class: 'menu-anchor' }, [
+            button({
+              icon: 'filter',
+              act: 'menu',
+              arg: 'inbox-filters',
+              variant: 'ghost',
+              small: true,
+              expanded: state.openMenu === 'inbox-filters',
+              haspopup: 'dialog',
+              title: activeFilters === 0
+                ? t(state, 'إضافة فلتر', 'Add filter')
+                : t(state, `إضافة فلتر (${String(activeFilters)} مفعّلة)`, `Add filter (${String(activeFilters)} active)`),
+              extraClass: activeFilters === 0 ? undefined : 'btn--active',
+            }),
+            state.openMenu === 'inbox-filters' ? inboxFilters(state, live) : null,
+          ]),
+          h('div', { class: 'menu-anchor' }, [
+            button({
+              icon: 'bookmark', act: 'menu', arg: 'inbox-saved-views', variant: 'ghost', small: true,
+              expanded: state.openMenu === 'inbox-saved-views', haspopup: 'dialog',
+              title: t(state, 'العروض المحفوظة', 'Saved views'),
+              extraClass: live.selectedSavedViewId === null ? undefined : 'btn--active',
+            }),
+            state.openMenu === 'inbox-saved-views' ? savedViewsMenu(state, live) : null,
+          ]),
+          button({
+            icon: 'eye', act: 'live-supervisor-open', variant: 'ghost', small: true,
+            busy: live.supervisorAgents.status === 'loading', title: t(state, 'عرض فريق: المحادثات المسندة لوكيل ضمن نطاقك', 'View team: an in-scope agent’s assigned conversations'),
+          }),
+        ]),
+      ]),
+      h('div', { class: 'listhead__row listhead__row--sort' }, [
+        h('span', { class: 'listhead__sortlabel', 'aria-hidden': 'true' }, [t(state, 'الترتيب', 'Sort')]),
         selectControl({
           act: 'live-inbox-sort', value: live.inboxQuery.sort,
           ariaLabel: t(state, 'ترتيب المحادثات', 'Sort conversations'),
@@ -193,39 +233,11 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
             { value: 'priority_desc', label: t(state, 'الأولوية', 'Priority') },
           ],
         }),
-        h('div', { class: 'menu-anchor' }, [
-          button({
-            icon: 'bookmark', act: 'menu', arg: 'inbox-saved-views', variant: 'ghost', small: true,
-            expanded: state.openMenu === 'inbox-saved-views', haspopup: 'dialog',
-            title: t(state, 'العروض المحفوظة', 'Saved views'),
-            extraClass: live.selectedSavedViewId === null ? undefined : 'btn--active',
-          }),
-          state.openMenu === 'inbox-saved-views' ? savedViewsMenu(state, live) : null,
-        ]),
-        button({
-          icon: 'refresh',
-          act: 'live-inbox-reload',
-          variant: 'ghost',
-          small: true,
-          busy: live.unassigned.status === 'loading',
-          title: t(state, 'تحديث', 'Refresh'),
-        }),
-        button({
-          icon: 'close',
-          act: 'close-overlays',
-          arg: 'list',
-          variant: 'ghost',
-          small: true,
-          title: t(state, 'إغلاق القائمة', 'Close list'),
-          extraClass: 'listhead__close',
-        }),
       ]),
     ]),
-    inboxSearch(state, live),
     supervisorPicker(state, live),
     supervisorBanner(state, live),
     activeFilterChips(state, live),
-    connectionNotice(state, live),
     listResizer(state),
     h('div', { class: 'zone__body', 'data-scroll': 'list' }, [
       supervisorMode || state.inboxQueue === 'mine' ? mineList(state, live) : queueList(state, live),
@@ -480,33 +492,6 @@ function savedViewsMenu(state: AppState, live: LiveState): HTMLElement {
   ]);
 }
 
-/**
- * What the live connection is doing, in words. A stream that is not delivering
- * looks exactly like an inbox with nothing happening in it.
- */
-function connectionNotice(state: AppState, live: LiveState): Child {
-  const realtime = live.realtime;
-  if (realtime.status === 'live') {
-    return h('p', { class: 'realtime realtime--live', 'data-realtime': 'live' }, [
-      h('span', { class: 'realtime__dot', 'aria-hidden': 'true' }),
-      t(state, 'تحديث مباشر', 'Live'),
-    ]);
-  }
-  if (realtime.status === 'stale') {
-    return h('p', { class: 'realtime realtime--stale', 'data-realtime': 'stale', role: 'status' }, [
-      h('span', { class: 'realtime__dot', 'aria-hidden': 'true' }),
-      t(state, 'انقطع التحديث المباشر — جارٍ إعادة الاتصال', 'Live updates paused — reconnecting'),
-    ]);
-  }
-  if (realtime.status === 'stopped') {
-    return h('p', { class: 'realtime realtime--stopped', 'data-realtime': 'stopped', role: 'status' }, [
-      h('span', { class: 'realtime__dot', 'aria-hidden': 'true' }),
-      t(state, 'توقف التحديث المباشر لتغيّر صلاحياتك. حدّث الصفحة.', 'Live updates stopped because your access changed. Refresh.'),
-    ]);
-  }
-  return null;
-}
-
 function queueList(state: AppState, live: LiveState): Child {
   return listBody(
     state,
@@ -678,7 +663,7 @@ function renderThreadZone(state: AppState, live: LiveState): HTMLElement {
     ]);
   }
   if (live.openConversation.status !== 'ready') {
-    return threadZone(state, [h('div', { class: 'thread__placeholder' }, [skeleton(state, 4)])]);
+    return threadZone(state, [h('div', { class: 'thread__body' }, [messageSkeleton(state)])]);
   }
 
   const conversation = live.openConversation.value;
@@ -735,7 +720,7 @@ function threadHeader(state: AppState, live: LiveState, conversation: Conversati
 function timelineView(state: AppState, live: LiveState): Child {
   const timeline = live.timeline;
   if (timeline.status === 'idle' || timeline.status === 'loading') {
-    return h('div', { class: 'thread__body' }, [skeleton(state, 4)]);
+    return h('div', { class: 'thread__body' }, [messageSkeleton(state)]);
   }
   if (timeline.status === 'error') {
     return h('div', { class: 'thread__body' }, [errorState(state, timeline.error, 'live-inbox-reload')]);
@@ -768,6 +753,11 @@ function timelineView(state: AppState, live: LiveState): Child {
       role: 'log',
       tabindex: '0',
       'data-scroll': 'timeline',
+      // Opens at the latest message, follows new ones while the reader is at
+      // the end, and keeps their place when older ones load (app.ts).
+      'data-scroll-end': 'true',
+      'data-scroll-key': live.openConversationId,
+      'data-scroll-anchor': (timeline.value[0] as TimelineMessage).id,
       'aria-label': t(state, 'سجل المحادثة', 'Conversation log'),
     },
     [
@@ -932,6 +922,7 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
       live.error === null
         ? h('span', { class: 'composer__hint' }, [t(state, 'يُرسل إلى العميل عبر القناة', 'Sent to the customer on this channel')])
         : h('span', { class: 'composer__hint composer__hint--error', role: 'alert' }, [live.error.message]),
+      whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
       button({
         label: t(state, 'إرسال', 'Send'),
         icon: 'send',
@@ -940,8 +931,8 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
         small: true,
         busy: live.busy === 'send-reply',
         disabled: live.composer.trim() === '',
+        extraClass: 'composer__send',
       }),
-      whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
     ]),
   ]);
 }
@@ -949,7 +940,7 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
 function whatsappTemplateButton(state: AppState, live: LiveState, conversationId: string, connectionId: string): HTMLElement | null {
   const connection = live.connections.status === 'ready' ? live.connections.value.find((item) => item.id === connectionId) : undefined;
   if (connection?.kind !== 'whatsapp' || !connection.capabilities.templates) return null;
-  return button({ label: t(state, 'قوالب واتساب', 'WhatsApp Templates'), icon: 'chat', act: 'live-whatsapp-template-open', arg: conversationId, variant: 'default', small: true });
+  return button({ label: t(state, 'قوالب واتساب', 'WhatsApp Templates'), icon: 'template', act: 'live-whatsapp-template-open', arg: conversationId, variant: 'default', small: true, title: t(state, 'قوالب واتساب', 'WhatsApp Templates'), extraClass: 'composer__templates' });
 }
 
 function noteComposer(state: AppState, live: LiveState, tabs: HTMLElement): HTMLElement {
@@ -975,10 +966,12 @@ function noteComposer(state: AppState, live: LiveState, tabs: HTMLElement): HTML
       h('span', { class: 'composer__hint' }, [icon('lock', 14), t(state, 'مرئية لفريقك فقط', 'Visible to your team only')]),
       button({
         label: t(state, 'إضافة ملاحظة', 'Add note'),
+        icon: 'note',
         act: 'live-note-add',
         small: true,
         busy,
         disabled: live.noteDraft.trim() === '',
+        extraClass: 'composer__send composer__send--note',
       }),
     ]),
   ]);

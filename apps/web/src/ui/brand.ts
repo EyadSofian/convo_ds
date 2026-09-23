@@ -21,6 +21,14 @@ export function logomark(size: 'sm' | 'lg' = 'sm'): HTMLElement {
   });
 }
 
+/**
+ * The DS Omnichannel mark: DS in blue on the lime tile. Text, not an image, so
+ * it is crisp at every size and costs no request.
+ */
+export function dsMark(size: 'sm' | 'lg' = 'sm'): HTMLElement {
+  return h('span', { class: `ds-mark ds-mark--${size}`, 'aria-hidden': 'true' }, ['DS']);
+}
+
 /** The brand row used on the sign-in and loading screens. */
 export function brandLockup(): HTMLElement {
   return h('span', { class: 'brand', 'aria-label': 'Digital School by Berlitz' }, [

@@ -50,7 +50,16 @@ export interface RealtimeEvent {
 export interface EventSourceLike {
   addEventListener(type: string, listener: (event: MessageEvent<string>) => void): void;
   close(): void;
+  /**
+   * `EventSource.readyState`. `2` (CLOSED) after an `error` means the browser
+   * has stopped retrying — an HTTP error answer, or a page restored from the
+   * back/forward cache — and nothing further will arrive on this source.
+   */
+  readonly readyState?: number;
 }
+
+/** `EventSource.CLOSED`, spelled out so a test double need not import the DOM. */
+const CLOSED = 2;
 
 export type EventSourceFactory = (url: string) => EventSourceLike;
 
@@ -81,6 +90,12 @@ export interface RealtimeOptions {
 export interface RealtimeSubscription {
   /** The last position applied, for a catch-up request after a reset. */
   cursor(): string | null;
+  /**
+   * Whether this subscription can never deliver again: closed here, or given
+   * up on by the browser. Only then may the screen open a replacement — while
+   * `EventSource` is still retrying, a second connection would race it.
+   */
+  ended(): boolean;
   close(): void;
 }
 
@@ -179,6 +194,7 @@ export function subscribe(options: RealtimeOptions): RealtimeSubscription {
 
   return {
     cursor: () => cursor,
+    ended: () => closed || source.readyState === CLOSED,
     close: () => {
       closed = true;
       source.close();

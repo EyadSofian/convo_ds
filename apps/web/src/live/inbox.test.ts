@@ -1,10 +1,10 @@
 /**
  * @vitest-environment happy-dom
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike } from '../api/client.js';
-import type { AppHandle } from '../app.js';
-import { mount } from '../app.js';
+import type { AppHandle, Cancel, MountOptions, PageEvent, PageLifecycle } from '../app.js';
+import { mount, REALTIME_RESUME_MAX_MS, REALTIME_RESUME_MS } from '../app.js';
 import type { RouterHost } from '../router.js';
 import type { EventSourceLike } from './realtime.js';
 
@@ -85,11 +85,15 @@ class FakeApi {
 /** A stream the test drives by hand. */
 class FakeStream implements EventSourceLike {
   static last: FakeStream | null = null;
+  static opened = 0;
   closed = false;
+  /** `EventSource.readyState`; 2 once the browser has given up retrying. */
+  readyState = 0;
   private readonly listeners = new Map<string, ((event: MessageEvent<string>) => void)[]>();
 
   constructor(readonly url: string) {
     FakeStream.last = this;
+    FakeStream.opened += 1;
   }
 
   addEventListener(type: string, listener: (event: MessageEvent<string>) => void): void {
@@ -230,9 +234,10 @@ async function settle(): Promise<void> {
   }
 }
 
-async function open(api: FakeApi, hash = '#/inbox'): Promise<{ app: AppHandle; root: HTMLElement }> {
+async function open(api: FakeApi, hash = '#/inbox', options: Partial<MountOptions> = {}): Promise<{ app: AppHandle; root: HTMLElement }> {
   const root = mountRoot();
   FakeStream.last = null;
+  FakeStream.opened = 0;
   const app = mount({
     root,
     host: createHost(hash),
@@ -241,6 +246,7 @@ async function open(api: FakeApi, hash = '#/inbox'): Promise<{ app: AppHandle; r
     readCsrfToken: () => 'csrf-token',
     newKey: () => 'client-message-1',
     openEventSource: (url) => new FakeStream(url),
+    ...options,
   });
   handle = app;
   await settle();
@@ -764,7 +770,7 @@ describe('what the screen does with what it is given', () => {
     expect(app.state.live.inboxQuery.filters).toContainEqual({ key: 'label_id', operator: 'eq', value: 'l-1' });
     expect(api.countOf(`GET /tenants/${TENANT}/conversations/unassigned?label=l-1`)).toBe(1);
     // The control says how many filters are on.
-    expect(root.querySelector('[data-arg="inbox-filters"]')?.getAttribute('title')).toBe('تصفية (1 مفعّلة)');
+    expect(root.querySelector('[data-arg="inbox-filters"]')?.getAttribute('title')).toBe('إضافة فلتر (1 مفعّلة)');
   });
 
   it('says a card has not waited yet when the server sends no wait time', async () => {
@@ -896,7 +902,8 @@ describe('the live connection', () => {
     const { root, app } = await open(inboxApi());
     expect(FakeStream.last?.url).toBe(`/api/v1/tenants/${TENANT}/realtime/stream`);
     expect(app.state.live.realtime.status).toBe('live');
-    expect(text(root)).toContain('تحديث مباشر');
+    // The header pill says so; the list no longer carries a status line.
+    expect(root.querySelector('.header [data-realtime="live"]')?.textContent).toBe('مباشر');
   });
 
   it('re-reads the server when an event says something changed', async () => {
@@ -1041,5 +1048,318 @@ describe('while the server has not answered', () => {
       .on('GET /me/memberships', { status: 200, body: { data: [] } });
     const { root } = await open(api);
     expect(text(root)).toContain('لا توجد مساحة عمل نشطة');
+  });
+});
+
+/* ------------------------------------------------------ resume and reload -- */
+
+/** The page's lifecycle, driven by hand: network, visibility, bfcache. */
+class FakePage implements PageLifecycle {
+  isOnline = true;
+  isVisible = true;
+  private readonly listeners = new Map<PageEvent, Set<(event: Event) => void>>();
+
+  addEventListener(type: PageEvent, listener: (event: Event) => void): void {
+    const set = this.listeners.get(type) ?? new Set();
+    set.add(listener);
+    this.listeners.set(type, set);
+  }
+
+  removeEventListener(type: PageEvent, listener: (event: Event) => void): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  online(): boolean {
+    return this.isOnline;
+  }
+
+  visible(): boolean {
+    return this.isVisible;
+  }
+
+  fire(type: PageEvent, init: Record<string, unknown> = {}): void {
+    const event = Object.assign(new window.Event(type), init);
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+
+  count(): number {
+    let total = 0;
+    for (const set of this.listeners.values()) total += set.size;
+    return total;
+  }
+}
+
+/** A scheduler the test runs by hand, recording each delay it was asked for. */
+function manualSchedule(): { schedule: NonNullable<MountOptions['schedule']>; delays: number[]; run(): void; cancelled: number } {
+  const pending: (() => void)[] = [];
+  const result = {
+    delays: [] as number[],
+    cancelled: 0,
+    schedule: (work: () => void, delayMs: number): Cancel => {
+      result.delays.push(delayMs);
+      pending.push(work);
+      return () => {
+        result.cancelled += 1;
+        const index = pending.indexOf(work);
+        if (index >= 0) pending.splice(index, 1);
+      };
+    },
+    run: (): void => {
+      const work = pending.shift();
+      work?.();
+    },
+  };
+  return result;
+}
+
+describe('leaving the tab and coming back', () => {
+  const unreadCount = `GET /tenants/${TENANT}/notifications/unread-count`;
+
+  function resumeApi(): FakeApi {
+    return inboxApi().on(unreadCount, { status: 200, body: { data: { count: 0 } } });
+  }
+
+  function pill(root: HTMLElement): string | null {
+    return root.querySelector('.header [data-realtime]')?.getAttribute('data-realtime') ?? null;
+  }
+
+  it('keeps everything on screen and asks the server for nothing', async () => {
+    const page = new FakePage();
+    const api = resumeApi();
+    const { root } = await open(api, '#/inbox', { page });
+    const calls = api.calls.length;
+    const row = root.querySelector('.convrow');
+
+    page.isVisible = false;
+    page.fire('visibilitychange');
+    page.isVisible = true;
+    page.fire('visibilitychange');
+    await settle();
+
+    // No session probe, no list reload, no second stream, and never a loader.
+    expect(api.calls.length).toBe(calls);
+    expect(FakeStream.opened).toBe(1);
+    expect(root.querySelector('.skeleton, .app--pending')).toBeNull();
+    expect(root.querySelector('.convrow')?.textContent).toBe(row?.textContent);
+    expect(pill(root)).toBe('live');
+  });
+
+  it('replaces a stream the browser gave up on, and says live only once it opens', async () => {
+    const page = new FakePage();
+    const api = resumeApi();
+    const { root, app } = await open(api, '#/inbox', { page });
+    const first = FakeStream.last as FakeStream;
+    const lists = api.countOf(`GET /tenants/${TENANT}/conversations/unassigned`);
+
+    // A deploy answered the reconnect with a 502: EventSource stops for good.
+    first.readyState = 2;
+    first.emit('error', {});
+    await settle();
+    expect(pill(root)).toBe('stale');
+    expect(root.querySelector('.header .status-pill')?.textContent).toContain('جارٍ إعادة الاتصال');
+
+    page.fire('visibilitychange');
+    await settle();
+
+    expect(first.closed).toBe(true);
+    expect(FakeStream.opened).toBe(2);
+    // The rows stayed; the lists and the bell were re-read behind them.
+    expect(root.querySelector('.convrow--card')).not.toBeNull();
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations/unassigned`)).toBe(lists + 1);
+    expect(app.state.live.realtime.status).toBe('stale');
+
+    (FakeStream.last as FakeStream).emit('open', {});
+    await settle();
+    expect(pill(root)).toBe('live');
+  });
+
+  it('retries a dead stream on its own, backing off, while the page stays open', async () => {
+    const page = new FakePage();
+    const timers = manualSchedule();
+    const { app } = await open(resumeApi(), '#/inbox', { page, schedule: timers.schedule });
+
+    (FakeStream.last as FakeStream).readyState = 2;
+    (FakeStream.last as FakeStream).emit('error', {});
+    await settle();
+    expect(timers.delays).toEqual([REALTIME_RESUME_MS]);
+    // Another render while the retry is pending does not queue a second one.
+    (FakeStream.last as FakeStream).emit('error', {});
+    await settle();
+    expect(timers.delays).toEqual([REALTIME_RESUME_MS]);
+
+    timers.run();
+    await settle();
+    expect(FakeStream.opened).toBe(2);
+
+    // The replacement fails the same way: the next wait doubles.
+    (FakeStream.last as FakeStream).readyState = 2;
+    (FakeStream.last as FakeStream).emit('error', {});
+    await settle();
+    expect(timers.delays).toEqual([REALTIME_RESUME_MS, REALTIME_RESUME_MS * 2]);
+
+    // It opens before the timer fires: the pending retry is cancelled, and the
+    // back-off starts again from the beginning next time.
+    (FakeStream.last as FakeStream).emit('open', {});
+    await settle();
+    expect(timers.cancelled).toBeGreaterThan(0);
+    expect(app.state.live.realtime.status).toBe('live');
+    (FakeStream.last as FakeStream).readyState = 2;
+    (FakeStream.last as FakeStream).emit('error', {});
+    await settle();
+    expect(timers.delays.at(-1)).toBe(REALTIME_RESUME_MS);
+  });
+
+  it('never waits longer than the ceiling between attempts', async () => {
+    const timers = manualSchedule();
+    await open(resumeApi(), '#/inbox', { page: new FakePage(), schedule: timers.schedule });
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      (FakeStream.last as FakeStream).readyState = 2;
+      (FakeStream.last as FakeStream).emit('error', {});
+      await settle();
+      timers.run();
+      await settle();
+    }
+    expect(Math.max(...timers.delays)).toBe(REALTIME_RESUME_MAX_MS);
+  });
+
+  it('leaves a stream that is still retrying to EventSource', async () => {
+    const page = new FakePage();
+    const timers = manualSchedule();
+    const { root } = await open(resumeApi(), '#/inbox', { page, schedule: timers.schedule });
+    (FakeStream.last as FakeStream).emit('error', {});
+    await settle();
+    page.fire('visibilitychange');
+    await settle();
+    expect(FakeStream.opened).toBe(1);
+    expect(timers.delays).toEqual([]);
+    expect(pill(root)).toBe('stale');
+  });
+
+  it('says offline without hiding anything, and reconnects when the network returns', async () => {
+    const page = new FakePage();
+    const timers = manualSchedule();
+    const { root, app } = await open(resumeApi(), '#/inbox', { page, schedule: timers.schedule });
+
+    page.isOnline = false;
+    page.fire('offline');
+    (FakeStream.last as FakeStream).readyState = 2;
+    (FakeStream.last as FakeStream).emit('error', {});
+    await settle();
+    expect(app.state.offline).toBe(true);
+    expect(pill(root)).toBe('offline');
+    expect(root.querySelector('.header .status-pill')?.getAttribute('role')).toBe('status');
+    expect(root.querySelector('.convrow--card')).not.toBeNull();
+    // Nothing is retried into a network that is not there.
+    expect(timers.delays).toEqual([]);
+    page.fire('visibilitychange');
+    expect(FakeStream.opened).toBe(1);
+
+    page.isOnline = true;
+    page.fire('online');
+    await settle();
+    expect(app.state.offline).toBe(false);
+    expect(FakeStream.opened).toBe(2);
+    expect(pill(root)).toBe('stale');
+  });
+
+  it('starts offline when the browser already is', async () => {
+    const page = new FakePage();
+    page.isOnline = false;
+    const { root } = await open(resumeApi(), '#/inbox', { page });
+    expect(pill(root)).toBe('offline');
+  });
+
+  it('treats a back/forward-cache restore as frozen, whatever the stream says', async () => {
+    const page = new FakePage();
+    await open(resumeApi(), '#/inbox', { page });
+    page.fire('pageshow', { persisted: false });
+    expect(FakeStream.opened).toBe(1);
+    page.fire('pageshow', { persisted: true });
+    await settle();
+    expect(FakeStream.opened).toBe(2);
+  });
+
+  it('does not reopen a stream stopped on purpose', async () => {
+    const page = new FakePage();
+    const { root } = await open(resumeApi(), '#/inbox', { page });
+    (FakeStream.last as FakeStream).emit('stream_closed', { reason: 'access_revoked' });
+    await settle();
+    page.fire('pageshow', { persisted: true });
+    page.fire('visibilitychange');
+    await settle();
+    expect(FakeStream.opened).toBe(1);
+    expect(pill(root)).toBe('stopped');
+    expect(root.querySelector('.header .status-pill')?.textContent).toContain('لتغيّر صلاحياتك');
+  });
+
+  it('does nothing on the sign-in page, and stops listening when unmounted', async () => {
+    const page = new FakePage();
+    const api = new FakeApi().on('GET /auth/session', { status: 401, body: { error: { code: 'unauthenticated', message: 'Sign in.' } } });
+    const { app } = await open(api, '#/inbox', { page });
+    page.fire('pageshow', { persisted: true });
+    page.fire('online');
+    expect(FakeStream.opened).toBe(0);
+    app.destroy();
+    handle = null;
+    expect(page.count()).toBe(0);
+  });
+});
+
+describe('scroll positions across re-renders', () => {
+  const EXTENT = 1000;
+  const VIEW = 200;
+
+  function claimed(): FakeApi {
+    return inboxApi()
+      .on(`GET /tenants/${TENANT}/conversations?queue=mine`, { status: 200, body: { data: [conversation()] } })
+      .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}`, { status: 200, body: { data: conversation() } })
+      .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`, page([message({ id: 'm-9' })], 'cursor-1'));
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function measure(extent: () => number): void {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(extent);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(VIEW);
+  }
+
+  function log(root: HTMLElement): HTMLElement {
+    return root.querySelector('[data-scroll="timeline"]') as HTMLElement;
+  }
+
+  it('opens a conversation at its latest message and follows new ones at the end', async () => {
+    measure(() => EXTENT);
+    const { root, app } = await open(claimed(), `#/inbox/${CONVERSATION}`);
+    expect(log(root).scrollTop).toBe(EXTENT - VIEW);
+    app.render();
+    expect(log(root).scrollTop).toBe(EXTENT - VIEW);
+  });
+
+  it('keeps the reader’s place in the history and in the list when anything re-renders', async () => {
+    measure(() => EXTENT);
+    const { root, app } = await open(claimed(), `#/inbox/${CONVERSATION}`);
+    log(root).scrollTop = 120;
+    (root.querySelector('[data-scroll="list"]') as HTMLElement).scrollTop = 64;
+    app.render();
+    expect(log(root).scrollTop).toBe(120);
+    expect((root.querySelector('[data-scroll="list"]') as HTMLElement).scrollTop).toBe(64);
+  });
+
+  it('holds the same message in view when older ones load above it', async () => {
+    // Each message is 400px tall, so the log grows only when a page lands.
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.querySelectorAll('.msg').length * 400 + 200;
+    });
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(VIEW);
+    const api = claimed();
+    const { root } = await open(api, `#/inbox/${CONVERSATION}`);
+    log(root).scrollTop = 100;
+    api.on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages?cursor=cursor-1`, page([message({ id: 'm-0' })]));
+    click(root, '[data-act="live-inbox-older"]');
+    await settle();
+    // Still the same distance from the end: the older page grew the top.
+    expect(log(root).scrollTop).toBe(100 + 400);
   });
 });

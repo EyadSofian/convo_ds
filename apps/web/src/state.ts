@@ -116,6 +116,11 @@ export interface AppState {
   clock: Date;
   toasts: Toast[];
   sequence: number;
+  /**
+   * Whether the browser reports no network. Presentation only: it changes the
+   * status pill, never what is loaded or allowed, and it is never persisted.
+   */
+  offline: boolean;
   /** Everything the server said. Roles and permissions come only from here. */
   live: LiveState;
 }
@@ -163,6 +168,7 @@ export function createState(
     clock: now,
     toasts: [],
     sequence: 0,
+    offline: false,
     live,
   };
 }

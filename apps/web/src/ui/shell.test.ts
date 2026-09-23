@@ -183,6 +183,99 @@ describe('header', () => {
   });
 });
 
+describe('operational status', () => {
+  function pill(state: AppState): HTMLElement | null {
+    return renderShell(state, screen()).querySelector('.header .status-pill');
+  }
+
+  it('says nothing before the stream has started', () => {
+    expect(pill(signedIn())).toBeNull();
+  });
+
+  it('names each state in the header, in a pill that announces changes but not the calm one', () => {
+    const state = signedIn();
+    state.live.realtime = { status: 'live', since: 0 };
+    expect(pill(state)?.getAttribute('data-realtime')).toBe('live');
+    expect(pill(state)?.textContent).toBe('Live');
+    expect(pill(state)?.hasAttribute('role')).toBe(false);
+
+    state.live.realtime = { status: 'stale', reason: 'connection_lost', retryAt: 0 };
+    expect(pill(state)?.textContent).toContain('Reconnecting…');
+    expect(pill(state)?.getAttribute('role')).toBe('status');
+
+    state.live.realtime = { status: 'stopped', reason: 'unsupported_browser' };
+    expect(pill(state)?.textContent).toContain('No live updates');
+
+    state.live.realtime = { status: 'stopped', reason: 'access_revoked' };
+    expect(pill(state)?.textContent).toContain('Updates stopped');
+    expect(pill(state)?.getAttribute('title')).toContain('your access changed');
+  });
+
+  it('puts the network ahead of the stream', () => {
+    const state = signedIn();
+    state.live.realtime = { status: 'live', since: 0 };
+    state.offline = true;
+    expect(pill(state)?.getAttribute('data-realtime')).toBe('offline');
+    expect(pill(state)?.textContent).toContain('You’re offline');
+  });
+});
+
+describe('phone navigation', () => {
+  it('offers the inbox, contacts, the bell and More — only what the membership may open', () => {
+    const state = signedIn();
+    state.live.notificationUnreadCount = { status: 'ready', value: 3, loadedAt: 0 };
+    const nav = renderShell(state, screen()).querySelector('.bottom-nav') as HTMLElement;
+    expect(Array.from(nav.querySelectorAll('[data-act="nav"]')).map((item) => item.getAttribute('data-arg'))).toEqual(['inbox', 'contacts']);
+    expect(nav.querySelector('[data-arg="inbox"]')?.getAttribute('aria-current')).toBe('page');
+    expect(nav.querySelector('[data-act="notification-toggle"]')?.textContent).toContain('Alerts (3)');
+    expect(nav.querySelector('.bottom-nav__badge')?.textContent).toBe('3');
+    expect(nav.querySelector('[data-act="nav-drawer"]')?.getAttribute('aria-expanded')).toBe('false');
+
+    const limited = signedIn(['report.read']);
+    limited.live.notificationUnreadCount = { status: 'ready', value: 120, loadedAt: 0 };
+    const other = renderShell(limited, screen()).querySelector('.bottom-nav') as HTMLElement;
+    expect(other.querySelectorAll('[data-act="nav"]')).toHaveLength(0);
+    expect(other.querySelector('.bottom-nav__badge')?.textContent).toBe('99+');
+  });
+
+  it('steps aside while a conversation fills the phone', () => {
+    const state = signedIn();
+    expect(renderShell(state, screen()).getAttribute('data-thread')).toBe('none');
+    state.live.openConversationId = 'c-1';
+    expect(renderShell(state, screen()).getAttribute('data-thread')).toBe('open');
+    state.route = { screen: 'contacts', conversationId: null, params: {} };
+    expect(renderShell(state, screen()).getAttribute('data-thread')).toBe('none');
+  });
+});
+
+describe('device alerts', () => {
+  it('says it is enabling while registration is in flight, and cannot be pressed twice', () => {
+    const state = signedIn();
+    state.openMenu = 'notifications';
+    state.live.pushPublicKey = 'key';
+    state.live.pushStatus = 'enabling';
+    const control = renderShell(state, screen()).querySelector('[data-act="notification-enable-push"]') as HTMLButtonElement;
+    expect(control.textContent).toBe('Enabling…');
+    expect(control.disabled).toBe(true);
+    expect(control.getAttribute('aria-busy')).toBe('true');
+
+    state.live.pushStatus = 'idle';
+    const ready = renderShell(state, screen()).querySelector('[data-act="notification-enable-push"]') as HTMLButtonElement;
+    expect(ready.textContent).toBe('Enable device alerts');
+    expect(ready.disabled).toBe(false);
+    expect(ready.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('dates each notification relatively, with the full time on hover', () => {
+    const state = signedIn();
+    state.openMenu = 'notifications';
+    state.live.notifications = { status: 'ready', value: [{ id: 'n1', kind: 'assignment', targetType: 'conversation', targetId: 'c1', createdAt: '2026-09-09T09:25:00.000Z', readAt: null }], loadedAt: 0 };
+    const time = renderShell(state, screen()).querySelector('.notification-row time');
+    expect(time?.textContent).toBe('5m');
+    expect(time?.getAttribute('title')).toContain('2026');
+  });
+});
+
 describe('toasts', () => {
   it('draws nothing without toasts, and a dismissible toast per tone', () => {
     const state = signedIn();

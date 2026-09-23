@@ -30,7 +30,7 @@ self.addEventListener('push', (event) => {
     if (windows.some((window) => window.visibilityState === 'visible')) return;
     await self.registration.showNotification(title[arabic ? 0 : 1], {
       body: arabic ? 'افتح DS Omnichannel لعرض التفاصيل بعد التحقق من صلاحيتك.' : 'Open DS Omnichannel to view details after authorization.',
-      icon: '/brand/digital-school-by-berlitz.png',
+      icon: '/brand/ds-icon-192.png',
       tag: UUID.test(data.id || '') ? data.id : 'convo-activity',
       data: { url },
     });
