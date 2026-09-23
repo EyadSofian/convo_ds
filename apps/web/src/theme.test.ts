@@ -62,14 +62,18 @@ describe('palettes read from styles/tokens.css', () => {
     expect(dark).toEqual(light);
   });
 
-  it('uses the supplied Digital School blue and lime with powder and charcoal-navy surfaces', () => {
+  it('uses the DS Omnichannel blue, lime, navy and neutral ground in both themes', () => {
     const light = paletteFromCss(TOKENS_CSS, 'light');
     const dark = paletteFromCss(TOKENS_CSS, 'dark');
-    expect(light['surface-1']).toBe('#fcfcfc');
+    expect(light['canvas']).toBe('#f5f7fb');
+    expect(light['surface-1']).toBe('#ffffff');
+    expect(light['text']).toBe('#10213f');
     expect(light['accent']).toBe('#004fef');
     expect(light['brand-highlight']).toBe('#ddff57');
-    expect(dark['surface-1']).toBe('#111a2a');
-    expect(dark['accent']).toBe('#2563c7');
+    expect(light['nav-bg']).toBe('#071a3a');
+    expect(dark['brand-highlight']).toBe('#ddff57');
+    // Dark is navy, not an inverted grey, and never pure black.
+    expect(dark['surface-1']).toBe('#0c182b');
     expect(dark['canvas']).not.toBe('#000000');
   });
 
@@ -158,7 +162,7 @@ describe('the token layer', () => {
       ['--list-width-max', '400px'],
       ['--panel-width', '320px'],
       ['--thread-min-width', '540px'],
-      ['--row-height', '68px'],
+      ['--row-height', '64px'],
       ['--thread-header-height', '60px'],
       ['--control-height', '36px'],
       ['--control-height-sm', '32px'],

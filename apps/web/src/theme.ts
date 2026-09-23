@@ -100,6 +100,10 @@ export const CONTRAST_REQUIREMENTS: readonly ContrastRequirement[] = [
   { fg: 'focus-ring', bg: 'canvas', min: 3, note: 'focus indicator on the ground (1.4.11)' },
   { fg: 'focus-ring', bg: 'surface-selected', min: 3, note: 'focus indicator on a selected row' },
   { fg: 'accent', bg: 'surface-1', min: 3, note: 'chart line and selected indicator (1.4.11)' },
+  { fg: 'nav-text', bg: 'nav-bg', min: 4.5, note: 'navigation label on the rail' },
+  { fg: 'nav-text', bg: 'nav-hover', min: 4.5, note: 'navigation label on a hovered item' },
+  { fg: 'nav-text-strong', bg: 'accent', min: 4.5, note: 'current navigation item' },
+  { fg: 'on-highlight', bg: 'brand-highlight', min: 4.5, note: 'label inside a lime control' },
 ];
 
 export interface ContrastFailure extends ContrastRequirement {

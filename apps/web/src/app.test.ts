@@ -1098,6 +1098,44 @@ describe('boot', () => {
     }
   });
 
+  it('listens to the real page lifecycle, and lets go of it when destroyed', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'x', message: 'x' } }), { status: 401 }));
+    vi.stubGlobal('fetch', fetch);
+    try {
+      document.body.replaceChildren();
+      handle = boot(document, createHost());
+      await settle();
+      expect(handle.state.offline).toBe(!window.navigator.onLine);
+      window.dispatchEvent(new window.Event('offline'));
+      expect(handle.state.offline).toBe(true);
+      document.dispatchEvent(new window.Event('visibilitychange'));
+      window.dispatchEvent(new window.Event('online'));
+      expect(handle.state.offline).toBe(false);
+      handle.destroy();
+      window.dispatchEvent(new window.Event('offline'));
+      expect(handle.state.offline).toBe(false);
+      handle = null;
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps the browser chrome colour in step with the theme', async () => {
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'theme-color');
+    document.head.appendChild(meta);
+    try {
+      const { app } = start('#/inbox', new FakeApi().on('GET /auth/session', NO_SESSION));
+      await settle();
+      expect(meta.getAttribute('content')).toBe('#ffffff');
+      app.state.theme = 'dark';
+      app.render();
+      expect(meta.getAttribute('content')).toBe('#0c182b');
+    } finally {
+      meta.remove();
+    }
+  });
+
   it('opens the inbox stream through the browser’s EventSource when none is injected', async () => {
     const opened: string[] = [];
     class FakeEventSource {

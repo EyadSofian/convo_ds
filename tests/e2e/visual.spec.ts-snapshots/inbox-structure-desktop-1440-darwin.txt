@@ -1,22 +1,44 @@
 div.inbox
   section.zone.zone--list
     header.listhead
-      div.segmented
-        button.segmented__item [live-inbox-queue]
-          span.segmented__count
-        button.segmented__item [live-inbox-queue]
-          span.segmented__count
-      div.listhead__tools
-        div.menu-anchor
-          button.btn.btn--ghost.btn--sm [menu]
+      div.listhead__row
+        div.segmented
+          button.segmented__item [live-inbox-queue]
+            span.segmented__count
+          button.segmented__item [live-inbox-queue]
+            span.segmented__count
+        div.listhead__tools
+          button.btn.btn--ghost.btn--sm.btn--icon [live-inbox-reload]
             svg
               path
-            span.btn__label
-        button.btn.btn--ghost.btn--sm [live-supervisor-open]
+              path
+              path
+          button.btn.btn--ghost.btn--sm.btn--icon.listhead__close [close-overlays]
+            svg
+              path
+      div.listhead__row
+        div.inbox-search
           svg
-            path
             circle
-          span.btn__label
+            path
+          input.inbox-search__input [live-inbox-search]
+        div.listhead__tools
+          div.menu-anchor
+            button.btn.btn--ghost.btn--sm.btn--icon [menu]
+              svg
+                path
+                path
+                path
+          div.menu-anchor
+            button.btn.btn--ghost.btn--sm.btn--icon [menu]
+              svg
+                path
+          button.btn.btn--ghost.btn--sm.btn--icon [live-supervisor-open]
+            svg
+              path
+              circle
+      div.listhead__row.listhead__row--sort
+        span.listhead__sortlabel
         select.select [live-inbox-sort]
           option
           option
@@ -24,25 +46,6 @@ div.inbox
           option
           option
           option
-        div.menu-anchor
-          button.btn.btn--ghost.btn--sm.btn--icon [menu]
-            svg
-              path
-        button.btn.btn--ghost.btn--sm.btn--icon [live-inbox-reload]
-          svg
-            path
-            path
-            path
-        button.btn.btn--ghost.btn--sm.btn--icon.listhead__close [close-overlays]
-          svg
-            path
-    div.inbox-search
-      svg
-        circle
-        path
-      input.inbox-search__input [live-inbox-search]
-    p.realtime.realtime--live
-      span.realtime__dot
     button.list-resizer [resize-list-step]
     div.zone__body
       div.convlist
@@ -418,12 +421,12 @@ div.inbox
                   path
                   path
             span.composer__hint
-            button.btn.btn--primary.btn--sm [live-inbox-send]
+            button.btn.btn--sm.composer__templates [live-whatsapp-template-open]
               svg
-                path
+                rect
                 path
               span.btn__label
-            button.btn.btn--sm [live-whatsapp-template-open]
+            button.btn.btn--primary.btn--sm.composer__send [live-inbox-send]
               svg
                 path
                 path

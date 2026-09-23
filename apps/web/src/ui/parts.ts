@@ -308,6 +308,20 @@ export function isolated(value: string, mono = false): HTMLElement {
 }
 
 /** Placeholder rows while a list loads. Announced once, not per row. */
+/**
+ * A conversation that is still loading, drawn as the bubbles it will become:
+ * alternating sides and lengths, so the thread does not change shape when the
+ * messages land.
+ */
+export function messageSkeleton(state: AppState): HTMLElement {
+  const bubbles = [['in', 62], ['out', 48], ['in', 38], ['out', 70], ['in', 54]] as const;
+  return h('div', { class: 'skeleton skeleton--messages', 'aria-busy': 'true' }, [
+    ...bubbles.map(([side, width]) =>
+      h('span', { class: `skeleton__bubble skeleton__bubble--${side}`, style: `inline-size:${String(width)}%` })),
+    h('span', { class: 'visually-hidden' }, [t(state, 'جارٍ تحميل الرسائل', 'Loading messages')]),
+  ]);
+}
+
 export function skeleton(state: AppState, rows = 3): HTMLElement {
   const lines: HTMLElement[] = [];
   for (let index = 0; index < rows; index += 1) {

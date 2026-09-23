@@ -2,11 +2,15 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f4f6fa" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#ffffff" />
     <meta name="color-scheme" content="light dark" />
-    <link rel="icon" type="image/png" href="/brand/digital-school-by-berlitz.png" />
-    <link rel="apple-touch-icon" href="/brand/digital-school-by-berlitz.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/brand/ds-icon-192.png" />
+    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="DS Omnichannel" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="description" content="DS Omnichannel — One Inbox. Every conversation." />
     <meta property="og:title" content="DS Omnichannel" />
@@ -14,25 +18,25 @@
     <meta name="application-name" content="DS Omnichannel" />
     <title>DS Omnichannel</title>
     <style>
-      html[data-theme='light'] { background: #f4f6fa; color: #1d1d1d; }
-      html[data-theme='dark'] { background: #0b1220; color: #f2f6fc; }
+      html[data-theme='light'] { background: #f5f7fb; color: #10213f; }
+      html[data-theme='dark'] { background: #07111f; color: #edf2fa; }
       body { margin: 0; }
       #app.app-boot { display: grid; grid-template-columns: 64px minmax(0, 1fr); height: 100dvh; overflow: hidden; }
-      html[data-theme='light'] #app.app-boot { --boot-line: rgba(20,24,32,.07); --boot-edge: rgba(20,24,32,.1); --boot-nav: rgba(250,249,246,.96); }
-      html[data-theme='dark'] #app.app-boot { --boot-line: rgba(255,255,255,.06); --boot-edge: rgba(255,255,255,.08); --boot-nav: rgba(11,18,32,.9); }
-      .app-boot__nav { display: flex; flex-direction: column; align-items: center; gap: 20px; border-inline-end: 1px solid var(--boot-edge); padding: 15px; background: var(--boot-nav); }
-      .app-boot__mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #ddff57; color: #004fef; font: 700 11px system-ui,sans-serif; }
-      .app-boot__nav-item { width: 20px; height: 20px; border-radius: 5px; background: var(--boot-line); }
+      html[data-theme='light'] #app.app-boot { --boot-line: rgba(16,33,63,.07); --boot-edge: rgba(16,33,63,.1); --boot-nav: #071a3a; --boot-surface: #ffffff; }
+      html[data-theme='dark'] #app.app-boot { --boot-line: rgba(255,255,255,.06); --boot-edge: rgba(255,255,255,.08); --boot-nav: #050e1d; --boot-surface: #0c182b; }
+      .app-boot__nav { display: flex; flex-direction: column; align-items: center; gap: 20px; border-inline-end: 1px solid rgba(255,255,255,.07); padding: 15px; background: var(--boot-nav); }
+      .app-boot__mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #ddff57; color: #004fef; font: 800 13px system-ui,sans-serif; }
+      .app-boot__nav-item { width: 20px; height: 20px; border-radius: 5px; background: rgba(255,255,255,.08); }
       .app-boot__main { display: grid; grid-template-rows: 56px minmax(0, 1fr); min-width: 0; }
-      .app-boot__header { border-block-end: 1px solid var(--boot-edge); padding: 20px; }
+      .app-boot__header { border-block-end: 1px solid var(--boot-edge); padding: 20px; background: var(--boot-surface); }
       .app-boot__line { display: block; width: 140px; height: 12px; border-radius: 6px; background: var(--boot-line); }
       .app-boot__body { display: grid; grid-template-columns: minmax(0,1fr); gap: 20px; padding: 20px; }
       .app-boot__row { display: block; height: 64px; border-radius: 6px; background: var(--boot-line); }
       .app-boot__rows { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-content: start; gap: 12px; }
       .app-boot__content { display: none; }
       .app-boot__brand-name { color: #004fef; font: 700 16px system-ui,sans-serif; letter-spacing: -.02em; }
-      .app-boot__status { color: #5c6572; font: 13px system-ui,sans-serif; }
-      html[data-theme='dark'] .app-boot__status { color: #97a6ba; }
+      .app-boot__status { color: #5a6781; font: 13px system-ui,sans-serif; }
+      html[data-theme='dark'] .app-boot__status { color: #94a3bb; }
       html[data-theme='dark'] .app-boot__brand-name { color: #ffffff; }
       html[lang='ar'] .app-boot__status[lang='en'], html[lang='en'] .app-boot__status[lang='ar'] { display: none; }
       html[lang='ar'] .app-boot__brand-name[lang='en'], html[lang='en'] .app-boot__brand-name[lang='ar'] { display: none; }
@@ -42,8 +46,11 @@
       html[data-boot-screen='inbox'] .app-boot__content .app-boot__line { width: 70%; }
       html[data-boot-screen='auth'] .app-boot__rows { display: none; }
       html[data-boot-screen='auth'] .app-boot__content { display: grid; align-content: center; justify-items: center; gap: 18px; }
+      @media (max-width: 959px) {
+        #app.app-boot { grid-template-columns: minmax(0,1fr); }
+        .app-boot__nav { display: none; }
+      }
       @media (max-width: 760px) {
-        #app.app-boot { grid-template-columns: 56px minmax(0,1fr); }
         .app-boot__body { grid-template-columns: minmax(0,1fr); }
         .app-boot__rows { grid-template-columns: repeat(2,minmax(0,1fr)); }
         html[data-boot-screen='inbox'] .app-boot__rows { grid-template-columns: minmax(0,1fr); }
@@ -68,7 +75,7 @@
         }
         document.documentElement.setAttribute('data-theme', theme);
         var themeColor = document.querySelector('meta[name="theme-color"]');
-        if (themeColor) themeColor.setAttribute('content', theme === 'dark' ? '#0b1220' : '#f4f6fa');
+        if (themeColor) themeColor.setAttribute('content', theme === 'dark' ? '#0c182b' : '#ffffff');
         // This mirrors `src/prepaint-language.ts`, which supplies the
         // deterministic regression cases. Keep the inline version small so it
         // executes before the module and before the first protected frame.

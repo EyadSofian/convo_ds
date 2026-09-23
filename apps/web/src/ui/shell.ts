@@ -1,5 +1,5 @@
 import { h } from '../dom.js';
-import { initials } from '../format.js';
+import { initials, relativeTime } from '../format.js';
 import type { IconName } from '../icons.js';
 import { icon } from '../icons.js';
 import { activeMembership, allowedScreens } from '../live/ability.js';
@@ -9,7 +9,7 @@ import { formatHash } from '../router.js';
 import { routeParamsWithLanguage } from '../state.js';
 import type { AppState } from '../state.js';
 import { screenTitle } from '../state.js';
-import { logomark } from './brand.js';
+import { dsMark } from './brand.js';
 import { t } from './copy.js';
 import { button } from './parts.js';
 import type { Notification } from '../api/notifications.js';
@@ -42,6 +42,9 @@ export function renderShell(state: AppState, screen: HTMLElement): HTMLElement {
       class: 'app',
       'data-nav': state.navCollapsed ? 'collapsed' : 'expanded',
       'data-drawer': state.navOpen ? 'open' : 'closed',
+      // Phone layout: an open conversation takes the whole screen, so the
+      // bottom navigation steps aside for the composer.
+      'data-thread': state.route.screen === 'inbox' && state.live.openConversationId !== null ? 'open' : 'none',
     },
     [
       h('button', { type: 'button', class: 'skip-link', 'data-act': 'skip-to-content' }, [
@@ -62,8 +65,54 @@ export function renderShell(state: AppState, screen: HTMLElement): HTMLElement {
         renderHeader(state),
         h('main', { class: 'app__screen', id: 'main', tabindex: '-1' }, [screen]),
       ]),
+      renderBottomNav(state),
     ],
   );
+}
+
+/**
+ * The phone's bottom bar: the two destinations an operator lives in, the bell,
+ * and everything else behind More (the same drawer the header menu opens).
+ * Only screens this membership may open are offered. Hidden above 760px.
+ */
+function renderBottomNav(state: AppState): HTMLElement {
+  const allowed = allowedScreens(state.live);
+  const count = state.live.notificationUnreadCount.status === 'ready' ? state.live.notificationUnreadCount.value : 0;
+  const destination = (screen: ScreenId): HTMLElement | null => allowed.includes(screen)
+    ? h('a', {
+        class: 'bottom-nav__item',
+        href: formatHash({ screen, conversationId: null, params: routeParamsWithLanguage(state, {}) }),
+        'data-act': 'nav',
+        'data-arg': screen,
+        'aria-current': state.route.screen === screen ? 'page' : undefined,
+      }, [icon(NAV_ICONS[screen], 20), h('span', {}, [screenTitle(screen, state.lang)])])
+    : null;
+  return h('nav', { class: 'bottom-nav', 'aria-label': t(state, 'التنقل السريع', 'Quick navigation') }, [
+    destination('inbox'),
+    destination('contacts'),
+    h('button', {
+      type: 'button',
+      class: 'bottom-nav__item',
+      'data-act': 'notification-toggle',
+      'aria-expanded': String(state.openMenu === 'notifications'),
+      'aria-controls': 'notification-menu',
+    }, [
+      h('span', { class: 'bottom-nav__icon' }, [
+        icon('bell', 20),
+        count > 0 ? h('span', { class: 'bottom-nav__badge', 'aria-hidden': 'true' }, [count > 99 ? '99+' : String(count)]) : null,
+      ]),
+      h('span', {}, [count > 0
+        ? t(state, `الإشعارات (${String(count)})`, `Alerts (${String(count)})`)
+        : t(state, 'الإشعارات', 'Alerts')]),
+    ]),
+    h('button', {
+      type: 'button',
+      class: 'bottom-nav__item',
+      'data-act': 'nav-drawer',
+      'aria-expanded': String(state.navOpen),
+      'aria-controls': 'primary-nav',
+    }, [icon('menu', 20), h('span', {}, [t(state, 'المزيد', 'More')])]),
+  ]);
 }
 
 /* ------------------------------------------------------------ navigation -- */
@@ -84,7 +133,7 @@ function renderNav(state: AppState): HTMLElement {
     },
     [
       h('div', { class: 'nav__head' }, [
-        logomark('sm'),
+        dsMark('sm'),
         h('span', { class: 'nav__wordmark' }, ['DS Omnichannel']),
         state.navOpen
           ? button({
@@ -171,6 +220,7 @@ function renderHeader(state: AppState): HTMLElement {
       membership === null ? null : tenantControl(state, membership.tenant.name),
     ]),
     h('div', { class: 'header__tools' }, [
+      statusPill(state),
       renderNotifications(state),
       button({
         label: state.lang === 'ar' ? 'EN' : 'ع',
@@ -211,6 +261,45 @@ function renderHeader(state: AppState): HTMLElement {
       ]),
     ]),
   ]);
+}
+
+/**
+ * Operational state, in one small pill that never moves the page: the network,
+ * then the live stream. It sits in the header rather than above the list, so
+ * a reconnect changes a word instead of pushing every row down.
+ *
+ * It reports; it never gates. Nothing on screen is hidden or reloaded because
+ * of what it says.
+ */
+function statusPill(state: AppState): HTMLElement | null {
+  const pill = (status: string, label: string, detail: string | null): HTMLElement => h('p', {
+    class: `status-pill status-pill--${status}`,
+    'data-realtime': status,
+    role: status === 'live' ? undefined : 'status',
+    title: detail ?? label,
+  }, [
+    h('span', { class: 'status-pill__dot', 'aria-hidden': 'true' }),
+    h('span', { class: 'status-pill__label' }, [label]),
+    detail === null ? null : h('span', { class: 'visually-hidden' }, [detail]),
+  ]);
+  if (state.offline) {
+    return pill('offline', t(state, 'غير متصل', 'You’re offline'),
+      t(state, 'لا يوجد اتصال بالشبكة. ما تراه آخر ما وصل، وسيُستأنف التحديث عند عودة الاتصال.', 'No network. What you see is the last update; live updates resume when you are back online.'));
+  }
+  const realtime = state.live.realtime;
+  if (realtime.status === 'live') return pill('live', t(state, 'مباشر', 'Live'), null);
+  if (realtime.status === 'stale') {
+    return pill('stale', t(state, 'جارٍ إعادة الاتصال…', 'Reconnecting…'),
+      t(state, 'انقطع التحديث المباشر مؤقتًا. ما تراه آخر ما وصل.', 'Live updates paused. What you see is the last update.'));
+  }
+  if (realtime.status === 'stopped') {
+    return realtime.reason === 'unsupported_browser'
+      ? pill('stopped', t(state, 'بدون تحديث مباشر', 'No live updates'),
+        t(state, 'هذا المتصفح لا يدعم التحديث المباشر. حدّث الصفحة لرؤية الجديد.', 'This browser cannot receive live updates. Refresh to see new activity.'))
+      : pill('stopped', t(state, 'توقف التحديث', 'Updates stopped'),
+        t(state, 'توقف التحديث المباشر لتغيّر صلاحياتك. حدّث الصفحة.', 'Live updates stopped because your access changed. Refresh.'));
+  }
+  return null;
 }
 
 function notificationTitle(state: AppState, entry: Notification): string {
@@ -257,7 +346,10 @@ function renderNotifications(state: AppState): HTMLElement {
                 h('span', { class: 'notification-row__dot', 'aria-hidden': 'true' }),
                 h('span', { class: 'notification-row__content' }, [
                   h('span', { class: 'notification-row__title' }, [notificationTitle(state, entry)]),
-                  h('time', { datetime: entry.createdAt }, [new Date(entry.createdAt).toLocaleString(state.lang === 'ar' ? 'ar-EG' : 'en-US')]),
+                  h('time', {
+                    datetime: entry.createdAt,
+                    title: new Date(entry.createdAt).toLocaleString(state.lang === 'ar' ? 'ar-EG' : 'en-US'),
+                  }, [relativeTime(entry.createdAt, state.clock, state.lang)]),
                 ]),
               ]))),
       state.live.notificationNextCursor === null ? null : h('button', { type: 'button', role: 'menuitem', class: 'notification-menu__more',
@@ -268,8 +360,11 @@ function renderNotifications(state: AppState): HTMLElement {
           : state.live.pushStatus === 'checking'
             ? h('span', {}, [t(state, 'جارٍ فحص تنبيهات الجهاز…', 'Checking device alerts…')])
           : h('button', { type: 'button', role: 'menuitem', class: 'notification-menu__more',
-              'data-act': 'notification-enable-push', disabled: state.live.pushStatus === 'enabling' || state.live.pushPublicKey === null },
-              [t(state, 'تفعيل تنبيهات الجهاز', 'Enable device alerts')]),
+              'data-act': 'notification-enable-push', disabled: state.live.pushStatus === 'enabling' || state.live.pushPublicKey === null,
+              'aria-busy': state.live.pushStatus === 'enabling' ? 'true' : undefined },
+              [state.live.pushStatus === 'enabling'
+                ? t(state, 'جارٍ التفعيل…', 'Enabling…')
+                : t(state, 'تفعيل تنبيهات الجهاز', 'Enable device alerts')]),
         state.live.pushStatus === 'denied'
           ? h('span', { class: 'notification-menu__hint' }, [t(state, 'رفض المتصفح الإذن. غيّره من إعدادات الموقع.', 'Browser permission was denied. Change it in site settings.')])
           : state.live.pushStatus === 'unavailable'

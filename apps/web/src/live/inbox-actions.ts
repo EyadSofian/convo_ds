@@ -536,7 +536,7 @@ export interface RealtimeWiring {
  * both what was delivered and what was skipped were chosen under rules that no
  * longer apply.
  */
-export function startRealtime(context: LiveContext, wiring: RealtimeWiring): void {
+export function startRealtime(context: LiveContext, wiring: RealtimeWiring, reconnecting = false): void {
   const { live } = context;
   const tenantId = currentTenantId(live);
   if (tenantId === null || live.subscription !== null) {
@@ -580,8 +580,39 @@ export function startRealtime(context: LiveContext, wiring: RealtimeWiring): voi
       },
     },
   });
-  live.realtime = { status: 'live', since: context.now() };
+  // A replacement for a stream that died keeps saying "reconnecting" until
+  // `open` actually fires; claiming live on a request that may fail again
+  // would make the pill flicker on every retry.
+  live.realtime = reconnecting
+    ? { status: 'stale', reason: 'reconnecting', retryAt: context.now() }
+    : { status: 'live', since: context.now() };
   context.refresh();
+}
+
+/**
+ * Replaces a stream that can no longer deliver, and only such a stream.
+ *
+ * `EventSource` owns reconnection while it is retrying; opening a second one
+ * beside it would race. It stops retrying for good after an HTTP error answer
+ * (a deploy's 502, say), and then nothing would ever move the screen off
+ * "reconnecting". This is the one place a replacement is opened, and it opens
+ * it only then — or when `force` says the page was frozen in the back/forward
+ * cache, which no readyState reports.
+ *
+ * A stream stopped on purpose (access revoked, no `EventSource`) stays
+ * stopped: coming back would ask the same question and get the same answer.
+ * The screen keeps saying "reconnecting" until the new stream actually opens,
+ * rather than claiming live the moment a request is sent.
+ */
+export function resumeRealtime(context: LiveContext, wiring: RealtimeWiring, force = false): boolean {
+  const { live } = context;
+  if (live.realtime.status === 'stopped' || live.realtime.status === 'idle') return false;
+  const subscription = live.subscription;
+  if (!force && subscription !== null && !subscription.ended()) return false;
+  subscription?.close();
+  live.subscription = null;
+  startRealtime(context, wiring, true);
+  return true;
 }
 
 export function stopRealtime(context: LiveContext): void {

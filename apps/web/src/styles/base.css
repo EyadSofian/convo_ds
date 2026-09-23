@@ -304,6 +304,39 @@
     }
   }
 
+  /* Layer entrances: short, small, and only on the render that opens them.
+     Movement only — never opacity or scale — so text keeps its full contrast
+     and a layer its full size from the first frame. */
+  @keyframes convo-pop {
+    from {
+      translate: 0 -6px;
+    }
+  }
+
+  @keyframes convo-sheet {
+    from {
+      translate: 0 32px;
+    }
+  }
+
+  @keyframes convo-drawer {
+    from {
+      translate: -24px 0;
+    }
+  }
+
+  @keyframes convo-drawer-rtl {
+    from {
+      translate: 24px 0;
+    }
+  }
+
+  @keyframes convo-fade {
+    from {
+      background-color: transparent;
+    }
+  }
+
   /* Pre-boot placeholder in index.html; replaced by the same screen on first render. */
   .app-boot {
     display: grid;

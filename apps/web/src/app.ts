@@ -23,9 +23,12 @@ import { loadChannelsScreen, loadPeopleScreen, loadSession, loadSettingsScreen }
 import {
   loadInboxScreen,
   openConversation,
+  resumeRealtime,
   startRealtime,
   stopRealtime,
 } from './live/inbox-actions';
+import type { RealtimeWiring } from './live/inbox-actions';
+import { refreshInboxLists } from './live/inbox-lists';
 import { loadContactsScreen } from './live/contact-actions';
 import { loadAnalyticsReport, loadCampaignsScreen, refreshCampaignReportExport } from './live/campaign-actions';
 import { loadAutomationsScreen } from './live/automation-actions';
@@ -52,6 +55,7 @@ import { renderInbox } from './ui/live-inbox';
 import { renderPeople } from './ui/people-screen';
 import { renderSettings } from './ui/settings-screen';
 import { renderShell, renderToasts } from './ui/shell';
+import { trackViewport } from './viewport';
 
 function renderScreen(state: AppState): HTMLElement {
   if (state.route.screen === 'contacts') return renderContacts(state);
@@ -162,7 +166,9 @@ function restoreFocus(root: Element, snapshot: FocusSnapshot | null): boolean {
   if (snapshot === null) return false;
   const match = keyedControls(root, snapshot.key)[Math.max(snapshot.ordinal, 0)];
   if (!(match instanceof HTMLElement)) return false;
-  match.focus();
+  // The control was on screen a frame ago; scrolling to it again would undo
+  // the scroll positions the render has just put back.
+  match.focus({ preventScroll: true });
   if (
     snapshot.start >= 0 &&
     (match instanceof HTMLInputElement || match instanceof HTMLTextAreaElement)
@@ -174,6 +180,64 @@ function restoreFocus(root: Element, snapshot: FocusSnapshot | null): boolean {
     }
   }
   return true;
+}
+
+/* -------------------------------------------------------------- scroll keep -- */
+
+/**
+ * Where each scroll region was, so a re-render does not throw the operator
+ * back to the top.
+ *
+ * Every render rebuilds the tree, and a rebuilt element starts at scroll 0. A
+ * realtime event, a reconnect, or returning to the tab re-renders — and before
+ * this, each of those jumped the conversation list to its first row and the
+ * thread to its oldest message, which read as the page reloading.
+ */
+interface ScrollMark {
+  readonly top: number;
+  /** Distance from the bottom edge; what a chat log keeps when it grows. */
+  readonly fromBottom: number;
+  /** The first item's id, so prepending older messages can be told apart. */
+  readonly anchor: string | null;
+}
+
+/** A timeline this close to its end is "at the latest message". */
+const LOG_END_SLACK = 24;
+
+function scrollKeyOf(element: Element): string {
+  // Only ever called on `[data-scroll]` elements, so the first attribute exists.
+  return `${element.getAttribute('data-scroll') as string}|${element.getAttribute('data-scroll-key') ?? ''}`;
+}
+
+function captureScroll(root: Element): Map<string, ScrollMark> {
+  const marks = new Map<string, ScrollMark>();
+  for (const element of root.querySelectorAll('[data-scroll]')) {
+    marks.set(scrollKeyOf(element), {
+      top: element.scrollTop,
+      fromBottom: element.scrollHeight - element.clientHeight - element.scrollTop,
+      anchor: element.getAttribute('data-scroll-anchor'),
+    });
+  }
+  return marks;
+}
+
+/**
+ * Puts each region back. A log (`data-scroll-end`) opens at its latest entry,
+ * follows new entries while the reader is at the end, and keeps the reader's
+ * place when older entries are loaded above it.
+ */
+function restoreScroll(root: Element, marks: ReadonlyMap<string, ScrollMark>): void {
+  for (const element of root.querySelectorAll('[data-scroll]')) {
+    const mark = marks.get(scrollKeyOf(element));
+    const bottom = element.scrollHeight - element.clientHeight;
+    if (element.hasAttribute('data-scroll-end')) {
+      if (mark === undefined || mark.fromBottom <= LOG_END_SLACK) element.scrollTop = bottom;
+      else if (mark.anchor !== element.getAttribute('data-scroll-anchor')) element.scrollTop = bottom - mark.fromBottom;
+      else element.scrollTop = mark.top;
+    } else if (mark !== undefined) {
+      element.scrollTop = mark.top;
+    }
+  }
 }
 
 const FOCUSABLE =
@@ -270,7 +334,45 @@ export interface MountOptions {
   readonly prefersDark?: (() => boolean) | undefined;
   /** How follow-up reads are delayed, e.g. an export still being prepared. */
   readonly schedule?: Scheduler | undefined;
+  /**
+   * The page's lifecycle: network, visibility and back/forward-cache restores.
+   * Injected so a test can hide and show the tab without a browser.
+   */
+  readonly page?: PageLifecycle | undefined;
 }
+
+export type PageEvent = 'visibilitychange' | 'pageshow' | 'online' | 'offline';
+
+/** The slice of `window`/`document` the resume path listens to. */
+export interface PageLifecycle {
+  addEventListener(type: PageEvent, listener: (event: Event) => void): void;
+  removeEventListener(type: PageEvent, listener: (event: Event) => void): void;
+  online(): boolean;
+  visible(): boolean;
+}
+
+/** The browser's page lifecycle: visibility on the document, the rest on the window. */
+export function browserPageLifecycle(view: Window): PageLifecycle {
+  const target = (type: PageEvent): EventTarget => (type === 'visibilitychange' ? view.document : view);
+  return {
+    addEventListener: (type, listener) => {
+      target(type).addEventListener(type, listener);
+    },
+    removeEventListener: (type, listener) => {
+      target(type).removeEventListener(type, listener);
+    },
+    online: () => view.navigator.onLine,
+    visible: () => view.document.visibilityState !== 'hidden',
+  };
+}
+
+/**
+ * First wait before replacing a stream the browser gave up on, doubling per
+ * failed attempt up to the ceiling. The browser's own `retry:` loop is not
+ * running by then, so this is the only loop — not a second one beside it.
+ */
+export const REALTIME_RESUME_MS = 3000;
+export const REALTIME_RESUME_MAX_MS = 60_000;
 
 /** How long to wait before asking again about an export that is still running. */
 export const EXPORT_POLL_MS = 2500;
@@ -302,6 +404,10 @@ export function boot(
   const existing = document_.getElementById('app');
   const root = existing ?? document_.body.appendChild(document_.createElement('div'));
   root.id = 'app';
+  // Presentation only: the frame follows the part of the screen left visible
+  // by an on-screen keyboard, so the composer is never hidden behind it.
+  const view = document_.defaultView as Window;
+  trackViewport(document_.documentElement, view.visualViewport);
   return mount({
     root,
     host,
@@ -309,6 +415,7 @@ export function boot(
     readCsrfToken: () => csrfFromCookie(document_.cookie),
     preferences: browserStore(host),
     prefersDark: () => host.matchMedia?.('(prefers-color-scheme: dark)').matches === true,
+    page: browserPageLifecycle(view),
   });
 }
 
@@ -369,7 +476,11 @@ export function mount(options: MountOptions): AppHandle {
   let overlay: string | null = null;
   let returnFocus: FocusSnapshot | null = null;
   let cancelPoll: Cancel | null = null;
+  let cancelResume: Cancel | null = null;
+  let resumeAttempts = 0;
   let destroyed = false;
+  const page = options.page;
+  state.offline = page !== undefined && !page.online();
 
   const syncUrl = (): void => {
     const next: Route = {
@@ -386,10 +497,13 @@ export function mount(options: MountOptions): AppHandle {
     // advances here rather than being read inside a view.
     state.clock = clock();
     const snapshot = captureFocus(root);
+    const scroll = captureScroll(root);
     const document_ = root.ownerDocument;
     document_.documentElement.setAttribute('lang', state.lang);
     document_.documentElement.setAttribute('dir', state.lang === 'ar' ? 'rtl' : 'ltr');
     document_.documentElement.setAttribute('data-theme', state.theme);
+    // The browser and installed-app chrome match the header they sit against.
+    document_.querySelector('meta[name="theme-color"]')?.setAttribute('content', state.theme === 'dark' ? '#0c182b' : '#ffffff');
     if (state.theme !== savedTheme || state.navCollapsed !== savedNav || state.lang !== savedLang) {
       savedTheme = state.theme;
       savedNav = state.navCollapsed;
@@ -397,10 +511,15 @@ export function mount(options: MountOptions): AppHandle {
       writePreferences(store, { theme: state.theme, navCollapsed: state.navCollapsed, lang: state.lang });
     }
     root.className = 'app-root';
+    const nextOverlay = overlayOf(state);
+    // Entry motion belongs to the render that opens a layer. Every later
+    // render rebuilds the same layer, and replaying its entrance there would
+    // make a menu twitch each time a realtime event arrived.
+    root.setAttribute('data-motion', nextOverlay !== null && nextOverlay !== overlay ? 'enter' : 'settled');
     replace(root, [renderApp(state)]);
     growComposer(root);
+    restoreScroll(root, scroll);
 
-    const nextOverlay = overlayOf(state);
     if (nextOverlay !== overlay) {
       const opened = nextOverlay !== null;
       if (opened && overlay === null) returnFocus = snapshot;
@@ -441,6 +560,7 @@ export function mount(options: MountOptions): AppHandle {
     syncUrl();
     if (!ensureScreen()) render();
     followExport();
+    followRealtime();
   };
 
   const makeContext = (live: LiveState): LiveContext => ({
@@ -485,6 +605,7 @@ export function mount(options: MountOptions): AppHandle {
     stopRealtime(liveContext);
     cancelPoll?.();
     cancelPoll = null;
+    cancelFollow();
     state.live = renewLiveState(state.live);
     state.live.session = expired
       ? { status: 'signed_out', error: null, expired: true }
@@ -577,6 +698,79 @@ export function mount(options: MountOptions): AppHandle {
       cancelPoll = null;
       void refreshCampaignReportExport(current);
     }, EXPORT_POLL_MS);
+  };
+
+  const realtimeWiring = (): RealtimeWiring => ({
+    baseUrl: API_BASE_URL,
+    open: options.openEventSource ?? browserEventSource,
+  });
+
+  const cancelFollow = (): void => {
+    cancelResume?.();
+    cancelResume = null;
+  };
+
+  /**
+   * Opens a replacement stream when the current one cannot deliver, then
+   * re-reads what the gap may have hidden. Only the lists and the bell count
+   * are re-read, in the background: rows stay on screen while they refresh,
+   * because an operator coming back to the tab is not starting over.
+   */
+  const resumeLive = (force: boolean): void => {
+    if (!workspaceOpen(state) || state.offline) return;
+    if (!resumeRealtime(liveContext, realtimeWiring(), force)) return;
+    if (loadedScreen === 'inbox') void refreshInboxLists(liveContext);
+    void refreshNotificationCount(liveContext);
+  };
+
+  /**
+   * Schedules the replacement for a stream the browser gave up on while the
+   * page stayed open and online, backing off per failed attempt. Mirrors
+   * `followExport`: each render re-derives whether a follow-up is owed.
+   */
+  const followRealtime = (): void => {
+    const realtime = state.live.realtime;
+    if (realtime.status === 'live') resumeAttempts = 0;
+    const subscription = state.live.subscription;
+    const dead = workspaceOpen(state) && !state.offline && realtime.status === 'stale' &&
+      (subscription === null || subscription.ended());
+    if (!dead) {
+      cancelFollow();
+      return;
+    }
+    if (cancelResume !== null) return;
+    const delay = Math.min(REALTIME_RESUME_MAX_MS, REALTIME_RESUME_MS * 2 ** resumeAttempts);
+    cancelResume = schedule(() => {
+      cancelResume = null;
+      resumeAttempts += 1;
+      resumeLive(false);
+    }, delay);
+  };
+
+  const onOffline = (): void => {
+    state.offline = true;
+    refresh();
+  };
+
+  const onOnline = (): void => {
+    state.offline = false;
+    resumeLive(false);
+    refresh();
+  };
+
+  /**
+   * Returning to the tab keeps everything on screen. Nothing is re-probed or
+   * reloaded; a stream that died while hidden is replaced, and one that is
+   * still retrying is left to `EventSource`.
+   */
+  const onVisibility = (): void => {
+    // Registered only when a lifecycle was supplied.
+    if ((page as PageLifecycle).visible()) resumeLive(false);
+  };
+
+  /** A page restored from the back/forward cache was frozen, whatever its stream says. */
+  const onPageShow = (event: Event): void => {
+    if ((event as PageTransitionEvent).persisted) resumeLive(true);
   };
 
   const dispatch = (name: string, arg = ''): void => {
@@ -816,10 +1010,7 @@ export function mount(options: MountOptions): AppHandle {
       refresh();
       return;
     }
-    startRealtime(liveContext, {
-      baseUrl: API_BASE_URL,
-      open: options.openEventSource ?? browserEventSource,
-    });
+    startRealtime(liveContext, realtimeWiring());
   };
 
   /**
@@ -858,6 +1049,10 @@ export function mount(options: MountOptions): AppHandle {
   root.addEventListener('change', onInput);
   root.addEventListener('keydown', onKeyDown);
   root.addEventListener('pointerdown', onPointerDown);
+  page?.addEventListener('online', onOnline);
+  page?.addEventListener('offline', onOffline);
+  page?.addEventListener('visibilitychange', onVisibility);
+  page?.addEventListener('pageshow', onPageShow);
   const stopRouter = onRouteChange(host, handleRoute);
 
   handleRoute(readRoute(host));
@@ -873,7 +1068,12 @@ export function mount(options: MountOptions): AppHandle {
       destroyed = true;
       stopRealtime(liveContext);
       cancelPoll?.();
+      cancelFollow();
       stopRouter();
+      page?.removeEventListener('online', onOnline);
+      page?.removeEventListener('offline', onOffline);
+      page?.removeEventListener('visibilitychange', onVisibility);
+      page?.removeEventListener('pageshow', onPageShow);
       root.removeEventListener('click', onClick);
       root.removeEventListener('submit', onSubmit);
       root.removeEventListener('input', onInput);

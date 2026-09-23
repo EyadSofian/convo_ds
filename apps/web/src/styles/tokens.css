@@ -18,40 +18,46 @@
 @layer tokens {
   /* @tokens light */
   :root {
-    /* Digital School: Powder work surfaces with restrained blue selection. */
-    --canvas: #f4f6fa;
-    --surface-1: #fcfcfc;
-    --surface-2: #f7f8fb;
-    --surface-3: #edf1f7;
-    --surface-hover: #eef3fd;
-    --surface-selected: #e5edfd;
+    /* DS Omnichannel: cool neutral ground, white work surfaces, DS Blue selection. */
+    --canvas: #f5f7fb;
+    --surface-1: #ffffff;
+    --surface-2: #f8fafd;
+    --surface-3: #eef2f8;
+    --surface-hover: #eef4ff;
+    --surface-selected: #e5eeff;
 
-    /* Text. */
-    --text: #1d1d1d;
-    --text-secondary: #3d434d;
-    --text-muted: #5c6572;
-    --text-disabled: #a3a7b0;
+    /* Text: navy ink, never pure black. */
+    --text: #10213f;
+    --text-secondary: #3b4a63;
+    --text-muted: #5a6781;
+    --text-disabled: #a3acbb;
 
-    /* Berlitz Blue is the action colour; yellow stays a deliberate highlight. */
+    /* DS Blue is the action colour; DS Lime stays a deliberate highlight. */
     --accent: #004fef;
-    --accent-hover: #0045d1;
+    --accent-hover: #003fc0;
     --accent-text: #004fef;
-    --accent-soft: #e5edfd;
+    --accent-soft: #e5eeff;
     --on-accent: #ffffff;
 
     /* Semantic status, each with a quiet tint for badges and notices. */
-    --success: #1d6b43;
-    --success-soft: #e3f1e8;
+    --success: #12744a;
+    --success-soft: #e4f5ec;
     --warning: #8a5a00;
-    --warning-soft: #f8efdc;
-    --danger: #b42f27;
-    --danger-soft: #f9e6e3;
+    --warning-soft: #fbf1dc;
+    --danger: #c0342c;
+    --danger-soft: #fdebe9;
     --unknown: #2f6690;
-    --unknown-soft: #e4eef5;
+    --unknown-soft: #e6eff7;
 
     /* Boundaries that identify a control (WCAG 1.4.11), and focus. */
-    --border-strong: #858a95;
+    --border-strong: #7d889c;
     --focus-ring: #004fef;
+
+    /* The navigation rail: DS navy in both themes, so the product reads as one. */
+    --nav-bg: #071a3a;
+    --nav-hover: #10284f;
+    --nav-text: #b9c7de;
+    --nav-text-strong: #ffffff;
 
     /* Provider colour, confined to the small tile behind a channel glyph. */
     --brand-whatsapp: #1fa855;
@@ -62,32 +68,39 @@
     --brand-custom: #4c5260;
     --brand-highlight: #ddff57;
     --on-brand: #ffffff;
+    --on-highlight: #10213f;
 
     /* Not contrast-bearing: hairlines, layers and elevation. */
-    --border: rgba(20, 24, 32, 0.1);
-    --border-subtle: rgba(20, 24, 32, 0.06);
+    --border: rgba(16, 33, 63, 0.1);
+    --border-subtle: rgba(16, 33, 63, 0.06);
+    --nav-border: rgba(255, 255, 255, 0.08);
     --label-swatch-outline: rgba(0, 0, 0, 0.28);
-    --scrim: rgba(23, 25, 31, 0.32);
-    --glass: rgba(252, 251, 249, 0.86);
-    --glass-border: rgba(20, 24, 32, 0.08);
-    --nav-surface: rgba(250, 249, 246, 0.96);
-    --shadow-xs: 0 1px 1px rgba(20, 24, 32, 0.04);
-    --shadow-sm: 0 1px 2px rgba(20, 24, 32, 0.06), 0 1px 1px rgba(20, 24, 32, 0.03);
-    --shadow-md: 0 6px 16px rgba(20, 24, 32, 0.08), 0 1px 3px rgba(20, 24, 32, 0.05);
-    --shadow-lg: 0 18px 48px rgba(20, 24, 32, 0.16), 0 2px 8px rgba(20, 24, 32, 0.06);
+    --scrim: rgba(6, 16, 35, 0.44);
+    --glass: rgba(255, 255, 255, 0.96);
+    --glass-border: rgba(16, 33, 63, 0.1);
+    --nav-surface: rgba(255, 255, 255, 0.96);
+    --shadow-xs: 0 1px 2px rgba(16, 33, 63, 0.04);
+    --shadow-sm: 0 1px 2px rgba(16, 33, 63, 0.06), 0 1px 1px rgba(16, 33, 63, 0.03);
+    --shadow-md: 0 6px 18px rgba(16, 33, 63, 0.08), 0 1px 3px rgba(16, 33, 63, 0.05);
+    --shadow-lg: 0 18px 48px rgba(16, 33, 63, 0.16), 0 2px 8px rgba(16, 33, 63, 0.06);
     --bubble-in: #ffffff;
-    --bubble-out: #e5edfd;
-    --note-surface: #fbf4e4;
+    --bubble-out: #dfebff;
+    --bubble-out-edge: rgba(0, 79, 239, 0.14);
+    --note-surface: #fff8e6;
     --note-edge: rgba(138, 90, 0, 0.35);
-    --chart-bar: rgba(95, 102, 116, 0.28);
-    --skeleton: rgba(20, 24, 32, 0.07);
+    --chart-bar: rgba(96, 112, 137, 0.28);
+    --skeleton: rgba(16, 33, 63, 0.07);
+    --live-glow: rgba(18, 116, 74, 0.14);
+    --shadow-accent: 0 8px 22px rgba(0, 79, 239, 0.28);
+    --shadow-up: 0 -6px 18px rgba(16, 33, 63, 0.06);
+    --nav-skeleton: rgba(255, 255, 255, 0.08);
 
     /* DS Omnichannel authentication: lime brand panel and blue typography. */
     --auth-visual: #ddff57;
     --auth-visual-line: rgba(0, 79, 239, 0.22);
     --auth-panel: #ffffff;
     --auth-control: #ffffff;
-    --auth-control-border: #858a95;
+    --auth-control-border: #7d889c;
     --auth-visual-foreground: #004fef;
 
     color-scheme: light;
@@ -150,7 +163,7 @@
     --list-width-max: 400px;
     --panel-width: 320px;
     --thread-min-width: 540px;
-    --row-height: 68px;
+    --row-height: 64px;
     --thread-header-height: 60px;
     --control-height: 36px;
     --control-height-sm: 32px;
@@ -161,6 +174,8 @@
     --composer-min-height: 44px;
     --composer-max-height: 120px;
     --page-max-width: 1360px;
+    --bottom-nav-height: 60px;
+    --status-pill-height: 28px;
 
     --motion-fast: 120ms;
     --motion-base: 180ms;
@@ -170,36 +185,41 @@
 
   /* @tokens dark */
   :root[data-theme='dark'] {
-    /* Charcoal/navy operations surfaces; blue remains the action colour. */
-    --canvas: #0b1220;
-    --surface-1: #111a2a;
-    --surface-2: #172235;
-    --surface-3: #1e2b40;
-    --surface-hover: #22324a;
-    --surface-selected: #173768;
+    /* Deep navy operations surfaces, never inverted grey; blue stays the action. */
+    --canvas: #07111f;
+    --surface-1: #0c182b;
+    --surface-2: #112038;
+    --surface-3: #172944;
+    --surface-hover: #1b3050;
+    --surface-selected: #16345f;
 
-    --text: #f2f6fc;
-    --text-secondary: #c5cfdd;
-    --text-muted: #97a6ba;
-    --text-disabled: #657188;
+    --text: #edf2fa;
+    --text-secondary: #c2cddf;
+    --text-muted: #94a3bb;
+    --text-disabled: #5d6c85;
 
-    --accent: #2563c7;
-    --accent-hover: #2f6dcc;
-    --accent-text: #84b4ff;
-    --accent-soft: #172f54;
+    --accent: #2563eb;
+    --accent-hover: #1d56d6;
+    --accent-text: #8ab4ff;
+    --accent-soft: #132e57;
     --on-accent: #ffffff;
 
-    --success: #5ccf94;
-    --success-soft: #12261c;
-    --warning: #e3b35a;
-    --warning-soft: #2a2214;
-    --danger: #ff8a80;
-    --danger-soft: #2e1718;
+    --success: #5bd08f;
+    --success-soft: #0f2a1d;
+    --warning: #e7b75c;
+    --warning-soft: #2b2313;
+    --danger: #ff8b82;
+    --danger-soft: #321819;
     --unknown: #8ec5ec;
-    --unknown-soft: #152632;
+    --unknown-soft: #132a3b;
 
-    --border-strong: #718096;
-    --focus-ring: #79aaff;
+    --border-strong: #6f809b;
+    --focus-ring: #7aa8ff;
+
+    --nav-bg: #050e1d;
+    --nav-hover: #0f2240;
+    --nav-text: #aebcd4;
+    --nav-text-strong: #ffffff;
 
     --brand-whatsapp: #1fa855;
     --brand-messenger: #0a6cff;
@@ -209,30 +229,37 @@
     --brand-custom: #4c5260;
     --brand-highlight: #ddff57;
     --on-brand: #ffffff;
+    --on-highlight: #10213f;
 
     --border: rgba(255, 255, 255, 0.08);
     --border-subtle: rgba(255, 255, 255, 0.05);
+    --nav-border: rgba(255, 255, 255, 0.07);
     --label-swatch-outline: rgba(0, 0, 0, 0.28);
-    --scrim: rgba(3, 4, 8, 0.62);
-    --glass: rgba(11, 18, 32, 0.82);
-    --glass-border: rgba(255, 255, 255, 0.07);
-    --nav-surface: rgba(11, 18, 32, 0.9);
+    --scrim: rgba(2, 6, 14, 0.66);
+    --glass: rgba(12, 24, 43, 0.97);
+    --glass-border: rgba(255, 255, 255, 0.09);
+    --nav-surface: rgba(12, 24, 43, 0.96);
     --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.3);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
     --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
-    --bubble-in: #172235;
-    --bubble-out: #173768;
-    --note-surface: #251f13;
-    --note-edge: rgba(227, 179, 90, 0.38);
-    --chart-bar: rgba(149, 158, 174, 0.3);
+    --bubble-in: #132440;
+    --bubble-out: #173a73;
+    --bubble-out-edge: rgba(138, 180, 255, 0.16);
+    --note-surface: #251f12;
+    --note-edge: rgba(231, 183, 92, 0.38);
+    --chart-bar: rgba(148, 163, 187, 0.3);
     --skeleton: rgba(255, 255, 255, 0.06);
+    --live-glow: rgba(91, 208, 143, 0.16);
+    --shadow-accent: 0 8px 22px rgba(37, 99, 235, 0.3);
+    --shadow-up: 0 -6px 18px rgba(0, 0, 0, 0.35);
+    --nav-skeleton: rgba(255, 255, 255, 0.07);
 
-    --auth-visual: #111a2a;
+    --auth-visual: #0c182b;
     --auth-visual-line: rgba(255, 255, 255, 0.18);
-    --auth-panel: #0e1928;
-    --auth-control: #142338;
-    --auth-control-border: #718096;
+    --auth-panel: #0a1628;
+    --auth-control: #112038;
+    --auth-control-border: #6f809b;
     --auth-visual-foreground: #ffffff;
 
     color-scheme: dark;
