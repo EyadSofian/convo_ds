@@ -153,6 +153,7 @@ function conversation(overrides: Record<string, unknown> = {}): Record<string, u
     waitingSince: null,
     inboxLabel: 'خط التسجيل',
     channel: 'whatsapp',
+    serviceWindow: { status: 'open', lastCustomerInboundAt: '2026-09-09T09:21:00.000Z', serviceWindowExpiresAt: '2026-09-10T09:21:00.000Z' },
     participantMembershipIds: [MEMBERSHIP],
     lastActivityAt: '2026-09-09T09:25:00.000Z',
     ...overrides,

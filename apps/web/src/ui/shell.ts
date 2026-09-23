@@ -85,7 +85,7 @@ function renderNav(state: AppState): HTMLElement {
     [
       h('div', { class: 'nav__head' }, [
         logomark('sm'),
-        h('span', { class: 'nav__wordmark' }, ['CONVO']),
+        h('span', { class: 'nav__wordmark' }, ['DS Omnichannel']),
         state.navOpen
           ? button({
               icon: 'close',

@@ -63,6 +63,9 @@ function mine(): readonly Record<string, unknown>[] {
     waitingSince: null,
     inboxLabel: 'خط التسجيل',
     channel: ['whatsapp', 'messenger', 'instagram', 'web_chat'][index % 4],
+    serviceWindow: index % 4 === 0
+      ? { status: 'open', lastCustomerInboundAt: new Date(Date.UTC(2026, 8, 9, 9, 0)).toISOString(), serviceWindowExpiresAt: new Date(Date.UTC(2026, 8, 10, 9, 0)).toISOString() }
+      : { status: 'not_applicable', lastCustomerInboundAt: null, serviceWindowExpiresAt: null },
     participantMembershipIds: [MEMBERSHIP],
     contactId: index === 0 ? CONTACT : null,
     pendingReason: null,

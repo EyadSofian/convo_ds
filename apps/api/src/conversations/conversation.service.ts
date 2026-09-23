@@ -38,7 +38,7 @@ import { OpaqueCursorCodec } from '../pagination.js';
 import { compileInboxQuery, readableScope } from './inbox-query-compiler.js';
 import { validateInboxQuery } from './inbox-query-validation.js';
 import { requireScopedSupervisorAgent, scopedSupervisorAgents } from './supervisor-directory.js';
-import { conversationUnrepliedPredicate } from './event-boundary.js';
+import { conversationUnrepliedPredicate, latestConversationInbound } from './event-boundary.js';
 
 export type { ConversationDetail, ConversationRow } from './record.js';
 
@@ -653,7 +653,10 @@ export class ConversationService {
         throw notFound();
       }
       requireReadable(principal, detail);
-      return { ...detail, ...(await this.metadata.conversationMetadata(sql, conversationId)) };
+      const serviceWindow = detail.channel !== 'whatsapp'
+        ? { status: 'not_applicable' as const, lastCustomerInboundAt: null, serviceWindowExpiresAt: null }
+        : await readWhatsAppWindow(sql, conversationId);
+      return { ...detail, serviceWindow, ...(await this.metadata.conversationMetadata(sql, conversationId)) };
     });
   }
 
@@ -712,6 +715,25 @@ function cursorPredicate(sort: InboxQuery['sort'], value: string, id: string, ad
   if(sort==='priority_desc')return ` AND ((CASE c.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END),c.id)<(${v}::integer,${i}::uuid)`;
   if(sort==='activity_asc')return ` AND (c.last_activity_at,c.id)>(${v}::timestamptz,${i}::uuid)`;
   return ` AND (c.last_activity_at,c.id)<(${v}::timestamptz,${i}::uuid)`;
+}
+
+async function readWhatsAppWindow(
+  sql: SqlExecutor,
+  conversationId: string,
+): Promise<{ readonly status: 'open' | 'closed' | 'unknown'; readonly lastCustomerInboundAt: string | null; readonly serviceWindowExpiresAt: string | null }> {
+  const evidence = await latestConversationInbound(sql, conversationId);
+  if (evidence.lastInboundAt === null) {
+    return { status: 'closed', lastCustomerInboundAt: null, serviceWindowExpiresAt: null };
+  }
+  const expiry = new Date(evidence.lastInboundAt.getTime() + 24 * 60 * 60 * 1000);
+  if (!Number.isFinite(expiry.getTime()) || !Number.isFinite(evidence.serverNow.getTime())) {
+    return { status: 'unknown', lastCustomerInboundAt: null, serviceWindowExpiresAt: null };
+  }
+  return {
+    status: expiry.getTime() > evidence.serverNow.getTime() ? 'open' : 'closed',
+    lastCustomerInboundAt: evidence.lastInboundAt.toISOString(),
+    serviceWindowExpiresAt: expiry.toISOString(),
+  };
 }
 
 

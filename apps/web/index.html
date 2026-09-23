@@ -3,23 +3,52 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#fcfcfc" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#1d1d1d" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f6fa" />
     <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/png" href="/brand/digital-school-by-berlitz.png" />
+    <link rel="apple-touch-icon" href="/brand/digital-school-by-berlitz.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="description" content="Digital School — منصة تشغيل المحادثات والقنوات والحملات" />
-    <title>Digital School Operations</title>
+    <meta name="description" content="DS Omnichannel — One Inbox. Every conversation." />
+    <meta property="og:title" content="DS Omnichannel" />
+    <meta property="og:description" content="One Inbox. Every conversation." />
+    <meta name="application-name" content="DS Omnichannel" />
+    <title>DS Omnichannel</title>
     <style>
-      html[data-theme='light'] { background: #fcfcfc; color: #1d1d1d; }
-      html[data-theme='dark'] { background: #1d1d1d; color: #f3f3f3; }
+      html[data-theme='light'] { background: #f4f6fa; color: #1d1d1d; }
+      html[data-theme='dark'] { background: #0b1220; color: #f2f6fc; }
       body { margin: 0; }
       #app.app-boot { display: grid; grid-template-columns: 64px minmax(0, 1fr); height: 100dvh; overflow: hidden; }
-      .app-boot__nav { border-inline-end: 1px solid rgba(128,128,128,.16); padding: 15px; }
-      .app-boot__mark { display: block; width: 32px; height: 32px; border-radius: 9px; background: #3867c9; }
-      .app-boot__main { display: grid; grid-template-rows: 56px minmax(0, 1fr); }
-      .app-boot__header { border-block-end: 1px solid rgba(128,128,128,.16); padding: 20px; }
-      .app-boot__line { display: block; width: 140px; height: 12px; border-radius: 6px; background: rgba(128,128,128,.13); }
-      .app-boot__body { padding: 26px; }
+      html[data-theme='light'] #app.app-boot { --boot-line: rgba(20,24,32,.07); --boot-edge: rgba(20,24,32,.1); --boot-nav: rgba(250,249,246,.96); }
+      html[data-theme='dark'] #app.app-boot { --boot-line: rgba(255,255,255,.06); --boot-edge: rgba(255,255,255,.08); --boot-nav: rgba(11,18,32,.9); }
+      .app-boot__nav { display: flex; flex-direction: column; align-items: center; gap: 20px; border-inline-end: 1px solid var(--boot-edge); padding: 15px; background: var(--boot-nav); }
+      .app-boot__mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #ddff57; color: #004fef; font: 700 11px system-ui,sans-serif; }
+      .app-boot__nav-item { width: 20px; height: 20px; border-radius: 5px; background: var(--boot-line); }
+      .app-boot__main { display: grid; grid-template-rows: 56px minmax(0, 1fr); min-width: 0; }
+      .app-boot__header { border-block-end: 1px solid var(--boot-edge); padding: 20px; }
+      .app-boot__line { display: block; width: 140px; height: 12px; border-radius: 6px; background: var(--boot-line); }
+      .app-boot__body { display: grid; grid-template-columns: minmax(0,1fr); gap: 20px; padding: 20px; }
+      .app-boot__row { display: block; height: 64px; border-radius: 6px; background: var(--boot-line); }
+      .app-boot__rows { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-content: start; gap: 12px; }
+      .app-boot__content { display: none; }
+      .app-boot__brand-name { color: #004fef; font: 700 16px system-ui,sans-serif; letter-spacing: -.02em; }
+      .app-boot__status { color: #5c6572; font: 13px system-ui,sans-serif; }
+      html[data-theme='dark'] .app-boot__status { color: #97a6ba; }
+      html[data-theme='dark'] .app-boot__brand-name { color: #ffffff; }
+      html[lang='ar'] .app-boot__status[lang='en'], html[lang='en'] .app-boot__status[lang='ar'] { display: none; }
+      html[lang='ar'] .app-boot__brand-name[lang='en'], html[lang='en'] .app-boot__brand-name[lang='ar'] { display: none; }
+      html[data-boot-screen='inbox'] .app-boot__body { grid-template-columns: minmax(260px,352px) minmax(0,1fr); }
+      html[data-boot-screen='inbox'] .app-boot__rows { grid-template-columns: minmax(0,1fr); }
+      html[data-boot-screen='inbox'] .app-boot__content { display: grid; align-content: center; justify-items: center; gap: 18px; }
+      html[data-boot-screen='inbox'] .app-boot__content .app-boot__line { width: 70%; }
+      html[data-boot-screen='auth'] .app-boot__rows { display: none; }
+      html[data-boot-screen='auth'] .app-boot__content { display: grid; align-content: center; justify-items: center; gap: 18px; }
+      @media (max-width: 760px) {
+        #app.app-boot { grid-template-columns: 56px minmax(0,1fr); }
+        .app-boot__body { grid-template-columns: minmax(0,1fr); }
+        .app-boot__rows { grid-template-columns: repeat(2,minmax(0,1fr)); }
+        html[data-boot-screen='inbox'] .app-boot__rows { grid-template-columns: minmax(0,1fr); }
+        .app-boot__content { display: none !important; }
+      }
     </style>
     <!--
       Theme and language are decided before the first paint from local visual
@@ -38,6 +67,8 @@
           theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
         document.documentElement.setAttribute('data-theme', theme);
+        var themeColor = document.querySelector('meta[name="theme-color"]');
+        if (themeColor) themeColor.setAttribute('content', theme === 'dark' ? '#0b1220' : '#f4f6fa');
         // This mirrors `src/prepaint-language.ts`, which supplies the
         // deterministic regression cases. Keep the inline version small so it
         // executes before the module and before the first protected frame.
@@ -74,6 +105,9 @@
         if (lang !== 'en' && lang !== 'ar') lang = 'ar';
         document.documentElement.setAttribute('lang', lang);
         document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+        var route = window.location.hash.slice(1).split('?')[0].replace(/^\//, '').split('/')[0];
+        var screens = ['inbox', 'contacts', 'channels', 'people', 'broadcasts', 'automations', 'analytics', 'settings'];
+        document.documentElement.setAttribute('data-boot-screen', route === 'accept-invitation' || route === 'reset-password' ? 'auth' : (screens.indexOf(route) === -1 ? 'inbox' : route));
       })();
     </script>
     <!--
@@ -89,11 +123,20 @@
       hand-over from this placeholder to the first render does not flash. No
       navigation, tenant or screen exists until the server confirms a session.
     -->
-    <div id="app" class="app-boot" role="status" aria-live="polite" aria-label="Loading CONVO">
-      <div class="app-boot__nav" aria-hidden="true"><span class="app-boot__mark"></span></div>
+    <div id="app" class="app-boot" role="status" aria-live="polite" aria-label="Loading DS Omnichannel">
+      <div class="app-boot__nav" aria-hidden="true"><span class="app-boot__mark">DS</span><span class="app-boot__nav-item"></span><span class="app-boot__nav-item"></span><span class="app-boot__nav-item"></span></div>
       <div class="app-boot__main" aria-hidden="true">
         <div class="app-boot__header"><span class="app-boot__line"></span></div>
-        <div class="app-boot__body"><span class="app-boot__line"></span></div>
+        <div class="app-boot__body">
+          <div class="app-boot__rows" aria-hidden="true"><span class="app-boot__row"></span><span class="app-boot__row"></span><span class="app-boot__row"></span><span class="app-boot__row"></span></div>
+          <div class="app-boot__content" aria-hidden="true">
+            <span class="app-boot__brand-name" lang="en">DS Omnichannel</span>
+            <span class="app-boot__brand-name" lang="ar">دي إس أومني تشانل</span>
+            <span class="app-boot__line"></span>
+            <span class="app-boot__status" lang="en">Preparing your workspace</span>
+            <span class="app-boot__status" lang="ar">نجهّز مساحة عملك</span>
+          </div>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

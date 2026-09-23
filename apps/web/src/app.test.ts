@@ -724,7 +724,7 @@ describe('layers, focus and the keyboard', () => {
   it('enables Send as a draft is typed, without redrawing the composer', async () => {
     const conversation = '55555555-5555-4555-8555-555555555555';
     const api = signedIn()
-      .on(`GET /tenants/${TENANT}/conversations/${conversation}`, { status: 200, body: { data: { id: conversation, peerIdentity: '2010', channel: 'whatsapp', inboxLabel: 'Line', status: 'open', priority: 'normal', assigneeMembershipId: 'm-1111', version: 2, contactId: null, labels: [], customFields: [] } } })
+      .on(`GET /tenants/${TENANT}/conversations/${conversation}`, { status: 200, body: { data: { id: conversation, peerIdentity: '2010', channel: 'whatsapp', serviceWindow: { status: 'open', lastCustomerInboundAt: NOW.toISOString(), serviceWindowExpiresAt: new Date(NOW.getTime() + 86400000).toISOString() }, inboxLabel: 'Line', status: 'open', priority: 'normal', assigneeMembershipId: 'm-1111', version: 2, contactId: null, labels: [], customFields: [] } } })
       .on(`GET /tenants/${TENANT}/conversations/${conversation}/messages`, { status: 200, body: { data: { messages: [], next_cursor: null } } });
     const { root } = start(`#/inbox/${conversation}`, api, { openEventSource: () => ({ addEventListener: () => undefined, close: () => undefined }) });
     await settle();
@@ -1065,7 +1065,7 @@ describe('boot', () => {
       document.body.replaceChildren();
       handle = boot(document, Object.assign(createHost(), { matchMedia: () => ({ matches: true }) }));
       await settle();
-      expect(document.getElementById('app')?.querySelector('.gate')).not.toBeNull();
+      expect(document.getElementById('app')?.querySelector('#signin-email')).not.toBeNull();
       expect(handle.state.theme).toBe('dark');
       handle.destroy();
       handle = boot(document, createHost());

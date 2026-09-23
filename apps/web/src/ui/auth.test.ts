@@ -37,9 +37,11 @@ describe('while the session is being checked', () => {
     expect(element.className).toBe('app app--pending');
     expect(element.getAttribute('role')).toBe('status');
     expect(element.textContent).toContain('Checking your session');
-    expect(element.querySelector('.app-pending__brand')?.textContent).toBe('D');
+    expect(element.querySelector('.app-pending__brand')?.textContent).toBe('DS');
+    expect(element.querySelector('.app-pending__identity')?.textContent).toContain('Preparing your workspace');
     expectNothingProtected(element);
     expect(loadingScreen(gate('ar')).textContent).toContain('جارٍ التحقق من الجلسة');
+    expect(loadingScreen(gate('ar')).textContent).toContain('نجهّز مساحة عملك');
   });
 });
 
@@ -58,7 +60,25 @@ describe('the sign-in page', () => {
     expect(element.querySelector('[role="alert"]')).toBeNull();
     expect(element.querySelector('[data-act="lang"]')).not.toBeNull();
     expect(element.querySelector('[data-act="theme"]')).not.toBeNull();
+    expect(element.className).toBe('auth-layout');
+    expect(element.querySelector('.auth-visual')).not.toBeNull();
+    expect(element.querySelector('.auth-panel')).not.toBeNull();
+    expect(element.textContent).toContain('DS Omnichannel');
+    expect(element.querySelector('.auth-visual__logo')?.getAttribute('src')).toBe('/brand/digital-school-by-berlitz.png');
+    expect(element.textContent).not.toContain('12 new conversations');
+    expect(element.querySelectorAll('h1')).toHaveLength(1);
+    expect(element.querySelector('.auth-form__forgot')?.getAttribute('href')).toBe('#/reset-password');
     expectNothingProtected(element);
+  });
+
+  it('keeps the form direction and document controls correct in Arabic', () => {
+    const state = gate('ar');
+    state.live.session = { status: 'signed_out', error: null };
+    const element = renderGate(state);
+    expect(element.getAttribute('dir')).toBe('ltr');
+    expect(element.querySelector('.auth-panel')?.getAttribute('dir')).toBe('ar');
+    expect(element.querySelector('#signin-email')?.getAttribute('dir')).toBe('ltr');
+    expect(element.textContent).toContain('مرحبًا بعودتك');
   });
 
   it('says a session ended, until the next attempt says something else', () => {

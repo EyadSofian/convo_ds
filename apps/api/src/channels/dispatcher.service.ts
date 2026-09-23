@@ -13,6 +13,7 @@ import { ConversationService } from '../conversations/conversation.service.js';
 import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
 import { capabilitiesOf } from './outbound.service.js';
+import { latestConversationInbound } from '../conversations/event-boundary.js';
 
 /**
  * The outbound dispatcher.
@@ -55,6 +56,7 @@ interface ClaimRow {
   readonly message_id: string;
   readonly connection_id: string;
   readonly peer_identity: string;
+  readonly conversation_id: string | null;
   readonly message_type: string;
   readonly text_body: string | null;
   readonly template_name: string | null;
@@ -264,6 +266,7 @@ export class ChannelDispatcherService {
             AND m.id = o.message_id
             AND c.id = m.connection_id
           RETURNING o.message_id::text, o.connection_id::text, o.peer_identity,
+                    m.conversation_id::text AS conversation_id,
                     m.message_type, m.text_body, m.template_name, m.template_language,
                     m.dispatch_version, o.attempts,
                     c.kind, c.capabilities, c.status AS connection_status,c.disconnected_at,
@@ -378,18 +381,20 @@ export class ChannelDispatcherService {
       'SELECT 1 FROM channel_suppressions WHERE kind = $1 AND peer_identity = $2',
       [claim.kind, claim.peer_identity],
     );
-    const lastInbound = await sql.query<{ occurred_at: Date }>(
-      `SELECT max(occurred_at) AS occurred_at FROM inbound_events
-        WHERE connection_id = $1 AND peer_identity = $2 AND kind = 'message'`,
-      [claim.connection_id, claim.peer_identity],
-    );
+    const lastInboundAt = claim.conversation_id === null
+      ? (await sql.query<{ occurred_at: Date | null }>(
+          `SELECT max(occurred_at) AS occurred_at FROM inbound_events
+            WHERE connection_id = $1 AND peer_identity = $2 AND kind = 'message'`,
+          [claim.connection_id, claim.peer_identity],
+        )).rows[0]?.occurred_at ?? null
+      : (await latestConversationInbound(sql, claim.conversation_id)).lastInboundAt;
     const permit = permitSend({
       kind: claim.kind as never,
       capabilities: capabilitiesOf({ kind: claim.kind as never, capabilities: claim.capabilities }),
       messageType: claim.message_type,
       isPrivateNote: false,
       text: claim.text_body ?? '',
-      lastInboundAt: lastInbound.rows[0]?.occurred_at ?? null,
+      lastInboundAt,
       now: new Date(),
       template:
         claim.template_name === null

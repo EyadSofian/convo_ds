@@ -207,4 +207,19 @@ describe('Inbox list controls', () => {
     expect(root.querySelector('.composer')).toBeNull();
     expect(root.querySelector('[data-act="live-conversation-transition"]')).toBeNull();
   });
+
+  it('fails closed on free-form WhatsApp replies when the service window is unknown', () => {
+    const app = state();
+    app.live.openConversationId = 'conversation-1';
+    app.live.openConversation = { status: 'ready', loadedAt: 1, value: {
+      id: 'conversation-1', contactId: null, connectionId: 'connection-1', peerIdentity: '15550001111',
+      inboxLabel: 'WhatsApp', channel: 'whatsapp', teamId: null, assigneeMembershipId: 'member-1',
+      status: 'open', priority: 'normal', version: 2, labels: [], customFields: [],
+    } as never };
+    app.live.timeline = ready([], 1);
+    const root = renderInbox(app);
+    expect(root.querySelector('.composer__input')).toBeNull();
+    expect(root.querySelector('.composer__closed-window')).not.toBeNull();
+    expect(root.textContent).toContain('24-hour messaging window closed');
+  });
 });

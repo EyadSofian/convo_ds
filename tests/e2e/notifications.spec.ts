@@ -46,7 +46,13 @@ test('the notification drawer fits a phone in Arabic and English', async ({ page
     await setDirection(page, direction);
     await page.locator('.notification-bell').click();
     await expect(page.locator('.notification-menu')).toBeVisible();
-    const box = await page.locator('.notification-menu').boundingBox();
+    let box = await page.locator('.notification-menu').boundingBox();
+    // The drawer is animated from a clipped popover; wait for layout to settle
+    // before asserting its final mobile geometry.
+    await expect.poll(async () => {
+      box = await page.locator('.notification-menu').boundingBox();
+      return box;
+    }).not.toBeNull();
     expect(box).not.toBeNull();
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(390);

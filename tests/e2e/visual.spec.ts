@@ -56,10 +56,20 @@ test.describe('sign-in baselines', () => {
   for (const theme of ['light', 'dark'] as const) {
     test(`sign-in — ${theme}`, async ({ page }) => {
       await openSignedOut(page);
+      await setDirection(page, 'ltr');
       await setTheme(page, theme);
+      await expect(page.locator('.auth-panel')).toHaveCSS('direction', 'ltr');
       await expect(page).toHaveScreenshot(`signin-${theme}.png`);
     });
   }
+
+  test('sign-in — Arabic mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openSignedOut(page);
+    await setDirection(page, 'rtl');
+    await expect(page.locator('.auth-panel')).toHaveCSS('direction', 'rtl');
+    await expect(page).toHaveScreenshot('signin-arabic-mobile.png');
+  });
 
   test('sign-in, refused', async ({ page }) => {
     await openSignedOut(page);
@@ -68,7 +78,7 @@ test.describe('sign-in baselines', () => {
     await page.locator('.auth-form__submit').click();
     await expect(page.locator('.auth-card [role="alert"]')).toBeVisible();
     await expect(page).toHaveScreenshot('signin-refused.png');
-    expect(await structureOf(page, '.gate')).toMatchSnapshot('signin-structure.txt');
+    expect(await structureOf(page, '.auth-layout')).toMatchSnapshot('signin-structure.txt');
   });
 
   test('recover access', async ({ page }) => {
@@ -88,6 +98,35 @@ test.describe('sign-in baselines', () => {
     await fontsReady(page);
     await expect(page).toHaveScreenshot('invitation-invalid.png');
   });
+});
+
+test('opening shell — first paint and session check', async ({ page }) => {
+  await freezeClock(page);
+  await page.route('**/assets/index-*.js', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
+  await page.goto('/#/inbox?lang=en', { waitUntil: 'commit' });
+  await expect(page.locator('#app.app-boot')).toBeVisible();
+  await expect(page.locator('.app-boot__status[lang="en"]')).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-boot-screen', 'inbox');
+  await fontsReady(page);
+  await expect(page).toHaveScreenshot('opening-first-paint.png');
+
+  const sessionPage = await page.context().newPage();
+  await freezeClock(sessionPage);
+  await installApi(sessionPage);
+  let releaseSession: () => void = () => undefined;
+  const sessionGate = new Promise<void>((resolve) => { releaseSession = resolve; });
+  await sessionPage.route('**/api/v1/auth/session', async (route) => {
+    await sessionGate;
+    await route.fallback();
+  });
+  await sessionPage.goto('/#/inbox?lang=en');
+  await expect(sessionPage.locator('.app--pending')).toBeVisible();
+  await expect(sessionPage.locator('.app-pending__identity')).toContainText('Preparing your workspace');
+  await fontsReady(sessionPage);
+  await expect(sessionPage).toHaveScreenshot('opening-session-check.png');
+  releaseSession();
+  await expect(sessionPage.locator('.inbox')).toBeVisible();
+  await sessionPage.close();
 });
 
 test.describe('inbox baselines', () => {

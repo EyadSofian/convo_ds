@@ -1,5 +1,5 @@
 /* global self, URL */
-/* CONVO push worker. No session, credential, transcript, or privileged content
+/* DS Omnichannel push worker. No session, credential, transcript, or privileged content
  * is cached here. The app rechecks access through its normal API on open. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TITLES = {
@@ -22,14 +22,14 @@ function safeRoute(data) {
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
-  const title = TITLES[data.kind] || ['نشاط جديد في CONVO', 'New CONVO activity'];
+  const title = TITLES[data.kind] || ['نشاط جديد في DS Omnichannel', 'New DS Omnichannel activity'];
   const arabic = (self.navigator.language || '').toLowerCase().startsWith('ar');
   const url = safeRoute(data);
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     if (windows.some((window) => window.visibilityState === 'visible')) return;
     await self.registration.showNotification(title[arabic ? 0 : 1], {
-      body: arabic ? 'افتح CONVO لعرض التفاصيل بعد التحقق من صلاحيتك.' : 'Open CONVO to view details after authorization.',
+      body: arabic ? 'افتح DS Omnichannel لعرض التفاصيل بعد التحقق من صلاحيتك.' : 'Open DS Omnichannel to view details after authorization.',
       icon: '/brand/digital-school-by-berlitz.png',
       tag: UUID.test(data.id || '') ? data.id : 'convo-activity',
       data: { url },

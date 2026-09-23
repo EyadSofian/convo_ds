@@ -35,7 +35,7 @@ export function renderSettings(state: AppState): HTMLElement {
   const email = openSession(live).email;
   return page('settings', null, [
     h('div', { class: 'settings-sections' }, [
-      settingsSection(t(state, 'الحساب', 'Account'), t(state, 'هويتك في CONVO ومساحة العمل الحالية.', 'Your CONVO identity and current workspace.'), [
+      settingsSection(t(state, 'الحساب', 'Account'), t(state, 'هويتك في DS Omnichannel ومساحة العمل الحالية.', 'Your DS Omnichannel identity and current workspace.'), [
         settingRow(t(state, 'البريد الإلكتروني', 'Email'), t(state, 'يُدار بواسطة مسؤول الحساب ولا يمكن تغييره هنا.', 'Managed by the account administrator and read-only here.'), isolated(email)),
         settingRow(t(state, 'الدور', 'Role'), t(state, 'صلاحياتك الحالية في مساحة العمل.', 'Your current workspace access.'), badge(membership.role.name, 'neutral')),
         settingRow(t(state, 'مساحة العمل', 'Workspace'), t(state, 'المساحة النشطة الآن.', 'Currently active workspace.'), h('span', {}, [membership.tenant.name])),

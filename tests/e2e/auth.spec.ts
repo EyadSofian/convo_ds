@@ -15,6 +15,43 @@ import { fontsReady, freezeClock, openInbox, openSignedOut } from './support/wor
 const PROTECTED = '.app:not(.app--pending), .nav, .header, .inbox, .page, [data-act="nav"], .header__tenant';
 
 test.describe('without a session', () => {
+  test('keeps DS Omnichannel sign-in legible from desktop through phone widths', async ({ page }) => {
+    await openSignedOut(page, '#/inbox?lang=en');
+    for (const width of [1440, 1024, 768, 430, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(page.locator('.auth-panel')).toBeVisible();
+      if (width > 760) await expect(page.locator('.auth-visual__logo')).toBeVisible();
+      else await expect(page.locator('.auth-visual')).toBeHidden();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+  });
+
+  test('sets route, theme and language before the application bundle runs', async ({ page }) => {
+    await freezeClock(page);
+    await installApi(page, { signedIn: false });
+    await page.addInitScript(() => {
+      window.localStorage.setItem('convo.theme', 'dark');
+      window.localStorage.setItem('convo.lang', 'en');
+    });
+    let releaseBundle: () => void = () => undefined;
+    const bundleGate = new Promise<void>((resolve) => { releaseBundle = resolve; });
+    await page.route('**/assets/index-*.js', async (route) => {
+      await bundleGate;
+      await route.continue();
+    });
+    await page.goto('/#/channels', { waitUntil: 'commit' });
+    await expect(page.locator('#app.app-boot')).toBeVisible();
+    // Non-Inbox routes use their own compact skeleton. The status label is
+    // intentionally reserved for the Inbox/auth first-paint composition.
+    await expect(page.locator('.app-boot__rows .app-boot__row').first()).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+    await expect(page.locator('html')).toHaveAttribute('data-boot-screen', 'channels');
+    releaseBundle();
+    await expect(page.locator('#signin-email')).toBeVisible();
+  });
+
   test('shows only the sign-in page at /#/inbox, and asks the server for nothing else', async ({ page }) => {
     const requests: string[] = [];
     page.on('request', (request) => {
@@ -46,6 +83,7 @@ test.describe('without a session', () => {
     await page.goto('/#/channels');
     await expect(page.locator('.app--pending')).toBeVisible();
     await expect(page.locator('.app--pending[role="status"]')).toContainText('جارٍ التحقق من الجلسة');
+    await expect(page.locator('.app-pending__identity')).toContainText('نجهّز مساحة عملك');
     await expect(page.locator(PROTECTED)).toHaveCount(0);
     release();
     await expect(page.locator('.page--channels')).toBeVisible();

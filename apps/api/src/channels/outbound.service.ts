@@ -12,6 +12,7 @@ import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { LifecycleService } from '../conversations/lifecycle.service.js';
 import { readConversation } from '../conversations/record.js';
+import { latestConversationInbound } from '../conversations/event-boundary.js';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
 import { parseSendMessage } from './outbound-request.js';
@@ -170,6 +171,23 @@ export class OutboundService {
           );
           if (boundConversation.rows[0] === undefined) {
             throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+          }
+        }
+
+        // Replies addressed to a WhatsApp conversation are checked against
+        // inbound evidence for that exact conversation. Dispatch repeats this
+        // check later, because a queued message can outlive its service window.
+        if (connection.kind === 'whatsapp' && conversationId !== null && request.template === null) {
+          const window = await latestConversationInbound(sql, conversationId);
+          const expiresAt = window.lastInboundAt === null
+            ? null
+            : new Date(window.lastInboundAt.getTime() + 24 * 60 * 60 * 1000);
+          if (expiresAt === null || expiresAt.getTime() <= window.serverNow.getTime()) {
+            throw new ApiHttpError(
+              422,
+              'outside_service_window',
+              'The WhatsApp 24-hour service window is closed. Choose an approved template to continue.',
+            );
           }
         }
 

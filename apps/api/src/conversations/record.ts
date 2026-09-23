@@ -68,6 +68,13 @@ export interface ConversationDetail extends ConversationRow {
   readonly inboxLabel: string;
   readonly channel: string;
   readonly participantMembershipIds: readonly string[];
+  readonly serviceWindow?: WhatsAppServiceWindow;
+}
+
+export interface WhatsAppServiceWindow {
+  readonly status: 'not_applicable' | 'open' | 'closed' | 'unknown';
+  readonly lastCustomerInboundAt: string | null;
+  readonly serviceWindowExpiresAt: string | null;
 }
 
 export const SELECT_COLUMNS = `id::text, connection_id::text, peer_identity, team_id::text,

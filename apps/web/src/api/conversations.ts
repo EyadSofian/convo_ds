@@ -59,6 +59,11 @@ export interface Conversation extends EntityMetadata {
   /** ADR-0008's bot-versus-human dimension. Always `human_active` in this build. */
   readonly ownerState: string;
   readonly ownerVersion: number;
+  readonly serviceWindow?: {
+    readonly status: 'not_applicable' | 'open' | 'closed' | 'unknown';
+    readonly lastCustomerInboundAt: string | null;
+    readonly serviceWindowExpiresAt: string | null;
+  };
   /**
    * Whether **this** caller has seen the newest activity.
    *

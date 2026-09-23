@@ -894,6 +894,17 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
       }),
     ]);
   }
+  // Fail closed if the server could not determine the WhatsApp window. Sending
+  // free-form text is only legal when current conversation evidence says open.
+  if (conversation.channel === 'whatsapp' && conversation.serviceWindow?.status !== 'open') {
+    return h('div', { class: 'composer__closed-window' }, [
+      tabs,
+      h('div', { class: 'composer__closed-window-copy', role: 'status', 'aria-live': 'polite' }, [
+        h('strong', {}, [t(state, 'انتهت نافذة المحادثة لمدة 24 ساعة', '24-hour messaging window closed')]),
+        h('p', {}, [t(state, 'يمكنك متابعة المحادثة باستخدام قالب واتساب معتمد.', 'Continue this conversation using an approved WhatsApp template.')]),
+      ]),
+    ]);
+  }
   return h('div', { class: 'composer__box' }, [
     // The text is the element's **content**, not a `value` attribute: a textarea
     // ignores that attribute, so rendering it that way would empty the composer

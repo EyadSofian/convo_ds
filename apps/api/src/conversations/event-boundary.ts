@@ -1,3 +1,5 @@
+import type { SqlExecutor } from '@convo/domain';
+
 /**
  * SQL ownership for an event that may be attached to one conversation.
  *
@@ -55,4 +57,23 @@ export function conversationUnrepliedPredicate(conversationAlias: string): strin
              WHERE inbound.kind='message' AND ${inboundBoundary})
           > COALESCE((SELECT max(outbound.created_at) FROM outbound_messages outbound
                         WHERE ${qualifyingHumanOutbound('outbound')} AND ${outboundBoundary}), '-infinity'::timestamptz))`;
+}
+
+/** Reads the newest customer message using the exact half-open conversation interval. */
+export async function latestConversationInbound(
+  sql: SqlExecutor,
+  conversationId: string,
+): Promise<{ readonly lastInboundAt: Date | null; readonly serverNow: Date }> {
+  const boundary = conversationEventBoundary('conversation', 'inbound', 'inbound.occurred_at', { inboundOpeningEvent: true });
+  const result = await sql.query<{ last_inbound_at: Date | null; server_now: Date }>(
+    `SELECT max(inbound.occurred_at) AS last_inbound_at, now() AS server_now
+       FROM conversations conversation
+       LEFT JOIN inbound_events inbound
+         ON inbound.kind='message' AND ${boundary}
+      WHERE conversation.id=$1`,
+    [conversationId],
+  );
+  const row = result.rows[0];
+  if (row === undefined) throw new Error('conversation inbound query returned no row');
+  return { lastInboundAt: row.last_inbound_at, serverNow: row.server_now };
 }

@@ -55,6 +55,11 @@ describe.each(['ar', 'en'] as const)('rendered in %s', (locale) => {
     expect(rendered.text).toContain(url);
   });
 
+  it('uses the DS Omnichannel primary blue for transactional actions', () => {
+    expect(invitation('en').html).toContain('bgcolor="#004FEF"');
+    expect(recovery('ar').html).toContain('bgcolor="#004FEF"');
+  });
+
   it('declares the right direction and language on the document', () => {
     const rendered = recovery(locale);
     expect(rendered.html).toContain(`lang="${locale}"`);
