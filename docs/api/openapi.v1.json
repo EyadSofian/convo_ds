@@ -2247,6 +2247,108 @@
         }
       }
     },
+    "/tenants/{tenantId}/conversations/{conversationId}/whatsapp-templates": {
+      "get": {
+        "operationId": "listConversationWhatsAppTemplates",
+        "summary": "List the synchronized WhatsApp templates available to this conversation",
+        "description": "Returns at most 50 templates from the selected conversation's WhatsApp connection. Opening the picker reads the locally synchronized catalogue; Meta is contacted only by the explicit channel template sync action. Sendable entries are approved templates whose supported component schema can be represented safely. Provider credentials are never returned.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 20
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["approved", "pending", "paused", "rejected", "disabled"],
+              "default": "approved"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A bounded page of safe catalogue metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppTemplatePageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/tenants/{tenantId}/invitations": {
       "get": {
         "operationId": "listInvitations",
@@ -8792,17 +8894,24 @@
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
-                  "name",
-                  "language"
+                  "id",
+                  "parameters"
                 ],
                 "properties": {
-                  "name": {
+                  "id": {
                     "type": "string",
-                    "example": "order_update"
+                    "format": "uuid",
+                    "description": "A template id from this conversation's synchronized WhatsApp catalogue. The server re-resolves its connection, approval state and schema before queuing."
                   },
-                  "language": {
-                    "type": "string",
-                    "example": "ar"
+                  "parameters": {
+                    "type": "object",
+                    "maxProperties": 40,
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    "description": "Values keyed by server-provided parameter keys such as body:1 or button:0:1."
                   }
                 }
               },
@@ -8810,7 +8919,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only meaningful where the channel has templates. A template approved for another channel is refused, and a channel with no template concept refuses one outright."
+            "description": "For a WhatsApp template send, select a catalogue id and supply the parameter values. The API ignores no caller-defined template structure: it resolves the canonical schema itself and sends through the durable outbox."
           },
           "clientMessageId": {
             "type": "string",
@@ -9780,6 +9889,61 @@
           "request_id": {
             "type": "string"
           }
+        }
+      },
+      "WhatsAppTemplatePageResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "page", "request_id"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "maxItems": 50,
+            "items": { "$ref": "#/components/schemas/WhatsAppTemplate" }
+          },
+          "page": { "$ref": "#/components/schemas/Page" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "WhatsAppTemplate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "providerTemplateId", "name", "language", "category", "status", "components", "parameters", "sendSupported", "unsupportedReason", "lastSyncedAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "providerTemplateId": { "type": "string" },
+          "name": { "type": "string" },
+          "language": { "type": "string" },
+          "category": { "type": "string" },
+          "status": { "type": "string", "enum": ["approved", "pending", "paused", "rejected", "disabled"] },
+          "components": { "type": "array", "items": { "$ref": "#/components/schemas/WhatsAppTemplateComponent" } },
+          "parameters": { "type": "array", "items": { "$ref": "#/components/schemas/WhatsAppTemplateParameter" } },
+          "sendSupported": { "type": "boolean" },
+          "unsupportedReason": { "type": ["string", "null"] },
+          "lastSyncedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "WhatsAppTemplateComponent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "text", "format", "buttons"],
+        "properties": {
+          "type": { "type": "string", "enum": ["header", "body", "footer", "buttons"] },
+          "text": { "type": ["string", "null"] },
+          "format": { "type": ["string", "null"] },
+          "buttons": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["type", "text"], "properties": { "type": { "type": "string" }, "text": { "type": "string" } } } }
+        }
+      },
+      "WhatsAppTemplateParameter": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "component", "index", "position", "example"],
+        "properties": {
+          "key": { "type": "string" },
+          "component": { "type": "string", "enum": ["header", "body", "button"] },
+          "index": { "type": ["integer", "null"] },
+          "position": { "type": "integer", "minimum": 1 },
+          "example": { "type": ["string", "null"] }
         }
       },
       "ContactIdentity": {

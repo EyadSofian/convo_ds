@@ -130,6 +130,7 @@ describe('convo-db entry point', () => {
       'applied 0037_conversation_identity_history_index.sql',
       'applied 0038_conversation_episode_actor_fk_set_null.sql',
       'applied 0039_notifications.sql',
+      'applied 0040_whatsapp_template_send_evidence.sql',
     ]);
 
     const second = await runBin(['migrate'], env);

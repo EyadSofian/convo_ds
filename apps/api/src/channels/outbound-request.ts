@@ -14,7 +14,12 @@ export interface SendMessageRequest {
   readonly peerIdentity: string;
   readonly messageType: string;
   readonly text: string;
-  readonly template: { readonly name: string; readonly language: string } | null;
+  readonly template: {
+    readonly id?: string;
+    readonly name?: string;
+    readonly language?: string;
+    readonly parameters?: Readonly<Record<string, string>>;
+  } | null;
   readonly clientMessageId: string;
   readonly trafficClass: 'interactive' | 'bulk';
   /**
@@ -33,6 +38,7 @@ const CLIENT_ID = /^[A-Za-z0-9_.:-]{8,190}$/;
 const MAX_TEXT = 16_000;
 const NAME = /^[a-z0-9_]{1,190}$/;
 const LANGUAGE = /^[A-Za-z]{2}(_[A-Za-z]{2})?$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -85,16 +91,23 @@ export function parseSendMessage(input: unknown): ParseResult<SendMessageRequest
   let template: SendMessageRequest['template'] = null;
   if ('template' in record && record['template'] !== null) {
     const raw = asRecord(record['template']);
-    const name = typeof raw?.['name'] === 'string' ? raw['name'].trim() : '';
-    const language = typeof raw?.['language'] === 'string' ? raw['language'].trim() : '';
-    if (!NAME.test(name) || !LANGUAGE.test(language)) {
-      details.push({
-        field: 'template',
-        code: 'malformed',
-        message: 'A template is {name, language}, e.g. {"name":"order_update","language":"ar"}.',
+    const id = typeof raw?.['id'] === 'string' ? raw['id'].trim() : '';
+    if (id !== '') {
+      const rawParameters = asRecord(raw?.['parameters']);
+      const parameters: Record<string, string> = {};
+      const invalid = !UUID.test(id) || rawParameters === null || Object.entries(rawParameters).some(([key, value]) => {
+        if (!/^(header|body):[1-9][0-9]{0,2}$|^button:(?:0|[1-9][0-9]{0,2}):[1-9][0-9]{0,2}$/.test(key) || typeof value !== 'string' || value.length > 1024) return true;
+        parameters[key] = value;
+        return false;
       });
+      if (invalid) details.push({ field: 'template', code: 'malformed', message: 'A template id and text parameter map are required.' });
+      else template = { id, parameters };
     } else {
-      template = { name, language };
+      const name = typeof raw?.['name'] === 'string' ? raw['name'].trim() : '';
+      const language = typeof raw?.['language'] === 'string' ? raw['language'].trim() : '';
+      if (!NAME.test(name) || !LANGUAGE.test(language)) {
+        details.push({ field: 'template', code: 'malformed', message: 'A template is {name, language}.' });
+      } else template = { name, language };
     }
   }
 

@@ -10,6 +10,7 @@ import type {
   Note,
   QueueCard,
   TimelineMessage,
+  WhatsAppTemplateCatalogueItem,
   SupervisorAgent,
   SupervisorWorkload,
 } from '../api/conversations.js';
@@ -255,6 +256,8 @@ export interface LiveState {
   automationRunsQuery: Omit<AutomationRunsQuery, 'cursor'>;
   automationRunsNextCursor: string | null;
   whatsappTemplates: Resource<readonly WhatsAppTemplate[]>;
+  conversationTemplates: Resource<readonly WhatsAppTemplateCatalogueItem[]>;
+  conversationTemplateCursor: string | null;
   selectedCampaignId: string | null;
   /** Single authoritative readable-Inbox query, shared by load and realtime. */
   inboxQuery: InboxQuery;
@@ -373,6 +376,8 @@ export function createLiveState(
     automationRunsQuery: DEFAULT_AUTOMATION_RUNS_QUERY,
     automationRunsNextCursor: null,
     whatsappTemplates: IDLE,
+    conversationTemplates: IDLE,
+    conversationTemplateCursor: null,
     selectedCampaignId: null,
     inboxQuery: INBOX_QUERY_DEFAULT,
     inboxSearchDraft: '',

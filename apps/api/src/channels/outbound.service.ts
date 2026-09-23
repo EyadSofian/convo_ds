@@ -6,12 +6,13 @@ import type {
   OwnershipRefusal,
   ResourceRef,
   SqlExecutor,
+  WhatsAppTemplateDefinition,
 } from '@convo/domain';
-import { capabilitiesFor, ownershipPermits, permitSend } from '@convo/domain';
+import { authorize, buildWhatsAppTemplateComponents, defineWhatsAppTemplate, renderWhatsAppTemplatePreview, capabilitiesFor, ownershipPermits, permitSend } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { LifecycleService } from '../conversations/lifecycle.service.js';
-import { readConversation } from '../conversations/record.js';
+import { readConversation, readDetail } from '../conversations/record.js';
 import { latestConversationInbound } from '../conversations/event-boundary.js';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
@@ -63,12 +64,86 @@ interface ConnectionRow {
   readonly disconnected_at: Date | null;
 }
 
+interface StoredWhatsAppTemplate {
+  readonly id: string;
+  readonly provider_template_id: string;
+  readonly template_name: string;
+  readonly language: string;
+  readonly status: string;
+  readonly components: unknown;
+}
+
+export interface WhatsAppTemplateCatalogueItem {
+  readonly id: string;
+  readonly providerTemplateId: string;
+  readonly name: string;
+  readonly language: string;
+  readonly category: string;
+  readonly status: string;
+  readonly components: WhatsAppTemplateDefinition['components'];
+  readonly parameters: WhatsAppTemplateDefinition['parameters'];
+  readonly sendSupported: boolean;
+  readonly unsupportedReason: string | null;
+  readonly lastSyncedAt: string;
+}
+
+export interface WhatsAppTemplateCataloguePage {
+  readonly items: readonly WhatsAppTemplateCatalogueItem[];
+  readonly nextCursor: string | null;
+}
+
 @Injectable()
 export class OutboundService {
   constructor(
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(LifecycleService) private readonly lifecycle: LifecycleService,
   ) {}
+
+  /** A bounded, connection-scoped catalogue for an authorized conversation. */
+  async templates(
+    session: AuthenticatedSession,
+    tenantId: string,
+    conversationId: string,
+    query: { readonly search: string; readonly language: string; readonly category: string; readonly status: string; readonly cursor: string | null },
+  ): Promise<WhatsAppTemplateCataloguePage> {
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const conversation = await readDetail(sql, conversationId);
+      if (conversation === null || conversation.status === 'archived') throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+      const resource: ResourceRef = {
+        inboxId: conversation.connectionId,
+        ...(conversation.teamId === null ? {} : { teamId: conversation.teamId }),
+        assigneeMembershipId: conversation.assigneeMembershipId,
+        participantMembershipIds: conversation.participantMembershipIds,
+      };
+      if (!authorize(principal, 'conversation.reply', resource).allowed) throw new ApiHttpError(403, 'permission_denied', 'You do not have access to reply to this conversation.');
+      const connectionId = conversation.connectionId;
+      const connection = await requireLiveConnection(sql, connectionId);
+      if (connection.kind !== 'whatsapp') throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+      const offset = query.cursor === null ? 0 : Number(query.cursor);
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > 2000) throw new ApiHttpError(400, 'invalid_cursor', 'Refresh the template catalogue to continue.');
+      const values: unknown[] = [tenantId, connectionId];
+      const where = ['tenant_id=$1', 'connection_id=$2'];
+      const add = (value: unknown): string => { values.push(value); return `$${values.length}`; };
+      if (query.search !== '') where.push(`(lower(template_name) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\' OR lower(language) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\' OR lower(category) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\')`);
+      if (query.language !== '') where.push(`language=${add(query.language)}`);
+      if (query.category !== '') where.push(`category=${add(query.category.toLowerCase())}`);
+      if (query.status !== '') where.push(`status=${add(query.status)}`);
+      const rows = await sql.query<{
+        id: string; provider_template_id: string; template_name: string; language: string; category: string;
+        status: string; components: unknown; last_synced_at: Date;
+      }>(`SELECT id::text,provider_template_id,template_name,language,category,status,components,last_synced_at
+            FROM whatsapp_templates WHERE ${where.join(' AND ')}
+            ORDER BY lower(template_name),language,id OFFSET ${add(offset)} LIMIT 51`, values);
+      const page = rows.rows.slice(0, 50);
+      return {
+        items: page.map((row) => {
+          const definition = defineWhatsAppTemplate(row.components);
+          return { id: row.id, providerTemplateId: row.provider_template_id, name: row.template_name, language: row.language, category: row.category, status: row.status, ...definition, lastSyncedAt: row.last_synced_at.toISOString() };
+        }),
+        nextCursor: rows.rows.length > 50 ? String(offset + 50) : null,
+      };
+    });
+  }
 
   /**
    * Queues one message, or refuses it now.
@@ -116,8 +191,46 @@ export class OutboundService {
       tenantId,
       'conversation.reply',
       async ({ sql, principal }) => {
+        const existing = await sql.query<{ id: string; author_membership: string | null }>(
+          'SELECT id::text,author_membership::text FROM outbound_messages WHERE tenant_id=$1 AND client_message_id=$2',
+          [tenantId, request.clientMessageId],
+        );
+        const already = existing.rows[0];
+        if (already !== undefined) {
+          if (already.author_membership !== principal.membershipId) throw new ApiHttpError(409, 'idempotency_key_conflict', 'This message key is already in use. Use a new key for a new message.');
+          return requireRow(await readMessages(sql, already.id), 'the message vanished');
+        }
         const connection = await requireLiveConnection(sql, connectionId);
         const capabilities = capabilitiesOf(connection);
+        let templateName: string | null = request.template?.name ?? null;
+        let templateLanguage: string | null = request.template?.language ?? null;
+        let templateProviderId: string | null = null;
+        let templateComponents: readonly { readonly type: 'header' | 'body' | 'button'; readonly subType?: 'url'; readonly index?: string; readonly parameters: readonly { readonly type: 'text'; readonly text: string }[] }[] = [];
+        let templatePreview: string | null = null;
+        if ((request.messageType === 'template') !== (request.template !== null)) {
+          throw new ApiHttpError(400, 'invalid_input', 'A template message must select a WhatsApp catalogue entry.');
+        }
+        if (request.template !== null && request.template.id === undefined) {
+          throw new ApiHttpError(422, 'template_selection_required', 'Select an approved template from this conversation’s WhatsApp catalogue.');
+        }
+        if (request.template?.id !== undefined) {
+          if (connection.kind !== 'whatsapp') throw new ApiHttpError(422, 'template_not_sendable', 'WhatsApp templates can only be sent on a WhatsApp connection.');
+          const stored = (await sql.query<StoredWhatsAppTemplate>(
+            `SELECT id::text,provider_template_id,template_name,language,status,components FROM whatsapp_templates
+              WHERE id=$1 AND tenant_id=$2 AND connection_id=$3`,
+            [request.template.id, tenantId, connectionId],
+          )).rows[0];
+          if (stored === undefined || stored.status !== 'approved') throw new ApiHttpError(409, 'template_not_sendable', 'This WhatsApp template is no longer approved. Refresh the catalogue and choose an approved template.');
+          const definition = defineWhatsAppTemplate(stored.components);
+          const values = request.template.parameters ?? {};
+          const built = buildWhatsAppTemplateComponents(definition, values);
+          if (built === null) throw new ApiHttpError(422, 'template_parameters_invalid', definition.unsupportedReason ?? 'Provide every required template parameter and no extra values.');
+          templateName = stored.template_name;
+          templateLanguage = stored.language;
+          templateProviderId = stored.provider_template_id;
+          templateComponents = built;
+          templatePreview = renderWhatsAppTemplatePreview(definition, values);
+        }
 
         // Refused at the door, not queued to fail later: a note is never
         // deliverable and a channel that cannot carry this type never will
@@ -133,7 +246,7 @@ export class OutboundService {
           // message an agent legitimately wrote.
           lastInboundAt: new Date(),
           now: new Date(),
-          template: request.template === null ? null : { name: request.template.name, kind: connection.kind },
+          template: templateName === null ? null : { name: templateName, kind: connection.kind },
           consentWithdrawn: false,
         });
         if (!shape.allowed) {
@@ -150,17 +263,6 @@ export class OutboundService {
         const barrier = ownershipPermits(ownership.state, 'human');
         if (barrier !== null) {
           throw new ApiHttpError(409, barrier, OWNERSHIP_MESSAGE[barrier]);
-        }
-
-        // The command and its outbox entry, in one transaction (DEL-07).
-        const existing = await sql.query<{ id: string }>(
-          'SELECT id::text FROM outbound_messages WHERE client_message_id = $1',
-          [request.clientMessageId],
-        );
-        const already = existing.rows[0];
-        if (already !== undefined) {
-          // The caller's own retry. The same message, not a second one.
-          return requireRow(await readMessages(sql, already.id), 'the message vanished');
         }
 
         if (conversationId !== null) {
@@ -194,9 +296,9 @@ export class OutboundService {
         const inserted = await sql.query<{ id: string }>(
           `INSERT INTO outbound_messages
              (tenant_id, connection_id, peer_identity, conversation_id, author_membership, message_type,
-              text_body, template_name, template_language, client_message_id,
+              text_body, template_name, template_language, template_provider_id, template_components, template_preview, client_message_id,
               permitted_owner_version)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14)
            RETURNING id::text`,
           [
             tenantId,
@@ -206,8 +308,11 @@ export class OutboundService {
             principal.membershipId,
             request.messageType,
             request.text === '' ? null : request.text,
-            request.template?.name ?? null,
-            request.template?.language ?? null,
+            templateName,
+            templateLanguage,
+            templateProviderId,
+            JSON.stringify(templateComponents),
+            templatePreview,
             request.clientMessageId,
             // The permit is bound to the ownership it was granted under, so a
             // dispatch-time re-check has something to compare against. Nothing
@@ -410,3 +515,5 @@ const OWNERSHIP_MESSAGE: Readonly<Record<OwnershipRefusal, string>> = {
   ownership_is_human: 'A person is handling this conversation.',
   bot_is_paused: 'Automated replies are paused on this conversation.',
 };
+
+function escapeLike(value: string): string { return value.replace(/[\\%_]/g, '\\$&'); }

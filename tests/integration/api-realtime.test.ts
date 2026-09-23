@@ -933,11 +933,21 @@ describe('a conversation that is already somebody’s', () => {
     // written, so nobody is waiting, and the card has to say so rather than
     // inventing a start time.
     const peer = '15557000080';
+    const template = await withTenant(api.pool, api.tenantId, async (client) => {
+      const result = await client.query<{ id: string }>(
+        `INSERT INTO whatsapp_templates
+           (tenant_id,connection_id,provider_template_id,template_name,language,category,status,components,variables,last_synced_at)
+         VALUES($1,$2,$3,'order_update','ar','utility','approved','[{"type":"BODY","text":"تحديث الطلب"}]'::jsonb,'[]'::jsonb,now())
+         RETURNING id::text`,
+        [api.tenantId, inboxA, `ptid-${randomUUID()}`],
+      );
+      return result.rows[0]!.id;
+    });
     const queued = await send(api, owner, 'POST', `/channels/${inboxA}/messages`, {
       peerIdentity: peer,
-      messageType: 'text',
+      messageType: 'template',
       text: '',
-      template: { name: 'order_update', language: 'ar' },
+      template: { id: template, parameters: {} },
       clientMessageId: 'realtime-template-1',
     });
     expect(queued.statusCode).toBe(202);

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, withTenant } from '@convo/database';
-import type { DeliveryFold, Offer, SendOutcome, SqlExecutor } from '@convo/domain';
+import type { DeliveryFold, Offer, SendOutcome, SqlExecutor, WhatsAppTemplateSendComponent } from '@convo/domain';
 import { foldDelivery, permitSend } from '@convo/domain';
 import type { Pool } from 'pg';
 import { API_POOL, CHANNEL_TRANSPORT } from '../tokens.js';
@@ -61,6 +61,7 @@ interface ClaimRow {
   readonly text_body: string | null;
   readonly template_name: string | null;
   readonly template_language: string | null;
+  readonly template_components: readonly WhatsAppTemplateSendComponent[];
   readonly dispatch_version: number;
   readonly attempts: number;
   readonly kind: string;
@@ -267,7 +268,7 @@ export class ChannelDispatcherService {
             AND c.id = m.connection_id
           RETURNING o.message_id::text, o.connection_id::text, o.peer_identity,
                     m.conversation_id::text AS conversation_id,
-                    m.message_type, m.text_body, m.template_name, m.template_language,
+                    m.message_type, m.text_body, m.template_name, m.template_language, m.template_components,
                     m.dispatch_version, o.attempts,
                     c.kind, c.capabilities, c.status AS connection_status,c.disconnected_at,
                     cr.id::text AS campaign_recipient_id,cts.id::text AS campaign_test_send_id`,
@@ -354,7 +355,7 @@ export class ChannelDispatcherService {
       template:
         claim.template_name === null || claim.template_language === null
           ? null
-          : { name: claim.template_name, language: claim.template_language },
+          : { name: claim.template_name, language: claim.template_language, components: claim.template_components },
       attachments: [],
       idempotencyKey: prepared.attemptId,
     });

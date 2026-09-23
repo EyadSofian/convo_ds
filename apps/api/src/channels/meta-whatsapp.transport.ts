@@ -281,6 +281,14 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
         template: {
           name: command.template.name,
           language: { code: command.template.language },
+          ...(command.template.components === undefined || command.template.components.length === 0
+            ? {}
+            : { components: command.template.components.map((component) => ({
+                type: component.type,
+                ...(component.subType === undefined ? {} : { sub_type: component.subType }),
+                ...(component.index === undefined ? {} : { index: component.index }),
+                parameters: component.parameters.map((parameter) => ({ type: parameter.type, text: parameter.text })),
+              })) }),
         },
       };
     }

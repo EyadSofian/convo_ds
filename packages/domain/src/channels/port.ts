@@ -1,5 +1,6 @@
 import type { CapabilityMatrix } from './capabilities.js';
 import type { ChannelKind } from './kinds.js';
+import type { WhatsAppTemplateSendComponent } from './whatsapp-template.js';
 
 /**
  * The provider-neutral channel adapter port, version 1.
@@ -144,7 +145,11 @@ export interface SendCommand {
   readonly peerIdentity: string;
   readonly messageType: string;
   readonly text: string | null;
-  readonly template: { readonly name: string; readonly language: string } | null;
+  readonly template: {
+    readonly name: string;
+    readonly language: string;
+    readonly components?: readonly WhatsAppTemplateSendComponent[];
+  } | null;
   readonly attachments: readonly InboundAttachment[];
   /** Carried to the provider where its contract has actually been verified. */
   readonly idempotencyKey: string;

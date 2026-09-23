@@ -34,6 +34,9 @@ export interface TimelineMessage {
   readonly delivery_state: string | null;
   readonly delivery_anomaly: string | null;
   readonly provider_message_id: string | null;
+  readonly template_name: string | null;
+  readonly template_language: string | null;
+  readonly template_preview: string | null;
 }
 
 interface TimelineRow {
@@ -48,6 +51,9 @@ interface TimelineRow {
   readonly delivery_state: string | null;
   readonly delivery_anomaly: string | null;
   readonly provider_message_id: string | null;
+  readonly template_name: string | null;
+  readonly template_language: string | null;
+  readonly template_preview: string | null;
 }
 
 export interface TimelinePage {
@@ -89,6 +95,7 @@ export function timelineBinding(tenantId: string, conversationId: string): Curso
  */
 export async function readTimeline(
   sql: SqlExecutor,
+  conversationId: string,
   connectionId: string,
   peerIdentity: string,
   after: { readonly at: string; readonly id: string } | null,
@@ -100,23 +107,31 @@ export async function readTimeline(
               e.content_type, e.text_body, e.attachments,
               NULL::text AS author_membership_id,
               NULL::text AS command_state, NULL::text AS delivery_state,
-              NULL::text AS delivery_anomaly, e.provider_message_id
-         FROM inbound_events e
-        WHERE e.connection_id = $1 AND e.peer_identity = $2 AND e.kind = 'message'
+              NULL::text AS delivery_anomaly, e.provider_message_id,
+              NULL::text AS template_name, NULL::text AS template_language, NULL::text AS template_preview
+        FROM inbound_events e
+        WHERE e.connection_id = $2 AND e.peer_identity = $3 AND e.kind = 'message'
+          AND (e.conversation_id=$1 OR (e.conversation_id IS NULL
+            AND e.occurred_at >= (SELECT c.created_at FROM conversations c WHERE c.id=$1)
+            AND e.occurred_at < COALESCE((SELECT c.archived_at FROM conversations c WHERE c.id=$1), 'infinity'::timestamptz)))
        UNION ALL
        SELECT m.id::text, 'out', m.created_at,
               m.message_type, m.text_body, m.attachments,
               m.author_membership::text,
               m.command_state, m.delivery_state,
-              m.delivery_anomaly, m.provider_message_id
+              m.delivery_anomaly, m.provider_message_id,
+              m.template_name,m.template_language,m.template_preview
          FROM outbound_messages m
-        WHERE m.connection_id = $1 AND m.peer_identity = $2
+        WHERE m.connection_id = $2 AND m.peer_identity = $3
+          AND (m.conversation_id=$1 OR (m.conversation_id IS NULL
+            AND m.created_at >= (SELECT c.created_at FROM conversations c WHERE c.id=$1)
+            AND m.created_at < COALESCE((SELECT c.archived_at FROM conversations c WHERE c.id=$1), 'infinity'::timestamptz)))
      )
      SELECT * FROM merged
-      WHERE $3::timestamptz IS NULL OR (at, id) < ($3::timestamptz, $4::text)
+      WHERE $4::timestamptz IS NULL OR (at, id) < ($4::timestamptz, $5::text)
       ORDER BY at DESC, id DESC
-      LIMIT $5`,
-    [connectionId, peerIdentity, after?.at ?? null, after?.id ?? null, limit + 1],
+      LIMIT $6`,
+    [conversationId, connectionId, peerIdentity, after?.at ?? null, after?.id ?? null, limit + 1],
   );
   const page = result.rows.slice(0, limit);
   return {
@@ -140,5 +155,8 @@ function messageOf(row: TimelineRow): TimelineMessage {
     delivery_state: row.delivery_state,
     delivery_anomaly: row.delivery_anomaly,
     provider_message_id: row.provider_message_id,
+    template_name: row.template_name,
+    template_language: row.template_language,
+    template_preview: row.template_preview,
   };
 }

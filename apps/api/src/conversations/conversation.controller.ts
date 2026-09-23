@@ -154,6 +154,27 @@ export class ConversationController {
     return pageEnvelope(page.messages, page.nextCursor, request.id);
   }
 
+  @Get('tenants/:tenantId/conversations/:conversationId/whatsapp-templates')
+  async whatsappTemplates(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Query() query: Record<string, string | undefined>,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const status = query['status'] ?? 'approved';
+    if (!['approved', 'pending', 'paused', 'rejected', 'disabled'].includes(status)) {
+      throw new ApiHttpError(400, 'invalid_input', 'The template status filter is invalid.');
+    }
+    const search = (query['search'] ?? '').trim().slice(0, 100);
+    const language = (query['language'] ?? '').trim().slice(0, 20);
+    const category = (query['category'] ?? '').trim().toLowerCase().slice(0, 40);
+    const page = await this.outbound.templates(session, tenantId, conversationId, {
+      search, language, category, status, cursor: query['cursor'] ?? null,
+    });
+    return pageEnvelope(page.items, page.nextCursor, request.id);
+  }
+
   /**
    * Replies inside a conversation.
    *

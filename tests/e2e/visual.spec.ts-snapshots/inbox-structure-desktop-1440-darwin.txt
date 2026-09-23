@@ -423,6 +423,11 @@ div.inbox
                 path
                 path
               span.btn__label
+            button.btn.btn--sm [live-whatsapp-template-open]
+              svg
+                path
+                path
+              span.btn__label
   button.zone-scrim.zone-scrim--panel [close-overlays]
   aside.zone.zone--panel
     header.zone__header

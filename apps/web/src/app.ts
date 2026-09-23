@@ -647,7 +647,15 @@ export function mount(options: MountOptions): AppHandle {
     if (act === null) return;
     const formName = target.getAttribute('data-form');
     const arg = formName === null ? target.value : `${formName}:${target.value}`;
+    const previousInputValue = formName === null ? undefined : state.dialogForm[formName];
     dispatch(act, arg);
+    const waParameter = target.getAttribute('data-wa-parameter');
+    if (waParameter !== null) {
+      if (previousInputValue !== target.value) delete state.dialogForm['whatsappTemplateClientMessageId'];
+      for (const preview of root.querySelectorAll<HTMLElement>('[data-template-preview-key]')) {
+        if (preview.getAttribute('data-template-preview-key') === waParameter) preview.textContent = target.value || `{{${waParameter.split(':').at(-1) ?? ''}}}`;
+      }
+    }
     if (formName !== null && target instanceof HTMLSelectElement && act === 'form') refresh();
     // A draft is recorded without a re-render, so the caret never jumps; the one
     // control its emptiness gates is updated in place instead. Without this the

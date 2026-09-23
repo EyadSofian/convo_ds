@@ -220,6 +220,7 @@ describe('Inbox list controls', () => {
     const root = renderInbox(app);
     expect(root.querySelector('.composer__input')).toBeNull();
     expect(root.querySelector('.composer__closed-window')).not.toBeNull();
-    expect(root.textContent).toContain('24-hour messaging window closed');
+    expect(root.textContent).toContain('We cannot verify an active WhatsApp customer service window');
+    expect(root.textContent).not.toContain('24-hour messaging window closed');
   });
 });

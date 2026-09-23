@@ -53,7 +53,7 @@ function queueCards(): readonly Record<string, unknown>[] {
 function mine(): readonly Record<string, unknown>[] {
   return NAMES.slice(0, 9).map((_name, index) => ({
     id: index === 0 ? CONVERSATION : `own-${String(index).padStart(2, '0')}`,
-    connectionId: 'cn-1',
+    connectionId: index === 0 ? CONNECTION : 'cn-1',
     peerIdentity: `1555000${String(index).padStart(4, '0')}`,
     teamId: null,
     assigneeMembershipId: MEMBERSHIP,
@@ -572,6 +572,17 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     }
     if (path.endsWith('/automation-templates')) {
       return json(route, paged(automationTemplates()));
+    }
+    if (path.includes('/conversations/') && path.endsWith('/whatsapp-templates')) {
+      return json(route, {
+        data: [{
+          id: 'whatsapp-template-1', providerTemplateId: 'meta-template-1', name: 'welcome_message', language: 'en', category: 'utility', status: 'approved',
+          components: [{ type: 'body', text: 'Hello {{1}}', format: null, buttons: [] }],
+          parameters: [{ key: 'body:1', component: 'body', index: null, position: 1, example: null }],
+          sendSupported: true, unsupportedReason: null, lastSyncedAt: '2026-09-09T09:00:00.000Z',
+        }],
+        page: { next_cursor: null, has_more: false }, request_id: 'e2e',
+      });
     }
     if (path.endsWith('/whatsapp-templates')) {
       return json(route, paged([]));

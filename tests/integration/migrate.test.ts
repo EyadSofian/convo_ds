@@ -84,6 +84,7 @@ describe('migrate', () => {
       '0037_conversation_identity_history_index.sql',
       '0038_conversation_episode_actor_fk_set_null.sql',
       '0039_notifications.sql',
+      '0040_whatsapp_template_send_evidence.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);

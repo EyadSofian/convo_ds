@@ -143,6 +143,7 @@ describe('pinned OpenAPI contract', () => {
       "deleteNote",
       "listConversationMessages",
       "replyToConversation",
+      "listConversationWhatsAppTemplates",
       "listInvitations",
       "createInvitation",
       "revokeInvitation",

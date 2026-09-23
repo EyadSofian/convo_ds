@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Campaign } from '../api/campaigns';
 import type { ChannelConnection } from '../api/channels';
+import type { WhatsAppTemplateCatalogueItem } from '../api/conversations';
 import { createState } from '../state';
 import { ready } from '../live/store';
 import type { AppState } from '../state';
@@ -39,6 +40,41 @@ describe('renderDialog', () => {
     const state = base();
     expect(renderDialog(state)).toBeNull();
     expect(open(state, 'nonsense').textContent).toContain('There is nothing to show here.');
+  });
+});
+
+describe('WhatsApp template picker', () => {
+  it('shows the canonical approved catalogue, live parameter field, localized controls and language direction', () => {
+    const state = base();
+    const item: WhatsAppTemplateCatalogueItem = {
+      id: 'template-1', providerTemplateId: 'meta-1', name: 'welcome', language: 'ar', category: 'utility', status: 'approved',
+      components: [{ type: 'header', text: 'أهلًا {{1}}', format: 'TEXT', buttons: [] }, { type: 'body', text: 'مرحبًا {{1}}', format: null, buttons: [] }, { type: 'footer', text: 'مدرسة بيرلتز', format: null, buttons: [] }, { type: 'buttons', text: null, format: null, buttons: [{ type: 'url', text: 'التفاصيل' }] }],
+      parameters: [{ key: 'header:1', component: 'header', index: null, position: 1, example: 'Ahmed' }, { key: 'body:1', component: 'body', index: null, position: 1, example: null }],
+      sendSupported: true, unsupportedReason: null, lastSyncedAt: NOW.toISOString(),
+    };
+    state.live.conversationTemplates = ready([item], NOW.getTime());
+    state.dialogForm = { whatsappTemplateId: item.id, whatsappTemplateParameter_header_1: 'Ahmed', whatsappTemplateParameter_body_1: 'Sara' };
+    const picker = open(state, 'whatsapp-template', 'conversation-1');
+    expect(picker.querySelector('[role="dialog"]')?.getAttribute('aria-modal')).toBe('true');
+    expect(picker.querySelector('.wa-template-preview')?.getAttribute('dir')).toBe('rtl');
+    expect(picker.textContent).toContain('مرحبًا Sara');
+    expect(picker.textContent).toContain('welcome');
+    expect(picker.querySelector('[data-act="live-whatsapp-template-send"]')?.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('marks unsupported media and stale statuses non-sendable, with English content remaining LTR', () => {
+    const state = base();
+    const media: WhatsAppTemplateCatalogueItem = {
+      id: 'template-media', providerTemplateId: 'meta-media', name: 'receipt', language: 'en', category: 'utility', status: 'paused',
+      components: [{ type: 'header', text: null, format: 'IMAGE', buttons: [] }, { type: 'body', text: 'Your receipt', format: null, buttons: [] }],
+      parameters: [], sendSupported: false, unsupportedReason: 'Media upload is required.', lastSyncedAt: NOW.toISOString(),
+    };
+    state.live.conversationTemplates = ready([media], NOW.getTime());
+    state.dialogForm = { whatsappTemplateId: media.id };
+    const picker = open(state, 'whatsapp-template', 'conversation-1');
+    expect(picker.querySelector('.wa-template-preview')?.getAttribute('dir')).toBe('ltr');
+    expect(picker.textContent).toContain('Media header is not supported yet');
+    expect((picker.querySelector('[data-act="live-whatsapp-template-send"]') as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

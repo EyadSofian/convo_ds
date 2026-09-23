@@ -33,12 +33,96 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'retire-label') return retireLabelDialog(state, dialog.arg);
   if (dialog.kind === 'inline-label') return inlineLabel(state, dialog.arg);
   if (dialog.kind === 'automation-delete') return automationDelete(state, dialog.arg);
+  if (dialog.kind === 'whatsapp-template') return whatsappTemplatePicker(state);
   return dialogShell(
     state,
     t(state, 'غير متاح', 'Not available'),
     [h('p', {}, [t(state, 'لا يوجد محتوى لهذه النافذة.', 'There is nothing to show here.')])],
     [closeButton(state)],
   );
+}
+
+function whatsappTemplatePicker(state: AppState): HTMLElement {
+  const resource = state.live.conversationTemplates;
+  const templates = rowsOf(resource);
+  const selectedId = state.dialogForm['whatsappTemplateId'] ?? '';
+  const selected = templates.find((item) => item.id === selectedId);
+  const parameterValues = Object.fromEntries((selected?.parameters ?? []).map((parameter) => [parameter.key, state.dialogForm[whatsappParameterKey(parameter.key)] ?? '']));
+  const direction = selected?.language.toLowerCase().startsWith('ar') ? 'rtl' : 'ltr';
+  const statusLabel = (value: string): string => ({ approved: t(state, 'معتمد', 'Approved'), pending: t(state, 'قيد المراجعة', 'Pending'), paused: t(state, 'متوقف مؤقتًا', 'Paused'), rejected: t(state, 'مرفوض', 'Rejected'), disabled: t(state, 'غير متاح', 'Disabled') }[value] ?? value);
+  const languages = [...new Set(templates.map((item) => item.language))].sort();
+  const categories = [...new Set(templates.map((item) => item.category))].sort();
+  const search = h('input', { class: 'input', type: 'search', value: state.dialogForm['whatsappTemplateSearch'] ?? '', placeholder: t(state, 'ابحث بالاسم أو اللغة أو الفئة', 'Search name, language or category'), 'aria-label': t(state, 'بحث القوالب', 'Search templates'), 'data-act': 'form', 'data-form': 'whatsappTemplateSearch' });
+  return dialogShell(state, t(state, 'قوالب واتساب', 'WhatsApp Templates'), [
+    h('div', { class: 'wa-template-toolbar' }, [
+      search,
+      selectControl({ act: 'form', form: 'whatsappTemplateLanguage', value: state.dialogForm['whatsappTemplateLanguage'] ?? '', options: [{ value: '', label: t(state, 'كل اللغات', 'All languages') }, ...languages.map((value) => ({ value, label: value }))] }),
+      selectControl({ act: 'form', form: 'whatsappTemplateCategory', value: state.dialogForm['whatsappTemplateCategory'] ?? '', options: [{ value: '', label: t(state, 'كل الفئات', 'All categories') }, ...categories.map((value) => ({ value, label: value }))] }),
+      selectControl({ act: 'form', form: 'whatsappTemplateStatus', value: state.dialogForm['whatsappTemplateStatus'] ?? 'approved', options: [
+        { value: 'approved', label: t(state, 'المعتمد', 'Approved') }, { value: 'pending', label: t(state, 'قيد المراجعة', 'Pending') },
+        { value: 'paused', label: t(state, 'متوقف مؤقتًا', 'Paused') }, { value: 'rejected', label: t(state, 'مرفوض', 'Rejected') }, { value: 'disabled', label: t(state, 'غير متاح', 'Disabled') },
+      ] }),
+      button({ label: t(state, 'بحث', 'Search'), act: 'live-whatsapp-template-search', variant: 'default', small: true }),
+      button({ label: t(state, 'تحديث الكتالوج', 'Refresh catalogue'), icon: 'refresh', act: 'live-whatsapp-template-refresh', variant: 'ghost', small: true, busy: state.live.busy === 'whatsapp-template-refresh' }),
+    ]),
+    state.live.error === null ? null : inlineError(state, state.live.error),
+    resource.status === 'loading' || resource.status === 'idle'
+      ? h('p', { class: 'field__hint', role: 'status' }, [t(state, 'جارٍ تحميل القوالب المعتمدة…', 'Loading approved templates…')])
+      : resource.status === 'error'
+        ? notice('warning', 'alert', t(state, 'تعذر تحميل الكتالوج. جرّب التحديث.', 'Could not load the catalogue. Try refreshing.'))
+        : null,
+    h('div', { class: 'wa-template-layout' }, [
+      h('div', { class: 'wa-template-list', role: 'listbox', 'aria-label': t(state, 'القوالب المعتمدة', 'Approved templates') }, [
+        ...(templates.length === 0 ? [h('p', { class: 'empty__body' }, [t(state, 'لا توجد قوالب في الكتالوج بعد. حدّثه من Meta.', 'No templates are in the local catalogue yet. Refresh from Meta.')])] : templates.map((template) => h('button', {
+            type: 'button', class: `wa-template-option${template.id === selectedId ? ' is-selected' : ''}`, role: 'option', 'aria-selected': String(template.id === selectedId),
+            'data-act': 'live-whatsapp-template-select', 'data-arg': template.id,
+          }, [
+            h('span', { class: 'wa-template-option__title' }, [template.name]),
+            h('span', { class: 'wa-template-option__meta' }, [`${template.language} · ${template.category} · ${statusLabel(template.status)}`]),
+            h('span', { class: 'wa-template-option__preview', dir: template.language.toLowerCase().startsWith('ar') ? 'rtl' : 'ltr' }, [template.components.find((component) => component.type === 'body')?.text ?? t(state, 'قالب بدون نص', 'Template without text')]),
+            template.parameters.length === 0 ? null : h('span', { class: 'wa-template-option__count' }, [t(state, `${template.parameters.length} متغير`, `${template.parameters.length} variables`)]),
+          ]))),
+        state.live.conversationTemplateCursor === null ? null : button({ label: t(state, 'تحميل المزيد', 'Load more'), act: 'live-whatsapp-template-more', variant: 'ghost', small: true, busy: state.live.busy === 'whatsapp-template-more' }),
+      ]),
+      h('section', { class: 'wa-template-detail', 'aria-label': t(state, 'معاينة القالب', 'Template preview') }, selected === undefined
+        ? [h('p', { class: 'field__hint' }, [t(state, 'اختر قالبًا لمعاينته وإدخال المتغيرات.', 'Select a template to preview it and enter its parameters.')])]
+        : [
+            h('div', { class: 'wa-template-detail__heading' }, [h('strong', {}, [selected.name]), h('span', { class: `badge ${selected.status === 'approved' ? 'badge--success' : 'badge--neutral'}` }, [statusLabel(selected.status)])]),
+            h('div', { class: 'wa-template-preview', dir: direction }, [
+              ...selected.components.filter((component) => component.type !== 'buttons').map((component) => component.text === null ? null : h('p', { class: `wa-template-preview__${component.type}` }, templatePreviewChildren(component.text, component.type, parameterValues))),
+              ...selected.components.filter((component) => component.type === 'buttons').flatMap((component) => component.buttons.map((buttonInfo) => h('span', { class: 'wa-template-preview__button', 'aria-hidden': 'true' }, [buttonInfo.text]))),
+            ]),
+            selected.components.some((component) => component.type === 'header' && component.format !== null && component.format !== 'TEXT')
+              ? notice('warning', 'alert', t(state, 'رأس الوسائط غير مدعوم حاليًا؛ لن يُرسل القالب.', 'Media header is not supported yet; this template cannot be sent.')) : null,
+            selected.sendSupported ? null : h('p', { class: 'field__error', role: 'status' }, [selected.unsupportedReason ?? t(state, 'هذا القالب غير مدعوم للإرسال.', 'This template is not supported for sending.')]),
+            ...selected.parameters.map((parameter) => {
+              const key = whatsappParameterKey(parameter.key);
+              const label = parameter.example ? `${parameter.component === 'body' ? t(state, 'النص', 'Body') : parameter.component} · ${parameter.position} (${parameter.example})` : `${parameter.component === 'button' ? t(state, 'زر', 'Button') : parameter.component === 'header' ? t(state, 'الرأس', 'Header') : t(state, 'النص', 'Body')} · ${t(state, 'متغير', 'Variable')} ${parameter.position}`;
+              return h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [label]), h('input', { class: 'input', maxlength: 1024, value: state.dialogForm[key] ?? '', dir: 'auto', required: true, 'data-act': 'form', 'data-form': key, 'data-wa-parameter': parameter.key })]);
+            }),
+          ]),
+    ]),
+  ], [
+    closeButton(state),
+    button({ label: t(state, 'إرسال القالب', 'Send template'), icon: 'send', act: 'live-whatsapp-template-send', variant: 'primary', busy: state.live.busy === 'send-template', disabled: selected === undefined || selected.status !== 'approved' || !selected.sendSupported }),
+  ], { size: 'lg', description: t(state, 'يُرسل كقالب Meta معتمد، ولا يتحول إلى رسالة نصية عادية.', 'Sent as an approved Meta template, never converted into ordinary free-form text.') });
+}
+
+function whatsappParameterKey(key: string): string { return `whatsappTemplateParameter_${key.replaceAll(':', '_')}`; }
+function templatePreviewChildren(text: string, component: string, values: Readonly<Record<string, string>>): Child[] {
+  const result: Child[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(/\{\{(\d+)\}\}/g)) {
+    const at = match.index ?? 0;
+    const token = match[0];
+    const position = match[1] ?? '';
+    if (at > cursor) result.push(text.slice(cursor, at));
+    const key = `${component}:${position}`;
+    result.push(h('mark', { class: 'wa-template-preview__variable', 'data-template-preview-key': key }, [values[key] || token]));
+    cursor = at + token.length;
+  }
+  if (cursor < text.length) result.push(text.slice(cursor));
+  return result;
 }
 
 function automationDelete(state: AppState, automationId: string): HTMLElement {

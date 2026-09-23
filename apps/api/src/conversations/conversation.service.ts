@@ -529,6 +529,7 @@ export class ConversationService {
 
       const page = await readTimeline(
         sql,
+        conversationId,
         detail.connectionId,
         detail.peerIdentity,
         after,
