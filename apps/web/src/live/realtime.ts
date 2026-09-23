@@ -55,6 +55,8 @@ export interface EventSourceLike {
 export type EventSourceFactory = (url: string) => EventSourceLike;
 
 export interface RealtimeHandlers {
+  /** The EventSource has opened or successfully re-opened after a retry. */
+  onConnect(): void;
   /** An authorized event, already deduped and in order. */
   onEvent(event: RealtimeEvent): void;
   /** The view is unusable and must be reloaded from scratch. */
@@ -105,6 +107,9 @@ export function subscribe(options: RealtimeOptions): RealtimeSubscription {
   // `EventSource` sends by itself from the last frame id it saw. Catching up
   // across a longer gap is the HTTP endpoint's job, not this one's.
   const source = options.open(`${options.baseUrl}/tenants/${options.tenantId}/realtime/stream`);
+  source.addEventListener('open', () => {
+    if (!closed) options.handlers.onConnect();
+  });
 
   const apply = (raw: string): void => {
     const event = parseEvent(raw);

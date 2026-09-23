@@ -59,12 +59,14 @@ function event(overrides: Partial<RealtimeEvent> = {}): Record<string, unknown> 
 
 function harness(): {
   source: FakeSource;
+  connections: number[];
   events: RealtimeEvent[];
   resets: string[];
   disconnects: { reason: string; willRetry: boolean }[];
   subscription: ReturnType<typeof subscribe>;
 } {
   let created: FakeSource | undefined;
+  const connections: number[] = [];
   const events: RealtimeEvent[] = [];
   const resets: string[] = [];
   const disconnects: { reason: string; willRetry: boolean }[] = [];
@@ -76,18 +78,27 @@ function harness(): {
       return created;
     },
     handlers: {
+      onConnect: () => connections.push(connections.length + 1),
       onEvent: (value) => events.push(value),
       onReset: (reason) => resets.push(reason),
       onDisconnect: (reason, willRetry) => disconnects.push({ reason, willRetry }),
     },
   });
-  return { source: created as FakeSource, events, resets, disconnects, subscription };
+  return { source: created as FakeSource, connections, events, resets, disconnects, subscription };
 }
 
 describe('the realtime subscription', () => {
   it('subscribes to the tenant’s stream', () => {
     const { source } = harness();
     expect(source.url).toBe('/api/v1/tenants/t1/realtime/stream');
+  });
+
+  it('reports a successful initial connection and reconnect', () => {
+    const { source, connections } = harness();
+    source.emit('open', '');
+    source.emit('error', '');
+    source.emit('open', '');
+    expect(connections).toEqual([1, 2]);
   });
 
   it('applies an event and remembers where it got to', () => {
@@ -320,5 +331,29 @@ describe('the stream an open workspace holds', () => {
     expect(opened).toHaveLength(1);
     stopRealtime(context);
     expect(state.live.subscription).toBeNull();
+  });
+
+  it('returns the workspace from reconnecting to live after EventSource reopens', () => {
+    const state = createState(new Date('2026-09-09T10:00:00.000Z'));
+    state.live.session = { status: 'signed_in', email: 'a@b.c', memberships: [], tenantId: 't-1' };
+    let source: FakeSource | null = null;
+    const context: LiveContext = {
+      state,
+      live: state.live,
+      refresh: vi.fn(),
+      now: () => 42,
+      newKey: () => 'k',
+      endSession: vi.fn(),
+      switchWorkspace: vi.fn(),
+    };
+    startRealtime(context, {
+      baseUrl: '/api/v1',
+      open: (url) => { source = new FakeSource(url); return source; },
+    });
+    source!.emit('error', '');
+    expect(state.live.realtime.status).toBe('stale');
+    source!.emit('open', '');
+    expect(state.live.realtime).toEqual({ status: 'live', since: 42 });
+    stopRealtime(context);
   });
 });

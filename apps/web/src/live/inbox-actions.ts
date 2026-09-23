@@ -547,6 +547,10 @@ export function startRealtime(context: LiveContext, wiring: RealtimeWiring): voi
     tenantId,
     open: wiring.open,
     handlers: {
+      onConnect: () => {
+        live.realtime = { status: 'live', since: context.now() };
+        context.refresh();
+      },
       onEvent: (event) => {
         if (event.type === 'notification.changed') {
           if (context.state.openMenu === 'notifications') void loadNotifications(context, true);
