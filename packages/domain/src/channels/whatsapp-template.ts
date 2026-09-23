@@ -126,7 +126,9 @@ function placeholders(text: string): number[] | null {
   const tokens = [...text.matchAll(/\{\{([^}]+)\}\}/g)];
   const residue = text.replace(/\{\{[^}]+\}\}/g, '');
   if (residue.includes('{{') || residue.includes('}}')) return null;
-  if (tokens.some((token) => !/^\d+$/.test(token[1] ?? ''))) return null;
+  // The capture group is guaranteed by the expression above, so avoid a
+  // synthetic empty-string fallback that creates an unreachable coverage arm.
+  if (tokens.some((token) => !/^\d+$/.test(token[1]!))) return null;
   return [...new Set(tokens.map((token) => Number(token[1])))].sort((a, b) => a - b);
 }
 function exampleFor(component: Record<string, unknown>, position: number, kind: 'header' | 'body'): string | null {

@@ -61,6 +61,10 @@ describe('WhatsApp template definition', () => {
     expect(buildWhatsAppTemplateComponents(malformed, {})).toBeNull();
     expect(defineWhatsAppTemplate([{ type: 'UNKNOWN' }]).sendSupported).toBe(false);
     expect(defineWhatsAppTemplate([null]).sendSupported).toBe(false);
+    expect(defineWhatsAppTemplate([{ type: 'BUTTONS', buttons: 'not-an-array' }]).sendSupported).toBe(true);
+    expect(defineWhatsAppTemplate([{ type: 'BUTTONS', buttons: [{ type: 'OTP' }] }]).unsupportedReason).toBe('This button type requires a specialized send flow.');
+    expect(defineWhatsAppTemplate([{ type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Continue' }] }]).sendSupported).toBe(false);
+    expect(defineWhatsAppTemplate([{ type: 'BODY', text: 'Broken {{1' }]).sendSupported).toBe(false);
   });
 
   it('reads text and header examples only when the provider example shape is valid', () => {
@@ -69,6 +73,8 @@ describe('WhatsApp template definition', () => {
       { type: 'BODY', text: '{{1}} {{2}}', example: { body_text: [['Amina', 'Tuesday']] } },
     ]);
     expect(definition.parameters.map((parameter) => parameter.example)).toEqual(['Dr. Lee', 'Amina', 'Tuesday']);
+    expect(renderWhatsAppTemplatePreview(defineWhatsAppTemplate([]), {})).toBe('');
+    expect(renderWhatsAppTemplatePreview(defineWhatsAppTemplate([{ type: 'BODY', text: 'Hello {{1}}' }]), {})).toBe('Hello {{1}}');
   });
 
   it('rejects missing, empty, extra and oversized parameters', () => {

@@ -113,9 +113,9 @@ function templatePreviewChildren(text: string, component: string, values: Readon
   const result: Child[] = [];
   let cursor = 0;
   for (const match of text.matchAll(/\{\{(\d+)\}\}/g)) {
-    const at = match.index ?? 0;
+    const at = match.index!;
     const token = match[0];
-    const position = match[1] ?? '';
+    const position = match[1]!;
     if (at > cursor) result.push(text.slice(cursor, at));
     const key = `${component}:${position}`;
     result.push(h('mark', { class: 'wa-template-preview__variable', 'data-template-preview-key': key }, [values[key] || token]));

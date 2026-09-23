@@ -27,4 +27,9 @@ describe('conversation event boundaries', () => {
     expect(calls[0]?.[1]).toEqual(['conversation-1']);
     expect(evidence).toEqual({ lastInboundAt, serverNow });
   });
+
+  it('fails loudly if the single-row conversation lookup unexpectedly returns no row', async () => {
+    const query: SqlExecutor['query'] = async <T>() => ({ rows: [] as T[], rowCount: 0 });
+    await expect(latestConversationInbound({ query } as unknown as SqlExecutor, 'missing')).rejects.toThrow('conversation inbound query returned no row');
+  });
 });

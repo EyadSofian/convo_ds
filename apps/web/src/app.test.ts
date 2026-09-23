@@ -738,6 +738,29 @@ describe('layers, focus and the keyboard', () => {
     expect(send.disabled).toBe(true);
   });
 
+  it('updates the template preview in place and resets the send idempotency key when a variable changes', async () => {
+    const conversation = '55555555-5555-4555-8555-555555555555';
+    const api = signedIn()
+      .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', disconnected_at: null, status: 'healthy', display_name: 'Line', external_asset_id: '1', provider_app_id: null, evidence: [], capabilities: { windowHours: null, outboundTypes: [], attachmentTypes: [], inboundEvents: [], templates: true, deliveryReceipts: true, readReceipts: true }, created_at: NOW.toISOString(), credential_held: true, last_error_code: null }] } })
+      .on(`GET /tenants/${TENANT}/conversations/${conversation}`, { status: 200, body: { data: { id: conversation, peerIdentity: '2010', connectionId: 'cn-1', channel: 'whatsapp', serviceWindow: { status: 'closed', lastCustomerInboundAt: NOW.toISOString(), serviceWindowExpiresAt: NOW.toISOString() }, inboxLabel: 'Line', status: 'open', priority: 'normal', assigneeMembershipId: 'm-1111', version: 2, contactId: null, labels: [], customFields: [] } } })
+      .on(`GET /tenants/${TENANT}/conversations/${conversation}/messages`, { status: 200, body: { data: { messages: [], next_cursor: null } } })
+      .on(`GET /tenants/${TENANT}/conversations/${conversation}/whatsapp-templates`, { status: 200, body: { data: [{ id: 'template-1', provider_template_id: 'meta-1', name: 'hello', language: 'en', category: 'utility', status: 'approved', components: [{ type: 'header', text: 'For {{1}}', format: 'TEXT', buttons: [] }, { type: 'body', text: 'Hello {{1}}', format: null, buttons: [] }], parameters: [{ key: 'header:1', component: 'header', index: null, position: 1, example: null }, { key: 'body:1', component: 'body', index: null, position: 1, example: null }], sendSupported: true, unsupportedReason: null, lastSyncedAt: NOW.toISOString() }], page: { next_cursor: null, has_more: false } } });
+    const { root, app } = start(`#/inbox/${conversation}`, api, { openEventSource: SILENT_STREAM });
+    await settle();
+    click(root.querySelector('[data-act="live-whatsapp-template-open"]'));
+    await settle();
+    app.state.dialogForm.whatsappTemplateId = 'template-1';
+    app.state.dialogForm.whatsappTemplateClientMessageId = 'old-key';
+    app.render();
+    const input = root.querySelector('[data-wa-parameter="body:1"]') as HTMLInputElement;
+    type(input, 'Mona');
+    expect(root.querySelector('[data-wa-parameter="body:1"]')).toBe(input);
+    expect(root.querySelector('[data-template-preview-key="body:1"]')?.textContent).toBe('Mona');
+    expect(app.state.dialogForm['whatsappTemplateClientMessageId']).toBeUndefined();
+    type(input, '');
+    expect(root.querySelector('[data-template-preview-key="body:1"]')?.textContent).toBe('{{1}}');
+  });
+
   it('submits a form’s own action with its argument when Enter is pressed', async () => {
     const api = signedIn();
     const { root, app } = start('#/contacts', api);

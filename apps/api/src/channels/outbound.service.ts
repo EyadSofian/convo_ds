@@ -222,7 +222,9 @@ export class OutboundService {
           )).rows[0];
           if (stored === undefined || stored.status !== 'approved') throw new ApiHttpError(409, 'template_not_sendable', 'This WhatsApp template is no longer approved. Refresh the catalogue and choose an approved template.');
           const definition = defineWhatsAppTemplate(stored.components);
-          const values = request.template.parameters ?? {};
+          // The parser produces a parameter map whenever an id is present;
+          // the legacy {name,language} shape is rejected immediately above.
+          const values = request.template.parameters!;
           const built = buildWhatsAppTemplateComponents(definition, values);
           if (built === null) throw new ApiHttpError(422, 'template_parameters_invalid', definition.unsupportedReason ?? 'Provide every required template parameter and no extra values.');
           templateName = stored.template_name;

@@ -907,7 +907,7 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
           : t(state, 'انتهت نافذة المحادثة لمدة 24 ساعة', '24-hour messaging window closed')]),
         h('p', {}, [t(state, 'استخدم قالبًا معتمدًا لمتابعة المحادثة.', 'Use an approved template to continue this conversation.')]),
       ]),
-      whatsappTemplateButton(state, live, conversation.id),
+      whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
     ]);
   }
   return h('div', { class: 'composer__box' }, [
@@ -941,14 +941,13 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
         busy: live.busy === 'send-reply',
         disabled: live.composer.trim() === '',
       }),
-      whatsappTemplateButton(state, live, conversation.id),
+      whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
     ]),
   ]);
 }
 
-function whatsappTemplateButton(state: AppState, live: LiveState, conversationId: string): HTMLElement | null {
-  if (live.supervisorAgentId !== null) return null;
-  const connection = live.connections.status === 'ready' ? live.connections.value.find((item) => item.id === (live.openConversation.status === 'ready' ? live.openConversation.value.connectionId : '')) : undefined;
+function whatsappTemplateButton(state: AppState, live: LiveState, conversationId: string, connectionId: string): HTMLElement | null {
+  const connection = live.connections.status === 'ready' ? live.connections.value.find((item) => item.id === connectionId) : undefined;
   if (connection?.kind !== 'whatsapp' || !connection.capabilities.templates) return null;
   return button({ label: t(state, 'قوالب واتساب', 'WhatsApp Templates'), icon: 'chat', act: 'live-whatsapp-template-open', arg: conversationId, variant: 'default', small: true });
 }

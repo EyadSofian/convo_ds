@@ -653,7 +653,7 @@ export function mount(options: MountOptions): AppHandle {
     if (waParameter !== null) {
       if (previousInputValue !== target.value) delete state.dialogForm['whatsappTemplateClientMessageId'];
       for (const preview of root.querySelectorAll<HTMLElement>('[data-template-preview-key]')) {
-        if (preview.getAttribute('data-template-preview-key') === waParameter) preview.textContent = target.value || `{{${waParameter.split(':').at(-1) ?? ''}}}`;
+        if (preview.getAttribute('data-template-preview-key') === waParameter) preview.textContent = target.value || `{{${waParameter.split(':').at(-1)!}}}`;
       }
     }
     if (formName !== null && target instanceof HTMLSelectElement && act === 'form') refresh();

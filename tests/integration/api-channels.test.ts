@@ -2015,6 +2015,74 @@ describe('the outbound path', () => {
     expect(timeline.json()).toMatchObject({ data: expect.arrayContaining([expect.objectContaining({ template_name: 'order_update', template_language: 'ar', template_preview: 'تحديث الطلب A-52' })]) });
   });
 
+  it('filters and paginates the authorized conversation catalogue with escaped search semantics', async () => {
+    const to = peer();
+    await openWindow(to);
+    const conversationRows = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> 'archived'`, [connectionId, to],
+    ));
+    const conversationId = conversationRows.rows[0]!.id;
+    await syncApprovedTemplate('catalogue_page_match');
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `INSERT INTO whatsapp_templates(tenant_id,connection_id,provider_template_id,template_name,language,category,status,components,variables,last_synced_at)
+       SELECT $1,$2,'coverage-'||n,'coverage_template_'||lpad(n::text,2,'0'),'en_US','utility','approved',
+              '[{"type":"BODY","text":"Hello"}]'::jsonb,'[]'::jsonb,now()
+       FROM generate_series(1,51) n`, [api.tenantId, connectionId],
+    ));
+    const filtered = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates?search=catalogue_page_match&language=ar&category=UTILITY&status=approved`);
+    expect(filtered.statusCode).toBe(200);
+    expect(filtered.json()).toMatchObject({ data: [expect.objectContaining({ name: 'catalogue_page_match', language: 'ar', category: 'utility' })] });
+
+    const first = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates?status=approved`);
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toMatchObject({ data: expect.any(Array), page: { next_cursor: '50', has_more: true } });
+    const second = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates?status=approved&cursor=50`);
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({ page: { next_cursor: null, has_more: false } });
+    const invalidCursor = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates?cursor=-1`);
+    expect(invalidCursor.statusCode).toBe(400);
+  });
+
+  it('fails closed for conversation sends without inbound evidence and revalidates template identity, status and values', async () => {
+    const outboundPeer = peer();
+    const opened = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `INSERT INTO conversations(tenant_id,connection_id,peer_identity) VALUES($1,$2,$3) RETURNING id::text`, [api.tenantId, connectionId, outboundPeer],
+    ));
+    const noInbound = await send(api, owner, 'POST', `/conversations/${opened.rows[0]!.id}/messages`, {
+      messageType: 'text', text: 'This has no opening inbound.', clientMessageId: clientId(),
+    });
+    expect(noInbound.statusCode).toBe(422);
+    expect(noInbound.json()).toMatchObject({ error: { code: 'outside_service_window' } });
+
+    const to = peer();
+    await openWindow(to);
+    const conversations = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> 'archived'`, [connectionId, to],
+    ));
+    const conversationId = conversations.rows[0]!.id;
+    const templateId = await syncApprovedTemplate('validate_template');
+    const missingSelection = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'template', text: '', template: { name: 'validate_template', language: 'ar' }, clientMessageId: clientId(),
+    });
+    expect(missingSelection.statusCode).toBe(422);
+    expect(missingSelection.json()).toMatchObject({ error: { code: 'template_selection_required' } });
+    const mismatch = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'text', text: 'Mismatch', template: { id: templateId, parameters: { 'body:1': 'X' } }, clientMessageId: clientId(),
+    });
+    expect(mismatch.statusCode).toBe(400);
+    const incomplete = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'template', text: '', template: { id: templateId, parameters: {} }, clientMessageId: clientId(),
+    });
+    expect(incomplete.statusCode).toBe(422);
+    expect(incomplete.json()).toMatchObject({ error: { code: 'template_parameters_invalid' } });
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`UPDATE whatsapp_templates SET status='paused' WHERE id=$1`, [templateId]));
+    const stale = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'template', text: '', template: { id: templateId, parameters: { 'body:1': 'X' } }, clientMessageId: clientId(),
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ error: { code: 'template_not_sendable' } });
+  });
+
   it('refuses to dispatch when the credential has gone, without sending', async () => {
     const created = await connect(api, owner, 'phone-outbound-nocred');
     const cid = (created.json() as { data: { id: string } }).data.id;

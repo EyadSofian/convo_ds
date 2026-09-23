@@ -222,8 +222,8 @@ function authFrame(state: AppState, children: readonly HTMLElement[]): HTMLEleme
   ]);
 }
 
-function convoLockup(extraClass = ''): HTMLElement {
-  return h('div', { class: `convo-lockup${extraClass === '' ? '' : ` ${extraClass}`}`, 'aria-label': 'DS Omnichannel' }, [
+function convoLockup(): HTMLElement {
+  return h('div', { class: 'convo-lockup', 'aria-label': 'DS Omnichannel' }, [
     h('span', { class: 'convo-lockup__mark', 'aria-hidden': 'true' }, [
       h('img', { src: '/brand/digital-school-by-berlitz.png', alt: '' }),
     ]),

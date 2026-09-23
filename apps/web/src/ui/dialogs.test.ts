@@ -49,7 +49,7 @@ describe('WhatsApp template picker', () => {
     const item: WhatsAppTemplateCatalogueItem = {
       id: 'template-1', providerTemplateId: 'meta-1', name: 'welcome', language: 'ar', category: 'utility', status: 'approved',
       components: [{ type: 'header', text: 'أهلًا {{1}}', format: 'TEXT', buttons: [] }, { type: 'body', text: 'مرحبًا {{1}}', format: null, buttons: [] }, { type: 'footer', text: 'مدرسة بيرلتز', format: null, buttons: [] }, { type: 'buttons', text: null, format: null, buttons: [{ type: 'url', text: 'التفاصيل' }] }],
-      parameters: [{ key: 'header:1', component: 'header', index: null, position: 1, example: 'Ahmed' }, { key: 'body:1', component: 'body', index: null, position: 1, example: null }],
+      parameters: [{ key: 'header:1', component: 'header', index: null, position: 1, example: 'Ahmed' }, { key: 'body:1', component: 'body', index: null, position: 1, example: 'Sara' }],
       sendSupported: true, unsupportedReason: null, lastSyncedAt: NOW.toISOString(),
     };
     state.live.conversationTemplates = ready([item], NOW.getTime());
@@ -75,6 +75,59 @@ describe('WhatsApp template picker', () => {
     expect(picker.querySelector('.wa-template-preview')?.getAttribute('dir')).toBe('ltr');
     expect(picker.textContent).toContain('Media header is not supported yet');
     expect((picker.querySelector('[data-act="live-whatsapp-template-send"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('renders loading, error, empty, pagination, missing-preview and invalid-variable states', () => {
+    const state = base();
+    state.live.conversationTemplates = { status: 'loading' };
+    expect(open(state, 'whatsapp-template').textContent).toContain('Loading approved templates');
+    state.live.conversationTemplates = { status: 'error', error: { code: 'unavailable', message: 'Could not fetch.', status: 503, requestId: null, details: [] } };
+    expect(open(state, 'whatsapp-template').textContent).toContain('Could not load the catalogue');
+    state.live.conversationTemplates = ready([], 1);
+    expect(open(state, 'whatsapp-template').textContent).toContain('No templates are in the local catalogue yet');
+
+    const options: WhatsAppTemplateCatalogueItem[] = [
+      { id: 'pending', providerTemplateId: 'meta-pending', name: 'pending', language: 'fr', category: 'marketing', status: 'pending', components: [], parameters: [], sendSupported: false, unsupportedReason: null, lastSyncedAt: NOW.toISOString() },
+      { id: 'disabled', providerTemplateId: 'meta-disabled', name: 'no-body', language: 'en', category: 'utility', status: 'disabled', components: [{ type: 'header', text: null, format: null, buttons: [] }], parameters: [{ key: 'button:0:1', component: 'button', index: 0, position: 1, example: null }], sendSupported: false, unsupportedReason: null, lastSyncedAt: NOW.toISOString() },
+      { id: 'unknown', providerTemplateId: 'meta-unknown', name: 'unknown-status', language: 'en', category: 'utility', status: 'provider-new-state' as never, components: [{ type: 'body', text: 'Start {{1}}', format: null, buttons: [] }], parameters: [{ key: 'body:1', component: 'body', index: null, position: 1, example: null }], sendSupported: false, unsupportedReason: null, lastSyncedAt: NOW.toISOString() },
+    ];
+    state.live.conversationTemplates = ready(options, 1);
+    state.live.conversationTemplateCursor = '50';
+    state.live.busy = 'send-template';
+    state.dialogForm = { whatsappTemplateId: 'disabled', whatsappTemplateParameter_button_0_1: '' };
+    const picker = open(state, 'whatsapp-template');
+    expect(picker.textContent).toContain('Load more');
+    expect(picker.textContent).toContain('Template without text');
+    expect(picker.textContent).toContain('This template is not supported for sending.');
+    expect((picker.querySelector('[data-act="live-whatsapp-template-send"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(picker.querySelector('.wa-template-option.is-selected')).not.toBeNull();
+    state.dialogForm.whatsappTemplateId = 'unknown';
+    state.live.error = { code: 'template_parameters_invalid', message: 'Fill in every value.', requestId: null, status: 422, details: [] };
+    expect(open(state, 'whatsapp-template').textContent).toContain('Fill in every value.');
+    expect(open(state, 'whatsapp-template').textContent).toContain('provider-new-state');
+  });
+
+  it('keeps empty placeholders visible and marks all template components in provider order', () => {
+    const state = base();
+    const item: WhatsAppTemplateCatalogueItem = {
+      id: 'template-order', providerTemplateId: 'meta-order', name: 'ordered', language: 'en', category: 'utility', status: 'approved',
+      components: [
+        { type: 'header', text: 'For {{1}}', format: 'TEXT', buttons: [] },
+        { type: 'body', text: '{{1}}Hello!', format: null, buttons: [] },
+        { type: 'footer', text: 'Footer', format: null, buttons: [] },
+        { type: 'buttons', text: null, format: null, buttons: [{ type: 'quick_reply', text: 'Okay' }] },
+      ],
+      parameters: [{ key: 'header:1', component: 'header', index: null, position: 1, example: null }, { key: 'body:1', component: 'body', index: null, position: 1, example: null }],
+      sendSupported: true, unsupportedReason: null, lastSyncedAt: NOW.toISOString(),
+    };
+    state.live.conversationTemplates = ready([item], 1);
+    state.live.conversationTemplateCursor = null;
+    state.dialogForm = { whatsappTemplateId: item.id, whatsappTemplateParameter_body_1: 'Sara' };
+    const picker = open(state, 'whatsapp-template');
+    expect(picker.querySelectorAll('.wa-template-preview__variable')).toHaveLength(2);
+    expect(picker.querySelector('[data-template-preview-key="header:1"]')?.textContent).toBe('{{1}}');
+    expect(picker.textContent).toContain('SaraHello!');
+    expect(picker.querySelector('.wa-template-preview__button')?.textContent).toBe('Okay');
   });
 });
 
