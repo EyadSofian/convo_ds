@@ -103,6 +103,21 @@ describe('URL round-trip', () => {
     expect(routeParamsFor(state)).toEqual({ lang: 'en', queue: 'mine' });
   });
 
+  it('keeps the one-time token of an emailed link, and only on its own screen', () => {
+    const state = createState(NOW);
+    const token = 'k'.repeat(43);
+    for (const screen of ['accept-invitation', 'reset-password'] as const) {
+      state.route = { screen, conversationId: null, params: { token } };
+      expect(routeParamsFor(state)).toEqual({ token });
+      state.route = { screen, conversationId: null, params: { token: '' } };
+      expect(routeParamsFor(state)).toEqual({});
+      state.route = { screen, conversationId: null, params: {} };
+      expect(routeParamsFor(state)).toEqual({});
+    }
+    state.route = { screen: 'inbox', conversationId: null, params: { token } };
+    expect(routeParamsFor(state).token).toBeUndefined();
+  });
+
   it('does not encode the queue on another screen', () => {
     const state = createState(NOW);
     state.inboxQueue = 'mine';

@@ -219,6 +219,13 @@ export function routeParamsFor(state: AppState): Record<string, string> {
     const agent = state.route.params.agent;
     if (agent !== undefined && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(agent)) params.agent = agent;
   }
+  if (state.route.screen === 'accept-invitation' || state.route.screen === 'reset-password') {
+    // The one-time token is the whole point of the link an email delivered.
+    // Dropping it on the first URL sync left every invitation and recovery
+    // link on "this link is invalid". The server alone decides what it grants.
+    const token = state.route.params['token'];
+    if (token !== undefined && token !== '') params.token = token;
+  }
   if (state.route.screen === 'automations') {
     const view = state.route.params['view'];
     if (view !== undefined && ['templates', 'mine', 'runs'].includes(view)) params.view = view;
