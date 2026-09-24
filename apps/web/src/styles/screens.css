@@ -669,11 +669,29 @@
     text-align: center;
   }
 
+  /*
+   * No clipping here or on the table inside: a row's action menu opens below
+   * its row, and on the last rows it reaches past the panel's edge. Clipped,
+   * the menu lost its lower half. The admin tables fit their panel at every
+   * width (and become stacked rows on phones), so nothing needs to scroll.
+   */
   .admin-panel {
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--surface-1);
-    overflow: clip;
+  }
+
+  .admin-panel .tablewrap {
+    overflow: visible;
+  }
+
+  /* The header row takes the panel's corners when it is the panel's top edge. */
+  .admin-panel > .tablewrap:first-child th:first-child {
+    border-start-start-radius: var(--radius-lg);
+  }
+
+  .admin-panel > .tablewrap:first-child th:last-child {
+    border-start-end-radius: var(--radius-lg);
   }
 
   .admin-panel__body {

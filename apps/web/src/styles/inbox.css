@@ -19,10 +19,26 @@
   }
 
   .listhead__row {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--space-2);
     min-inline-size: 0;
+  }
+
+  /*
+   * The filter and saved-view panels open across the whole list, anchored to
+   * this row rather than to their small buttons. Anchored to a button in the
+   * middle of the row, a 280px panel reached past the list's start edge and
+   * slid under the navigation rail, cut in half.
+   */
+  .listhead__tools .menu-anchor {
+    position: static;
+  }
+
+  .listhead__row .popover {
+    inset-inline: 0;
+    inline-size: auto;
   }
 
   .listhead__row .segmented {
