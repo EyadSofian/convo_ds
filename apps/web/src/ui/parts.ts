@@ -281,6 +281,15 @@ export interface InputOptions {
   readonly required?: boolean | undefined;
 }
 
+/**
+ * For credentials and addresses: typed exactly as keyed. A phone keyboard that
+ * capitalises the first letter, auto-corrects a word or adds a space after a
+ * suggestion changes a password without the person seeing it — it is most
+ * likely while a password is shown as text — and the next sign-in elsewhere
+ * then fails.
+ */
+export const LITERAL_INPUT = { autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false' } as const;
+
 export function textInput(
   name: string,
   value: string,
@@ -295,6 +304,7 @@ export function textInput(
     placeholder,
     autocomplete: options.autocomplete,
     inputmode: options.inputmode,
+    ...(options.type === 'email' ? LITERAL_INPUT : {}),
     required: options.required,
     'aria-label': options.ariaLabel,
     'data-act': options.act ?? 'form',

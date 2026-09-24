@@ -56,6 +56,12 @@ describe('the sign-in page', () => {
     expect(element.querySelector('#signin-email')?.getAttribute('autocomplete')).toBe('username');
     expect(element.querySelector('#signin-password')?.getAttribute('type')).toBe('password');
     expect(element.querySelector('#signin-password')?.getAttribute('autocomplete')).toBe('current-password');
+    // Typed exactly as keyed: no phone keyboard capitalises, corrects or pads it.
+    for (const id of ['#signin-email', '#signin-password']) {
+      expect(element.querySelector(id)?.getAttribute('autocapitalize'), id).toBe('none');
+      expect(element.querySelector(id)?.getAttribute('autocorrect'), id).toBe('off');
+      expect(element.querySelector(id)?.getAttribute('spellcheck'), id).toBe('false');
+    }
     expect(element.querySelectorAll('h1')).toHaveLength(1);
     expect(element.querySelector('[role="alert"]')).toBeNull();
     expect(element.querySelector('[data-act="lang"]')).not.toBeNull();

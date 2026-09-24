@@ -130,6 +130,7 @@ revoked when a recovery token is spent.
 
 - No bounce or complaint handling. Resend's webhooks are not consumed, so a
   hard bounce is invisible to this product.
-- No per-person language preference: emails render in
-  `CONVO_DEFAULT_LOCALE`.
+- No per-person language preference: emails render in `CONVO_EMAIL_LOCALE`
+  (`en` by default, or `ar`), independent of the interface default
+  `CONVO_DEFAULT_LOCALE`. It is read by the API, which queues the email.
 - No operator-facing delivery log in the UI. The SQL above is the interface.

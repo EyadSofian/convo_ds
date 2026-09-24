@@ -20,6 +20,25 @@ import type { EnvironmentSource } from '@convo/domain';
  * request can influence. It is read here and nowhere else.
  */
 
+export const EMAIL_LOCALES = ['en', 'ar'] as const;
+export type EmailLocaleSetting = (typeof EMAIL_LOCALES)[number];
+
+/**
+ * The language invitation and recovery emails are written in.
+ *
+ * Separate from the interface default on purpose: the workspace opens in
+ * Arabic, while the people who receive these emails asked for them in
+ * English. `CONVO_EMAIL_LOCALE` is `en` (the default) or `ar`; anything else
+ * is a configuration error rather than a silent guess.
+ */
+export function readEmailLocale(env: EnvironmentSource, issues: ErrorDetail[]): EmailLocaleSetting {
+  const raw = env['CONVO_EMAIL_LOCALE']?.trim().toLowerCase();
+  if (raw === undefined || raw === '') return 'en';
+  if ((EMAIL_LOCALES as readonly string[]).includes(raw)) return raw as EmailLocaleSetting;
+  issues.push({ field: 'CONVO_EMAIL_LOCALE', code: 'invalid', message: 'CONVO_EMAIL_LOCALE must be en or ar.' });
+  return 'en';
+}
+
 export const EMAIL_PROVIDERS = ['disabled', 'logging', 'resend', 'smtp'] as const;
 export type EmailProviderName = (typeof EMAIL_PROVIDERS)[number];
 

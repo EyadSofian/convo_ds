@@ -15,10 +15,11 @@ import { enqueueEmail } from './email-outbox.service.js';
  * intention — neither `InvitationService` nor `RecoveryService` can tell whether
  * this installation sends through Resend, SMTP or nothing at all.
  *
- * The locale is the installation default. The product has no per-person
- * language preference yet, and guessing one from an `Accept-Language` header
- * would be wrong for exactly the case that matters: an invitation is read by
- * someone who has never visited this installation.
+ * The locale is the installation's email language (CONVO_EMAIL_LOCALE,
+ * English unless set). The product has no per-person language preference yet,
+ * and guessing one from an `Accept-Language` header would be wrong for exactly
+ * the case that matters: an invitation is read by someone who has never
+ * visited this installation.
  */
 
 @Injectable()
@@ -34,7 +35,7 @@ export class OutboxInvitationDelivery implements InvitationDeliveryPort {
       // an operator pressing "invite again" means.
       idempotencyKey: message.invitationId,
       email: message.email,
-      locale: this.config.defaultLocale === 'en' ? 'en' : 'ar',
+      locale: this.config.emailLocale,
       workspaceName: message.tenantName,
       roleName: message.roleName,
       token: message.token,
@@ -52,7 +53,7 @@ export class OutboxRecoveryDelivery implements RecoveryDeliveryPort {
       kind: 'password_recovery',
       idempotencyKey: message.challengeId,
       email: message.email,
-      locale: this.config.defaultLocale === 'en' ? 'en' : 'ar',
+      locale: this.config.emailLocale,
       token: message.token,
       expiresAt: message.expiresAt,
     });

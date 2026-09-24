@@ -3,7 +3,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import type { AppState } from '../state.js';
 import { t } from './copy.js';
-import { button, requestIdLine } from './parts.js';
+import { button, LITERAL_INPUT, requestIdLine } from './parts.js';
 
 /**
  * Everything a person sees before the server has said who they are.
@@ -94,7 +94,7 @@ function recoveryRequestForm(state: AppState): HTMLElement {
       h('form', { class: 'auth-form', 'data-submit': 'live-request-recovery', novalidate: true }, [
         h('div', { class: 'field' }, [
           h('label', { class: 'field__label', for: 'recovery-email' }, [t(state, 'البريد الإلكتروني', 'Email')]),
-          h('input', { id: 'recovery-email', class: state.formErrors['recoveryEmail'] === undefined ? 'input' : 'input input--invalid', type: 'email', autocomplete: 'email', dir: 'ltr', required: true, value: state.dialogForm['recoveryEmail'] ?? '', 'data-act': 'form', 'data-form': 'recoveryEmail' }),
+          h('input', { id: 'recovery-email', class: state.formErrors['recoveryEmail'] === undefined ? 'input' : 'input input--invalid', type: 'email', autocomplete: 'email', ...LITERAL_INPUT, dir: 'ltr', required: true, value: state.dialogForm['recoveryEmail'] ?? '', 'data-act': 'form', 'data-form': 'recoveryEmail' }),
           fieldError('recovery-email-error', state.formErrors['recoveryEmail']),
         ]),
         button({ label: t(state, 'إرسال رابط إعادة التعيين', 'Send reset link'), act: 'live-request-recovery', type: 'submit', variant: 'primary', busy: state.live.busy === 'recovery-request', extraClass: 'auth-form__submit' }),
@@ -127,7 +127,7 @@ function credentialForm(state: AppState, title: string, token: string, action: s
 function passwordField(state: AppState, key: string, autocomplete: string, label: string): HTMLElement {
   return h('div', { class: 'field' }, [
     h('label', { class: 'field__label', for: key }, [label]),
-    h('input', { id: key, class: state.formErrors[key] === undefined ? 'input' : 'input input--invalid', type: 'password', autocomplete, dir: 'ltr', required: true, value: state.dialogForm[key] ?? '', 'data-act': 'form', 'data-form': key }),
+    h('input', { id: key, class: state.formErrors[key] === undefined ? 'input' : 'input input--invalid', type: 'password', autocomplete, ...LITERAL_INPUT, dir: 'ltr', required: true, value: state.dialogForm[key] ?? '', 'data-act': 'form', 'data-form': key }),
     fieldError(`${key}-error`, state.formErrors[key]),
   ]);
 }
@@ -271,6 +271,7 @@ function signIn(state: AppState, error: ApiError | null, expired: boolean): HTML
             name: 'email',
             autocomplete: 'username',
             inputmode: 'email',
+            ...LITERAL_INPUT,
             dir: 'ltr',
             required: true,
             'aria-invalid': errors['signinEmail'] === undefined ? undefined : 'true',
@@ -290,6 +291,7 @@ function signIn(state: AppState, error: ApiError | null, expired: boolean): HTML
               type: state.passwordVisible ? 'text' : 'password',
               name: 'password',
               autocomplete: 'current-password',
+              ...LITERAL_INPUT,
               dir: 'ltr',
               required: true,
               'aria-invalid': errors['signinPassword'] === undefined ? undefined : 'true',

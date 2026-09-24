@@ -8,7 +8,7 @@ import {
 import { readTrustedProxyHops } from './client-address.js';
 import { readLogLevel, type LogLevel } from './observability/logger.js';
 import { readChannelTransport, type ChannelTransportName } from './channels/transport-config.js';
-import { readEmailConfig, type EmailConfig } from './email/email-config.js';
+import { readEmailConfig, readEmailLocale, type EmailConfig, type EmailLocaleSetting } from './email/email-config.js';
 
 /**
  * The process roles one artifact can start as (DEP-01).
@@ -92,6 +92,8 @@ export interface ApiConfig extends InstallationConfig {
    * credentials cannot take core APIs or unrelated workers offline.
    */
   readonly email: EmailConfig;
+  /** The language invitation and recovery emails render in (CONVO_EMAIL_LOCALE, `en` by default). */
+  readonly emailLocale: EmailLocaleSetting;
   /**
    * How many reverse proxies sit in front of this process.
    *
@@ -151,6 +153,7 @@ export function parseApiConfig(env: EnvironmentSource): ApiConfig {
   const channelSecrets = readChannelSecrets(env);
   const webPush = readWebPush(env, issues, processRole === 'worker-integration');
   const email = readEmailConfig(env, issues, processRole === 'worker-integration');
+  const emailLocale = readEmailLocale(env, issues);
   const trustedProxyHops = readTrustedProxyHops(env, issues);
   const channelTransport = readChannelTransport(env, issues);
   const logLevel = readLogLevel(env);
@@ -175,6 +178,7 @@ export function parseApiConfig(env: EnvironmentSource): ApiConfig {
     channelSecrets: Object.freeze(channelSecrets),
     webPush,
     email,
+    emailLocale,
     trustedProxyHops,
     channelTransport,
     logLevel,

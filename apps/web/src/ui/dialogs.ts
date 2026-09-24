@@ -4,7 +4,7 @@ import { rowsOf } from '../live/store';
 import type { AppState } from '../state';
 import { catalogueItem } from './channels-screen';
 import { t } from './copy';
-import { button, dialogShell, field, inlineError, notice, selectControl, textInput } from './parts';
+import { button, dialogShell, field, inlineError, LITERAL_INPUT, notice, selectControl, textInput } from './parts';
 import { channelTile } from './brand';
 import { renderAdminDialog } from './admin-dialogs';
 
@@ -268,6 +268,7 @@ function passwordInput(state: AppState, key: string, label: string, autocomplete
         class: error === undefined ? 'input' : 'input input--invalid',
         type: state.passwordVisible ? 'text' : 'password',
         autocomplete,
+        ...LITERAL_INPUT,
         dir: 'ltr',
         required: true,
         value: state.dialogForm[key] ?? '',
@@ -352,6 +353,7 @@ function connectChannel(state: AppState, kind: string): HTMLElement {
             class: 'input',
             type: 'password',
             autocomplete: 'off',
+            ...LITERAL_INPUT,
             dir: 'ltr',
             required: true,
             value: form['channelToken'] ?? '',

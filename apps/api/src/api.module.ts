@@ -8,6 +8,7 @@ import {
 import argon2 from 'argon2';
 import type { Pool } from 'pg';
 import type { ApiConfig } from './config.js';
+import { canonicalHasher } from './auth/password-canonical.js';
 import { AuthController } from './auth/auth.controller.js';
 import { AuthRateLimiter } from './auth/auth-rate-limiter.js';
 import { AuthService } from './auth/auth.service.js';
@@ -153,7 +154,7 @@ export class ApiModule {
       providers: [
         { provide: API_CONFIG, useValue: config },
         { provide: API_POOL, useValue: pool },
-        { provide: PASSWORD_HASHER, useValue: ARGON2ID_HASHER },
+        { provide: PASSWORD_HASHER, useValue: canonicalHasher(ARGON2ID_HASHER) },
         // Email leaves this process through one door: a row in
         // `email_deliveries`, written on the caller's transaction. The provider
         // is reached only by the worker that drains that table, so no request
