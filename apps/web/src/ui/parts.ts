@@ -43,6 +43,7 @@ export function button(options: ButtonOptions): HTMLButtonElement {
   }
   if (options.small === true) classes.push('btn--sm');
   if (iconOnly) classes.push('btn--icon');
+  if (options.icon === 'refresh') classes.push('btn--refresh');
   if (options.extraClass !== undefined) classes.push(options.extraClass);
   const busy = options.busy === true;
   const attrs: Attrs = {
@@ -71,9 +72,8 @@ export function button(options: ButtonOptions): HTMLButtonElement {
 }
 
 /**
- * The one Refresh control. Its arrows turn, in place, while the refresh it
- * started is in flight or while its list first loads; its label, its size and
- * everything around it stay where they are.
+ * The one Refresh control. Initial and background list loads do not animate
+ * its glyph; only the refresh the operator requested reports busy.
  */
 export function refreshButton(
   state: AppState,
@@ -90,7 +90,8 @@ export function refreshButton(
     icon: 'refresh',
     act,
     small: true,
-    busy: loading || state.live.refreshing === act,
+    busy: state.live.refreshing === act,
+    disabled: loading,
     extraClass,
   });
 }
@@ -103,13 +104,13 @@ export function spinner(): HTMLElement {
 /**
  * The icon's own box, fixed at the icon's size, so progress takes the icon's
  * place without moving the label or resizing the button. Refresh keeps its
- * arrows and turns them; any other icon gives way to a spinner in the same box.
+ * arrows steady; any other icon gives way to a spinner in the same box.
  * A label-only button keeps its label's width and draws the spinner over it.
  */
 function iconSlot(name: IconName, size: number, busy: boolean): HTMLElement {
-  const turns = busy && name === 'refresh';
-  return h('span', { class: turns ? 'btn__icon btn__icon--turning' : 'btn__icon', 'aria-hidden': 'true' }, [
-    busy && !turns ? spinner() : icon(name, size),
+  const refreshing = busy && name === 'refresh';
+  return h('span', { class: refreshing ? 'btn__icon btn__icon--refreshing' : 'btn__icon', 'aria-hidden': 'true' }, [
+    busy && !refreshing ? spinner() : icon(name, size),
   ]);
 }
 

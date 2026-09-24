@@ -124,7 +124,7 @@
 
   /*
    * A fixed box for the icon, the same size busy or not: the spinner (or the
-   * turning refresh arrows) is drawn inside it, so the label and the button
+   * steady refresh arrows) is drawn inside it, so the label and the button
    * never move when work starts or ends.
    */
   .btn {
@@ -133,6 +133,10 @@
 
   .btn--sm {
     --btn-icon: var(--icon-sm);
+  }
+
+  .btn--refresh {
+    --btn-icon: 18px;
   }
 
   .btn__icon {
@@ -149,8 +153,8 @@
     block-size: 100%;
   }
 
-  .btn__icon--turning > svg {
-    animation: convo-spin 0.9s linear infinite;
+  .btn__icon--refreshing > svg {
+    opacity: 0.65;
   }
 
   /* A label-only button: the label keeps its place, invisible, under the spinner. */

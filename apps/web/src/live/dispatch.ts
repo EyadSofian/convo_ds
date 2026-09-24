@@ -386,7 +386,7 @@ function closeDialogAfter(context: LiveContext, done: boolean): boolean {
 
 /**
  * A Refresh somebody pressed. What is on screen stays there while the lists
- * are read again, and only that Refresh control turns: no placeholder swap, no
+ * are read again, and only that Refresh control reports busy: no placeholder swap, no
  * toolbar or header movement. A list that was not on screen yet (never loaded,
  * or refused) still shows its placeholder, because there is nothing to keep.
  */
@@ -399,6 +399,18 @@ async function manualRefresh(context: LiveContext, act: string, load: () => Prom
     context.live.refreshing = null;
     context.refresh();
   }
+}
+
+async function exitSupervisor(context: LiveContext): Promise<boolean> {
+  context.state.supervisorPickerOpen = false;
+  context.live.supervisorAgentId = null;
+  context.live.supervisorWorkload = { status: 'idle' };
+  const { agent: ignoredAgent, ...params } = context.state.route.params;
+  // Discard the bookmarked lens so the next Inbox read cannot restore it.
+  void ignoredAgent;
+  context.state.route = { ...context.state.route, params };
+  await loadInboxScreen(context);
+  return true;
 }
 
 /** The form key for a connection's credential-rotation field. */
@@ -715,7 +727,17 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   /* ----------------------------------------------------------------- inbox -- */
 
   'live-inbox-reload': async (context) => manualRefresh(context, 'live-inbox-reload', () => loadInboxScreen(context)),
-  'live-supervisor-open': async (context) => loadSupervisorAgents(context),
+  'live-supervisor-open': async (context) => {
+    if (context.live.supervisorAgentId !== null) return exitSupervisor(context);
+    if (context.state.supervisorPickerOpen) {
+      context.state.supervisorPickerOpen = false;
+      context.refresh();
+      return true;
+    }
+    context.state.supervisorPickerOpen = true;
+    await loadSupervisorAgents(context);
+    return true;
+  },
   'live-supervisor-agent': async (context, arg) => loadSupervisorInbox(context, arg),
   'live-supervisor-open-report': async (context, arg) => {
     // Preserve the opaque membership ID, rather than a display name, so two
@@ -730,17 +752,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     await loadAnalyticsReport(context);
     return true;
   },
-  'live-supervisor-exit': async (context) => {
-    context.live.supervisorAgentId = null;
-    context.live.supervisorWorkload = { status: 'idle' };
-    const { agent: ignoredAgent, ...params } = context.state.route.params;
-    // Explicitly discard the supervisor lens, rather than letting a copied
-    // Inbox URL restore it after exit.
-    void ignoredAgent;
-    context.state.route = { ...context.state.route, params };
-    await loadInboxScreen(context);
-    return true;
-  },
+  'live-supervisor-exit': exitSupervisor,
 
   'live-inbox-queue': (context, arg) => {
     // A local view switch, not a request: both halves are already loaded, and

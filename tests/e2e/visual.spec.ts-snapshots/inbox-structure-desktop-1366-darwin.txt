@@ -8,10 +8,9 @@ div.inbox
           button.segmented__item [live-inbox-queue]
             span.segmented__count
         div.listhead__tools
-          button.btn.btn--ghost.btn--sm.btn--icon.inbox-refresh-trigger [live-inbox-reload]
+          button.btn.btn--ghost.btn--sm.btn--icon.btn--refresh.inbox-refresh-trigger [live-inbox-reload]
             span.btn__icon
               svg
-                path
                 path
                 path
           button.btn.btn--ghost.btn--sm.btn--icon.listhead__close [close-overlays]

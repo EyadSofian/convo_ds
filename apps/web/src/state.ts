@@ -97,6 +97,8 @@ export interface AppState {
   focusTarget: string | null;
   /** Which half of the live inbox is showing: the queue, or this agent's work. */
   inboxQueue: 'unassigned' | 'mine';
+  /** Whether the supervisor picker is expanded. It is separate from the selected lens. */
+  supervisorPickerOpen: boolean;
   /** Which surface the composer writes to. A note never reaches a customer. */
   composerTab: ComposerTab;
   /** The channel kind whose connections the Channels screen is narrowed to. */
@@ -170,6 +172,7 @@ export function createState(
     panelDrawer: false,
     focusTarget: null,
     inboxQueue: 'unassigned',
+    supervisorPickerOpen: false,
     composerTab: 'reply',
     channelKind: '',
     expandedConnection: null,

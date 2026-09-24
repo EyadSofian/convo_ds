@@ -97,6 +97,40 @@ test.describe('without a session', () => {
 });
 
 test.describe('signing in', () => {
+  test('retains the session after reload in a phone-sized standalone app shell', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
+      const original = window.matchMedia.bind(window);
+      window.matchMedia = (query: string) => query === '(display-mode: standalone)'
+        ? { ...original(query), matches: true }
+        : original(query);
+    });
+    await openSignedOut(page, '#/inbox?lang=en');
+    const manifest = await page.request.get('/manifest.webmanifest');
+    expect(manifest.ok()).toBe(true);
+    expect((await manifest.json() as { display: string; start_url: string })).toMatchObject({ display: 'standalone', start_url: '/#/inbox' });
+    await page.locator('#signin-email').fill(EMAIL);
+    await page.locator('#signin-password').fill(PASSWORD);
+    await page.locator('.auth-form__submit').click();
+    await expect(page.locator('.inbox')).toBeVisible();
+    await page.reload();
+    await expect(page.locator('.inbox')).toBeVisible();
+    await expect(page.locator('#signin-email')).toHaveCount(0);
+  });
+
+  test('uses phone password-manager values even when autofill emits no input event', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openSignedOut(page, '#/inbox?lang=en');
+    await page.locator('#signin-email').evaluate((element, value) => { (element as HTMLInputElement).value = value; }, EMAIL);
+    await page.locator('#signin-password').evaluate((element, value) => { (element as HTMLInputElement).value = value; }, PASSWORD);
+    await page.getByRole('button', { name: 'Show password' }).click();
+    await expect(page.locator('#signin-password')).toHaveValue(PASSWORD);
+    await expect(page.locator('#signin-password')).toHaveAttribute('type', 'text');
+    await page.locator('.auth-form__submit').click();
+    await expect(page.locator('.inbox')).toBeVisible();
+  });
+
   test('accepts the same account on a phone viewport through the normal sign-in form', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openSignedOut(page, '#/inbox?lang=en');

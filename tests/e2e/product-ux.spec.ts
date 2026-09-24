@@ -47,7 +47,7 @@ test.describe('focused product UX repairs', () => {
     await expect(page.locator('#newPassword')).toHaveValue('new controlled password 2026');
     await expect(page.locator('#confirmPassword')).toHaveValue('new controlled password 2026');
 
-    await page.locator('#currentPassword').fill(PASSWORD);
+    await page.locator('#currentPassword').evaluate((element, value) => { (element as HTMLInputElement).value = value; }, PASSWORD);
     await page.locator('[data-act="live-change-password"]').click();
     await expect(page.locator('.dialog')).toBeHidden();
     await expect(page.locator('.toast')).toContainText(/Other sessions have been signed out|سُجّلت الجلسات الأخرى/);
@@ -77,6 +77,45 @@ test.describe('focused product UX repairs', () => {
       expect(geometry.contained).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     }
+    await page.route('**/api/v1/tenants/*/supervisor/agents', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], request_id: 'e2e' }),
+    }));
+    const eye = page.locator('.inbox-supervisor-trigger');
+    await eye.click();
+    await expect(eye).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#inbox-supervisor-picker')).toBeVisible();
+    await expect(eye.locator('.spinner')).toHaveCount(0);
+    await eye.click();
+    await expect(eye).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#inbox-supervisor-picker')).toHaveCount(0);
+  });
+
+  test('selected supervisor workload keeps readable text in the narrow Inbox column', async ({ page }) => {
+    await openInbox(page);
+    const agentId = '99999999-9999-4999-8999-999999999999';
+    await page.route('**/api/v1/tenants/*/supervisor/agents', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{ membershipId: agentId, name: 'eyadsofian862', email: 'synthetic@example.test', teams: ['Support'] }] }),
+    }));
+    await page.route('**/api/v1/tenants/*/supervisor/workload?*', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: { agent: { membershipId: agentId, name: 'eyadsofian862', email: 'synthetic@example.test', teams: ['Support'] }, current: { assigned: 0, open: 0, pending: 0, snoozed: 0, unreplied: 0 }, byStatus: [], byChannel: [] } }),
+    }));
+    await page.route('**/api/v1/tenants/*/supervisor/conversations?*', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], page: { next_cursor: null } }),
+    }));
+    await page.setViewportSize({ width: 1440, height: 844 });
+    await page.locator('.inbox-supervisor-trigger').click();
+    await page.locator('[data-act="live-supervisor-agent"]').selectOption(agentId);
+    const banner = page.locator('.inbox-supervisor-banner');
+    await expect(banner).toContainText(/(?:Viewing|عرض حمل) eyadsofian862/);
+    await expect(banner).toContainText(/(?:0 active conversations|0 محادثات نشطة)/);
+    const widths = await banner.evaluate((element) => ({
+      banner: element.getBoundingClientRect().width,
+      identity: element.querySelector('.inbox-supervisor-banner__identity')?.getBoundingClientRect().width ?? 0,
+    }));
+    expect(widths.identity).toBeGreaterThan(250);
+    expect(widths.identity).toBeLessThanOrEqual(widths.banner);
+    await page.locator('.inbox-supervisor-trigger').click();
+    await expect(banner).toHaveCount(0);
   });
 
   test('template categories own full-width local grids with aligned compact cards', async ({ page }) => {

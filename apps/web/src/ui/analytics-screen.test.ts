@@ -442,13 +442,15 @@ describe('focused operational report screens', () => {
     expect(renderAnalytics(state).textContent).toContain('No channel data');
   });
 
-  it('keeps the assignment toolbar busy while loading another page', () => {
+  it('keeps the assignment toolbar disabled but visually steady while loading another page', () => {
     const state = screen();
     state.analyticsView = 'assignments';
     state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
     state.live.assignmentReport = { status: 'ready', loadedAt: 1, value: [] };
     state.live.assignmentLoadingMore = true;
-    expect(renderAnalytics(state).querySelector('[data-act="live-report-reload"]')?.getAttribute('aria-busy')).toBe('true');
+    const refresh = renderAnalytics(state).querySelector('[data-act="live-report-reload"]') as HTMLButtonElement;
+    expect(refresh.disabled).toBe(true);
+    expect(refresh.getAttribute('aria-busy')).toBeNull();
     state.live.assignmentLoadingMore = false;
     state.live.operationalReport = { status: 'error', error: { code: 'internal', message: 'Unavailable', requestId: 'no-operational-filter-data', status: 500, details: [] } };
     expect((renderAnalytics(state).querySelector('input[data-form="from"]') as HTMLInputElement).disabled).toBe(false);

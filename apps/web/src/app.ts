@@ -805,6 +805,17 @@ export function mount(options: MountOptions): AppHandle {
     runAction(name, context, arg);
   };
 
+  // Mobile password managers can fill inputs without firing input/change.
+  // Read the rendered credential fields at the action boundary so a redraw
+  // (including Show password) cannot replace an autofilled value with stale state.
+  const syncCredentialFields = (container: Element | null): void => {
+    if (container === null) return;
+    for (const input of container.querySelectorAll<HTMLInputElement>('input[data-form]')) {
+      const name = input.getAttribute('data-form');
+      if (name !== null) state.dialogForm[name] = input.value;
+    }
+  };
+
   const onClick = (event: Event): void => {
     const target = closestWithAttr(event.target, 'data-act');
     if (target === null) {
@@ -826,6 +837,8 @@ export function mount(options: MountOptions): AppHandle {
     if (target instanceof HTMLAnchorElement && (mouse.metaKey || mouse.ctrlKey || mouse.shiftKey)) return;
     event.preventDefault();
     const act = attrOf(target, 'data-act');
+    if (act === 'password-visibility') syncCredentialFields(target.closest('form'));
+    if (act === 'live-change-password') syncCredentialFields(root.querySelector('[data-submit="live-change-password"]'));
     if (act === 'skip-to-content') {
       root.ownerDocument.getElementById('main')?.focus();
       return;
@@ -845,6 +858,9 @@ export function mount(options: MountOptions): AppHandle {
     const form = event.target as HTMLFormElement;
     event.preventDefault();
     const act = form.getAttribute('data-submit');
+    if (act === 'live-signin' || act === 'live-accept-invitation' || act === 'live-complete-recovery' || act === 'live-request-recovery' || act === 'live-change-password') {
+      syncCredentialFields(form);
+    }
     if (act !== null) dispatch(act, form.getAttribute('data-arg') ?? '');
   };
 

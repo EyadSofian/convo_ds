@@ -148,6 +148,7 @@ function listResizer(state: AppState): HTMLElement {
 
 function renderListZone(state: AppState, live: LiveState): HTMLElement {
   const supervisorMode = live.supervisorAgentId !== null;
+  const supervisorOpen = supervisorMode || state.supervisorPickerOpen;
   const activeFilters = activeFilterCount(live.inboxQuery);
   return h('section', { class: 'zone zone--list', 'aria-label': t(state, 'قائمة المحادثات', 'Conversation list') }, [
     h('header', { class: 'listhead' }, [
@@ -164,8 +165,7 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
           t(state, 'طابور المحادثات', 'Conversation queue'),
         ),
         h('div', { class: 'listhead__tools' }, [
-          // Background refreshes and post-action reloads update the list in
-          // place. Only an explicit press on this control should animate it.
+          // Background refreshes and post-action reloads update the list in place.
           refreshButton(state, 'live-inbox-reload', false, true, 'inbox-refresh-trigger'),
           button({
             icon: 'close',
@@ -208,10 +208,11 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
           ]),
           button({
             icon: 'eye', act: 'live-supervisor-open', variant: 'ghost',
-            pressed: supervisorMode,
-            busy: live.supervisorAgents.status === 'loading',
-            title: t(state, 'عرض الوكيل', 'Supervisor view'),
-            ariaLabel: t(state, 'عرض إشرافي للوكيل', 'Supervisor view for an agent'),
+            pressed: supervisorOpen,
+            expanded: state.supervisorPickerOpen,
+            controls: 'inbox-supervisor-picker',
+            title: supervisorOpen ? t(state, 'إغلاق العرض الإشرافي', 'Close supervisor view') : t(state, 'عرض الوكيل', 'Supervisor view'),
+            ariaLabel: supervisorOpen ? t(state, 'إغلاق العرض الإشرافي', 'Close supervisor view') : t(state, 'عرض إشرافي للوكيل', 'Supervisor view for an agent'),
             extraClass: 'inbox-supervisor-trigger',
           }),
         ]),
@@ -243,15 +244,16 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
 }
 
 function supervisorPicker(state: AppState, live: LiveState): Child {
+  if (!state.supervisorPickerOpen) return null;
   if (live.supervisorAgents.status === 'idle') return null;
-  if (live.supervisorAgents.status === 'loading') return h('div', { class: 'inbox-supervisor-picker inbox-supervisor-picker--status', role: 'status' }, [
+  if (live.supervisorAgents.status === 'loading') return h('div', { class: 'inbox-supervisor-picker inbox-supervisor-picker--status', id: 'inbox-supervisor-picker', role: 'status' }, [
     icon('eye', 15), h('span', {}, [t(state, 'جارٍ تحميل الوكلاء المتاحين…', 'Loading in-scope agents…')]),
   ]);
-  if (live.supervisorAgents.status === 'error') return h('div', { class: 'inbox-supervisor-picker inbox-supervisor-picker--status', role: 'status' }, [
+  if (live.supervisorAgents.status === 'error') return h('div', { class: 'inbox-supervisor-picker inbox-supervisor-picker--status', id: 'inbox-supervisor-picker', role: 'status' }, [
     icon('eye', 15), h('span', {}, [t(state, 'لا تملك صلاحية العرض الإشرافي.', 'Supervisor view is not available to this role.')]),
   ]);
   const agents = live.supervisorAgents.value;
-  if (agents.length === 0) return h('div', { class: 'inbox-supervisor-picker inbox-supervisor-picker--status', role: 'status' }, [
+  if (agents.length === 0) return h('div', { class: 'inbox-supervisor-picker inbox-supervisor-picker--status', id: 'inbox-supervisor-picker', role: 'status' }, [
     icon('eye', 15), h('span', {}, [t(state, 'لا يوجد وكلاء نشطون ضمن نطاقك.', 'No active agents are available in your scope.')]),
   ]);
   const seenNames = new Set<string>();
@@ -268,7 +270,7 @@ function supervisorPicker(state: AppState, live: LiveState): Child {
       label: `${agent.name}${duplicateNames.has(agent.name) ? ` · ${agent.email}` : ''}`,
     })),
   ];
-  return h('div', { class: 'inbox-supervisor-picker' }, [
+  return h('div', { class: 'inbox-supervisor-picker', id: 'inbox-supervisor-picker' }, [
     h('div', { class: 'inbox-supervisor-picker__heading' }, [
       icon('eye', 15), h('span', {}, [t(state, 'عرض إشرافي', 'Supervisor view')]),
     ]),

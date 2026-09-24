@@ -4,10 +4,9 @@ main.app__screen
       div.pagebar
         p.pagebar__lede
         div.pagebar__actions
-          button.btn.btn--sm [live-reload]
+          button.btn.btn--sm.btn--refresh [live-reload]
             span.btn__icon
               svg
-                path
                 path
                 path
             span.btn__label
