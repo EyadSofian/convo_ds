@@ -89,6 +89,13 @@ describe('the automation actions the DOM can name', () => {
     await expect(handler?.(context(), 'a-1:activate')).resolves.toBe(false);
   });
 
+  it('assigns a role to nobody while no workspace is selected', async () => {
+    const ctx = context();
+    ctx.state.dialogForm = { assignPicked: 'm-1' };
+    await expect(LIVE_ACTIONS['live-role-assign']?.(ctx, 'r-1')).resolves.toBe(false);
+    expect(ctx.state.dialogForm['assignPicked']).toBe('m-1');
+  });
+
   it('refuses to create a blank automation with no name, and does not clear the form', async () => {
     const ctx = context();
     ctx.state.dialogForm = { automationBlankName: '   ' };

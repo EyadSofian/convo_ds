@@ -8,11 +8,9 @@ import type { Attrs } from './dom';
  */
 export const ICON_PATHS = {
   inbox: '<path d="M4 5.5h16v13H4z"/><path d="M4 13h4l1.6 2.6h4.8L16 13h4"/>',
-  channels: '<circle cx="12" cy="12" r="2.4"/><path d="M7.3 16.7a6.6 6.6 0 0 1 0-9.4"/><path d="M16.7 7.3a6.6 6.6 0 0 1 0 9.4"/><path d="M4.6 19.4a10 10 0 0 1 0-14.8"/><path d="M19.4 4.6a10 10 0 0 1 0 14.8"/>',
-  people: '<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M16 6.2a3 3 0 0 1 0 5.6"/><path d="M17.6 14.6A5 5 0 0 1 20.5 19"/>',
   broadcasts: '<path d="M4 10v4h3l5 3.5v-11L7 10H4z"/><path d="M16.4 9.2a4 4 0 0 1 0 5.6"/><path d="M18.9 6.7a7.5 7.5 0 0 1 0 10.6"/>',
   analytics: '<path d="M4 19.5V4.5"/><path d="M4 19.5h16"/><path d="M7.5 16V11"/><path d="M12 16V7.5"/><path d="M16.5 16v-3"/>',
-  settings: '<circle cx="12" cy="12" r="2.6"/><path d="M12 3.5v2M12 18.5v2M20.5 12h-2M5.5 12h-2M18 6l-1.4 1.4M7.4 16.6 6 18M18 18l-1.4-1.4M7.4 7.4 6 6"/>',
+  settings: '<path d="M10.3 3.9a1.8 1.8 0 0 1 3.4 0l.3.9a1.8 1.8 0 0 0 2.5 1l.8-.4a1.8 1.8 0 0 1 2.4 2.4l-.4.8a1.8 1.8 0 0 0 1 2.5l.9.3a1.8 1.8 0 0 1 0 3.4l-.9.3a1.8 1.8 0 0 0-1 2.5l.4.8a1.8 1.8 0 0 1-2.4 2.4l-.8-.4a1.8 1.8 0 0 0-2.5 1l-.3.9a1.8 1.8 0 0 1-3.4 0l-.3-.9a1.8 1.8 0 0 0-2.5-1l-.8.4a1.8 1.8 0 0 1-2.4-2.4l.4-.8a1.8 1.8 0 0 0-1-2.5l-.9-.3a1.8 1.8 0 0 1 0-3.4l.9-.3a1.8 1.8 0 0 0 1-2.5l-.4-.8a1.8 1.8 0 0 1 2.4-2.4l.8.4a1.8 1.8 0 0 0 2.5-1z"/><circle cx="12" cy="12" r="3"/>',
   search: '<circle cx="11" cy="11" r="6"/><path d="m20 20-3.6-3.6"/>',
   filter: '<path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
@@ -87,6 +85,21 @@ export const ICON_PATHS = {
   contacts: '<rect x="4" y="4.5" width="16" height="15" rx="2"/><circle cx="12" cy="10.5" r="2.6"/><path d="M8 16.5a4.2 4.2 0 0 1 8 0"/>',
   mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-6"/>',
   bell: '<path d="M5 17.5h14l-1.7-2.2V10a5.3 5.3 0 0 0-10.6 0v5.3z"/><path d="M10 20a2.2 2.2 0 0 0 4 0"/>',
+  /* User management, permissions and integrations. */
+  userPlus: '<circle cx="9.5" cy="8.5" r="3.4"/><path d="M3.5 19.5a6 6 0 0 1 12 0"/><path d="M18.5 8v6M15.5 11h6"/>',
+  userCheck: '<circle cx="9.5" cy="8.5" r="3.4"/><path d="M3.5 19.5a6 6 0 0 1 12 0"/><path d="m15.5 11.5 2 2 4-4"/>',
+  shieldUser: '<path d="M12 3.5 5 6v6c0 4 3 7 7 8.5 4-1.5 7-4.5 7-8.5V6z"/><circle cx="12" cy="10.5" r="2.3"/><path d="M8.5 16.5a3.8 3.8 0 0 1 7 0"/>',
+  team: '<circle cx="12" cy="8" r="3"/><path d="M6.5 19.5a5.5 5.5 0 0 1 11 0"/><circle cx="5" cy="10" r="2"/><path d="M2 17.5a3.6 3.6 0 0 1 3.3-3"/><circle cx="19" cy="10" r="2"/><path d="M22 17.5a3.6 3.6 0 0 0-3.3-3"/>',
+  badgeCheck: '<path d="M12 3.5 14.2 5l2.6-.2.8 2.5 2.2 1.5-.9 2.4.9 2.4-2.2 1.5-.8 2.5-2.6-.2L12 19.5l-2.2-1.5-2.6.2-.8-2.5-2.2-1.5.9-2.4-.9-2.4 2.2-1.5.8-2.5 2.6.2z"/><path d="m9 11.8 2 2 4-4"/>',
+  workflow: '<rect x="3.5" y="4" width="6" height="5" rx="1.2"/><rect x="14.5" y="15" width="6" height="5" rx="1.2"/><path d="M6.5 9v3.5a2 2 0 0 0 2 2h6"/><path d="m12.5 12.5 2 2-2 2"/>',
+  book: '<path d="M4.5 5.5A1.5 1.5 0 0 1 6 4h5v15H6a1.5 1.5 0 0 0-1.5 1.5z"/><path d="M19.5 5.5A1.5 1.5 0 0 0 18 4h-5v15h5a1.5 1.5 0 0 1 1.5 1.5z"/>',
+  trash: '<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.5h5v2"/><path d="M6.5 6.5 7.5 20h9l1-13.5"/><path d="M10 10.5v6M14 10.5v6"/>',
+  archive: '<rect x="3.5" y="4.5" width="17" height="4" rx="1"/><path d="M5 8.5v10a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-10"/><path d="M10 12.5h4"/>',
+  restore: '<path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4.5V9h4.5"/><path d="m9.5 12.5 2 2 3.5-4"/>',
+  target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/>',
+  layers: '<path d="m12 4 8.5 4.5L12 13 3.5 8.5z"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5"/><path d="m3.5 16.5 8.5 4.5 8.5-4.5"/>',
+  braces: '<path d="M8.5 4H7.5A2 2 0 0 0 5.5 6v3.5a2 2 0 0 1-2 2.5 2 2 0 0 1 2 2.5V18a2 2 0 0 0 2 2h1"/><path d="M15.5 4h1a2 2 0 0 1 2 2v3.5a2 2 0 0 0 2 2.5 2 2 0 0 0-2 2.5V18a2 2 0 0 1-2 2h-1"/>',
+  webChat: '<rect x="3" y="4" width="18" height="15" rx="2"/><path d="M3 8h18"/><circle cx="5.8" cy="6" r=".5" fill="currentColor"/><circle cx="7.8" cy="6" r=".5" fill="currentColor"/><path d="M8.5 11h7a1 1 0 0 1 1 1v2.5a1 1 0 0 1-1 1H11l-2 1.5v-1.5h-.5a1 1 0 0 1-1-1V12a1 1 0 0 1 1-1z"/>',
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { installApi } from './support/api';
+import { CUSTOM_ROLE, installApi } from './support/api';
 import {
   fontsReady,
   freezeClock,
@@ -259,6 +259,26 @@ test.describe('workspace screen baselines', () => {
     await page.locator('[data-act="channel-manage"][data-arg="instagram:cn-instagram-01"]').click();
     await expect(page.locator('[data-connection="cn-instagram-01"] .connection__details')).toBeVisible();
     await expect(page.locator('.connections')).toHaveScreenshot('channels-connection-open.png');
+  });
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`screen — a role in detail — ${theme}`, async ({ page }) => {
+      await openScreen(page, 'roles', `?role=${CUSTOM_ROLE}`);
+      await setTheme(page, theme);
+      await expect(page).toHaveScreenshot(`screen-role-detail-${theme}.png`);
+      if (theme === 'light') expect(await structureOf(page, '.app__screen')).toMatchSnapshot('screen-role-detail-structure.txt');
+    });
+  }
+
+  test('screen — a team in detail', async ({ page }) => {
+    await openScreen(page, 'teams', '?team=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    await expect(page).toHaveScreenshot('screen-team-detail.png');
+  });
+
+  test('screen — a role in detail on a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openScreen(page, 'roles', `?role=${CUSTOM_ROLE}`);
+    await expect(page).toHaveScreenshot('screen-role-detail-phone.png');
   });
 
   test('dialog — connect WhatsApp Business', async ({ page }) => {

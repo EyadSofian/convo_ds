@@ -1,6 +1,5 @@
 import { h } from '../dom.js';
-import { icon } from '../icons.js';
-import { channelIcon } from './parts.js';
+import { channelMark } from './channel-mark.js';
 
 /**
  * The product mark and the channel tiles.
@@ -37,9 +36,9 @@ export function brandLockup(): HTMLElement {
   ]);
 }
 
-/** A channel's glyph on its provider-coloured tile. */
+/** A channel's mark on a neutral tile, so every logo reads in both themes. */
 export function channelTile(kind: string, size: 'md' | 'lg' = 'md'): HTMLElement {
   return h('span', { class: `channel-tile channel-tile--${kind} channel-tile--${size}`, 'aria-hidden': 'true' }, [
-    icon(channelIcon(kind), size === 'lg' ? 20 : 16),
+    channelMark(kind, size === 'lg' ? 24 : 18),
   ]);
 }

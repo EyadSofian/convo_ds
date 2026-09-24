@@ -113,7 +113,7 @@
         document.documentElement.setAttribute('lang', lang);
         document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
         var route = window.location.hash.slice(1).split('?')[0].replace(/^\//, '').split('/')[0];
-        var screens = ['inbox', 'contacts', 'channels', 'people', 'broadcasts', 'automations', 'analytics', 'settings'];
+        var screens = ['inbox', 'contacts', 'channels', 'broadcasts', 'automations', 'analytics', 'people', 'roles', 'teams', 'settings'];
         document.documentElement.setAttribute('data-boot-screen', route === 'accept-invitation' || route === 'reset-password' ? 'auth' : (screens.indexOf(route) === -1 ? 'inbox' : route));
       })();
     </script>

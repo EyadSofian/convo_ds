@@ -9,10 +9,14 @@ export const SCREENS = [
   'inbox',
   'contacts',
   'channels',
-  'people',
   'broadcasts',
   'automations',
   'analytics',
+  // User management: three destinations, not one page. `people` is the Users
+  // screen; its route name is kept so existing links keep working.
+  'people',
+  'roles',
+  'teams',
   'settings',
 ] as const;
 

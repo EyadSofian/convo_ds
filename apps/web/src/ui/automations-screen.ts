@@ -102,7 +102,7 @@ function automationsView(state: AppState): Child {
   if (resource.status === 'idle' || resource.status === 'loading') return skeleton(state, 5);
   if (resource.status === 'error') return errorState(state, resource.error, 'live-automations-reload');
   const controls = automationFilters(state);
-  if (resource.value.length === 0) return panel(t(state, 'أتمتتي', 'My Automations'), [controls, emptyState({ icon: 'macro', title: t(state, 'لا توجد أتمتة مطابقة', 'No matching automations'), body: t(state, 'غيّر البحث أو الحالة، أو أنشئ مسودة من القوالب.', 'Change the search or state, or create a draft from Templates.') })]);
+  if (resource.value.length === 0) return panel(t(state, 'أتمتتي', 'My Automations'), [controls, emptyState({ icon: 'workflow', title: t(state, 'لا توجد أتمتة مطابقة', 'No matching automations'), body: t(state, 'غيّر البحث أو الحالة، أو أنشئ مسودة من القوالب.', 'Change the search or state, or create a draft from Templates.') })]);
   return h('div', { class: 'automation-list' }, [controls, ...resource.value.map((automation) => automationCard(state, automation)), state.live.automationNextCursor === null ? null : h('div', { class: 'automation-list__more' }, [button({ label: t(state, 'تحميل المزيد', 'Load more'), act: 'live-automation-load-more', small: true, busy: state.live.busy === 'automation-load-more' })])]);
 }
 

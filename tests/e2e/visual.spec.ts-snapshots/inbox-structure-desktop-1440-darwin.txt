@@ -55,8 +55,7 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--whatsapp
-              svg
-                path
+              svg.channel-mark.channel-mark--whatsapp
                 path
           div.convrow__main
             div.convrow__line
@@ -73,8 +72,13 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--messenger
-              svg
-                path
+              svg.channel-mark.channel-mark--messenger
+                defs
+                  radialgradient
+                    stop
+                    stop
+                    stop
+                    stop
                 path
           div.convrow__main
             div.convrow__line
@@ -95,10 +99,15 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--instagram
-              svg
-                rect
-                circle
-                circle
+              svg.channel-mark.channel-mark--instagram
+                defs
+                  radialgradient
+                    stop
+                    stop
+                    stop
+                    stop
+                    stop
+                path
           div.convrow__main
             div.convrow__line
               span.convrow__name
@@ -118,8 +127,11 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--web_chat
-              svg
+              svg.channel-mark.channel-mark--product
+                rect
                 path
+                circle
+                circle
                 path
           div.convrow__main
             div.convrow__line
@@ -136,8 +148,7 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--whatsapp
-              svg
-                path
+              svg.channel-mark.channel-mark--whatsapp
                 path
           div.convrow__main
             div.convrow__line
@@ -154,8 +165,13 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--messenger
-              svg
-                path
+              svg.channel-mark.channel-mark--messenger
+                defs
+                  radialgradient
+                    stop
+                    stop
+                    stop
+                    stop
                 path
           div.convrow__main
             div.convrow__line
@@ -176,10 +192,15 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--instagram
-              svg
-                rect
-                circle
-                circle
+              svg.channel-mark.channel-mark--instagram
+                defs
+                  radialgradient
+                    stop
+                    stop
+                    stop
+                    stop
+                    stop
+                path
           div.convrow__main
             div.convrow__line
               span.convrow__name
@@ -199,8 +220,11 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--web_chat
-              svg
+              svg.channel-mark.channel-mark--product
+                rect
                 path
+                circle
+                circle
                 path
           div.convrow__main
             div.convrow__line
@@ -217,8 +241,7 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--whatsapp
-              svg
-                path
+              svg.channel-mark.channel-mark--whatsapp
                 path
           div.convrow__main
             div.convrow__line
@@ -235,8 +258,13 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--messenger
-              svg
-                path
+              svg.channel-mark.channel-mark--messenger
+                defs
+                  radialgradient
+                    stop
+                    stop
+                    stop
+                    stop
                 path
           div.convrow__main
             div.convrow__line
@@ -257,10 +285,15 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--instagram
-              svg
-                rect
-                circle
-                circle
+              svg.channel-mark.channel-mark--instagram
+                defs
+                  radialgradient
+                    stop
+                    stop
+                    stop
+                    stop
+                    stop
+                path
           div.convrow__main
             div.convrow__line
               span.convrow__name
@@ -280,8 +313,11 @@ div.inbox
               circle
               path
             span.avatar__channel.channel-tile--web_chat
-              svg
+              svg.channel-mark.channel-mark--product
+                rect
                 path
+                circle
+                circle
                 path
           div.convrow__main
             div.convrow__line
@@ -301,8 +337,7 @@ div.inbox
           path
       span.avatar.avatar--md
         span.avatar__channel.channel-tile--whatsapp
-          svg
-            path
+          svg.channel-mark.channel-mark--whatsapp
             path
       div.thread__names
         h2.thread__name

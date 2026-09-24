@@ -35,7 +35,7 @@ import { loadAutomationsScreen } from './live/automation-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
 import { refreshNotificationCount, runNotificationAction } from './live/notification-actions';
-import { createLiveState, renewLiveState } from './live/store';
+import { createLiveState, renewLiveState, rowsOf } from './live/store';
 import type { LiveState } from './live/store';
 import { attrOf, closestWithAttr, replace } from './dom';
 import type { PreferenceStore } from './preferences';
@@ -52,7 +52,9 @@ import { renderChannels } from './ui/channels-screen';
 import { renderContacts } from './ui/contacts-screen';
 import { renderDialog } from './ui/dialogs';
 import { renderInbox } from './ui/live-inbox';
-import { renderPeople } from './ui/people-screen';
+import { renderUsers } from './ui/users-screen';
+import { draftIsDirty, renderRoles } from './ui/roles-screen';
+import { renderTeams } from './ui/teams-screen';
 import { renderSettings } from './ui/settings-screen';
 import { renderShell, renderToasts } from './ui/shell';
 import { trackViewport } from './viewport';
@@ -60,7 +62,9 @@ import { trackViewport } from './viewport';
 function renderScreen(state: AppState): HTMLElement {
   if (state.route.screen === 'contacts') return renderContacts(state);
   if (state.route.screen === 'channels') return renderChannels(state);
-  if (state.route.screen === 'people') return renderPeople(state);
+  if (state.route.screen === 'people') return renderUsers(state);
+  if (state.route.screen === 'roles') return renderRoles(state);
+  if (state.route.screen === 'teams') return renderTeams(state);
   if (state.route.screen === 'broadcasts') return renderBroadcasts(state);
   if (state.route.screen === 'automations') return renderAutomations(state);
   if (state.route.screen === 'analytics') return renderAnalytics(state);
@@ -341,7 +345,7 @@ export interface MountOptions {
   readonly page?: PageLifecycle | undefined;
 }
 
-export type PageEvent = 'visibilitychange' | 'pageshow' | 'online' | 'offline';
+export type PageEvent = 'visibilitychange' | 'pageshow' | 'online' | 'offline' | 'beforeunload';
 
 /** The slice of `window`/`document` the resume path listens to. */
 export interface PageLifecycle {
@@ -385,6 +389,8 @@ export const EXPORT_POLL_MS = 2500;
  */
 const SCREEN_LOADERS: Readonly<Record<Exclude<ScreenId, 'accept-invitation' | 'reset-password'>, (context: LiveContext) => Promise<void>>> = {
   people: loadPeopleScreen,
+  roles: loadPeopleScreen,
+  teams: loadPeopleScreen,
   channels: loadChannelsScreen,
   inbox: loadInboxScreen,
   contacts: loadContactsScreen,
@@ -768,6 +774,18 @@ export function mount(options: MountOptions): AppHandle {
     if ((page as PageLifecycle).visible()) resumeLive(false);
   };
 
+  /**
+   * Leaving the page with unsaved role permissions asks first. The browser
+   * shows its own wording; setting `returnValue` is what triggers it.
+   */
+  const onBeforeUnload = (event: Event): void => {
+    const draft = state.roleDraft;
+    const role = draft === null ? undefined : rowsOf(state.live.roles).find((entry) => entry.id === draft.roleId);
+    if (role === undefined || !draftIsDirty(state, role)) return;
+    event.preventDefault();
+    (event as BeforeUnloadEvent).returnValue = '';
+  };
+
   /** A page restored from the back/forward cache was frozen, whatever its stream says. */
   const onPageShow = (event: Event): void => {
     if ((event as PageTransitionEvent).persisted) resumeLive(true);
@@ -817,6 +835,8 @@ export function mount(options: MountOptions): AppHandle {
       target.form.requestSubmit();
       return;
     }
+    // Choosing a row action is done with its menu, whatever the action does next.
+    if (target.closest('.row-menu') !== null) state.openMenu = null;
     dispatch(act, attrOf(target, 'data-arg'));
   };
 
@@ -1053,6 +1073,7 @@ export function mount(options: MountOptions): AppHandle {
   page?.addEventListener('offline', onOffline);
   page?.addEventListener('visibilitychange', onVisibility);
   page?.addEventListener('pageshow', onPageShow);
+  page?.addEventListener('beforeunload', onBeforeUnload);
   const stopRouter = onRouteChange(host, handleRoute);
 
   handleRoute(readRoute(host));
@@ -1074,6 +1095,7 @@ export function mount(options: MountOptions): AppHandle {
       page?.removeEventListener('offline', onOffline);
       page?.removeEventListener('visibilitychange', onVisibility);
       page?.removeEventListener('pageshow', onPageShow);
+      page?.removeEventListener('beforeunload', onBeforeUnload);
       root.removeEventListener('click', onClick);
       root.removeEventListener('submit', onSubmit);
       root.removeEventListener('input', onInput);

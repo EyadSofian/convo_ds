@@ -16,11 +16,11 @@ main.app__screen
           article.integration.integration--connected
             header.integration__head
               span.channel-tile.channel-tile--whatsapp.channel-tile--lg
-                svg
-                  path
+                svg.channel-mark.channel-mark--whatsapp
                   path
               div.integration__titles
                 h3.integration__name
+                p.integration__provider
                 span.badge.badge--success
                   span.badge__dot
             p.integration__description
@@ -69,11 +69,17 @@ main.app__screen
           article.integration.integration--not_connected
             header.integration__head
               span.channel-tile.channel-tile--messenger.channel-tile--lg
-                svg
-                  path
+                svg.channel-mark.channel-mark--messenger
+                  defs
+                    radialgradient
+                      stop
+                      stop
+                      stop
+                      stop
                   path
               div.integration__titles
                 h3.integration__name
+                p.integration__provider
                 span.badge.badge--neutral
                   span.badge__dot
             p.integration__description
@@ -120,12 +126,18 @@ main.app__screen
           article.integration.integration--connecting
             header.integration__head
               span.channel-tile.channel-tile--instagram.channel-tile--lg
-                svg
-                  rect
-                  circle
-                  circle
+                svg.channel-mark.channel-mark--instagram
+                  defs
+                    radialgradient
+                      stop
+                      stop
+                      stop
+                      stop
+                      stop
+                  path
               div.integration__titles
                 h3.integration__name
+                p.integration__provider
                 span.badge.badge--accent
                   span.badge__dot
             p.integration__description
@@ -177,11 +189,15 @@ main.app__screen
           article.integration.integration--not_connected
             header.integration__head
               span.channel-tile.channel-tile--web_chat.channel-tile--lg
-                svg
+                svg.channel-mark.channel-mark--product
+                  rect
                   path
+                  circle
+                  circle
                   path
               div.integration__titles
                 h3.integration__name
+                p.integration__provider
                 span.badge.badge--neutral
                   span.badge__dot
             p.integration__description
@@ -224,11 +240,11 @@ main.app__screen
           article.integration.integration--unavailable
             header.integration__head
               span.channel-tile.channel-tile--telegram.channel-tile--lg
-                svg
-                  path
+                svg.channel-mark.channel-mark--telegram
                   path
               div.integration__titles
                 h3.integration__name
+                p.integration__provider
                 span.badge.badge--neutral
             p.integration__description
             p.integration__note
@@ -248,12 +264,12 @@ main.app__screen
           article.integration.integration--not_connected
             header.integration__head
               span.channel-tile.channel-tile--custom.channel-tile--lg
-                svg
-                  path
+                svg.channel-mark.channel-mark--product
                   path
                   path
               div.integration__titles
                 h3.integration__name
+                p.integration__provider
                 span.badge.badge--neutral
                   span.badge__dot
             p.integration__description
@@ -307,8 +323,7 @@ main.app__screen
             li.connection
               div.connection__row
                 span.channel-tile.channel-tile--whatsapp.channel-tile--md
-                  svg
-                    path
+                  svg.channel-mark.channel-mark--whatsapp
                     path
                 div.connection__identity
                   p.connection__name
@@ -326,10 +341,15 @@ main.app__screen
             li.connection
               div.connection__row
                 span.channel-tile.channel-tile--instagram.channel-tile--md
-                  svg
-                    rect
-                    circle
-                    circle
+                  svg.channel-mark.channel-mark--instagram
+                    defs
+                      radialgradient
+                        stop
+                        stop
+                        stop
+                        stop
+                        stop
+                    path
                 div.connection__identity
                   p.connection__name
                     bdi

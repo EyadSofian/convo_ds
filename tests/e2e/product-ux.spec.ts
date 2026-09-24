@@ -56,12 +56,12 @@ test.describe('focused product UX repairs', () => {
     await expect(page.locator('.automation-template-card').first()).toBeVisible();
   });
 
-  test('People and Settings keep flat full-width hierarchy without control overflow', async ({ page }) => {
+  test('Users and Settings keep flat full-width hierarchy without control overflow', async ({ page }) => {
     await openScreen(page, 'people');
     const pageWidth = await page.locator('.page__inner').boundingBox();
-    const summaryWidth = await page.locator('.people-summary').boundingBox();
-    expect(summaryWidth?.width).toBeCloseTo(pageWidth?.width ?? 0, 0);
-    await expect(page.locator('.panel[aria-label="الأعضاء"], .panel[aria-label="Members"]')).toBeVisible();
+    const panelWidth = await page.locator('.admin-panel').boundingBox();
+    expect(panelWidth?.width).toBeCloseTo(pageWidth?.width ?? 0, 0);
+    await expect(page.locator('.admin-panel[role="tabpanel"]')).toBeVisible();
 
     await page.locator('.nav__item[data-arg="settings"]').click();
     await expect(page.locator('.settings-section')).toHaveCount(4);
@@ -73,8 +73,8 @@ test.describe('focused product UX repairs', () => {
   });
 
   test('native selects reserve a stable mirrored chevron area in RTL and LTR', async ({ page }) => {
-    await openScreen(page, 'people');
-    const select = page.locator('.table .select').first();
+    await openScreen(page, 'teams', '?team=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    const select = page.locator('.team-add .select').first();
     const rtl = await select.evaluate((element) => {
       const style = getComputedStyle(element);
       return { height: element.getBoundingClientRect().height, image: style.backgroundImage, position: style.backgroundPosition };

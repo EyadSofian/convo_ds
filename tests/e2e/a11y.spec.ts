@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import { installApi } from './support/api';
+import { CUSTOM_ROLE, installApi } from './support/api';
 import {
   freezeClock,
   MATRIX,
@@ -112,6 +112,47 @@ test.describe('axe: no WCAG 2.1 AA violations', () => {
       });
     }
   }
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`user management in detail — a role, its holders and a team — ${theme}`, async ({ page }) => {
+      await openScreen(page, 'roles', `?role=${CUSTOM_ROLE}`);
+      await setTheme(page, theme);
+      expect(describeViolations(await audit(page))).toEqual([]);
+      // A draft brings up the save bar.
+      await page.locator('[data-permission="contact.edit"] input').check();
+      await expect(page.locator('.savebar')).toBeVisible();
+      expect(describeViolations(await audit(page))).toEqual([]);
+      await page.locator('[data-act="role-draft-discard"]').click();
+      await page.locator('#tab-users').click();
+      await expect(page.locator('[data-membership]').first()).toBeVisible();
+      expect(describeViolations(await audit(page))).toEqual([]);
+      await openScreen(page, 'teams', '?team=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+      await setTheme(page, theme);
+      expect(describeViolations(await audit(page))).toEqual([]);
+    });
+  }
+
+  test('user-management dialogs and row menus', async ({ page }) => {
+    await openScreen(page, 'people');
+    await page.locator('[data-act="menu"][data-arg^="member:"]').first().click();
+    await expect(page.locator('.row-menu')).toBeVisible();
+    expect(describeViolations(await audit(page))).toEqual([]);
+    await page.locator('.row-menu [data-arg^="member-role:"]').click();
+    await expect(page.locator('.dialog')).toBeVisible();
+    expect(describeViolations(await audit(page))).toEqual([]);
+    await page.keyboard.press('Escape');
+
+    await page.locator('.nav__item[data-arg="roles"]').click();
+    await page.locator('.admin-head [data-arg="role-create"]').click();
+    await expect(page.locator('.dialog')).toBeVisible();
+    expect(describeViolations(await audit(page))).toEqual([]);
+    await page.keyboard.press('Escape');
+
+    await openScreen(page, 'roles', `?role=${CUSTOM_ROLE}&tab=users`);
+    await page.locator('[data-arg^="role-assign:"]').first().click();
+    await expect(page.locator('.dialog .pick-list')).toBeVisible();
+    expect(describeViolations(await audit(page))).toEqual([]);
+  });
 
   test('dialogs: connecting a channel, inviting a member, drafting a campaign', async ({ page }) => {
     await openScreen(page, 'channels');

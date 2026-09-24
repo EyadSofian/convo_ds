@@ -790,7 +790,14 @@ async function readRole(sql: SqlExecutor, roleId: string): Promise<RoleSummary> 
     key: string;
     name: string;
     is_builtin: boolean;
-  }>('SELECT id::text, key, name, is_builtin FROM roles WHERE id = $1', [roleId]);
+    description: string;
+    updated_at: string;
+  }>(
+    `SELECT id::text, key, name, is_builtin, description,
+            to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+       FROM roles WHERE id = $1`,
+    [roleId],
+  );
   const role = requireRow(rows.rows, 'the role vanished mid-transaction');
   const grants = await sql.query<{ permission_key: string; scope_level: ScopeLevel }>(
     'SELECT permission_key, scope_level FROM role_permissions WHERE role_id = $1 ORDER BY permission_key',

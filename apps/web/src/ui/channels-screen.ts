@@ -214,6 +214,7 @@ function integrationCard(
       channelTile(item.kind, 'lg'),
       h('div', { class: 'integration__titles' }, [
         h('h3', { class: 'integration__name', id: `integration-${item.kind}` }, [t(state, item.name.ar, item.name.en)]),
+        h('p', { class: 'integration__provider' }, [providerOf(item)]),
         badge(t(state, view.label.ar, view.label.en), view.tone, { dot: summary.status !== 'unavailable' }),
       ]),
     ]),
@@ -237,6 +238,12 @@ function integrationCard(
     ]),
     h('footer', { class: 'integration__actions' }, [primaryAction(state, item, summary.status, attention)]),
   ]);
+}
+
+/** Who runs the channel: Meta's three products, Telegram, or this product itself. */
+function providerOf(item: CatalogueItem): string {
+  if (item.meta) return 'Meta';
+  return item.kind === 'telegram' ? 'Telegram' : 'DS Omnichannel';
 }
 
 function primaryAction(

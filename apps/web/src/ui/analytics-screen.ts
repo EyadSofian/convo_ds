@@ -125,7 +125,7 @@ function renderTeams(state: AppState): HTMLElement {
       : resource.status === 'error' ? errorState(state, resource.error, 'live-report-reload')
         : panel(t(state, 'أداء الفرق', 'Team performance'), [
           notice('plain', 'info', h('strong', {}, [t(state, 'تجميع حسب عضوية الفريق الحالية. ', 'Current team grouping. ')]), t(state, 'تُنسب النشاطات التاريخية لأعضاء كل فريق حاليًا؛ لا يدّعي التقرير معرفة عضوية الفريق وقت الحدث.', 'Historical activity is grouped by each agent’s current team membership; the report does not claim team ownership at event time.')),
-          rows.length === 0 ? emptyState({ icon: 'people', title: t(state, 'لا توجد فرق ضمن النطاق', 'No teams in scope'), body: t(state, 'لا توجد فرق مرئية في نطاق التقارير الحالي.', 'No teams are visible in the current reporting scope.') })
+          rows.length === 0 ? emptyState({ icon: 'team', title: t(state, 'لا توجد فرق ضمن النطاق', 'No teams in scope'), body: t(state, 'لا توجد فرق مرئية في نطاق التقارير الحالي.', 'No teams are visible in the current reporting scope.') })
             : h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
               h('thead', {}, [h('tr', {}, [
                 t(state, 'الفريق', 'Team'), t(state, 'الوكلاء النشطون', 'Active agents'), t(state, 'النشط الآن', 'Current active'),
@@ -165,7 +165,7 @@ function agentPerformanceTable(state: AppState, report: OperationalReport): HTML
     t(state, 'متوسط الرد', 'Avg. response'),t(state, 'وسيط الرد', 'Median response'),t(state, 'حلول', 'Resolved'),
     t(state, 'متوسط الحل', 'Avg. resolution'),t(state, 'وسيط الحل', 'Median resolution'),t(state, 'إعادات إسناد', 'Reassignments')];
   return panel(t(state, 'أداء الوكلاء', 'Agent performance'), [rows.length === 0
-    ? emptyState({ icon: 'people', title: t(state, 'لا يوجد وكلاء ضمن النطاق', 'No agents in scope'), body: t(state, 'لا توجد هويات وكلاء قابلة للتقرير ضمن صلاحياتك.', 'No reportable agent identities are available in your scope.') })
+    ? emptyState({ icon: 'users', title: t(state, 'لا يوجد وكلاء ضمن النطاق', 'No agents in scope'), body: t(state, 'لا توجد هويات وكلاء قابلة للتقرير ضمن صلاحياتك.', 'No reportable agent identities are available in your scope.') })
     : h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
       h('thead', {}, [h('tr', {}, headers.map((label, index) => h('th', { scope: 'col', class: index === 0 ? undefined : 'num' }, [label])))]),
       h('tbody', {}, rows.map((agent) => h('tr', { 'data-agent-id': agent.membershipId }, [
@@ -227,7 +227,7 @@ function timingBreakdown(state: AppState, title: string, rows: readonly { readon
 
 function timingTable(state: AppState, title: string, rows: readonly TimingReportRow[], identityLabel: string): HTMLElement {
   return panel(title, [rows.length === 0
-    ? emptyState({ icon: 'people', title: t(state, 'لا توجد بيانات', 'No data'), body: t(state, 'لا توجد قياسات ضمن نطاق التقرير.', 'There are no measurements in this report scope.') })
+    ? emptyState({ icon: 'users', title: t(state, 'لا توجد بيانات', 'No data'), body: t(state, 'لا توجد قياسات ضمن نطاق التقرير.', 'There are no measurements in this report scope.') })
     : h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
       h('thead', {}, [h('tr', {}, [identityLabel, t(state, 'مقاس', 'Measured'), t(state, 'المتوسط', 'Average'), t(state, 'الوسيط', 'Median')].map((label, index) => h('th', { scope: 'col', class: index === 0 ? undefined : 'num' }, [label])))]),
       h('tbody', {}, rows.map((row) => h('tr', { ...(row.membershipId === null ? {} : { 'data-agent-id': row.membershipId }) }, [
@@ -257,7 +257,7 @@ function renderAssignments(state: AppState): HTMLElement {
   const body: Child[] = [];
   if (resource.status === 'idle' || resource.status === 'loading') body.push(skeleton(state, 3));
   else if (resource.status === 'error') body.push(errorState(state, resource.error, 'live-report-reload'));
-  else if (rows.length === 0) body.push(emptyState({ icon: 'people', title: t(state, 'لا توجد إسنادات في هذا النطاق', 'No assignments in this scope'), body: t(state, 'ستظهر هنا تغييرات الملكية المسجلة ضمن نطاق القراءة.', 'Ownership-changing events in your readable scope will appear here.') }));
+  else if (rows.length === 0) body.push(emptyState({ icon: 'userCheck', title: t(state, 'لا توجد إسنادات في هذا النطاق', 'No assignments in this scope'), body: t(state, 'ستظهر هنا تغييرات الملكية المسجلة ضمن نطاق القراءة.', 'Ownership-changing events in your readable scope will appear here.') }));
   else body.push(assignmentTable(state, rows));
   if (resource.status === 'ready' && state.live.assignmentNextCursor !== null) {
     body.push(button({ label: t(state, 'تحميل المزيد', 'Load more'), act: 'live-assignments-more', small: true, busy: state.live.assignmentLoadingMore }));
@@ -445,7 +445,7 @@ function agentDetail(state: AppState, report: OperationalReport): Child {
   const id = state.route.params.agent;
   if (id === undefined) return null;
   const agent = report.agents.find((row) => row.membershipId === id);
-  if (agent === undefined) return notice('warning', 'people', t(state, 'الوكيل لم يعد ضمن نطاق التقرير.', 'That agent is no longer within this report scope.'));
+  if (agent === undefined) return notice('warning', 'users', t(state, 'الوكيل لم يعد ضمن نطاق التقرير.', 'That agent is no longer within this report scope.'));
   return panel(t(state, `تفاصيل ${agent.name}`, `${agent.name} detail`), [
     h('p', { class: 'table__secondary' }, [agent.email, agent.teams.length === 0 ? '' : ` · ${agent.teams.join(' · ')}`]),
     h('section', { class: 'kpis kpis--5', 'aria-label': t(state, 'مقاييس الوكيل', 'Agent measures') }, [
@@ -507,12 +507,12 @@ function operationsBreakdown(state: AppState, title: string, label: string, rows
 
 function workload(state: AppState, report: OperationalReport): HTMLElement {
   const rows = report.conversations.assignmentWorkload;
-  if (rows.length === 0) return panel(t(state, 'حمل التعيين', 'Assignment workload'), [emptyState({ icon: 'people', title: t(state, 'لا توجد محادثات معيّنة', 'No assigned conversations'), body: t(state, 'المحادثات المفتوحة المعيّنة تظهر هنا حسب الوكيل.', 'Assigned open conversations appear here by agent.') })]);
+  if (rows.length === 0) return panel(t(state, 'حمل التعيين', 'Assignment workload'), [emptyState({ icon: 'userCheck', title: t(state, 'لا توجد محادثات معيّنة', 'No assigned conversations'), body: t(state, 'المحادثات المفتوحة المعيّنة تظهر هنا حسب الوكيل.', 'Assigned open conversations appear here by agent.') })]);
   return operationsBreakdown(state, t(state, 'حمل التعيين', 'Assignment workload'), t(state, 'الوكيل', 'Agent'), rows);
 }
 
 function agentActivity(state: AppState, report: OperationalReport): HTMLElement {
-  if (report.agents.length === 0) return panel(t(state, 'نشاط الوكلاء', 'Agent activity'), [emptyState({ icon: 'people', title: t(state, 'لا توجد أحداث منسوبة', 'No attributed events'), body: t(state, 'تظهر هنا الردود الأولى وعمليات الحل التي تحمل منفّذًا محفوظًا.', 'First responses and resolutions with a recorded actor appear here.') })]);
+  if (report.agents.length === 0) return panel(t(state, 'نشاط الوكلاء', 'Agent activity'), [emptyState({ icon: 'users', title: t(state, 'لا توجد أحداث منسوبة', 'No attributed events'), body: t(state, 'تظهر هنا الردود الأولى وعمليات الحل التي تحمل منفّذًا محفوظًا.', 'First responses and resolutions with a recorded actor appear here.') })]);
   return panel(t(state, 'أداء الوكلاء', 'Agent performance'), [h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
     h('thead', {}, [h('tr', {}, [
       h('th', { scope: 'col' }, [t(state, 'الوكيل', 'Agent')]), h('th', { scope: 'col', class: 'num' }, [t(state, 'الحمل الحالي', 'Active workload')]),
@@ -767,7 +767,7 @@ function trend(state: AppState, days: readonly CampaignReportTrendDay[]): HTMLEl
 function channelBreakdown(state: AppState, report: CampaignReport): HTMLElement {
   const title = t(state, 'حسب القناة', 'By channel');
   if (report.channels.length === 0) {
-    return panel(title, [emptyState({ icon: 'channels', title: t(state, 'لا توجد بيانات قنوات', 'No channel data'), body: t(state, 'تظهر القنوات بعد أول تنفيذ.', 'Channels appear after the first execution.') })]);
+    return panel(title, [emptyState({ icon: 'plug', title: t(state, 'لا توجد بيانات قنوات', 'No channel data'), body: t(state, 'تظهر القنوات بعد أول تنفيذ.', 'Channels appear after the first execution.') })]);
   }
   return panel(title, [
     h('div', { class: 'tablewrap' }, [

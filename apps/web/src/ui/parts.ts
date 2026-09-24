@@ -4,6 +4,7 @@ import { bdi, h } from '../dom';
 import type { IconName } from '../icons';
 import { icon } from '../icons';
 import type { AppState } from '../state';
+import { channelMark } from './channel-mark';
 import { describeError, t } from './copy';
 
 /**
@@ -99,7 +100,7 @@ export function avatar(options: AvatarOptions): HTMLElement {
     options.initials === '' ? icon('user', 16) : options.initials,
     options.channel === undefined
       ? null
-      : h('span', { class: `avatar__channel channel-tile--${options.channel}` }, [icon(channelIcon(options.channel), 9)]),
+      : h('span', { class: `avatar__channel channel-tile--${options.channel}` }, [channelMark(options.channel, 10)]),
   ]);
 }
 
@@ -444,16 +445,4 @@ export function progress(ratio: number, label: string, tone: Tone = 'accent'): H
   }, [h('span', { class: 'progress__fill' })]);
 }
 
-export const CHANNEL_ICON: Readonly<Record<string, IconName>> = {
-  whatsapp: 'whatsapp',
-  instagram: 'instagram',
-  messenger: 'messenger',
-  web_chat: 'chat',
-  custom: 'code',
-  telegram: 'plane',
-};
-
-/** The channel's glyph. A kind this build does not know gets a neutral globe. */
-export function channelIcon(kind: string): IconName {
-  return CHANNEL_ICON[kind] ?? 'globe';
-}
+export { CHANNEL_ICON, channelIcon } from './channel-mark';

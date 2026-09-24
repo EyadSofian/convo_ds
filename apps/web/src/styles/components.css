@@ -223,8 +223,8 @@
     block-size: var(--icon-lg);
     border: 2px solid var(--surface-1);
     border-radius: var(--radius-full);
-    background: var(--brand-custom);
-    color: var(--on-brand);
+    background: var(--brand-tile);
+    color: var(--accent-text);
   }
 
   /* ----------------------------------------------------------- segmented -- */
@@ -1136,34 +1136,6 @@
     gap: var(--space-2);
   }
 
-  .mini-card {
-    display: grid;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--surface-2);
-  }
-
-  .mini-card__head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .mini-card__title {
-    flex: 1 1 auto;
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
-  }
-
-  .mini-card__grants {
-    color: var(--text-muted);
-    font-size: var(--text-2xs);
-    overflow-wrap: anywhere;
-  }
-
   .memberlist {
     display: grid;
     gap: var(--space-1);
@@ -1267,15 +1239,17 @@
 
   /* ------------------------------------------------------ channel tiles -- */
 
+  /* Official channel marks sit on a neutral tile, never on a brand-coloured
+     slab: the logo carries the brand, the card stays in the product palette. */
   .channel-tile {
     display: grid;
     place-items: center;
     flex: none;
     inline-size: 32px;
     block-size: 32px;
+    border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    background: var(--brand-custom);
-    color: var(--on-brand);
+    background: var(--brand-tile);
   }
 
   .channel-tile--lg {
@@ -1284,23 +1258,7 @@
     border-radius: var(--radius-lg);
   }
 
-  .channel-tile--whatsapp {
-    background: var(--brand-whatsapp);
-  }
-
-  .channel-tile--messenger {
-    background: var(--brand-messenger);
-  }
-
-  .channel-tile--instagram {
-    background: var(--brand-instagram);
-  }
-
-  .channel-tile--telegram {
-    background: var(--brand-telegram);
-  }
-
-  .channel-tile--web_chat {
-    background: var(--brand-web-chat);
+  .channel-mark--product {
+    color: var(--accent-text);
   }
 }

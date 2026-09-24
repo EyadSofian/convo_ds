@@ -1,0 +1,512 @@
+main.app__screen
+  div.page.page--roles
+    div.page__inner
+      header.admin-head
+        nav.breadcrumb
+          ol
+            li
+              span
+                bdi
+            li
+              a.link
+                bdi
+            li
+              span
+                bdi
+        div.admin-head__row
+          span.admin-head__icon
+            svg
+              path
+              circle
+              path
+          div.admin-head__titles
+            div.admin-head__titleline
+              h2.admin-head__title
+                bdi
+              span.badge.badge--accent
+            p.admin-head__subtitle
+              bdi
+          div.admin-head__actions
+            div.menu-anchor
+              button.btn.btn--ghost.btn--sm.btn--icon.row-menu__trigger [menu]
+                svg
+                  circle
+                  circle
+                  circle
+      section.role-summary
+        div.role-summary__card
+          span.role-summary__icon
+            svg
+              circle
+              path
+              path
+              path
+          span.role-summary__label
+          strong.role-summary__value
+        div.role-summary__card
+          span.role-summary__icon
+            svg
+              circle
+              path
+          span.role-summary__label
+          strong.role-summary__value
+        div.role-summary__card
+          span.role-summary__icon
+            svg
+              path
+              path
+              path
+          span.role-summary__label
+          strong.role-summary__value
+        div.role-summary__card
+          span.role-summary__icon
+            svg
+              circle
+              path
+          span.role-summary__label
+          strong.role-summary__value
+      div.admin-tabs
+        a.admin-tabs__tab
+        a.admin-tabs__tab
+          span.admin-tabs__count
+      section.admin-panel
+        div.admin-panel__body.permissions
+          div.permissions__head
+            div
+              h3.permissions__title
+              p.permissions__lede
+            p.permissions__count
+          label.admin-search
+            svg
+              circle
+              path
+            input.admin-search__input [permission-search]
+          div.permission-grid
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      path
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row.permission-row--on
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  select.select [role-grant-scope]
+                    option
+                    option
+                    option
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row.permission-row--on
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  select.select [role-grant-scope]
+                    option
+                    option
+                    option
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      rect
+                      circle
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row.permission-row--on
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  select.select [role-grant-scope]
+                    option
+                    option
+                    option
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      path
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      path
+                      path
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      rect
+                      rect
+                      path
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      path
+                      path
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      path
+                      circle
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      path
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      path
+                      path
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      path
+                      path
+                      path
+                      path
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row.permission-row--on
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  select.select [role-grant-scope]
+                    option
+                    option
+                    option
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+            section.permission-card
+              h3.permission-card__heading
+                button.permission-card__toggle [permission-group]
+                  span.permission-card__icon
+                    svg
+                      path
+                      path
+                  span.permission-card__name
+                  span.permission-card__count
+                  svg.permission-card__chevron
+                    path
+              ul.permission-card__list
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
+                li.permission-row
+                  input.permission-row__check [role-grant-toggle]
+                  label.permission-row__text
+                    span.permission-row__label
+                    code.permission-row__key
+                  span.permission-row__lock
+                    svg
+                      rect
+                      path
