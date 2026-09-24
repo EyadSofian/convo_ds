@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { CONVERSATION, installApi } from './support/api';
-import { box, fontsReady, freezeClock, openScreen, overflowsHorizontally, setDirection, setTheme } from './support/workspace';
+import { box, fontsReady, freezeClock, openInbox, openScreen, overflowsHorizontally, setDirection, setTheme } from './support/workspace';
 
 /**
  * Nothing moves when work starts or ends. Measured in a real engine, because
@@ -187,5 +187,71 @@ test.describe('widths', () => {
         }
       }
     });
+  }
+});
+
+test.describe('inbox list panels', () => {
+  for (const direction of ['ltr', 'rtl'] as const) {
+    test(`open inside the list, never under the expanded navigation — ${direction}`, async ({ page }) => {
+      await openInbox(page);
+      await setDirection(page, direction);
+      await page.locator('[data-act="nav-collapse"]').first().click();
+      await expect(page.locator('.app[data-nav="expanded"]')).toHaveCount(1);
+      const list = await box(page.locator('.zone--list'));
+      for (const menu of ['inbox-filters', 'inbox-saved-views']) {
+        await page.locator(`[data-act="menu"][data-arg="${menu}"]`).click();
+        const panel = page.locator('.listhead__row .popover');
+        const rect = await box(panel);
+        expect(rect.x, menu).toBeGreaterThanOrEqual(list.x - 0.5);
+        expect(rect.x + rect.width, menu).toBeLessThanOrEqual(list.x + list.width + 0.5);
+        // Both of its edges are the panel itself, not the navigation drawn over it.
+        const covered = await page.evaluate(({ x, y, w }) => [x + 4, x + w - 4].some((left) => {
+          const hit = document.elementFromPoint(left, y + 12);
+          return hit === null || hit.closest('.popover') === null;
+        }), { x: rect.x, y: rect.y, w: rect.width });
+        expect(covered, menu).toBe(false);
+        await page.keyboard.press('Escape');
+        await expect(panel).toHaveCount(0);
+      }
+    });
+  }
+});
+
+test.describe('every menu and panel', () => {
+  for (const width of [1440, 1024] as const) {
+    for (const direction of ['ltr', 'rtl'] as const) {
+      test(`opens whole, uncovered and on screen with the navigation expanded — ${String(width)} ${direction}`, async ({ page }) => {
+        test.setTimeout(120_000);
+        const problems: string[] = [];
+        for (const screen of ['inbox', 'people', 'roles', 'teams', 'channels', 'contacts', 'broadcasts', 'analytics', 'automations']) {
+          if (screen === 'inbox') await openInbox(page);
+          else await openScreen(page, screen);
+          await page.setViewportSize({ width, height: 900 });
+          await setDirection(page, direction);
+          if (await page.locator('.app[data-nav="collapsed"]').count() > 0) await page.locator('[data-act="nav-collapse"]').first().click();
+          for (const trigger of (await page.locator('[data-act="menu"]:visible, [data-act="notification-toggle"]:visible').all()).slice(0, 6)) {
+            const name = `${screen} ${(await trigger.getAttribute('data-arg')) ?? 'notifications'}`;
+            await trigger.click();
+            const panel = page.locator('.popover:visible, .menu:visible').first();
+            await expect(panel, name).toBeVisible();
+            // The screen redraws as a whole, so a panel can be swapped for its
+            // identical successor between two reads: read until one sticks.
+            let rect = await panel.boundingBox();
+            for (let attempt = 0; rect === null && attempt < 10; attempt += 1) rect = await panel.boundingBox();
+            if (rect === null) throw new Error(`${name}: the panel has no box`);
+            // Each corner is on screen and is the panel itself, not something drawn over it.
+            const hidden = await page.evaluate(({ x, y, w, h }) => [[x + 4, y + 8], [x + w - 4, y + 8], [x + 4, y + h - 8], [x + w - 4, y + h - 8]]
+              .filter(([px, py]) => {
+                if (px === undefined || py === undefined || px < 0 || px > innerWidth || py < 0 || py > innerHeight) return true;
+                return document.elementFromPoint(px, py)?.closest('.popover, .menu') == null;
+              }).length, { x: rect.x, y: rect.y, w: rect.width, h: rect.height });
+            if (hidden > 0) problems.push(`${name}: ${String(hidden)} corner(s) hidden`);
+            await page.keyboard.press('Escape');
+            await expect(page.locator('.popover:visible, .menu:visible')).toHaveCount(0);
+          }
+        }
+        expect(problems).toEqual([]);
+      });
+    }
   }
 });
