@@ -41,7 +41,7 @@ import {
  * this test configures, which is exactly what the provider would do — that
  * makes the verification real. The *transport* is not configured, so every send
  * and every connection test refuses with `provider_not_connected`, which is the
- * honest state of this build until authorized Meta assets exist.
+ * honest state of this isolated test harness without provider transport.
  */
 
 const BOOTSTRAP_TOKEN = 'channels-bootstrap-token-value-00000001';
@@ -470,6 +470,38 @@ describe('channel connections', () => {
     const second = await connect(api, owner, 'phone-contested-1');
     expect(second.statusCode).toBe(409);
     expect(second.json()).toMatchObject({ error: { code: 'asset_already_connected' } });
+  });
+
+  it('keeps 100 distinct Meta assets separate without claiming provider readiness', async () => {
+    const kinds = ['whatsapp', 'messenger', 'instagram'] as const;
+    const ids = new Set<string>();
+    for (let index = 0; index < 100; index += 1) {
+      const kind = kinds[index % kinds.length] as (typeof kinds)[number];
+      const response = await send(api, owner, 'POST', '/channels', {
+        kind,
+        externalAssetId: `synthetic-asset-${String(index)}`,
+        displayName: `Synthetic ${kind} ${String(index)}`,
+        accessToken: `synthetic-test-token-${String(index).padStart(3, '0')}`,
+        appId: api.appId,
+      });
+      expect(response.statusCode, `asset ${String(index)}`).toBe(201);
+      const connection = (response.json() as { data: { id: string; status: string } }).data;
+      expect(connection.status).toBe('authorization_needed');
+      ids.add(connection.id);
+    }
+
+    const listed = await send(api, owner, 'GET', '/channels');
+    expect(listed.statusCode).toBe(200);
+    const synthetic = (listed.json() as {
+      data: { id: string; kind: string; external_asset_id: string; status: string }[];
+    }).data.filter((connection) => connection.external_asset_id.startsWith('synthetic-asset-'));
+    expect(ids.size).toBe(100);
+    expect(synthetic).toHaveLength(100);
+    expect(new Set(synthetic.map((connection) => connection.external_asset_id)).size).toBe(100);
+    expect(synthetic.every((connection) => connection.status === 'authorization_needed')).toBe(true);
+    for (const kind of kinds) {
+      expect(synthetic.some((connection) => connection.kind === kind)).toBe(true);
+    }
   });
 
   it('reports a connection test honestly when no provider transport is configured', async () => {
