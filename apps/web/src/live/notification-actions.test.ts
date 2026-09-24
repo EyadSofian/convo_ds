@@ -127,6 +127,82 @@ describe('durable notification browser actions', () => {
     expect(context.state.openMenu).toBeNull();
   });
 
+  it('reports a browser that already receives alerts as enabled after a reload, without prompting', async () => {
+    const { context, api } = setup();
+    const permission = vi.fn();
+    const toJSON = vi.fn().mockReturnValue({ endpoint: 'https://push.example.test/e', keys: { p256dh: 'p', auth: 'a' } });
+    const getSubscription = vi.fn().mockResolvedValue({ toJSON });
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: {
+      getRegistration: vi.fn().mockResolvedValue({ pushManager: { getSubscription } }),
+    } });
+    vi.stubGlobal('Notification', { permission: 'granted', requestPermission: permission });
+    api.pushConfig.mockResolvedValue({ ok: true, data: { publicKey: 'public-test-key' } });
+    await runNotificationAction(context, 'notification-toggle', '');
+    expect(context.live.pushStatus).toBe('enabled');
+    expect(api.registerDevice).toHaveBeenCalledTimes(1);
+    expect(permission).not.toHaveBeenCalled();
+
+    // Only the server's acknowledgement counts as enabled.
+    api.registerDevice.mockResolvedValue({ ok: false, error: ERROR });
+    context.live.pushStatus = 'idle';
+    context.state.openMenu = null;
+    await runNotificationAction(context, 'notification-toggle', '');
+    expect(context.live.pushStatus).toBe('error');
+
+    // Granted, but this browser holds no subscription (or no worker yet).
+    getSubscription.mockResolvedValue(null);
+    context.live.pushStatus = 'idle';
+    context.state.openMenu = null;
+    await runNotificationAction(context, 'notification-toggle', '');
+    expect(context.live.pushStatus).toBe('idle');
+    (navigator.serviceWorker.getRegistration as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    context.live.pushStatus = 'idle';
+    context.state.openMenu = null;
+    await runNotificationAction(context, 'notification-toggle', '');
+    expect(context.live.pushStatus).toBe('idle');
+    (navigator.serviceWorker.getRegistration as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('no worker'));
+    context.live.pushStatus = 'idle';
+    context.state.openMenu = null;
+    await runNotificationAction(context, 'notification-toggle', '');
+    expect(context.live.pushStatus).toBe('idle');
+  });
+
+  it('says blocked instead of offering a prompt the browser will refuse, and stays quiet elsewhere', async () => {
+    const { context, api } = setup();
+    api.pushConfig.mockResolvedValue({ ok: true, data: { publicKey: 'public-test-key' } });
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { getRegistration: vi.fn() } });
+    vi.stubGlobal('Notification', { permission: 'denied', requestPermission: vi.fn() });
+    await runNotificationAction(context, 'notification-toggle', '');
+    expect(context.live.pushStatus).toBe('denied');
+
+    vi.stubGlobal('Notification', { permission: 'default', requestPermission: vi.fn() });
+    context.live.pushStatus = 'idle';
+    context.state.openMenu = null;
+    await runNotificationAction(context, 'notification-toggle', '');
+    expect(context.live.pushStatus).toBe('idle');
+
+    vi.stubGlobal('Notification', undefined);
+    context.live.pushStatus = 'idle';
+    context.state.openMenu = null;
+    await runNotificationAction(context, 'notification-toggle', '');
+    expect(context.live.pushStatus).toBe('idle');
+    expect(api.registerDevice).not.toHaveBeenCalled();
+  });
+
+  it('drops a push-state answer that arrives after the workspace changed', async () => {
+    const { context, api } = setup();
+    api.pushConfig.mockResolvedValue({ ok: true, data: { publicKey: 'public-test-key' } });
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: {
+      getRegistration: vi.fn().mockImplementation(async () => {
+        context.state.live.session = { status: 'signed_in', email: 'agent@example.test', memberships: [], tenantId: 'other-tenant' };
+        return undefined;
+      }),
+    } });
+    vi.stubGlobal('Notification', { permission: 'granted', requestPermission: vi.fn() });
+    await runNotificationAction(context, 'notification-toggle', '');
+    expect(context.live.pushStatus).toBe('checking');
+  });
+
   it('requires explicit push permission and registers only after the click', async () => {
     const { context, api } = setup();
     const publicKey = Buffer.alloc(65, 5).toString('base64url');

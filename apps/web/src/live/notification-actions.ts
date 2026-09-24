@@ -74,8 +74,35 @@ async function loadPushConfig(context: LiveContext): Promise<void> {
   const result = await api.pushConfig(tenantId);
   if (currentTenantId(context.live) !== tenantId) return;
   context.live.pushPublicKey = result.ok ? result.data.publicKey : null;
-  context.live.pushStatus = result.ok ? (result.data.publicKey === null ? 'unavailable' : 'idle') : 'error';
+  const status = result.ok ? (result.data.publicKey === null ? 'unavailable' : await existingPushState(api, tenantId)) : 'error';
+  if (currentTenantId(context.live) !== tenantId) return;
+  context.live.pushStatus = status;
   context.refresh();
+}
+
+/**
+ * What this browser already agreed to, read without asking again.
+ *
+ * After a reload, or in a window a push tap opened, the drawer used to offer
+ * "Enable device alerts" to a browser that was already receiving them, and the
+ * same button to one whose permission was blocked. A live subscription is
+ * re-registered — idempotent on the server, and it keeps the stored endpoint
+ * current — and only a server acknowledgement is reported as enabled. Nothing
+ * here prompts: permission is still requested only by the explicit click.
+ */
+async function existingPushState(api: NonNullable<LiveContext['live']['notificationsApi']>, tenantId: string): Promise<'idle' | 'enabled' | 'denied' | 'error'> {
+  if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) return 'idle';
+  if (Notification.permission === 'denied') return 'denied';
+  if (Notification.permission !== 'granted') return 'idle';
+  try {
+    const registration = await navigator.serviceWorker.getRegistration('/');
+    const subscription = await registration?.pushManager.getSubscription();
+    if (subscription === null || subscription === undefined) return 'idle';
+    const registered = await api.registerDevice(tenantId, deviceId(), subscription.toJSON());
+    return registered.ok ? 'enabled' : 'error';
+  } catch {
+    return 'idle';
+  }
 }
 
 /** Explicit logout stops this browser receiving even generic lock-screen hints. */
