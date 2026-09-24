@@ -442,6 +442,30 @@ describe('workspaceOpen and renderApp', () => {
     expect((renderApp(state).firstChild as HTMLElement).textContent).toContain('Recover access');
   });
 
+  it('keeps an emailed link’s token through the first render, so the form can use it', async () => {
+    const token = 'b'.repeat(43);
+    const api = new FakeApi().on('GET /auth/session', NO_SESSION)
+      .on(`POST /invitations/${token}/accept`, { status: 200, body: { data: { tenant_id: TENANT, membership_id: 'm-1' } } })
+      .on('POST /auth/recovery/complete', { status: 204, body: null });
+    let publicApp = start(`#/accept-invitation?token=${token}`, api);
+    await settle();
+    // Before the fix the first URL sync dropped `?token=`, and the screen said
+    // the link was invalid for every real invitation.
+    expect(publicApp.host.location.hash).toBe(`#/accept-invitation?token=${token}`);
+    expect(publicApp.app.state.route.params['token']).toBe(token);
+    expect(publicApp.root.querySelector('[role="alert"]')).toBeNull();
+    publicApp.app.state.dialogForm = { authPassword: 'correct horse battery', authPasswordConfirm: 'correct horse battery' };
+    publicApp.app.dispatch('live-accept-invitation');
+    await settle();
+    expect(api.called(`POST /invitations/${token}/accept`)).toBe(true);
+    publicApp.app.destroy(); handle = null;
+
+    publicApp = start(`#/reset-password?token=${token}`, api);
+    await settle();
+    expect(publicApp.host.location.hash).toBe(`#/reset-password?token=${token}`);
+    expect(publicApp.root.querySelector('input[type="password"]')).not.toBeNull();
+  });
+
   it('mounts both public routes without loading protected screen data', async () => {
     const api = new FakeApi().on('GET /auth/session', NO_SESSION);
     let publicApp = start(`#/accept-invitation?token=${'a'.repeat(43)}`, api);

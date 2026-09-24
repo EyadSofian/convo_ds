@@ -174,3 +174,34 @@ test.describe('leaving', () => {
     await expect(page.locator('body')).not.toContainText('مساء الخير');
   });
 });
+
+test.describe('links delivered by email', () => {
+  const TOKEN = `e2eEmailedToken_${'a'.repeat(27)}`;
+
+  for (const [route, submitPath] of [
+    ['accept-invitation', `/api/v1/invitations/${TOKEN}/accept`],
+    ['reset-password', '/api/v1/auth/recovery/complete'],
+  ] as const) {
+    test(`${route}: the emailed token survives the first render and reaches the server`, async ({ page }) => {
+      await freezeClock(page);
+      await installApi(page, { signedIn: false });
+      const submitted: string[] = [];
+      await page.route(`**${submitPath}`, async (fulfil) => {
+        submitted.push(new URL(fulfil.request().url()).pathname);
+        const body = fulfil.request().postDataJSON() as Record<string, unknown>;
+        if (route === 'reset-password') expect(body['token']).toBe(TOKEN);
+        await fulfil.fulfill(route === 'reset-password'
+          ? { status: 204 }
+          : { status: 200, contentType: 'application/json', body: JSON.stringify({ data: { tenant_id: 't', membership_id: 'm' } }) });
+      });
+      await page.goto(`/#/${route}?token=${TOKEN}&lang=en`);
+      const passwords = page.locator('input[type="password"]');
+      await expect(passwords.first()).toBeVisible();
+      await expect(page).toHaveURL(new RegExp(`token=${TOKEN}`));
+      await expect(page.locator('.auth-card [role="alert"]')).toHaveCount(0);
+      for (let index = 0; index < await passwords.count(); index += 1) await passwords.nth(index).fill('correct horse battery staple');
+      await page.locator('button[type="submit"]').first().click();
+      await expect.poll(() => submitted.length).toBe(1);
+    });
+  }
+});
