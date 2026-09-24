@@ -1844,6 +1844,18 @@ describe('the Channels screen', () => {
     ]);
   });
 
+  it('does not read the allowlist of a disconnected connection, which has none', async () => {
+    // Nothing scripts cn-2's allowlist: asking for it would fail the test.
+    const api = channelApi().on(`GET /tenants/${TENANT}/channels`, {
+      status: 200,
+      body: { data: [channelDelivery(), channelDelivery({ id: 'cn-9', display_name: 'Old line', disconnected_at: NOW.toISOString() })] },
+    });
+    const { app } = openChannels(api);
+    await settle();
+    expect(api.calls.some((call) => call.path.includes('/cn-9/'))).toBe(false);
+    expect(app.state.live.testRecipients.status).toBe('ready');
+  });
+
   it('treats an allowlist that could not be read as unknown, not as empty', async () => {
     const api = channelApi()
       .on(`GET /tenants/${TENANT}/channels`, {

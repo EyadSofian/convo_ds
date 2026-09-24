@@ -424,13 +424,24 @@ describe('campaign actions', () => {
     expect(connectionRefused.state.live.testRecipients).toEqual({ status: 'error', error: ERROR });
 
     const recipientRefused = setup();
-    vi.mocked(recipientRefused.channels.connections).mockResolvedValueOnce(ok([{ id: 'channel-1' }] as ChannelConnection[]));
+    vi.mocked(recipientRefused.channels.connections).mockResolvedValueOnce(ok([{ id: 'channel-1', disconnected_at: null }] as ChannelConnection[]));
     vi.mocked(recipientRefused.channels.testRecipients).mockResolvedValueOnce(fail());
     await loadCampaignsScreen(recipientRefused.context);
     expect(recipientRefused.state.live.testRecipients).toEqual({ status: 'error', error: ERROR });
 
+    // A disconnected connection has no allowlist to read; it does not make the others unknown.
+    const withDisconnected = setup();
+    vi.mocked(withDisconnected.channels.connections).mockResolvedValueOnce(ok([
+      { id: 'channel-1', disconnected_at: null },
+      { id: 'channel-gone', disconnected_at: '2026-09-01T00:00:00.000Z' },
+    ] as ChannelConnection[]));
+    await loadCampaignsScreen(withDisconnected.context);
+    expect(withDisconnected.channels.testRecipients).toHaveBeenCalledTimes(1);
+    expect(withDisconnected.channels.testRecipients).toHaveBeenCalledWith('tenant-1', 'channel-1');
+    expect(withDisconnected.state.live.testRecipients.status).toBe('ready');
+
     const recipientReady = setup();
-    vi.mocked(recipientReady.channels.connections).mockResolvedValueOnce(ok([{ id: 'channel-1' }] as ChannelConnection[]));
+    vi.mocked(recipientReady.channels.connections).mockResolvedValueOnce(ok([{ id: 'channel-1', disconnected_at: null }] as ChannelConnection[]));
     vi.mocked(recipientReady.channels.testRecipients).mockResolvedValueOnce(ok([{
       id: 'recipient-1', connection_id: 'channel-1', identity_id: 'identity-1', peer_identity: '201000000000',
       display_name: 'Owner', label: 'Owner phone', authorized_at: NOW.toISOString(),

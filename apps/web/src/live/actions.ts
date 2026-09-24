@@ -285,7 +285,11 @@ export async function loadChannelsScreen(context: LiveContext, keep = false): Pr
   if (!connections.ok) {
     live.testRecipients = { status: 'error', error: connections.error };
   } else {
-    const results = await Promise.all(connections.data.map((connection) => live.channels.testRecipients(tenantId, connection.id)));
+    // A disconnected connection has no allowlist to read (the server answers
+    // 404) and can send no test; asking for it would make every live one's
+    // list unknown too.
+    const sendable = connections.data.filter((connection) => connection.disconnected_at === null);
+    const results = await Promise.all(sendable.map((connection) => live.channels.testRecipients(tenantId, connection.id)));
     // One allowlist that could not be read makes the whole list unknown: a
     // partial list would read as "nobody is authorized" on that connection.
     const rows: ChannelTestRecipient[] = [];
