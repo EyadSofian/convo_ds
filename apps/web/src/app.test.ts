@@ -241,6 +241,43 @@ describe('the authentication boundary', () => {
     expect(app.state.dialogForm['signinPassword']).toBeUndefined();
   });
 
+  it('keeps silent password-manager autofill through visibility and password-change actions', async () => {
+    const api = new FakeApi().on('GET /auth/session', NO_SESSION);
+    const { root, app } = start('#/inbox', api);
+    await settle();
+    const email = root.querySelector<HTMLInputElement>('#signin-email');
+    const password = root.querySelector<HTMLInputElement>('#signin-password');
+    if (email === null || password === null) throw new Error('missing sign-in fields');
+    email.value = 'agent@example.test';
+    password.value = 'silent autofill';
+    click(root.querySelector('[data-act="password-visibility"]'));
+    expect(app.state.dialogForm['signinEmail']).toBe('agent@example.test');
+    expect(root.querySelector<HTMLInputElement>('#signin-password')?.value).toBe('silent autofill');
+
+    // A detached action has no form; syncing it must be a harmless no-op.
+    const detached = document.createElement('button');
+    detached.dataset.act = 'password-visibility';
+    root.appendChild(detached);
+    click(detached);
+
+    signedIn(api);
+    app.dispatch('live-session-retry');
+    await settle();
+    app.dispatch('dialog', 'change-password');
+    await settle();
+    const current = root.querySelector<HTMLInputElement>('#currentPassword');
+    const next = root.querySelector<HTMLInputElement>('#newPassword');
+    const confirm = root.querySelector<HTMLInputElement>('#confirmPassword');
+    if (current === null || next === null || confirm === null) throw new Error('missing password-change fields');
+    current.value = 'old silent autofill';
+    next.value = 'short';
+    confirm.value = 'short';
+    click(root.querySelector('[data-act="live-change-password"]'));
+    expect(app.state.dialogForm['currentPassword']).toBe('old silent autofill');
+    expect(app.state.formErrors['currentPassword']).toBeUndefined();
+    expect(app.state.formErrors['newPassword']).toBeTruthy();
+  });
+
   it('stays on the sign-in page when the credentials are refused', async () => {
     const api = new FakeApi().on('GET /auth/session', NO_SESSION).on('POST /auth/login', { status: 401, body: { error: { code: 'invalid_credentials', message: 'No.' } } });
     const { root, app } = start('#/inbox', api);

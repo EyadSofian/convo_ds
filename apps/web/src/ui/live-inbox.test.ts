@@ -30,28 +30,32 @@ describe('Inbox list controls', () => {
     expect(supervisor.getAttribute('title')).toBe('Supervisor view');
     expect(supervisor.getAttribute('aria-label')).toBe('Supervisor view for an agent');
     expect(supervisor.getAttribute('aria-pressed')).toBe('false');
+    expect(supervisor.getAttribute('aria-expanded')).toBe('false');
+    app.supervisorPickerOpen = true;
+    expect(renderInbox(app).querySelector('.inbox-supervisor-trigger')?.getAttribute('aria-expanded')).toBe('true');
     app.live.supervisorAgentId = 'member-1';
     expect(renderInbox(app).querySelector('.inbox-supervisor-trigger')?.getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('animates Inbox refresh only when that refresh control initiated the request', () => {
+  it('keeps Inbox refresh steady while marking only a requested refresh busy', () => {
     const app = state();
     app.live.unassigned = { status: 'loading' };
     app.live.conversations = { status: 'loading' };
     let refresh = renderInbox(app).querySelector('.inbox-refresh-trigger') as HTMLButtonElement;
     expect(refresh.hasAttribute('aria-busy')).toBe(false);
     expect(refresh.disabled).toBe(false);
-    expect(refresh.querySelector('.btn__icon--turning')).toBeNull();
+    expect(refresh.querySelector('.btn__icon--refreshing')).toBeNull();
 
     app.live.refreshing = 'live-inbox-reload';
     refresh = renderInbox(app).querySelector('.inbox-refresh-trigger') as HTMLButtonElement;
     expect(refresh.getAttribute('aria-busy')).toBe('true');
     expect(refresh.disabled).toBe(true);
-    expect(refresh.querySelector('.btn__icon--turning')).not.toBeNull();
+    expect(refresh.querySelector('.btn__icon--refreshing svg')).not.toBeNull();
   });
 
   it('renders supervisor picker states and a zero-safe workload banner', () => {
     const app = state();
+    app.supervisorPickerOpen = true;
     app.live.supervisorAgents = { status: 'loading' };
     expect(renderInbox(app).textContent).toContain('Loading in-scope agents');
     app.live.supervisorAgents = { status: 'error', error: { code: 'forbidden', message: 'No', requestId: 'r', status: 403, details: [] } };

@@ -52,8 +52,9 @@ test.describe('a Refresh in flight', () => {
       const release = await hold(page, '**/api/v1/tenants/*/people');
       await control.click();
       await expect(control).toHaveAttribute('aria-busy', 'true');
-      // The arrows turn in their own slot; nothing is swapped for a larger mark.
-      await expect(control.locator('.btn__icon--turning svg')).toBeVisible();
+      // The arrows stay still in their slot; no spinner replaces or shifts them.
+      await expect(control.locator('.btn__icon--refreshing svg')).toBeVisible();
+      await expect(control.locator('.spinner')).toHaveCount(0);
       expect(await geometry(page, control)).toEqual(before);
       // The rows stay: a refresh somebody asked for blanks nothing.
       await expect(page.locator('.skeleton')).toHaveCount(0);

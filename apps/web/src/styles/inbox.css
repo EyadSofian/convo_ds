@@ -72,8 +72,8 @@
 
   /* Keep the inbox refresh mark visually inside its own circular target. */
   .inbox-refresh-trigger.btn--icon {
-    inline-size: var(--control-height-sm);
-    block-size: var(--control-height-sm);
+    inline-size: var(--control-height);
+    block-size: var(--control-height);
     padding: 0;
     border: 1px solid var(--border);
     border-radius: var(--radius-full);
@@ -1076,9 +1076,9 @@
 
   .inbox-supervisor-banner {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: var(--space-2) var(--space-3);
-    align-items: center;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+    align-items: start;
     margin: 0 var(--space-3) var(--space-2);
     padding: var(--space-2) var(--space-3);
     border: 1px solid var(--border);
@@ -1091,7 +1091,7 @@
   .inbox-supervisor-banner__identity { display: grid; gap: 2px; min-inline-size: 0; }
   .inbox-supervisor-banner__identity strong,
   .inbox-supervisor-banner__teams,
-  .inbox-supervisor-banner__count { overflow-wrap: anywhere; }
+  .inbox-supervisor-banner__count { overflow-wrap: break-word; }
   .inbox-supervisor-banner__teams { color: var(--text-muted); font-size: var(--text-2xs); }
   .inbox-supervisor-banner__count { font-size: var(--text-xs); }
   .inbox-supervisor-banner__metrics,

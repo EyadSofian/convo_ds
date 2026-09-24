@@ -33,10 +33,9 @@ main.app__screen
                 option
                 option
           div.filterbar__actions
-            button.btn.btn--sm [live-report-reload]
+            button.btn.btn--sm.btn--refresh [live-report-reload]
               span.btn__icon
                 svg
-                  path
                   path
                   path
               span.btn__label

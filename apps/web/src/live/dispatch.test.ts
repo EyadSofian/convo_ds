@@ -66,6 +66,13 @@ describe('the automation actions the DOM can name', () => {
     } as unknown as LiveContext;
   }
 
+  it('rejects a sign-in with no password field without sending credentials', async () => {
+    const ctx = context();
+    ctx.state.dialogForm = { signinEmail: 'agent@example.test' };
+    await expect(LIVE_ACTIONS['live-signin']?.(ctx, '')).resolves.toBe(false);
+    expect(ctx.state.formErrors['signinPassword']).toBeTruthy();
+  });
+
   it('registers the reload action, which loads rather than mutating', async () => {
     // It answers void rather than a boolean: there is nothing to confirm, and
     // with no workspace selected it declines to fetch at all.
@@ -231,17 +238,36 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
   });
 
   it('opens the supervisor picker and selected workload through registered handlers', async () => {
-    const { context } = active();
+    const { context, state } = active();
     const agentId = '11111111-1111-4111-8111-111111111111';
     const supervisorAgents = vi.fn().mockResolvedValue({ ok: true, data: [{ membershipId: agentId, name: 'Agent', email: 'a@test.local', teams: [] }] });
     const supervisorList = vi.fn().mockResolvedValue({ ok: true, data: { items: [], nextCursor: null } });
     const supervisorWorkload = vi.fn().mockResolvedValue({ ok: true, data: { agent: { membershipId: agentId }, current: {}, byStatus: [], byChannel: [] } });
-    Object.defineProperty(context.live, 'conversationsApi', { value: { supervisorAgents, supervisorList, supervisorWorkload } });
+    const unassigned = vi.fn().mockResolvedValue({ ok: true, data: [] });
+    const list = vi.fn().mockResolvedValue({ ok: true, data: { items: [], nextCursor: null } });
+    Object.defineProperty(context.live, 'conversationsApi', { value: { supervisorAgents, supervisorList, supervisorWorkload, unassigned, list } });
+    context.live.labels = { status: 'ready', value: [], loadedAt: 1 };
+    context.live.savedViews = { status: 'ready', value: [], loadedAt: 1 };
+    context.live.people = { status: 'ready', value: [], loadedAt: 1 };
+    context.live.teams = { status: 'ready', value: [], loadedAt: 1 };
+    context.live.connections = { status: 'ready', value: [], loadedAt: 1 };
+    context.live.campaigns = { status: 'ready', value: [], loadedAt: 1 };
     await LIVE_ACTIONS['live-supervisor-open']?.(context, '');
     expect(supervisorAgents).toHaveBeenCalledWith('tenant-1');
+    expect(state.supervisorPickerOpen).toBe(true);
+    await LIVE_ACTIONS['live-supervisor-open']?.(context, '');
+    expect(state.supervisorPickerOpen).toBe(false);
+    await LIVE_ACTIONS['live-supervisor-open']?.(context, '');
+    expect(state.supervisorPickerOpen).toBe(true);
     expect(await LIVE_ACTIONS['live-supervisor-agent']?.(context, agentId)).toBe(true);
     expect(supervisorList).toHaveBeenCalledWith('tenant-1', agentId, expect.objectContaining({ cursor: null }));
     expect(supervisorWorkload).toHaveBeenCalledWith('tenant-1', agentId);
+    expect(context.live.supervisorAgentId).toBe(agentId);
+    expect(await LIVE_ACTIONS['live-supervisor-open']?.(context, '')).toBe(true);
+    expect(context.live.supervisorAgentId).toBeNull();
+    expect(state.supervisorPickerOpen).toBe(false);
+    expect(unassigned).toHaveBeenCalled();
+    expect(list).toHaveBeenCalled();
   });
 
   it('validates and normalizes label HEX through the public create action', async () => {
