@@ -26,7 +26,9 @@ export async function loadCampaignsScreen(context: LiveContext): Promise<void> {
   if (!connections.ok) {
     context.live.testRecipients = { status: 'error', error: connections.error };
   } else {
-    const results = await Promise.all(connections.data.map((connection) => context.live.channels.testRecipients(tenantId, connection.id)));
+    // Only connections that can still send a test have an allowlist to read.
+    const sendable = connections.data.filter((connection) => connection.disconnected_at === null);
+    const results = await Promise.all(sendable.map((connection) => context.live.channels.testRecipients(tenantId, connection.id)));
     const refusal = results.find((result) => !result.ok);
     context.live.testRecipients = refusal !== undefined && !refusal.ok
       ? { status: 'error', error: refusal.error }
