@@ -53,6 +53,7 @@ div.auth-layout
                   svg
                     path
                     circle
+                    circle
           div.auth-form__meta
             a.auth-form__forgot
           button.btn.btn--primary.auth-form__submit [live-signin]

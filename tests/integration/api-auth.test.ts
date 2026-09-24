@@ -457,8 +457,10 @@ describe('local authentication and permission boundary', () => {
     const other = otherLogin.browser as BrowserSession;
     const payload = {
       currentPassword: OWNER_PASSWORD,
-      newPassword: 'replacement owner password 2026',
-      confirmPassword: 'replacement owner password 2026',
+      // A phone keyboard may submit Arabic-Indic digits while another device
+      // offers Western digits. Both spellings must address the same password.
+      newPassword: 'replacement owner password ٢٠٢٦',
+      confirmPassword: 'replacement owner password ٢٠٢٦',
     };
 
     const noCsrf = await api.server.inject({
@@ -508,7 +510,8 @@ describe('local authentication and permission boundary', () => {
     expect(retained.statusCode).toBe(200);
     expect(revoked.statusCode).toBe(401);
     expect((await login(api.server, 'owner@auth.test', OWNER_PASSWORD, 'password-change-old')).response.statusCode).toBe(401);
-    expect((await login(api.server, 'owner@auth.test', payload.newPassword, 'password-change-new')).response.statusCode).toBe(200);
+    expect((await login(api.server, 'owner@auth.test', 'replacement owner password 2026', 'password-change-new-phone')).response.statusCode).toBe(200);
+    expect((await login(api.server, 'owner@auth.test', payload.newPassword, 'password-change-new-desktop')).response.statusCode).toBe(200);
 
     const audit = await api.pool.query<{ action: string; session_id: string }>(
       "SELECT action,session_id::text FROM account_security_events WHERE user_id=(SELECT id FROM users WHERE email='owner@auth.test')",

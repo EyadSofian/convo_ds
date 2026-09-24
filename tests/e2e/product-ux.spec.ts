@@ -38,12 +38,45 @@ test.describe('focused product UX repairs', () => {
   test('settings exposes a real password-change flow with honest success feedback', async ({ page }) => {
     await openScreen(page, 'settings');
     await page.locator('[data-act="dialog"][data-arg="change-password"]').click();
-    await page.locator('#currentPassword').fill(PASSWORD);
+    await page.locator('#currentPassword').fill('mistyped current password');
     await page.locator('#newPassword').fill('new controlled password 2026');
     await page.locator('#confirmPassword').fill('new controlled password 2026');
     await page.locator('[data-act="live-change-password"]').click();
+    await expect(page.locator('.dialog')).toContainText('current password');
+    await expect(page.locator('#currentPassword')).toHaveValue('');
+    await expect(page.locator('#newPassword')).toHaveValue('new controlled password 2026');
+    await expect(page.locator('#confirmPassword')).toHaveValue('new controlled password 2026');
+
+    await page.locator('#currentPassword').fill(PASSWORD);
+    await page.locator('[data-act="live-change-password"]').click();
     await expect(page.locator('.dialog')).toBeHidden();
     await expect(page.locator('.toast')).toContainText(/Other sessions have been signed out|سُجّلت الجلسات الأخرى/);
+  });
+
+  test('inbox refresh and supervisor actions are circular, clear, and fit a phone viewport', async ({ page }) => {
+    await openInbox(page);
+    for (const width of [1440, 430, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      if (width <= 599) {
+        const listToggle = page.locator('.thread__listtoggle');
+        if (await listToggle.getAttribute('aria-expanded') !== 'true') await listToggle.click();
+      }
+      const refresh = page.locator('.inbox-refresh-trigger');
+      const supervisor = page.locator('.inbox-supervisor-trigger');
+      await expect(refresh).toBeVisible();
+      await expect(supervisor).toHaveAccessibleName(/Supervisor view for an agent|عرض إشرافي للوكيل/);
+      const geometry = await refresh.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const icon = element.querySelector('svg')?.getBoundingClientRect();
+        return {
+          radius: getComputedStyle(element).borderRadius,
+          contained: icon !== undefined && icon !== null && icon.left >= box.left && icon.right <= box.right && icon.top >= box.top && icon.bottom <= box.bottom,
+        };
+      });
+      expect(geometry.radius).toBe('999px');
+      expect(geometry.contained).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
   });
 
   test('template categories own full-width local grids with aligned compact cards', async ({ page }) => {

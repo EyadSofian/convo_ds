@@ -203,13 +203,19 @@ export async function changePassword(
   context.refresh();
   const result = await live.api.changePassword(currentPassword, newPassword, confirmPassword);
   live.busy = null;
-  state.dialogForm = {};
   state.passwordVisible = false;
   if (!result.ok) {
+    // Keep the proposed replacement so a transient failure does not erase
+    // the user's work. The current credential is the only field that must be
+    // re-entered; it is the one most sensitive and the one a 400 can invalidate.
+    const retained = { ...state.dialogForm };
+    delete retained.currentPassword;
+    state.dialogForm = retained;
     live.error = result.error;
     context.refresh();
     return false;
   }
+  state.dialogForm = {};
   state.dialog = null;
   pushToast(state, t(state, 'تحدّثت كلمة المرور. سُجّلت الجلسات الأخرى خروجًا.', 'Password updated. Other sessions have been signed out.'));
   await loadSettingsScreen(context);

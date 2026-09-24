@@ -8,7 +8,7 @@ div.inbox
           button.segmented__item [live-inbox-queue]
             span.segmented__count
         div.listhead__tools
-          button.btn.btn--ghost.btn--sm.btn--icon [live-inbox-reload]
+          button.btn.btn--ghost.btn--sm.btn--icon.inbox-refresh-trigger [live-inbox-reload]
             span.btn__icon
               svg
                 path
@@ -37,10 +37,11 @@ div.inbox
               span.btn__icon
                 svg
                   path
-          button.btn.btn--ghost.btn--sm.btn--icon [live-supervisor-open]
+          button.btn.btn--ghost.btn--icon.inbox-supervisor-trigger [live-supervisor-open]
             span.btn__icon
               svg
                 path
+                circle
                 circle
       div.listhead__row.listhead__row--sort
         span.listhead__sortlabel

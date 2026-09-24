@@ -22,6 +22,34 @@ function state() {
 }
 
 describe('Inbox list controls', () => {
+  it('renders the refresh action and a clearly named circular supervisor control', () => {
+    const app = state();
+    const root = renderInbox(app);
+    expect(root.querySelector('.inbox-refresh-trigger[data-act="live-inbox-reload"]')).not.toBeNull();
+    const supervisor = root.querySelector('.inbox-supervisor-trigger') as HTMLButtonElement;
+    expect(supervisor.getAttribute('title')).toBe('Supervisor view');
+    expect(supervisor.getAttribute('aria-label')).toBe('Supervisor view for an agent');
+    expect(supervisor.getAttribute('aria-pressed')).toBe('false');
+    app.live.supervisorAgentId = 'member-1';
+    expect(renderInbox(app).querySelector('.inbox-supervisor-trigger')?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('animates Inbox refresh only when that refresh control initiated the request', () => {
+    const app = state();
+    app.live.unassigned = { status: 'loading' };
+    app.live.conversations = { status: 'loading' };
+    let refresh = renderInbox(app).querySelector('.inbox-refresh-trigger') as HTMLButtonElement;
+    expect(refresh.hasAttribute('aria-busy')).toBe(false);
+    expect(refresh.disabled).toBe(false);
+    expect(refresh.querySelector('.btn__icon--turning')).toBeNull();
+
+    app.live.refreshing = 'live-inbox-reload';
+    refresh = renderInbox(app).querySelector('.inbox-refresh-trigger') as HTMLButtonElement;
+    expect(refresh.getAttribute('aria-busy')).toBe('true');
+    expect(refresh.disabled).toBe(true);
+    expect(refresh.querySelector('.btn__icon--turning')).not.toBeNull();
+  });
+
   it('renders supervisor picker states and a zero-safe workload banner', () => {
     const app = state();
     app.live.supervisorAgents = { status: 'loading' };
@@ -33,12 +61,21 @@ describe('Inbox list controls', () => {
 
     const agent = { membershipId: 'member-1', name: 'Ahmed', email: 'ahmed@example.test', teams: ['Sales'] };
     app.live.supervisorAgents = ready([agent] as never, 1);
-    expect((renderInbox(app).querySelector('.inbox-supervisor-picker select') as HTMLSelectElement).value).toBe('');
+    const picker = renderInbox(app).querySelector('.inbox-supervisor-picker') as HTMLElement;
+    expect((picker.querySelector('select') as HTMLSelectElement).value).toBe('');
+    expect(picker.classList.contains('inbox-supervisor-picker--status')).toBe(false);
+    expect(picker.querySelector('.inbox-supervisor-picker__teams')).toBeNull();
+    expect(picker.querySelector('option[value="member-1"]')?.textContent).toBe('Ahmed');
+    app.live.supervisorAgents = ready([agent, { ...agent, membershipId: 'member-2', email: 'ahmed2@example.test' }] as never, 1);
+    const duplicatePicker = renderInbox(app).querySelector('.inbox-supervisor-picker') as HTMLElement;
+    expect(duplicatePicker.querySelector('option[value="member-1"]')?.textContent).toContain('ahmed@example.test');
+    app.live.supervisorAgents = ready([agent] as never, 1);
     app.live.supervisorAgentId = agent.membershipId;
     app.live.supervisorWorkload = { status: 'ready', loadedAt: 1, value: {
       agent, current: { assigned: 0, open: 0, pending: 0, snoozed: 0, unreplied: 0, urgent: 0, high: 0 }, byStatus: [], byChannel: [],
     } as never };
     const banner = renderInbox(app).querySelector('.inbox-supervisor-banner') as HTMLElement;
+    expect(renderInbox(app).querySelector('.inbox-supervisor-picker__teams')?.textContent).toBe('Sales');
     expect(banner.textContent).toContain("Viewing Ahmed's workload");
     expect(banner.textContent).toContain('Sales');
     expect(banner.textContent).toContain('0 active conversations');
