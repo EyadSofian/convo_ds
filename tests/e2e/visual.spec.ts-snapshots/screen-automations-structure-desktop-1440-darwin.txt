@@ -5,10 +5,11 @@ main.app__screen
         p.pagebar__lede
         div.pagebar__actions
           button.btn.btn--sm [live-automations-reload]
-            svg
-              path
-              path
-              path
+            span.btn__icon
+              svg
+                path
+                path
+                path
             span.btn__label
       nav.automation-tabs
         a.automation-tabs__item
@@ -28,8 +29,9 @@ main.app__screen
             div.automation-blank__row
               input.input [form]
               button.btn.btn--primary.btn--sm [live-automation-create]
-                svg
-                  path
+                span.btn__icon
+                  svg
+                    path
                 span.btn__label
         section.automation-category
           header.automation-category__head

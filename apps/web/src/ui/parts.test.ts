@@ -5,12 +5,12 @@ import { describe, expect, it } from 'vitest';
 import type { ApiError } from '../api/client';
 import { createState } from '../state';
 import { brandLockup, channelTile, logomark } from './brand';
+import { brandMark, channelMark, productChannelIcon } from './channel-mark';
 import { CHANNEL_NAMES, describeError, phrase, t } from './copy';
 import {
   avatar,
   badge,
   button,
-  channelIcon,
   countBadge,
   dialogShell,
   emptyState,
@@ -87,11 +87,20 @@ describe('badges, avatars and counts', () => {
   });
 
   it('gives every known channel its glyph and an unknown one a neutral globe', () => {
-    expect(channelIcon('whatsapp')).toBe('whatsapp');
-    expect(channelIcon('web_chat')).toBe('webChat');
-    expect(channelIcon('custom')).toBe('braces');
-    expect(channelIcon('telegram')).toBe('plane');
-    expect(channelIcon('pigeon')).toBe('globe');
+    // Brands come from the brand renderer only; the product set has no logos.
+    for (const kind of ['whatsapp', 'messenger', 'instagram', 'telegram']) {
+      const mark = channelMark(kind, 16);
+      expect(mark.getAttribute('data-mark')).toBe('brand');
+      expect(mark.classList.contains(`channel-mark--${kind}`)).toBe(true);
+      expect(mark.querySelector('path')?.getAttribute('d')?.length).toBeGreaterThan(100);
+    }
+    expect(channelMark('messenger').querySelector('path')?.getAttribute('fill')).toBe('#0866FF');
+    expect(brandMark('facebook').querySelector('path')?.getAttribute('fill')).toBe('#1877F2');
+    expect(channelMark('web_chat').getAttribute('data-mark')).toBe('product');
+    expect(productChannelIcon('web_chat')).toBe('webChat');
+    expect(productChannelIcon('custom')).toBe('braces');
+    expect(productChannelIcon('pigeon')).toBe('globe');
+    expect(channelMark('pigeon').classList.contains('channel-mark--product')).toBe(true);
   });
 });
 
@@ -284,8 +293,8 @@ describe('brand', () => {
     expect(channelTile('custom').querySelector('svg')?.getAttribute('width')).toBe('18');
     expect(channelTile('custom').querySelector('.channel-mark--product')).not.toBeNull();
     // Two gradient marks on one page never share a gradient id.
-    const ids = [channelTile('messenger'), channelTile('messenger')].map((each) => each.querySelector('radialGradient')?.id);
-    expect(ids[0]).toMatch(/^ds-mark-messenger-\d+$/);
+    const ids = [channelTile('instagram'), channelTile('instagram')].map((each) => each.querySelector('radialGradient')?.id);
+    expect(ids[0]).toMatch(/^ds-mark-instagram-\d+$/);
     expect(ids[0]).not.toBe(ids[1]);
     expect(channelTile('whatsapp').querySelector('path')?.getAttribute('fill')).toBe('#25D366');
   });

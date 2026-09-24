@@ -26,7 +26,9 @@ test.describe('user management', () => {
     await openScreen(page, 'people');
     await setDirection(page, 'ltr');
     await expect(page.locator('.nav__group-label')).toHaveText('User management');
-    await expect(page.locator('.admin-head__title')).toHaveText('Users');
+    await expect(page.locator('.header__title')).toHaveText('Users');
+    // A list page names itself once, in the header: no second title or breadcrumb.
+    await expect(page.locator('.page--people .admin-head, .page--people .breadcrumb')).toHaveCount(0);
     await expect(page.locator('[data-membership]')).toHaveCount(4);
 
     await page.locator('.nav__item[data-arg="roles"]').click();

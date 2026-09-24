@@ -5,10 +5,11 @@ main.app__screen
         p.pagebar__lede
         div.pagebar__actions
           button.btn.btn--sm [live-contacts-reload]
-            svg
-              path
-              path
-              path
+            span.btn__icon
+              svg
+                path
+                path
+                path
             span.btn__label
       div.split.split--contacts
         section.panel.split__list
@@ -37,7 +38,7 @@ main.app__screen
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--whatsapp
+                    svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
                       path
                   span.contactrow__labels
                     span.metadata__label
@@ -50,9 +51,20 @@ main.app__screen
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--messenger
+                    svg.channel-mark.channel-mark--brand.channel-mark--messenger
+                      path
+              li
+                button.contactrow [live-contact-open]
+                  span.avatar.avatar--sm
+                  span.contactrow__main
+                    span.contactrow__name
+                      bdi
+                    span.contactrow__meta
+                  span.contactrow__channels
+                    svg.channel-mark.channel-mark--brand.channel-mark--instagram
                       defs
                         radialgradient
+                          stop
                           stop
                           stop
                           stop
@@ -66,29 +78,15 @@ main.app__screen
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--instagram
-                      defs
-                        radialgradient
-                          stop
-                          stop
-                          stop
-                          stop
-                          stop
-                      path
-              li
-                button.contactrow [live-contact-open]
-                  span.avatar.avatar--sm
-                  span.contactrow__main
-                    span.contactrow__name
-                      bdi
-                    span.contactrow__meta
-                  span.contactrow__channels
-                    svg.channel-mark.channel-mark--product
+                    svg.channel-mark.channel-mark--product.channel-mark--web_chat
                       rect
                       path
                       circle
                       circle
                       path
+                      circle
+                      circle
+                      circle
                   span.contactrow__labels
                     span.metadata__label
                       span.metadata__swatch
@@ -100,7 +98,7 @@ main.app__screen
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--whatsapp
+                    svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
                       path
               li
                 button.contactrow [live-contact-open]
@@ -110,13 +108,7 @@ main.app__screen
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--messenger
-                      defs
-                        radialgradient
-                          stop
-                          stop
-                          stop
-                          stop
+                    svg.channel-mark.channel-mark--brand.channel-mark--messenger
                       path
         section.panel.split__detail
           div.panel__body

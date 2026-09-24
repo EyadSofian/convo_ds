@@ -283,7 +283,14 @@ function renderHeader(state: AppState): HTMLElement {
  * It reports; it never gates. Nothing on screen is hidden or reloaded because
  * of what it says.
  */
-function statusPill(state: AppState): HTMLElement | null {
+function statusPill(state: AppState): HTMLElement {
+  const words = {
+    live: t(state, 'مباشر', 'Live'),
+    stale: t(state, 'جارٍ إعادة الاتصال…', 'Reconnecting…'),
+    offline: t(state, 'غير متصل', 'Offline'),
+    unsupported: t(state, 'بدون تحديث مباشر', 'No live updates'),
+    stopped: t(state, 'توقف التحديث', 'Updates stopped'),
+  };
   const pill = (status: string, label: string, detail: string | null): HTMLElement => h('p', {
     class: `status-pill status-pill--${status}`,
     'data-realtime': status,
@@ -294,24 +301,32 @@ function statusPill(state: AppState): HTMLElement | null {
     h('span', { class: 'status-pill__label' }, [label]),
     detail === null ? null : h('span', { class: 'visually-hidden' }, [detail]),
   ]);
-  if (state.offline) {
-    return pill('offline', t(state, 'غير متصل', 'You’re offline'),
-      t(state, 'لا يوجد اتصال بالشبكة. ما تراه آخر ما وصل، وسيُستأنف التحديث عند عودة الاتصال.', 'No network. What you see is the last update; live updates resume when you are back online.'));
-  }
   const realtime = state.live.realtime;
-  if (realtime.status === 'live') return pill('live', t(state, 'مباشر', 'Live'), null);
-  if (realtime.status === 'stale') {
-    return pill('stale', t(state, 'جارٍ إعادة الاتصال…', 'Reconnecting…'),
+  let current: HTMLElement | null = null;
+  if (state.offline) {
+    current = pill('offline', words.offline,
+      t(state, 'لا يوجد اتصال بالشبكة. ما تراه آخر ما وصل، وسيُستأنف التحديث عند عودة الاتصال.', 'No network. What you see is the last update; live updates resume when you are back online.'));
+  } else if (realtime.status === 'live') {
+    current = pill('live', words.live, null);
+  } else if (realtime.status === 'stale') {
+    current = pill('stale', words.stale,
       t(state, 'انقطع التحديث المباشر مؤقتًا. ما تراه آخر ما وصل.', 'Live updates paused. What you see is the last update.'));
-  }
-  if (realtime.status === 'stopped') {
-    return realtime.reason === 'unsupported_browser'
-      ? pill('stopped', t(state, 'بدون تحديث مباشر', 'No live updates'),
+  } else if (realtime.status === 'stopped') {
+    current = realtime.reason === 'unsupported_browser'
+      ? pill('stopped', words.unsupported,
         t(state, 'هذا المتصفح لا يدعم التحديث المباشر. حدّث الصفحة لرؤية الجديد.', 'This browser cannot receive live updates. Refresh to see new activity.'))
-      : pill('stopped', t(state, 'توقف التحديث', 'Updates stopped'),
+      : pill('stopped', words.stopped,
         t(state, 'توقف التحديث المباشر لتغيّر صلاحياتك. حدّث الصفحة.', 'Live updates stopped because your access changed. Refresh.'));
   }
-  return null;
+  // The slot is as wide as the widest word it can ever show, whether or not a
+  // pill is in it yet, so a state change repaints one word and moves nothing.
+  return h('div', { class: 'status-slot' }, [
+    ...Object.values(words).map((word) => h('span', { class: 'status-ghost', 'aria-hidden': 'true' }, [
+      h('span', { class: 'status-pill__dot' }),
+      h('span', { class: 'status-pill__label' }, [word]),
+    ])),
+    current,
+  ]);
 }
 
 function notificationTitle(state: AppState, entry: Notification): string {

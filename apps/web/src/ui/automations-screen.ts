@@ -9,7 +9,7 @@ import { formatHash } from '../router.js';
 import { routeParamsWithLanguage } from '../state.js';
 import type { AppState } from '../state.js';
 import { t } from './copy.js';
-import { badge, button, emptyState, errorState, inlineError, page, panel, skeleton, toolbar, type Tone } from './parts.js';
+import { badge, button, emptyState, errorState, inlineError, page, panel, refreshButton, skeleton, toolbar, type Tone } from './parts.js';
 
 const CATEGORIES = ['academic', 'sales', 'marketing', 'operations', 'custom'] as const;
 const TRIGGERS = ['manual','schedule','customer_created','customer_updated','label_added','conversation_created','conversation_assigned','conversation_closed','customer_replied','no_reply_for_duration','custom_event','student_enrolled','course_starting','session_starting','attendance_updated','course_completed'] as const;
@@ -21,7 +21,7 @@ export function renderAutomations(state: AppState): HTMLElement {
   const view = state.route.params['view'] ?? 'templates';
   const editId = state.route.params['edit'];
   const automation = editId === undefined ? undefined : rowsOf(state.live.automations).find((entry) => entry.id === editId);
-  const actions: Child[] = [button({ label: t(state, 'تحديث', 'Refresh'), icon: 'refresh', act: 'live-automations-reload', small: true, busy: state.live.automations.status === 'loading' })];
+  const actions: Child[] = [refreshButton(state, 'live-automations-reload', state.live.automations.status === 'loading')];
   return page('automations', toolbar(
     t(state, 'صمّم تدفقات تعمل عند الحدث أو في الموعد، وتابع كل تنفيذ ومستلم.', 'Design event and scheduled workflows, then trace every run and recipient.'),
     actions,

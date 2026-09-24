@@ -8,7 +8,7 @@ import { loadEpisodes, loadNotes, markConversationRead } from './lifecycle-actio
 import { loadRouting } from './routing-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
-import { currentTenantId, failed, forTenant, fromResult, LOADING, ready, rowsOf } from './store.js';
+import { currentTenantId, failed, forTenant, fromResult, LOADING, ready, refetching, rowsOf } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadSavedViews } from './saved-view-actions.js';
 import { loadNotifications, refreshNotificationCount } from './notification-actions.js';
@@ -50,8 +50,8 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
       live.supervisorAgentId = context.state.route.params['agent']!;
     }
     if (live.supervisorAgentId !== null) {
-      live.conversations = LOADING;
-      live.supervisorWorkload = LOADING;
+      live.conversations = refetching(live, live.conversations);
+      live.supervisorWorkload = refetching(live, live.supervisorWorkload);
       context.refresh();
       const [page, workload] = await Promise.all([
         live.conversationsApi.supervisorList(tenantId, live.supervisorAgentId, { ...live.inboxQuery, cursor: null }),
@@ -65,8 +65,8 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
       context.refresh();
       return;
     }
-    live.unassigned = LOADING;
-    live.conversations = LOADING;
+    live.unassigned = refetching(live, live.unassigned);
+    live.conversations = refetching(live, live.conversations);
     context.refresh();
 
     const [unassigned, mine] = await Promise.all([

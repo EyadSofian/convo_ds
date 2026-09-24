@@ -45,9 +45,6 @@ export const ICON_PATHS = {
   tag: '<path d="M4 11.5V4.5h7l9 9-7 7z"/><circle cx="8" cy="8" r="1.2"/>',
   building: '<path d="M4 20V6.5L12 4v16"/><path d="M12 9.5h8V20"/><path d="M20 20H3.5"/><path d="M7 9h2M7 12.5h2M7 16h2M15 13h2M15 16.5h2"/>',
   link: '<path d="M10.5 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1.2 1.2"/><path d="M13.5 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1.2-1.2"/>',
-  whatsapp: '<path d="M4.5 19.5 5.7 16A7 7 0 1 1 8.5 18.6z"/><path d="M9.4 9.2c.5 1.9 2 3.5 4 4.1"/>',
-  instagram: '<rect x="4.5" y="4.5" width="15" height="15" rx="4.5"/><circle cx="12" cy="12" r="3.4"/><circle cx="16.6" cy="7.4" r=".9" fill="currentColor"/>',
-  messenger: '<path d="M12 4C7.3 4 3.8 7.4 3.8 11.6c0 2.3 1.1 4.3 2.9 5.7V21l2.7-1.5c.8.2 1.7.3 2.6.3 4.7 0 8.2-3.4 8.2-7.6S16.7 4 12 4z"/><path d="m7.7 13.6 3.1-3.2 1.9 1.8 2.9-2.9-3.1 3.3-1.9-1.8z"/>',
   refresh: '<path d="M19.5 12a7.5 7.5 0 0 1-13 5.1"/><path d="M4.5 12a7.5 7.5 0 0 1 13-5.1"/><path d="M17.5 3.5v3.4h-3.4M6.5 20.5v-3.4h3.4"/>',
   download: '<path d="M12 4v10"/><path d="m8 10.5 4 4 4-4"/><path d="M4.5 19.5h15"/>',
   eyeOff: '<path d="M3 3l18 18"/><path d="M10.2 6.4A9.8 9.8 0 0 1 12 6.2c4.4 0 8 3.3 9.2 5.8a12 12 0 0 1-3 3.6"/><path d="M6.6 8.1A12 12 0 0 0 2.8 12c1.2 2.5 4.8 5.8 9.2 5.8 1.2 0 2.3-.2 3.3-.6"/><path d="M9.9 10.2a3 3 0 0 0 4 4"/>',
@@ -98,8 +95,8 @@ export const ICON_PATHS = {
   restore: '<path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4.5V9h4.5"/><path d="m9.5 12.5 2 2 3.5-4"/>',
   target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/>',
   layers: '<path d="m12 4 8.5 4.5L12 13 3.5 8.5z"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5"/><path d="m3.5 16.5 8.5 4.5 8.5-4.5"/>',
-  braces: '<path d="M8.5 4H7.5A2 2 0 0 0 5.5 6v3.5a2 2 0 0 1-2 2.5 2 2 0 0 1 2 2.5V18a2 2 0 0 0 2 2h1"/><path d="M15.5 4h1a2 2 0 0 1 2 2v3.5a2 2 0 0 0 2 2.5 2 2 0 0 0-2 2.5V18a2 2 0 0 1-2 2h-1"/>',
-  webChat: '<rect x="3" y="4" width="18" height="15" rx="2"/><path d="M3 8h18"/><circle cx="5.8" cy="6" r=".5" fill="currentColor"/><circle cx="7.8" cy="6" r=".5" fill="currentColor"/><path d="M8.5 11h7a1 1 0 0 1 1 1v2.5a1 1 0 0 1-1 1H11l-2 1.5v-1.5h-.5a1 1 0 0 1-1-1V12a1 1 0 0 1 1-1z"/>',
+  braces: '<path d="M8 4.5H7a2 2 0 0 0-2 2v3a2.5 2.5 0 0 1-2 2.5 2.5 2.5 0 0 1 2 2.5v3a2 2 0 0 0 2 2h1"/><path d="M16 4.5h1a2 2 0 0 1 2 2v3a2.5 2.5 0 0 0 2 2.5 2.5 2.5 0 0 0-2 2.5v3a2 2 0 0 1-2 2h-1"/><path d="m13.5 7-3 10"/>',
+  webChat: '<rect x="2.5" y="3.5" width="19" height="17" rx="3"/><path d="M2.5 8h19"/><circle cx="5.6" cy="5.8" r=".7" fill="currentColor" stroke="none"/><circle cx="8" cy="5.8" r=".7" fill="currentColor" stroke="none"/><path d="M8.5 10.8h7a1.8 1.8 0 0 1 1.8 1.8v1.6a1.8 1.8 0 0 1-1.8 1.8h-4.2l-2.8 2.2V16h0a1.8 1.8 0 0 1-1.8-1.8v-1.6a1.8 1.8 0 0 1 1.8-1.8z"/><circle cx="9.9" cy="13.4" r=".6" fill="currentColor" stroke="none"/><circle cx="12" cy="13.4" r=".6" fill="currentColor" stroke="none"/><circle cx="14.1" cy="13.4" r=".6" fill="currentColor" stroke="none"/>',
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

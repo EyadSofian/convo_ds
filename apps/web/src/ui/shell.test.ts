@@ -216,7 +216,16 @@ describe('operational status', () => {
     state.live.realtime = { status: 'live', since: 0 };
     state.offline = true;
     expect(pill(state)?.getAttribute('data-realtime')).toBe('offline');
-    expect(pill(state)?.textContent).toContain('You’re offline');
+    expect(pill(state)?.textContent).toContain('Offline');
+  });
+
+  it('holds the slot open at the widest word, so a state change moves nothing', () => {
+    const state = signedIn();
+    const slot = renderShell(state, screen()).querySelector('.header .status-slot') as HTMLElement;
+    // Present before the stream starts, with every word it can show, unseen.
+    expect(Array.from(slot.querySelectorAll('.status-ghost')).map((ghost) => ghost.textContent)).toEqual(['Live', 'Reconnecting…', 'Offline', 'No live updates', 'Updates stopped']);
+    expect(Array.from(slot.querySelectorAll('.status-ghost')).every((ghost) => ghost.getAttribute('aria-hidden') === 'true')).toBe(true);
+    expect(slot.querySelector('.status-pill')).toBeNull();
   });
 });
 

@@ -12,7 +12,6 @@ import { CHANNEL_NAMES, phrase, t } from './copy.js';
 import {
   avatar,
   button,
-
   emptyState,
   errorState,
   field,
@@ -20,6 +19,7 @@ import {
   isolated,
   page,
   panel,
+  refreshButton,
   selectControl,
   skeleton,
   textInput,
@@ -39,7 +39,7 @@ export function renderContacts(state: AppState): HTMLElement {
   const live = state.live;
   return page('contacts', toolbar(
     t(state, 'كل جهة اتصال نشأت من رسالة وصلت عبر إحدى قنواتك.', 'Every contact was created by a message on one of your channels.'),
-    [button({ label: t(state, 'تحديث', 'Refresh'), icon: 'refresh', act: 'live-contacts-reload', small: true, busy: live.contacts.status === 'loading' })],
+    [refreshButton(state, 'live-contacts-reload', live.contacts.status === 'loading')],
   ), [
     // No dialog opens over this screen, so a refusal is always shown here.
     inlineError(state, live.error),

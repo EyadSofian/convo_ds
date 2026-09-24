@@ -384,6 +384,23 @@ function closeDialogAfter(context: LiveContext, done: boolean): boolean {
   return done;
 }
 
+/**
+ * A Refresh somebody pressed. What is on screen stays there while the lists
+ * are read again, and only that Refresh control turns: no placeholder swap, no
+ * toolbar or header movement. A list that was not on screen yet (never loaded,
+ * or refused) still shows its placeholder, because there is nothing to keep.
+ */
+async function manualRefresh(context: LiveContext, act: string, load: () => Promise<void>): Promise<void> {
+  context.live.refreshing = act;
+  context.refresh();
+  try {
+    await load();
+  } finally {
+    context.live.refreshing = null;
+    context.refresh();
+  }
+}
+
 /** The form key for a connection's credential-rotation field. */
 export function channelTokenField(connectionId: string): string {
   return `channelToken_${connectionId}`;
@@ -496,9 +513,9 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
 
   // A reload re-reads the screen's lists, never the session: the workspace is
   // already open, and any 401 on the way closes it through the client.
-  'live-reload': async (context) => loadPeopleScreen(context),
+  'live-reload': async (context) => manualRefresh(context, 'live-reload', () => loadPeopleScreen(context, true)),
 
-  'live-channels-reload': async (context) => loadChannelsScreen(context),
+  'live-channels-reload': async (context) => manualRefresh(context, 'live-channels-reload', () => loadChannelsScreen(context, true)),
 
   'live-authorize-test-recipient': async (context, arg) => {
     const peerIdentity = form(context, channelTestIdentityField(arg));
@@ -517,9 +534,9 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return connectionId === '' || authorizationId === '' ? false : revokeTestRecipient(context, connectionId, authorizationId);
   },
 
-  'live-campaigns-reload': async (context) => loadCampaignsScreen(context),
+  'live-campaigns-reload': async (context) => manualRefresh(context, 'live-campaigns-reload', () => loadCampaignsScreen(context)),
 
-  'live-automations-reload': async (context) => loadAutomationsScreen(context),
+  'live-automations-reload': async (context) => manualRefresh(context, 'live-automations-reload', () => loadAutomationsScreen(context)),
   'live-automation-use': async (context, arg) => useAutomationTemplate(context, arg),
   'live-automation-create': async (context) => {
     const name = context.state.dialogForm['automationBlankName']?.trim() ?? '';
@@ -690,14 +707,14 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     await loadAnalyticsReport(context);
   },
 
-  'live-report-reload': async (context) => loadAnalyticsReport(context),
+  'live-report-reload': async (context) => manualRefresh(context, 'live-report-reload', () => loadAnalyticsReport(context)),
   'live-assignments-more': async (context) => loadAssignmentReport(context, true),
   'live-report-export': async (context) => createCampaignReportExport(context),
   'live-report-export-refresh': async (context) => refreshCampaignReportExport(context),
 
   /* ----------------------------------------------------------------- inbox -- */
 
-  'live-inbox-reload': async (context) => loadInboxScreen(context),
+  'live-inbox-reload': async (context) => manualRefresh(context, 'live-inbox-reload', () => loadInboxScreen(context)),
   'live-supervisor-open': async (context) => loadSupervisorAgents(context),
   'live-supervisor-agent': async (context, arg) => loadSupervisorInbox(context, arg),
   'live-supervisor-open-report': async (context, arg) => {
@@ -984,7 +1001,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
 
   /* -------------------------------------------------------------- contacts -- */
 
-  'live-contacts-reload': async (context) => loadContactsScreen(context),
+  'live-contacts-reload': async (context) => manualRefresh(context, 'live-contacts-reload', () => loadContactsScreen(context)),
 
   'live-contacts-search': async (context) => {
     context.live.contactQuery = form(context, 'contactQuery');

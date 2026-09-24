@@ -507,12 +507,52 @@ describe('what the user-management screens show before and instead of an answer'
     await settle();
     const before = api.calls.length;
 
-    click(root, '.admin-head [data-act="live-reload"]');
+    click(root, '.pagebar [data-act="live-reload"]');
     await settle();
 
     const reads = api.calls.slice(before).map((call) => call.path);
     expect(reads).toHaveLength(6);
     expect(reads).not.toContain('/auth/session');
+  });
+
+  it('keeps the rows on screen during a refresh, and turns only the Refresh control', async () => {
+    const api = signedInApi();
+    const { app, root } = start(api);
+    await settle();
+    const release = api.hold(`GET /tenants/${TENANT}/people`);
+
+    click(root, '.pagebar [data-act="live-reload"]');
+    await settle();
+    // Nothing is blanked into placeholders; the control says it is working.
+    expect(root.querySelector(`tr[data-membership="${MEMBERSHIP}"]`)).not.toBeNull();
+    expect(root.querySelector('.skeleton')).toBeNull();
+    const control = find(root, '.pagebar [data-act="live-reload"]');
+    expect(control.getAttribute('aria-busy')).toBe('true');
+    expect(control.querySelector('.btn__icon--turning')).not.toBeNull();
+    expect(app.state.live.refreshing).toBe('live-reload');
+
+    release({ status: 200, body: { data: [person(), person({ membership_id: 'm-2', email: 'nadia@digital-school.example' })] } });
+    await settle();
+    expect(app.state.live.refreshing).toBeNull();
+    expect(find(root, '.pagebar [data-act="live-reload"]').getAttribute('aria-busy')).toBeNull();
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
+  });
+
+  it('still shows placeholders when a refresh retries a list that never loaded', async () => {
+    const api = signedInApi().on(`GET /tenants/${TENANT}/people`, {
+      status: 500,
+      body: { error: { code: 'internal_error', message: 'Broke.' } },
+    });
+    const { root } = start(api);
+    await settle();
+    api.on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person()] } });
+    const release = api.hold(`GET /tenants/${TENANT}/people`);
+    click(root, '.errorstate [data-act="live-reload"]');
+    await settle();
+    expect(root.querySelector('.skeleton')).not.toBeNull();
+    release({ status: 200, body: { data: [person()] } });
+    await settle();
+    expect(root.querySelector(`tr[data-membership="${MEMBERSHIP}"]`)).not.toBeNull();
   });
 });
 
@@ -1131,7 +1171,7 @@ describe('a role in detail', () => {
   it('shows the header, a compact summary and the permission modules', async () => {
     const { root } = start(rolesApi(), `#/roles?role=${CUSTOM_ROLE}`);
     await settle();
-    expect(text(find(root, '.breadcrumb'))).toContain('User managementRolesEnrollment lead');
+    expect(text(find(root, '.breadcrumb'))).toBe('RolesEnrollment lead');
     expect(text(find(root, '.admin-head'))).toContain('Custom');
     const summary = text(find(root, '.role-summary'));
     expect(summary).toContain('Assigned users1');
@@ -1417,7 +1457,7 @@ describe('the Teams screen', () => {
     const { app, root } = start(api, '#/teams');
     await settle();
     expect(text(root)).toContain('No teams');
-    click(root, '.admin-head [data-act="dialog"][data-arg="team-create"]');
+    click(root, '.pagebar [data-act="dialog"][data-arg="team-create"]');
     expect(isDisabled(root, '.dialog [data-act="live-create-team"]')).toBe(true);
     type(root, '#team-name', 'Enrollment');
     api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [empty, { ...empty, id: 'team-2', name: 'Old', archived: true }] } });
@@ -1436,7 +1476,7 @@ describe('the Teams screen', () => {
       .on(`PATCH /tenants/${TENANT}/teams/team-1`, { status: 200, body: { data: { ...empty, archived: true } } });
     const { app, root } = start(api, '#/teams?team=team-1');
     await settle();
-    expect(text(find(root, '.breadcrumb'))).toContain('User managementTeamsEnrollment');
+    expect(text(find(root, '.breadcrumb'))).toBe('TeamsEnrollment');
     expect(text(root)).toContain('No members yet');
     expect(isDisabled(root, '[data-act="live-team-add"]')).toBe(true);
 

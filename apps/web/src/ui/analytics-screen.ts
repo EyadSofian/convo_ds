@@ -20,8 +20,9 @@ import {
   page,
   panel,
   progress,
-  selectControl,
+  refreshButton,
   segmented,
+  selectControl,
   skeleton,
 } from './parts.js';
 import type { Tone } from './parts.js';
@@ -322,7 +323,7 @@ function operationsFilterBar(state: AppState, report: OperationalReport | null, 
   const activeChips: HTMLElement[] = [];
   const chip = (id: keyof typeof filters, value: string, label: string): void => {
     if (value === '') return;
-    activeChips.push(button({ label: `${label} ×`, act: 'live-report-filter', arg: `${id}:`, small: true, variant: 'ghost' }));
+    activeChips.push(button({ label, icon: 'close', act: 'live-report-filter', arg: `${id}:`, small: true, variant: 'ghost', title: t(state, `إزالة التصفية: ${label}`, `Remove filter: ${label}`), extraClass: 'filter-chip' }));
   };
   chip('agentId', filters.agentId, agents.find((agent) => agent.membershipId === filters.agentId)?.name ?? t(state, 'الوكيل المحدد', 'Selected agent'));
   chip('teamId', filters.teamId, teams.find((team) => team.id === filters.teamId)?.name ?? t(state, 'الفريق المحدد', 'Selected team'));
@@ -347,7 +348,7 @@ function operationsFilterBar(state: AppState, report: OperationalReport | null, 
       h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'القناة', 'Channel')]), selectControl({ value: filters.channel, act: 'live-report-filter', form: 'channel', disabled: busy, options: [{ value: '', label: t(state, 'كل القنوات', 'All channels') }, ...Object.keys(CHANNEL_NAMES).map((kind) => ({ value: kind, label: phrase(state, CHANNEL_NAMES, kind) }))] })]),
     ]),
     h('details', { class: 'filterbar__more', open: filters.connectionId !== '' || filters.labelId !== '' || filters.campaignId !== '' || filters.priority !== '' || filters.status !== '' }, [
-      h('summary', {}, [t(state, '+ فلاتر أخرى', '+ More filters')]),
+      h('summary', {}, [icon('filter', 14), t(state, 'فلاتر أخرى', 'More filters')]),
       h('div', { class: 'filterbar__fields' }, [
       h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'صندوق الوارد', 'Inbox')]), selectControl({ value: filters.connectionId, act: 'live-report-filter', form: 'connectionId', disabled: busy || connections.length === 0, options: [{ value: '', label: t(state, 'كل الصناديق', 'All Inboxes') }, ...connections.map((connection) => ({ value: connection.id, label: connection.display_name }))] })]),
       h('label', { class: 'field field--compact' }, [h('span', { class: 'field__label' }, [t(state, 'الوسم الحالي', 'Current label')]), selectControl({ value: filters.labelId, act: 'live-report-filter', form: 'labelId', disabled: busy || labels.length === 0, options: options(labels, t(state, 'كل الوسوم', 'All labels')) })]),
@@ -359,7 +360,7 @@ function operationsFilterBar(state: AppState, report: OperationalReport | null, 
     activeChips.length === 0 ? null : h('div', { class: 'filterbar__chips', 'aria-label': t(state, 'الفلاتر النشطة', 'Active filters') }, activeChips),
     h('div', { class: 'filterbar__actions' }, [
       Object.values(filters).some((value) => value !== '') ? button({ label: t(state, 'مسح التصفية', 'Clear filters'), act: 'live-report-filter-clear', small: true, variant: 'ghost' }) : null,
-      button({ label: t(state, 'تحديث', 'Refresh'), icon: 'refresh', act: 'live-report-reload', small: true, busy }),
+      refreshButton(state, 'live-report-reload', busy),
     ]),
   ]);
 }
@@ -579,7 +580,7 @@ function filterBar(state: AppState, report: CampaignReport | null): HTMLElement 
     ]),
     h('div', { class: 'filterbar__actions' }, [
       narrowed ? button({ label: t(state, 'مسح التصفية', 'Clear filters'), act: 'live-report-filter-clear', small: true, variant: 'ghost' }) : null,
-      button({ label: t(state, 'تحديث', 'Refresh'), icon: 'refresh', act: 'live-report-reload', small: true, busy }),
+      refreshButton(state, 'live-report-reload', busy),
       button({
         label: t(state, 'تصدير CSV', 'Export CSV'),
         icon: 'download',

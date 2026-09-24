@@ -117,7 +117,7 @@
   .convo-lockup {
     display: inline-flex;
     align-items: center;
-    gap: 11px;
+    gap: var(--space-3);
     color: var(--text);
   }
 
@@ -146,7 +146,7 @@
   }
 
   .auth-visual__kicker {
-    margin-block-end: 13px;
+    margin-block-end: var(--space-3);
     color: var(--auth-visual-foreground);
     font-size: clamp(18px, 2vw, 26px);
     font-weight: var(--weight-bold);
@@ -165,7 +165,7 @@
 
   .auth-visual__copy > p:last-child {
     max-inline-size: 470px;
-    margin-block-start: 24px;
+    margin-block-start: var(--space-6);
     color: var(--auth-visual-foreground);
     font-size: clamp(17px, 1.5vw, 22px);
     font-weight: var(--weight-medium);
@@ -173,7 +173,7 @@
   }
 
   .auth-visual__foot {
-    padding-block-start: 16px;
+    padding-block-start: var(--space-4);
     border-block-start: 1px solid var(--auth-visual-line);
     color: var(--auth-visual-foreground);
     font-size: var(--text-xs);
@@ -192,7 +192,7 @@
     display: flex;
     justify-content: flex-end;
     gap: var(--space-2);
-    padding-block: 26px;
+    padding-block: var(--space-6);
     padding-inline: clamp(22px, 4vw, 54px);
   }
 
@@ -201,7 +201,7 @@
     align-content: center;
     justify-items: center;
     min-inline-size: 0;
-    padding: 28px 32px 48px;
+    padding: var(--space-8) var(--space-8) var(--space-12);
   }
 
   .auth-panel__main:focus-visible { outline: none; }
@@ -209,7 +209,7 @@
   .auth-panel__foot {
     max-inline-size: 430px;
     margin: 0 auto;
-    padding: 16px 20px 24px;
+    padding: var(--space-4) var(--space-5) var(--space-6);
     color: var(--text-muted);
     font-size: 11px;
     line-height: 1.6;
@@ -230,7 +230,7 @@
   }
 
   .auth-panel .auth-card {
-    gap: 30px;
+    gap: var(--space-8);
     inline-size: min(420px, 100%);
     padding: 0;
     overflow: visible;
@@ -242,14 +242,14 @@
 
   .auth-panel .auth-card::before { display: none; }
 
-  .auth-panel .convo-lockup { margin-block-end: 10px; }
+  .auth-panel .convo-lockup { margin-block-end: var(--space-2); }
 
   .auth-panel .convo-lockup__mark {
     inline-size: 52px;
     block-size: 52px;
   }
 
-  .auth-card__intro { gap: 10px; }
+  .auth-card__intro { gap: var(--space-2); }
 
   .auth-panel .auth-card__title {
     font-size: clamp(30px, 3vw, 38px);
@@ -267,7 +267,7 @@
   .composer__closed-window-copy strong { color: var(--text); font-size: var(--text-sm); }
   .composer__closed-window-copy p { margin: 0; color: var(--text-secondary); font-size: var(--text-xs); }
 
-  .auth-form__meta { display: flex; justify-content: flex-end; margin-block-start: -8px; }
+  .auth-form__meta { display: flex; justify-content: flex-end; margin-block-start: calc(-1 * var(--space-2)); }
 
   .auth-form__forgot {
     color: var(--accent-text);
@@ -281,13 +281,13 @@
   .auth-form__forgot:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 3px;
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
   }
 
   .auth-panel .input {
     min-block-size: 50px;
     border-color: var(--auth-control-border);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--auth-control);
   }
 
@@ -295,14 +295,14 @@
 
   .auth-panel .auth-form__submit {
     min-block-size: 50px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--accent);
     box-shadow: var(--shadow-sm);
   }
 
   .auth-panel .auth-form__submit:hover:not(:disabled) { filter: brightness(1.06); }
 
-  .auth-panel .inline-error { border-radius: 10px; }
+  .auth-panel .inline-error { border-radius: var(--radius-md); }
 
   .auth-card::before {
     content: '';
@@ -356,7 +356,7 @@
   .logomark {
     inline-size: 32px;
     block-size: 32px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     object-fit: contain;
     flex: none;
   }
@@ -373,7 +373,7 @@
     flex: none;
     inline-size: 32px;
     block-size: 32px;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: var(--brand-highlight);
     color: var(--brand-web-chat);
     font-size: 13px;
@@ -407,15 +407,15 @@
   }
 
   .app--pending { color: var(--text-muted); }
-  .app-pending__nav { display: flex; flex-direction: column; align-items: center; gap: 20px; padding-block: 15px; background: var(--nav-bg); border-inline-end: 1px solid var(--nav-border); }
-  .app-pending__brand { display: grid; place-items: center; inline-size: 32px; block-size: 32px; border-radius: 9px; background: var(--brand-highlight); color: var(--brand-web-chat); font-size: 13px; font-weight: 800; direction: ltr; }
-  .app-pending__nav-item { inline-size: 20px; block-size: 20px; border-radius: 5px; background: var(--nav-skeleton); }
+  .app-pending__nav { display: flex; flex-direction: column; align-items: center; gap: var(--space-5); padding-block: var(--space-4); background: var(--nav-bg); border-inline-end: 1px solid var(--nav-border); }
+  .app-pending__brand { display: grid; place-items: center; inline-size: 32px; block-size: 32px; border-radius: var(--radius-md); background: var(--brand-highlight); color: var(--brand-web-chat); font-size: 13px; font-weight: 800; direction: ltr; }
+  .app-pending__nav-item { inline-size: 20px; block-size: 20px; border-radius: var(--radius-xs); background: var(--nav-skeleton); }
   .app-pending__header { background: var(--surface-1); }
   /* The pending frame matches the shell it becomes at every width: no rail
      where the real shell has none, so the hand-over does not jump. */
   @media (max-width: 959px) { .app--pending .app-pending__nav { display: none; } }
-  .app-pending__header { display: flex; align-items: center; justify-content: space-between; padding-inline: 20px; border-block-end: 1px solid var(--border); }
-  .app-pending__line { display: block; inline-size: 45%; block-size: 12px; border-radius: 6px; background: var(--skeleton); }
+  .app-pending__header { display: flex; align-items: center; justify-content: space-between; padding-inline: var(--space-5); border-block-end: 1px solid var(--border); }
+  .app-pending__line { display: block; inline-size: 45%; block-size: 12px; border-radius: var(--radius-sm); background: var(--skeleton); }
   .app-pending__line--title { inline-size: 140px; }
   .app-pending__line--short { inline-size: 70px; }
   .app-pending__line--wide { inline-size: 70%; }
@@ -423,11 +423,11 @@
   .app-pending__screen--inbox { grid-template-columns: minmax(260px, 352px) minmax(0, 1fr); }
   .app-pending__list { display: grid; align-content: start; gap: 12px; padding: 20px; border-inline-end: 1px solid var(--border); }
   .app-pending__row { block-size: 64px; border-radius: var(--radius-sm); background: var(--skeleton); }
-  .app-pending__content { display: grid; align-content: start; justify-items: start; gap: 18px; padding: 26px; }
+  .app-pending__content { display: grid; align-content: start; justify-items: start; gap: var(--space-4); padding: var(--space-6); }
   .app-pending__status { font-size: var(--text-xs); }
   .app-pending__content { align-content: center; justify-items: center; }
-  .app-pending__identity { display: grid; justify-items: center; gap: 10px; color: var(--text); }
-  .app-pending__identity .convo-lockup__mark { inline-size: 34px; block-size: 34px; border-radius: 10px; }
+  .app-pending__identity { display: grid; justify-items: center; gap: var(--space-3); color: var(--text); }
+  .app-pending__identity .convo-lockup__mark { inline-size: 34px; block-size: 34px; border-radius: var(--radius-md); }
   .app-pending__identity > strong { font-size: var(--text-xs); font-weight: var(--weight-medium); }
   .app-pending__content .app-pending__line { display: none; }
   .app-pending__content .app-pending__status { margin: 0; color: var(--text-muted); }
@@ -457,7 +457,7 @@
     position: fixed;
     inset-block-start: var(--space-2);
     inset-inline-start: var(--space-2);
-    z-index: 100;
+    z-index: var(--z-skip-link);
     padding: var(--space-2) var(--space-3);
     border: 0;
     border-radius: var(--radius-md);
@@ -478,7 +478,7 @@
 
   .nav {
     position: relative;
-    z-index: 40;
+    z-index: var(--z-nav);
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
@@ -669,7 +669,7 @@
     visibility: hidden;
     pointer-events: none;
     transition: opacity var(--motion-fast) var(--ease-out);
-    z-index: 60;
+    z-index: var(--z-popover);
   }
 
   .app[data-nav='collapsed'] .nav__item:hover::after,
@@ -755,13 +755,29 @@
      its word and colour, never the position of anything else on the page.
      -------------------------------------------------------------------- */
 
-  .status-pill {
+  .status-slot {
+    display: grid;
+    align-items: center;
+    justify-items: end;
+    margin-inline-end: var(--space-2);
+  }
+
+  .status-slot > * {
+    grid-area: 1 / 1;
+  }
+
+  /* Never seen: it only holds the slot open at the widest word. */
+  .status-ghost {
+    visibility: hidden;
+  }
+
+  .status-pill,
+  .status-ghost {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
     block-size: var(--status-pill-height);
-    padding-inline: 10px 12px;
-    margin-inline-end: var(--space-2);
+    padding-inline: var(--space-3);
     border: 1px solid transparent;
     border-radius: var(--radius-full);
     background: var(--success-soft);
@@ -808,8 +824,8 @@
     align-items: center;
     gap: var(--space-1);
     block-size: 36px;
-    padding-block: 3px;
-    padding-inline: 3px var(--space-2);
+    padding-block: var(--space-1);
+    padding-inline: var(--space-1) var(--space-2);
     margin-inline-start: var(--space-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-full);
@@ -835,7 +851,7 @@
     inline-size: 36px;
     block-size: 36px;
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     background: var(--surface-1);
     color: var(--text-secondary);
     transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
@@ -850,7 +866,7 @@
     inset-inline-end: -7px;
     min-inline-size: 18px;
     block-size: 18px;
-    padding-inline: 3px;
+    padding-inline: var(--space-1);
     border: 2px solid var(--surface-1);
     border-radius: var(--radius-full);
     background: var(--danger);
@@ -880,7 +896,7 @@
   .notification-row:hover, .notification-row:focus-visible { background: var(--surface-hover); }
   .notification-row--unread { background: var(--surface-selected); }
   .notification-row--unread .notification-row__title { font-weight: var(--weight-semibold); }
-  .notification-row__dot { flex: 0 0 7px; inline-size: 7px; block-size: 7px; margin-block-start: 6px; border-radius: 50%; background: transparent; }
+  .notification-row__dot { flex: 0 0 7px; inline-size: 7px; block-size: 7px; margin-block-start: 6px; border-radius: var(--radius-full); background: transparent; }
   .notification-row--unread .notification-row__dot { background: var(--accent); }
   .notification-row__content { display: grid; gap: 2px; min-inline-size: 0; }
   .notification-row__title { font-size: var(--text-sm); font-weight: var(--weight-medium); }
@@ -891,7 +907,7 @@
     position: absolute;
     inset-block-start: calc(100% + var(--space-2));
     inset-inline-end: 0;
-    z-index: 70;
+    z-index: var(--z-popover);
     min-inline-size: 240px;
     padding: var(--space-1);
     background: var(--glass);
@@ -989,10 +1005,28 @@
     position: fixed;
     inset-block-end: var(--space-5);
     inset-inline-end: var(--space-5);
-    z-index: 90;
+    z-index: var(--z-toast);
     display: grid;
     gap: var(--space-2);
     inline-size: min(380px, calc(100vw - 32px));
+  }
+
+  /*
+   * On a phone a toast never lands on the bottom navigation: it sits just
+   * above it, or — while a conversation and its composer own the bottom edge —
+   * under the header, where it covers nothing being typed.
+   */
+  @media (max-width: 760px) {
+    .toasts {
+      inset-inline: var(--space-4);
+      inline-size: auto;
+      inset-block-end: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + var(--space-3));
+    }
+
+    .app[data-thread='open'] ~ .toasts {
+      inset-block-start: calc(var(--header-height) + var(--space-3));
+      inset-block-end: auto;
+    }
   }
 
   .toast {
@@ -1093,7 +1127,7 @@
     position: absolute;
     inset-block: 0;
     inset-inline-start: 0;
-    z-index: 30;
+    z-index: var(--z-zone);
     inline-size: min(360px, 92%);
     border-inline-end: 1px solid var(--border);
     box-shadow: var(--shadow-lg);
@@ -1106,7 +1140,7 @@
   .zone-scrim {
     position: absolute;
     inset: 0;
-    z-index: 25;
+    z-index: var(--z-zone-scrim);
     display: none;
     padding: 0;
     border: 0;
@@ -1124,7 +1158,7 @@
     position: absolute;
     inset-block: 0;
     inset-inline-end: 0;
-    z-index: 30;
+    z-index: var(--z-zone);
     display: none;
     inline-size: min(340px, 92%);
     border-inline-start: 1px solid var(--border);
@@ -1195,7 +1229,7 @@
     position: absolute;
     inset-block: 0;
     inset-inline-end: -4px;
-    z-index: 15;
+    z-index: var(--z-resizer);
     inline-size: 8px;
     padding: 0;
     border: 0;
@@ -1234,7 +1268,7 @@
       position: fixed;
       inset-block: 0;
       inset-inline-start: 0;
-      z-index: 85;
+      z-index: var(--z-drawer);
       inline-size: min(var(--nav-width-expanded), 86vw);
       visibility: hidden;
       translate: -105% 0;
@@ -1284,7 +1318,7 @@
     .app[data-drawer='open'] .nav-scrim {
       position: fixed;
       inset: 0;
-      z-index: 80;
+      z-index: var(--z-drawer-scrim);
       display: block;
       padding: 0;
       border: 0;
@@ -1328,7 +1362,7 @@
       position: fixed;
       inset-inline: 0;
       inset-block-end: 0;
-      z-index: 60;
+      z-index: var(--z-bottom-nav);
       display: grid;
       grid-auto-columns: minmax(0, 1fr);
       grid-auto-flow: column;
@@ -1381,7 +1415,7 @@
       inset-inline-end: -10px;
       min-inline-size: 16px;
       block-size: 16px;
-      padding-inline: 3px;
+      padding-inline: var(--space-1);
       border-radius: var(--radius-full);
       background: var(--danger);
       color: var(--on-accent);
@@ -1403,7 +1437,7 @@
       display: flex;
       flex-direction: column;
       padding-block-end: env(safe-area-inset-bottom);
-      border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+      border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
       transform-origin: bottom;
     }
 
@@ -1420,13 +1454,22 @@
       display: none;
     }
 
-    .status-pill--live {
-      padding-inline: 10px;
+    /*
+     * A phone header has no room for words: every state is its dot, coloured
+     * and (while reconnecting) pulsing, with the words kept for assistive
+     * technology and the tooltip. The slot is then one dot wide in every state.
+     */
+    .status-slot {
       margin-inline-end: 0;
+    }
+
+    .status-pill,
+    .status-ghost {
+      padding-inline: var(--space-3);
       background: transparent;
     }
 
-    .status-pill--live .status-pill__label {
+    .status-pill__label {
       position: absolute;
       inline-size: 1px;
       block-size: 1px;
@@ -1443,12 +1486,12 @@
     .auth-layout { grid-template-columns: minmax(0, 1fr); min-block-size: 100svh; }
     .auth-visual { display: none; }
     .auth-panel { min-block-size: 100svh; }
-    .auth-panel__controls { padding: max(16px, env(safe-area-inset-top)) 18px 10px; }
-    .auth-panel__main { align-content: start; padding: clamp(42px, 10vh, 84px) 22px 32px; }
-    .auth-panel__foot { padding-block-end: max(20px, env(safe-area-inset-bottom)); }
-    .auth-panel .auth-card { gap: 27px; }
+    .auth-panel__controls { padding: max(var(--space-4), env(safe-area-inset-top)) var(--space-4) var(--space-3); }
+    .auth-panel__main { align-content: start; padding: clamp(42px, 10vh, 84px) var(--space-6) var(--space-8); }
+    .auth-panel__foot { padding-block-end: max(var(--space-5), env(safe-area-inset-bottom)); }
+    .auth-panel .auth-card { gap: var(--space-6); }
     .auth-panel .auth-card__title { font-size: 32px; }
-    .app-pending__nav { gap: 16px; }
+    .app-pending__nav { gap: var(--space-4); }
     .app-pending__status { text-align: center; }
 
     .auth-card {
@@ -1464,15 +1507,15 @@
 
   @media (min-width: 600px) and (max-width: 1040px) {
     .auth-layout { grid-template-columns: minmax(0, 0.92fr) minmax(430px, 1.08fr); }
-    .auth-visual { padding-inline: 28px; }
+    .auth-visual { padding-inline: var(--space-8); }
     .auth-visual__copy h2 { font-size: clamp(36px, 4.6vw, 50px); }
   }
 
   @media (max-height: 760px) and (min-width: 761px) {
-    .auth-visual { padding-block: 24px 20px; }
-    .auth-visual__copy { margin-block-start: 34px; }
+    .auth-visual { padding-block: var(--space-6) var(--space-5); }
+    .auth-visual__copy { margin-block-start: var(--space-8); }
     .auth-visual__copy h2 { font-size: clamp(36px, 3.5vw, 52px); }
-    .auth-visual__copy > p:last-child { margin-block-start: 12px; }
-    .auth-visual__foot { padding-block-start: 10px; }
+    .auth-visual__copy > p:last-child { margin-block-start: var(--space-3); }
+    .auth-visual__foot { padding-block-start: var(--space-3); }
   }
 }

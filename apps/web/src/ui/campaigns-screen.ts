@@ -18,6 +18,7 @@ import {
   kpi,
   page,
   panel,
+  refreshButton,
   skeleton,
   toolbar,
 } from './parts.js';
@@ -84,7 +85,7 @@ export function renderBroadcasts(state: AppState): HTMLElement {
   return page('campaigns', toolbar(
     t(state, 'أنشئ الحملات واعتمدها وتابع نتيجة كل مستلم.', 'Create, approve and follow every recipient of your campaigns.'),
     [
-      button({ label: t(state, 'تحديث', 'Refresh'), icon: 'refresh', act: 'live-campaigns-reload', small: true, busy: live.campaigns.status === 'loading' }),
+      refreshButton(state, 'live-campaigns-reload', live.campaigns.status === 'loading'),
       can.draft ? button({ label: t(state, 'حملة جديدة', 'New campaign'), icon: 'plus', act: 'dialog', arg: 'campaign', variant: 'primary', small: true }) : null,
     ],
   ), body(state, live, can));

@@ -29,6 +29,7 @@ import {
   errorState,
   isolated,
   messageSkeleton,
+  refreshButton,
   segmented,
   selectControl,
   skeleton,
@@ -163,17 +164,10 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
           t(state, 'طابور المحادثات', 'Conversation queue'),
         ),
         h('div', { class: 'listhead__tools' }, [
-          button({
-            icon: 'refresh',
-            act: 'live-inbox-reload',
-            variant: 'ghost',
-            small: true,
-            // The spinner belongs to a refresh somebody asked for. A background
-            // re-read after a realtime event or a returning tab keeps the rows
-            // and the icon still, so the list never looks like it is reloading.
-            busy: live.unassigned.status === 'loading' && live.conversations.status === 'loading',
-            title: t(state, 'تحديث', 'Refresh'),
-          }),
+          // Progress belongs to a refresh somebody asked for. A background
+          // re-read after a realtime event or a returning tab keeps the rows
+          // and the icon still, so the list never looks like it is reloading.
+          refreshButton(state, 'live-inbox-reload', live.unassigned.status === 'loading' && live.conversations.status === 'loading', true),
           button({
             icon: 'close',
             act: 'close-overlays',

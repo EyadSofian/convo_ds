@@ -51,6 +51,12 @@
     cursor: progress;
   }
 
+  /* Busy is not disabled-looking: the control keeps its surface while it works. */
+  .btn[aria-busy='true']:not(.btn--primary, .btn--ghost) {
+    background: var(--surface-1);
+    box-shadow: var(--shadow-xs);
+  }
+
   .btn--primary {
     border-color: transparent;
     background: var(--accent);
@@ -114,6 +120,57 @@
   .btn__label {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /*
+   * A fixed box for the icon, the same size busy or not: the spinner (or the
+   * turning refresh arrows) is drawn inside it, so the label and the button
+   * never move when work starts or ends.
+   */
+  .btn {
+    --btn-icon: var(--icon-md);
+  }
+
+  .btn--sm {
+    --btn-icon: var(--icon-sm);
+  }
+
+  .btn__icon {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    inline-size: var(--btn-icon);
+    block-size: var(--btn-icon);
+  }
+
+  .btn__icon > svg,
+  .btn__icon > .spinner {
+    inline-size: 100%;
+    block-size: 100%;
+  }
+
+  .btn__icon--turning > svg {
+    animation: convo-spin 0.9s linear infinite;
+  }
+
+  /* A label-only button: the label keeps its place, invisible, under the spinner. */
+  .btn__stack {
+    display: inline-grid;
+    min-inline-size: 0;
+  }
+
+  .btn__stack > * {
+    grid-area: 1 / 1;
+  }
+
+  .btn__stack > .btn__label {
+    opacity: 0;
+  }
+
+  .btn__stack > .spinner {
+    place-self: center;
+    inline-size: var(--btn-icon);
+    block-size: var(--btn-icon);
   }
 
   /* --------------------------------------------------------------- badge -- */
@@ -238,15 +295,38 @@
   }
 
   .report-nav {
+    margin-block-end: var(--space-2);
     max-inline-size: 100%;
     overflow-x: auto;
     overscroll-behavior-inline: contain;
     scrollbar-width: thin;
   }
 
+  /* The report switcher is page navigation: the same underline tabs as every section row. */
   .report-nav .segmented {
+    gap: var(--space-1);
     inline-size: max-content;
     min-inline-size: 100%;
+    padding: 0;
+    border-radius: 0;
+    border-block-end: 1px solid var(--border);
+    background: transparent;
+  }
+
+  .report-nav .segmented__item {
+    block-size: auto;
+    padding: var(--space-2) var(--space-3);
+    border-radius: 0;
+    border-block-end: 2px solid transparent;
+    font-size: var(--text-sm);
+  }
+
+  .report-nav .segmented__item[aria-pressed='true'] {
+    border-block-end-color: var(--accent);
+    background: transparent;
+    box-shadow: none;
+    color: var(--accent-text);
+    font-weight: var(--weight-semibold);
   }
 
   .segmented__item {
@@ -420,8 +500,10 @@
 
   /* -------------------------------------------------------------- fields -- */
 
+  /* Label, control, hint from the top: a neighbour's longer hint never pushes this control down. */
   .field {
     display: grid;
+    align-content: start;
     gap: var(--space-1);
     min-inline-size: 0;
   }
@@ -518,7 +600,7 @@
   }
 
   .input-affix .input {
-    padding-inline-end: 40px;
+    padding-inline-end: var(--space-10);
   }
 
   .input-affix__button {
@@ -599,7 +681,7 @@
   .scrim {
     position: fixed;
     inset: 0;
-    z-index: 95;
+    z-index: var(--z-modal);
     display: grid;
     place-items: center;
     padding: var(--space-4);
@@ -653,7 +735,7 @@
   .wa-template-preview__header { font-weight: var(--weight-semibold); }
   .wa-template-preview__body { white-space: pre-wrap; }
   .wa-template-preview__footer { color: var(--text-muted); font-size: var(--text-xs); }
-  .wa-template-preview__variable { padding-inline: 2px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--text); }
+  .wa-template-preview__variable { padding-inline: 2px; border-radius: var(--radius-xs); background: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--text); }
   .wa-template-preview__button { display: inline-flex; justify-content: center; padding-block: var(--space-2); color: var(--accent-text); border-block-start: 1px solid var(--border-subtle); font-size: var(--text-xs); }
   .msg__template-label { margin-block-end: var(--space-1); color: var(--text-muted); font-size: var(--text-xs); }
 
@@ -724,9 +806,10 @@
   /* ------------------------------------------------------- page & panel -- */
 
   .page {
+    --page-pad-end: var(--space-10);
     block-size: 100%;
     overflow-y: auto;
-    padding: var(--space-5) var(--space-6) var(--space-10);
+    padding: var(--space-5) var(--space-6) var(--page-pad-end);
   }
 
   .page:focus-visible {
@@ -1233,7 +1316,8 @@
     }
 
     .page {
-      padding: var(--space-4) var(--space-4) var(--space-8);
+      --page-pad-end: var(--space-8);
+      padding: var(--space-4) var(--space-4) var(--page-pad-end);
     }
   }
 
@@ -1258,7 +1342,8 @@
     border-radius: var(--radius-lg);
   }
 
+  /* This product's own channels wear its own blue, on the same neutral tile in both themes. */
   .channel-mark--product {
-    color: var(--accent-text);
+    color: var(--brand-web-chat);
   }
 }

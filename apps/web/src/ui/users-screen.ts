@@ -5,7 +5,6 @@ import { openSession, rowsOf } from '../live/store.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
 import {
-  adminHead,
   matches,
   memberCell,
   resourceView,
@@ -18,7 +17,7 @@ import {
   teamsOf,
 } from './admin-parts.js';
 import { t } from './copy.js';
-import { button, inlineError, isolated, notice, page } from './parts.js';
+import { button, inlineError, isolated, notice, page, refreshButton, toolbar } from './parts.js';
 
 /**
  * Users: the workspace's members, and — on its own tab — the invitations that
@@ -32,18 +31,11 @@ export function renderUsers(state: AppState): HTMLElement {
   const live = state.live;
   const tab = state.route.params['tab'] === 'invitations' ? 'invitations' : 'users';
   const pending = rowsOf(live.invitations).filter((invitation) => invitation.status === 'pending').length;
-  return page('people', null, [
-    adminHead(state, {
-      trail: [{ label: t(state, 'إدارة المستخدمين', 'User management') }, { label: t(state, 'المستخدمون', 'Users') }],
-      title: t(state, 'المستخدمون', 'Users'),
-      titleIcon: 'users',
-      subtitle: t(state, 'أدِر أعضاء مساحة العمل وصلاحيات وصولهم.', 'Manage workspace members and access.'),
-      actions: [
-        button({ icon: 'refresh', act: 'live-reload', small: true, variant: 'ghost', title: t(state, 'تحديث', 'Refresh'), busy: live.people.status === 'loading' }),
-        // The route opens this screen only with member.manage.
-        button({ label: t(state, 'دعوة مستخدم', 'Invite User'), icon: 'userPlus', act: 'dialog', arg: 'invite', small: true, variant: 'primary' }),
-      ],
-    }),
+  return page('people', toolbar(t(state, 'أدِر أعضاء مساحة العمل وصلاحيات وصولهم.', 'Manage workspace members and access.'), [
+    refreshButton(state, 'live-reload', live.people.status === 'loading'),
+    // The route opens this screen only with member.manage.
+    button({ label: t(state, 'دعوة مستخدم', 'Invite User'), icon: 'userPlus', act: 'dialog', arg: 'invite', small: true, variant: 'primary' }),
+  ]), [
     state.dialog === null ? inlineError(state, live.error) : null,
     ownershipOffers(state, live),
     routeTabs(state, t(state, 'أقسام المستخدمين', 'User sections'), 'people', [

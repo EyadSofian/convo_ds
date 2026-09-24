@@ -5,10 +5,11 @@ main.app__screen
         p.pagebar__lede
         div.pagebar__actions
           button.btn.btn--sm [live-channels-reload]
-            svg
-              path
-              path
-              path
+            span.btn__icon
+              svg
+                path
+                path
+                path
             span.btn__label
       section.integrations
         h2.section-title
@@ -16,7 +17,7 @@ main.app__screen
           article.integration.integration--connected
             header.integration__head
               span.channel-tile.channel-tile--whatsapp.channel-tile--lg
-                svg.channel-mark.channel-mark--whatsapp
+                svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
                   path
               div.integration__titles
                 h3.integration__name
@@ -26,56 +27,31 @@ main.app__screen
             p.integration__description
             ul.integration__capabilities
               li.capability
-                svg
-                  path
-                  path
               li.capability
-                svg
-                  rect
-                  path
               li.capability
-                svg
-                  rect
-                  circle
-                  path
               li.capability
-                svg
-                  path
-                  path
               li.capability
-                svg
-                  path
-                  path
-                  path
             dl.integration__facts
-              div
-                dt
-                dd
-              div
-                dt
-                dd
-              div
+              div.integration__fact
                 dt
                 dd
                   bdi
+              div.integration__fact
+                dt
+                dd
             footer.integration__actions
               div.integration__buttons
                 button.btn.btn--sm [channel-manage]
                   span.btn__label
                 button.btn.btn--ghost.btn--sm [dialog]
-                  svg
-                    path
+                  span.btn__icon
+                    svg
+                      path
                   span.btn__label
           article.integration.integration--not_connected
             header.integration__head
               span.channel-tile.channel-tile--messenger.channel-tile--lg
-                svg.channel-mark.channel-mark--messenger
-                  defs
-                    radialgradient
-                      stop
-                      stop
-                      stop
-                      stop
+                svg.channel-mark.channel-mark--brand.channel-mark--messenger
                   path
               div.integration__titles
                 h3.integration__name
@@ -85,48 +61,29 @@ main.app__screen
             p.integration__description
             ul.integration__capabilities
               li.capability
-                svg
-                  path
-                  path
               li.capability
-                svg
-                  rect
-                  path
               li.capability
-                svg
-                  rect
-                  circle
-                  path
               li.capability
-                svg
-                  path
-                  path
               li.capability
-                svg
-                  path
-                  path
-                  path
             dl.integration__facts
-              div
+              div.integration__fact
                 dt
-                dd
-              div
-                dt
-                dd
-              div
-                dt
+                  span.integration__context
+                    svg.channel-mark.channel-mark--brand.channel-mark--facebook
+                      path
                 dd
             footer.integration__actions
               button.btn.btn--primary.btn--sm [dialog]
-                svg
-                  path
-                  path
-                  path
+                span.btn__icon
+                  svg
+                    path
+                    path
+                    path
                 span.btn__label
           article.integration.integration--connecting
             header.integration__head
               span.channel-tile.channel-tile--instagram.channel-tile--lg
-                svg.channel-mark.channel-mark--instagram
+                svg.channel-mark.channel-mark--brand.channel-mark--instagram
                   defs
                     radialgradient
                       stop
@@ -143,58 +100,40 @@ main.app__screen
             p.integration__description
             ul.integration__capabilities
               li.capability
-                svg
-                  path
-                  path
               li.capability
-                svg
-                  rect
-                  path
               li.capability
-                svg
-                  rect
-                  circle
-                  path
               li.capability
-                svg
-                  path
-                  path
               li.capability
-                svg
-                  path
-                  path
-                  path
             dl.integration__facts
-              div
-                dt
-                dd
-              div
-                dt
-                dd
-              div
+              div.integration__fact
                 dt
                 dd
                   bdi
             footer.integration__actions
               div.integration__buttons
                 button.btn.btn--primary.btn--sm [channel-manage]
-                  svg
-                    path
-                    path
+                  span.btn__icon
+                    svg
+                      path
+                      path
                   span.btn__label
                 button.btn.btn--ghost.btn--sm [dialog]
-                  svg
-                    path
+                  span.btn__icon
+                    svg
+                      path
                   span.btn__label
           article.integration.integration--not_connected
             header.integration__head
               span.channel-tile.channel-tile--web_chat.channel-tile--lg
-                svg.channel-mark.channel-mark--product
+                svg.channel-mark.channel-mark--product.channel-mark--web_chat
                   rect
                   path
                   circle
                   circle
                   path
+                  circle
+                  circle
+                  circle
               div.integration__titles
                 h3.integration__name
                 p.integration__provider
@@ -203,44 +142,25 @@ main.app__screen
             p.integration__description
             ul.integration__capabilities
               li.capability
-                svg
-                  path
-                  path
               li.capability
-                svg
-                  rect
-                  circle
-                  path
               li.capability
-                svg
-                  path
-                  path
               li.capability
-                svg
-                  path
-                  path
-                  path
             dl.integration__facts
-              div
-                dt
-                dd
-              div
-                dt
-                dd
-              div
+              div.integration__fact
                 dt
                 dd
             footer.integration__actions
               button.btn.btn--primary.btn--sm [dialog]
-                svg
-                  path
-                  path
-                  path
+                span.btn__icon
+                  svg
+                    path
+                    path
+                    path
                 span.btn__label
           article.integration.integration--unavailable
             header.integration__head
               span.channel-tile.channel-tile--telegram.channel-tile--lg
-                svg.channel-mark.channel-mark--telegram
+                svg.channel-mark.channel-mark--brand.channel-mark--telegram
                   path
               div.integration__titles
                 h3.integration__name
@@ -249,13 +169,7 @@ main.app__screen
             p.integration__description
             p.integration__note
             dl.integration__facts
-              div
-                dt
-                dd
-              div
-                dt
-                dd
-              div
+              div.integration__fact
                 dt
                 dd
             footer.integration__actions
@@ -264,7 +178,8 @@ main.app__screen
           article.integration.integration--not_connected
             header.integration__head
               span.channel-tile.channel-tile--custom.channel-tile--lg
-                svg.channel-mark.channel-mark--product
+                svg.channel-mark.channel-mark--product.channel-mark--custom
+                  path
                   path
                   path
               div.integration__titles
@@ -275,39 +190,20 @@ main.app__screen
             p.integration__description
             ul.integration__capabilities
               li.capability
-                svg
-                  path
-                  path
               li.capability
-                svg
-                  rect
-                  circle
-                  path
               li.capability
-                svg
-                  path
-                  path
               li.capability
-                svg
-                  path
-                  path
-                  path
             dl.integration__facts
-              div
-                dt
-                dd
-              div
-                dt
-                dd
-              div
+              div.integration__fact
                 dt
                 dd
             footer.integration__actions
               button.btn.btn--primary.btn--sm [dialog]
-                svg
-                  path
-                  path
-                  path
+                span.btn__icon
+                  svg
+                    path
+                    path
+                    path
                 span.btn__label
       section.panel.connections
         header.panel__header
@@ -323,7 +219,7 @@ main.app__screen
             li.connection
               div.connection__row
                 span.channel-tile.channel-tile--whatsapp.channel-tile--md
-                  svg.channel-mark.channel-mark--whatsapp
+                  svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
                     path
                 div.connection__identity
                   p.connection__name
@@ -335,13 +231,14 @@ main.app__screen
                     span.badge__dot
                   span.connection__evidence
                 button.btn.btn--ghost.btn--sm [connection-toggle]
-                  svg.icon--directional
-                    path
+                  span.btn__icon
+                    svg.icon--directional
+                      path
                   span.btn__label
             li.connection
               div.connection__row
                 span.channel-tile.channel-tile--instagram.channel-tile--md
-                  svg.channel-mark.channel-mark--instagram
+                  svg.channel-mark.channel-mark--brand.channel-mark--instagram
                     defs
                       radialgradient
                         stop
@@ -360,6 +257,7 @@ main.app__screen
                     span.badge__dot
                   span.connection__evidence
                 button.btn.btn--ghost.btn--sm [connection-toggle]
-                  svg.icon--directional
-                    path
+                  span.btn__icon
+                    svg.icon--directional
+                      path
                   span.btn__label

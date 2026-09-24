@@ -86,15 +86,15 @@ export function screenLink(state: AppState, screen: ScreenId, params: Readonly<R
 }
 
 /**
- * "User management / Roles / Admin", then the page's own heading, summary and
+ * A record's own page head: "Roles / Admin", then its heading, summary and
  * actions. The heading is an h2: the header's h1 already names the screen.
+ * List pages use the shared toolbar instead, so a name is never said twice.
  */
 export function adminHead(
   state: AppState,
   options: {
     readonly trail: readonly { readonly label: string; readonly screen?: ScreenId; readonly params?: Readonly<Record<string, string>> }[];
     readonly title: string;
-    readonly titleIcon?: IconName;
     readonly subtitle?: string | undefined;
     readonly badges?: readonly Child[];
     readonly actions?: readonly Child[];
@@ -102,14 +102,14 @@ export function adminHead(
 ): HTMLElement {
   return h('header', { class: 'admin-head' }, [
     h('nav', { class: 'breadcrumb', 'aria-label': t(state, 'مسار التنقل', 'Breadcrumb') }, [
-      h('ol', {}, options.trail.map((step, index) => h('li', {}, [
+      h('ol', {}, options.trail.map((step) => h('li', {}, [
+        // Only the record itself has no link: it is the page being shown.
         step.screen === undefined
-          ? h('span', { 'aria-current': index === options.trail.length - 1 ? 'page' : undefined }, [isolated(step.label)])
+          ? h('span', { 'aria-current': 'page' }, [isolated(step.label)])
           : screenLink(state, step.screen, step.params, [isolated(step.label)]),
       ]))),
     ]),
     h('div', { class: 'admin-head__row' }, [
-      options.titleIcon === undefined ? null : h('span', { class: 'admin-head__icon', 'aria-hidden': 'true' }, [icon(options.titleIcon, 20)]),
       h('div', { class: 'admin-head__titles' }, [
         h('div', { class: 'admin-head__titleline' }, [
           // Role and team names are typed by people, in either script: isolated,

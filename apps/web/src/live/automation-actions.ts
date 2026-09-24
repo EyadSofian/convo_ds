@@ -1,7 +1,7 @@
 import type { Automation, AutomationInput, AutomationListQuery, AutomationRun, AutomationRunsQuery, AutomationStep } from '../api/automations.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { forTenant, fromResult, LOADING, rowsOf } from './store.js';
+import { forTenant, fromResult, LOADING, refetching, rowsOf } from './store.js';
 
 function copy(context: LiveContext, ar: string, en: string): string {
   return context.state.lang === 'ar' ? ar : en;
@@ -22,7 +22,7 @@ export async function loadAutomationsScreen(context: LiveContext): Promise<void>
 }
 
 async function loadAutomationTemplates(context: LiveContext): Promise<void> {
-  context.live.automationTemplates = LOADING;
+  context.live.automationTemplates = refetching(context.live, context.live.automationTemplates);
   context.refresh();
   await forTenant(context, undefined, async (tenantId) => {
     const result = await context.live.automationsApi.templates(tenantId);
@@ -47,7 +47,7 @@ export async function loadAutomationPage(context: LiveContext, reset: boolean): 
   const { live } = context;
   const cursor = reset ? null : live.automationNextCursor;
   if (!reset && cursor === null) return;
-  live.automations = reset ? LOADING : live.automations;
+  live.automations = reset ? refetching(live, live.automations) : live.automations;
   context.refresh();
   await forTenant(context, undefined, async (tenantId) => {
     const result = await live.automationsApi.list(tenantId, { ...live.automationQuery, cursor });
@@ -69,7 +69,7 @@ export async function loadAutomationRunsPage(context: LiveContext, reset: boolea
   const { live } = context;
   const cursor = reset ? null : live.automationRunsNextCursor;
   if (!reset && cursor === null) return;
-  live.automationRuns = reset ? LOADING : live.automationRuns;
+  live.automationRuns = reset ? refetching(live, live.automationRuns) : live.automationRuns;
   context.refresh();
   await forTenant(context, undefined, async (tenantId) => {
     const result = await live.automationsApi.runs(tenantId, { ...live.automationRunsQuery, cursor });
@@ -121,7 +121,7 @@ export async function useAutomationTemplate(context: LiveContext, key: string): 
       params: { view: 'mine', edit: result.data.id },
     };
     context.state.focusTarget = '[data-automation-builder] input[name="automationName"]';
-    pushToast(context.state, copy(context, '✓ أُنشئت المسودة. جارٍ فتح المحرر.', '✓ Draft created. Opening editor.'));
+    pushToast(context.state, copy(context, 'أُنشئت المسودة. جارٍ فتح المحرر.', 'Draft created. Opening editor.'));
     context.refresh();
     return true;
   });
