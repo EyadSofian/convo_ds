@@ -28,6 +28,7 @@ export interface ButtonOptions {
   /** Shows progress on the control that started the work, and refuses a second press. */
   readonly busy?: boolean | undefined;
   readonly title?: string | undefined;
+  readonly ariaLabel?: string | undefined;
   readonly extraClass?: string | undefined;
   readonly type?: 'button' | 'submit' | undefined;
   readonly controls?: string | undefined;
@@ -51,7 +52,7 @@ export function button(options: ButtonOptions): HTMLButtonElement {
     'data-arg': options.arg,
     disabled: options.disabled === true || busy,
     title: options.title,
-    'aria-label': iconOnly ? options.title : undefined,
+    'aria-label': options.ariaLabel ?? (iconOnly ? options.title : undefined),
     'aria-pressed': options.pressed === undefined ? undefined : String(options.pressed),
     'aria-expanded': options.expanded === undefined ? undefined : String(options.expanded),
     'aria-controls': options.controls,
@@ -74,7 +75,13 @@ export function button(options: ButtonOptions): HTMLButtonElement {
  * started is in flight or while its list first loads; its label, its size and
  * everything around it stay where they are.
  */
-export function refreshButton(state: AppState, act: string, loading: boolean, iconOnly = false): HTMLButtonElement {
+export function refreshButton(
+  state: AppState,
+  act: string,
+  loading: boolean,
+  iconOnly = false,
+  extraClass?: string,
+): HTMLButtonElement {
   const label = t(state, 'تحديث', 'Refresh');
   return button({
     label: iconOnly ? undefined : label,
@@ -84,6 +91,7 @@ export function refreshButton(state: AppState, act: string, loading: boolean, ic
     act,
     small: true,
     busy: loading || state.live.refreshing === act,
+    extraClass,
   });
 }
 
@@ -491,4 +499,3 @@ export function progress(ratio: number, label: string, tone: Tone = 'accent'): H
     style: `--progress:${String(percent)}%`,
   }, [h('span', { class: 'progress__fill' })]);
 }
-

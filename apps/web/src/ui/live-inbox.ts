@@ -164,10 +164,9 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
           t(state, 'طابور المحادثات', 'Conversation queue'),
         ),
         h('div', { class: 'listhead__tools' }, [
-          // Progress belongs to a refresh somebody asked for. A background
-          // re-read after a realtime event or a returning tab keeps the rows
-          // and the icon still, so the list never looks like it is reloading.
-          refreshButton(state, 'live-inbox-reload', live.unassigned.status === 'loading' && live.conversations.status === 'loading', true),
+          // Background refreshes and post-action reloads update the list in
+          // place. Only an explicit press on this control should animate it.
+          refreshButton(state, 'live-inbox-reload', false, true, 'inbox-refresh-trigger'),
           button({
             icon: 'close',
             act: 'close-overlays',
@@ -208,8 +207,12 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
             state.openMenu === 'inbox-saved-views' ? savedViewsMenu(state, live) : null,
           ]),
           button({
-            icon: 'eye', act: 'live-supervisor-open', variant: 'ghost', small: true,
-            busy: live.supervisorAgents.status === 'loading', title: t(state, 'عرض فريق: المحادثات المسندة لوكيل ضمن نطاقك', 'View team: an in-scope agent’s assigned conversations'),
+            icon: 'eye', act: 'live-supervisor-open', variant: 'ghost',
+            pressed: supervisorMode,
+            busy: live.supervisorAgents.status === 'loading',
+            title: t(state, 'عرض الوكيل', 'Supervisor view'),
+            ariaLabel: t(state, 'عرض إشرافي للوكيل', 'Supervisor view for an agent'),
+            extraClass: 'inbox-supervisor-trigger',
           }),
         ]),
       ]),
@@ -241,14 +244,39 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
 
 function supervisorPicker(state: AppState, live: LiveState): Child {
   if (live.supervisorAgents.status === 'idle') return null;
-  if (live.supervisorAgents.status === 'loading') return h('p', { class: 'empty-copy' }, [t(state, 'جارٍ تحميل الوكلاء المتاحين…', 'Loading in-scope agents…')]);
-  if (live.supervisorAgents.status === 'error') return h('p', { class: 'empty-copy', role: 'status' }, [t(state, 'لا تملك صلاحية العرض الإشرافي.', 'Supervisor view is not available to this role.')]);
+  if (live.supervisorAgents.status === 'loading') return h('div', { class: 'inbox-supervisor-picker inbox-supervisor-picker--status', role: 'status' }, [
+    icon('eye', 15), h('span', {}, [t(state, 'جارٍ تحميل الوكلاء المتاحين…', 'Loading in-scope agents…')]),
+  ]);
+  if (live.supervisorAgents.status === 'error') return h('div', { class: 'inbox-supervisor-picker inbox-supervisor-picker--status', role: 'status' }, [
+    icon('eye', 15), h('span', {}, [t(state, 'لا تملك صلاحية العرض الإشرافي.', 'Supervisor view is not available to this role.')]),
+  ]);
   const agents = live.supervisorAgents.value;
-  if (agents.length === 0) return h('p', { class: 'empty-copy' }, [t(state, 'لا يوجد وكلاء نشطون ضمن نطاقك.', 'No active agents are available in your scope.')]);
-  const options = [{ value: '', label: t(state, 'اختر وكيلًا للعرض', 'Choose an agent to view') }, ...agents.map((agent) => ({ value: agent.membershipId, label: `${agent.name} · ${agent.email}${agent.teams.length === 0 ? '' : ` · ${agent.teams.join(', ')}`}` }))];
-  return h('label', { class: 'field field--row inbox-supervisor-picker' }, [
-    h('span', { class: 'field__label' }, [t(state, 'عرض وكيل', 'View agent')]),
-    selectControl({ act: 'live-supervisor-agent', value: live.supervisorAgentId ?? '', ariaLabel: t(state, 'اختر وكيلًا', 'Choose agent'), options }),
+  if (agents.length === 0) return h('div', { class: 'inbox-supervisor-picker inbox-supervisor-picker--status', role: 'status' }, [
+    icon('eye', 15), h('span', {}, [t(state, 'لا يوجد وكلاء نشطون ضمن نطاقك.', 'No active agents are available in your scope.')]),
+  ]);
+  const seenNames = new Set<string>();
+  const duplicateNames = new Set<string>();
+  for (const agent of agents) {
+    if (seenNames.has(agent.name)) duplicateNames.add(agent.name);
+    seenNames.add(agent.name);
+  }
+  const selectedAgent = agents.find((agent) => agent.membershipId === live.supervisorAgentId);
+  const options = [
+    { value: '', label: t(state, 'اختر وكيلًا…', 'Choose an agent…') },
+    ...agents.map((agent) => ({
+      value: agent.membershipId,
+      label: `${agent.name}${duplicateNames.has(agent.name) ? ` · ${agent.email}` : ''}`,
+    })),
+  ];
+  return h('div', { class: 'inbox-supervisor-picker' }, [
+    h('div', { class: 'inbox-supervisor-picker__heading' }, [
+      icon('eye', 15), h('span', {}, [t(state, 'عرض إشرافي', 'Supervisor view')]),
+    ]),
+    h('label', { class: 'inbox-supervisor-picker__control' }, [
+      h('span', { class: 'inbox-supervisor-picker__label' }, [t(state, 'الوكيل', 'Agent')]),
+      selectControl({ act: 'live-supervisor-agent', value: live.supervisorAgentId ?? '', ariaLabel: t(state, 'اختر وكيلًا للعرض الإشرافي', 'Choose an agent for supervisor view'), options }),
+    ]),
+    selectedAgent === undefined || selectedAgent.teams.length === 0 ? null : h('span', { class: 'inbox-supervisor-picker__teams' }, [selectedAgent.teams.join(' · ')]),
   ]);
 }
 

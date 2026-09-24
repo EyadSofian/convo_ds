@@ -97,6 +97,18 @@ test.describe('without a session', () => {
 });
 
 test.describe('signing in', () => {
+  test('accepts the same account on a phone viewport through the normal sign-in form', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openSignedOut(page, '#/inbox?lang=en');
+    await page.locator('#signin-email').fill(EMAIL);
+    await page.locator('#signin-password').fill(PASSWORD);
+    await page.locator('.auth-form__submit').click();
+
+    await expect(page.locator('.inbox')).toBeVisible();
+    await expect(page.locator('.header__tenant')).toHaveText('Digital School');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
   test('stays on the sign-in page with one sentence for a wrong address or password', async ({ page }) => {
     await openSignedOut(page, '#/inbox');
     await page.locator('#signin-email').fill(EMAIL);

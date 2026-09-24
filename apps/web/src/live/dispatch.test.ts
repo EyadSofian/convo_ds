@@ -625,6 +625,10 @@ describe('authenticated password change dispatch', () => {
     };
     await expect(LIVE_ACTIONS['live-change-password']?.(ctx, '')).resolves.toBe(false);
     expect(ctx.live.error?.code).toBe('current_password_invalid');
+    expect(ctx.state.dialogForm).toEqual({
+      newPassword: ' new password value ',
+      confirmPassword: ' new password value ',
+    });
 
     ctx.state.dialogForm = {
       currentPassword: ' current password ',
