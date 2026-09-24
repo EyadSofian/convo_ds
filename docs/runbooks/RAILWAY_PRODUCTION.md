@@ -59,6 +59,7 @@ CONVO_DEPLOYMENT_MODE=self_hosted_single
 CONVO_INSTALLATION_NAME=...
 CONVO_PUBLIC_BASE_URL=https://<the public origin>
 CONVO_DEFAULT_LOCALE=ar
+CONVO_EMAIL_LOCALE=en
 CONVO_SUPPORTED_LOCALES=ar,en
 CONVO_AUTH_HASH_SECRET=...            # openssl rand -hex 32, all three distinct
 CONVO_BOOTSTRAP_TOKEN=...

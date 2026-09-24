@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { SqlExecutor } from '@convo/domain';
 import type { ApiConfig } from '../config.js';
+import type { ErrorDetail } from '@convo/contracts';
+import { readEmailLocale } from './email-config.js';
 import { OutboxInvitationDelivery, OutboxRecoveryDelivery } from './outbox-delivery.js';
 
 /**
@@ -24,12 +26,14 @@ function recorder() {
   return { sql, queries };
 }
 
-function configWithLocale(defaultLocale: 'ar' | 'en'): ApiConfig {
-  return { defaultLocale } as unknown as ApiConfig;
+function configWithLocale(emailLocale: 'ar' | 'en'): ApiConfig {
+  // The interface default is deliberately the other language: emails follow
+  // their own setting, not the workspace's.
+  return { emailLocale, defaultLocale: emailLocale === 'en' ? 'ar' : 'en' } as unknown as ApiConfig;
 }
 
 describe('the locale a queued email renders in', () => {
-  it.each(['ar', 'en'] as const)('uses the installation default of %s for an invitation', async (locale) => {
+  it.each(['ar', 'en'] as const)('uses the email language, %s, for an invitation', async (locale) => {
     const { sql, queries } = recorder();
     await new OutboxInvitationDelivery(configWithLocale(locale)).deliver(sql, {
       tenantId: '00000000-0000-4000-8000-000000000001',
@@ -60,15 +64,15 @@ describe('the locale a queued email renders in', () => {
   });
 });
 
-describe('an unexpected locale in configuration', () => {
-  it('falls back to Arabic, the product default', async () => {
-    const { sql, queries } = recorder();
-    await new OutboxRecoveryDelivery(configWithLocale('fr' as 'ar')).deliver(sql, {
-      challengeId: '00000000-0000-4000-8000-000000000004',
-      email: 'owner@digital-school.example',
-      token: 'c'.repeat(43),
-      expiresAt: new Date(),
-    });
-    expect(queries[0]?.values[4]).toBe('ar');
+describe('the email language setting', () => {
+  it('is English unless set, accepts en or ar, and refuses anything else', () => {
+    const issues: ErrorDetail[] = [];
+    expect(readEmailLocale({}, issues)).toBe('en');
+    expect(readEmailLocale({ CONVO_EMAIL_LOCALE: ' ' }, issues)).toBe('en');
+    expect(readEmailLocale({ CONVO_EMAIL_LOCALE: 'AR' }, issues)).toBe('ar');
+    expect(readEmailLocale({ CONVO_EMAIL_LOCALE: 'en' }, issues)).toBe('en');
+    expect(issues).toEqual([]);
+    expect(readEmailLocale({ CONVO_EMAIL_LOCALE: 'fr' }, issues)).toBe('en');
+    expect(issues.map((issue) => issue.field)).toEqual(['CONVO_EMAIL_LOCALE']);
   });
 });
