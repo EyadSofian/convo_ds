@@ -18,7 +18,7 @@ import {
 import { phrase, t } from './copy.js';
 import { groupPermissions, PERMISSION_LABELS, SCOPE_OPTIONS } from './permission-catalog.js';
 import type { PermissionGroup } from './permission-catalog.js';
-import { badge, button, emptyState, inlineError, isolated, notice, page, selectControl, skeleton } from './parts.js';
+import { badge, button, emptyState, inlineError, isolated, notice, page, refreshButton, selectControl, skeleton, toolbar } from './parts.js';
 import { usersTable } from './users-screen.js';
 
 /**
@@ -55,18 +55,11 @@ function rolesList(state: AppState): HTMLElement {
   const live = state.live;
   const draft = state.roleDraft;
   const draftRole = draft === null ? undefined : rowsOf(live.roles).find((role) => role.id === draft.roleId);
-  return page('roles', null, [
-    adminHead(state, {
-      trail: [{ label: t(state, 'إدارة المستخدمين', 'User management') }, { label: t(state, 'الأدوار', 'Roles') }],
-      title: t(state, 'الأدوار', 'Roles'),
-      titleIcon: 'shieldUser',
-      subtitle: t(state, 'حدّد ما يستطيع كل دور فعله في مساحة العمل.', 'Define what each role can do in this workspace.'),
-      actions: [
-        button({ icon: 'refresh', act: 'live-reload', small: true, variant: 'ghost', title: t(state, 'تحديث', 'Refresh'), busy: live.roles.status === 'loading' }),
-        // The route opens this screen only with role.manage.
-        button({ label: t(state, 'إنشاء دور', 'Create Role'), icon: 'plus', act: 'dialog', arg: 'role-create', small: true, variant: 'primary' }),
-      ],
-    }),
+  return page('roles', toolbar(t(state, 'حدّد ما يستطيع كل دور فعله في مساحة العمل.', 'Define what each role can do in this workspace.'), [
+    refreshButton(state, 'live-reload', live.roles.status === 'loading'),
+    // The route opens this screen only with role.manage.
+    button({ label: t(state, 'إنشاء دور', 'Create Role'), icon: 'plus', act: 'dialog', arg: 'role-create', small: true, variant: 'primary' }),
+  ]), [
     state.dialog === null ? inlineError(state, live.error) : null,
     draftRole === undefined
       ? null
@@ -131,10 +124,7 @@ function roleMenu(state: AppState, live: LiveState, role: Role): HTMLElement | n
 
 function roleDetail(state: AppState, roleId: string): HTMLElement {
   const live = state.live;
-  const trail = [
-    { label: t(state, 'إدارة المستخدمين', 'User management') },
-    { label: t(state, 'الأدوار', 'Roles'), screen: 'roles' as const },
-  ];
+  const trail = [{ label: t(state, 'الأدوار', 'Roles'), screen: 'roles' as const }];
   if (live.roles.status === 'idle' || live.roles.status === 'loading') {
     return page('roles', null, [adminHead(state, { trail: [...trail, { label: '…' }], title: '…' }), skeleton(state, 6)]);
   }
@@ -162,31 +152,32 @@ function roleDetail(state: AppState, roleId: string): HTMLElement {
     adminHead(state, {
       trail: [...trail, { label: role.name }],
       title: role.name,
-      titleIcon: 'shieldUser',
       subtitle: role.description === '' ? undefined : role.description,
       badges: [typeBadge(state, role)],
       actions: [roleMenu(state, live, role)],
     }),
     state.dialog === null ? inlineError(state, live.error) : null,
     h('section', { class: 'role-summary', 'aria-label': t(state, 'ملخص الدور', 'Role summary') }, [
-      summaryCard(t(state, 'المستخدمون المسندون', 'Assigned users'), assigned === null ? '—' : formatNumber(assigned.length, state.lang), 'users'),
-      summaryCard(t(state, 'الصلاحيات', 'Permissions'), total === null ? formatNumber(Object.keys(grants).length, state.lang) : `${formatNumber(Object.keys(grants).length, state.lang)} / ${formatNumber(total, state.lang)}`, 'key'),
-      summaryCard(t(state, 'نوع الدور', 'Role type'), role.is_builtin ? t(state, 'مدمج', 'Built-in') : t(state, 'مخصص', 'Custom'), role.is_builtin ? 'lock' : 'layers'),
-      summaryCard(t(state, 'آخر تحديث', 'Last updated'), dateFormat(state.lang, { dateStyle: 'medium' }).format(new Date(role.updated_at)), 'clock'),
+      summaryItem(t(state, 'المستخدمون المسندون', 'Assigned users'), assigned === null ? '—' : formatNumber(assigned.length, state.lang)),
+      summaryItem(t(state, 'الصلاحيات', 'Permissions'), total === null ? formatNumber(Object.keys(grants).length, state.lang) : `${formatNumber(Object.keys(grants).length, state.lang)} / ${formatNumber(total, state.lang)}`),
+      summaryItem(t(state, 'نوع الدور', 'Role type'), role.is_builtin ? t(state, 'مدمج', 'Built-in') : t(state, 'مخصص', 'Custom')),
+      summaryItem(t(state, 'آخر تحديث', 'Last updated'), dateFormat(state.lang, { dateStyle: 'medium' }).format(new Date(role.updated_at))),
     ]),
     routeTabs(state, t(state, 'أقسام الدور', 'Role sections'), 'roles', [
       { id: 'permissions', label: t(state, 'الصلاحيات', 'Permissions'), params: { role: role.id } },
       { id: 'users', label: t(state, 'المستخدمون المسندون', 'Assigned Users'), count: assigned?.length, params: { role: role.id, tab: 'users' } },
     ], tab),
-    h('section', { class: 'admin-panel', role: 'tabpanel', id: `tabpanel-${tab}`, 'aria-labelledby': `tab-${tab}` }, [
+    // The permission modules are cards of their own, so their tab is not
+    // framed again; the assigned users are one table, on one surface.
+    h('section', { class: tab === 'permissions' ? 'admin-panel admin-panel--bare' : 'admin-panel', role: 'tabpanel', id: `tabpanel-${tab}`, 'aria-labelledby': `tab-${tab}` }, [
       tab === 'permissions' ? permissionsTab(state, live, role, grants) : assignedTab(state, live, role, assigned),
     ]),
   ]);
 }
 
-function summaryCard(label: string, value: string, iconName: 'users' | 'key' | 'lock' | 'layers' | 'clock'): HTMLElement {
-  return h('div', { class: 'role-summary__card' }, [
-    h('span', { class: 'role-summary__icon', 'aria-hidden': 'true' }, [icon(iconName, 16)]),
+/** One fact in the summary strip: a label over its value, no box of its own. */
+function summaryItem(label: string, value: string): HTMLElement {
+  return h('div', { class: 'role-summary__item' }, [
     h('span', { class: 'role-summary__label' }, [label]),
     h('strong', { class: 'role-summary__value' }, [value]),
   ]);
@@ -240,11 +231,9 @@ function permissionsTab(state: AppState, live: LiveState, role: Role, grants: Re
     .map((group) => ({ group, keys: group.keys.filter((key) => matches(query, key, labelOf(state, key), (byKey.get(key) as Permission).description)) }))
     .filter((entry) => entry.keys.length > 0);
   return h('div', { class: 'admin-panel__body permissions' }, [
+    // The tab already says "Permissions": the head only explains and counts.
     h('div', { class: 'permissions__head' }, [
-      h('div', {}, [
-        h('h3', { class: 'permissions__title' }, [t(state, 'الصلاحيات', 'Permissions')]),
-        h('p', { class: 'permissions__lede' }, [t(state, 'حدّد العمليات التي يستطيع هذا الدور الوصول إليها بدقة.', 'Define the exact operations this role may access.')]),
-      ]),
+      h('p', { class: 'permissions__lede' }, [t(state, 'حدّد العمليات التي يستطيع هذا الدور الوصول إليها بدقة.', 'Define the exact operations this role may access.')]),
       h('p', { class: 'permissions__count', 'aria-live': 'polite' }, [
         t(state, `${formatNumber(enabled, state.lang)} من ${formatNumber(catalogue.length, state.lang)} مفعّلة`, `${String(enabled)} of ${String(catalogue.length)} enabled`),
       ]),

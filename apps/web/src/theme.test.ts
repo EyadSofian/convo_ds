@@ -143,6 +143,26 @@ describe('the token layer', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('rounds corners only from the radius scale', () => {
+    // Controls md, cards lg, modals xl, phone sheets sheet: one system, so no
+    // screen invents its own corner. Zero and inherit are the only literals.
+    expect(TOKENS_CSS).toContain('--radius-md: 8px;');
+    expect(TOKENS_CSS).toContain('--radius-lg: 12px;');
+    expect(TOKENS_CSS).toContain('--radius-xl: 16px;');
+    expect(TOKENS_CSS).toContain('--radius-sheet: 20px;');
+    const offenders: string[] = [];
+    for (const name of STYLES) {
+      const css = read(`./styles/${name}.css`);
+      for (const match of css.matchAll(/border(?:-[a-z]+)*-radius:\s*([^;]+);/g)) {
+        const values = (match[1] as string).trim().split(/\s+/);
+        if (!values.every((value) => value === '0' || value === 'inherit' || /^var\(--radius-[a-z]+\)$/.test(value))) {
+          offenders.push(`${name}.css: ${match[0] as string}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('has no !important outside the reduced-motion override', () => {
     const offenders: string[] = [];
     for (const name of STYLES) {

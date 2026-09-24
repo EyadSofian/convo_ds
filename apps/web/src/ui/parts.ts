@@ -58,13 +58,50 @@ export function button(options: ButtonOptions): HTMLButtonElement {
     'aria-haspopup': options.haspopup,
     'aria-busy': busy ? 'true' : undefined,
   };
+  const size = options.small === true ? 14 : 16;
   return h('button', attrs, [
-    busy
-      ? h('span', { class: 'spinner', 'aria-hidden': 'true' })
-      : options.icon === undefined
-        ? null
-        : icon(options.icon, options.small === true ? 14 : 16),
-    options.label === undefined ? null : h('span', { class: 'btn__label' }, [options.label]),
+    options.icon === undefined ? null : iconSlot(options.icon, size, busy),
+    options.label === undefined
+      ? null
+      : busy && options.icon === undefined
+        ? h('span', { class: 'btn__stack' }, [h('span', { class: 'btn__label' }, [options.label]), spinner()])
+        : h('span', { class: 'btn__label' }, [options.label]),
+  ]);
+}
+
+/**
+ * The one Refresh control. Its arrows turn, in place, while the refresh it
+ * started is in flight or while its list first loads; its label, its size and
+ * everything around it stay where they are.
+ */
+export function refreshButton(state: AppState, act: string, loading: boolean, iconOnly = false): HTMLButtonElement {
+  const label = t(state, 'تحديث', 'Refresh');
+  return button({
+    label: iconOnly ? undefined : label,
+    title: iconOnly ? label : undefined,
+    variant: iconOnly ? 'ghost' : undefined,
+    icon: 'refresh',
+    act,
+    small: true,
+    busy: loading || state.live.refreshing === act,
+  });
+}
+
+/** The one progress mark. Its size comes from the slot it is drawn in. */
+export function spinner(): HTMLElement {
+  return h('span', { class: 'spinner', 'aria-hidden': 'true' });
+}
+
+/**
+ * The icon's own box, fixed at the icon's size, so progress takes the icon's
+ * place without moving the label or resizing the button. Refresh keeps its
+ * arrows and turns them; any other icon gives way to a spinner in the same box.
+ * A label-only button keeps its label's width and draws the spinner over it.
+ */
+function iconSlot(name: IconName, size: number, busy: boolean): HTMLElement {
+  const turns = busy && name === 'refresh';
+  return h('span', { class: turns ? 'btn__icon btn__icon--turning' : 'btn__icon', 'aria-hidden': 'true' }, [
+    busy && !turns ? spinner() : icon(name, size),
   ]);
 }
 
@@ -445,4 +482,3 @@ export function progress(ratio: number, label: string, tone: Tone = 'accent'): H
   }, [h('span', { class: 'progress__fill' })]);
 }
 
-export { CHANNEL_ICON, channelIcon } from './channel-mark';

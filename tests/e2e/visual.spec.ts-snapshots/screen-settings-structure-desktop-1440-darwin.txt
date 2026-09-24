@@ -31,10 +31,11 @@ main.app__screen
                 p.setting-row__hint
               div.setting-row__control
                 button.btn.btn--sm [live-signout]
-                  svg
-                    path
-                    path
-                    path
+                  span.btn__icon
+                    svg
+                      path
+                      path
+                      path
                   span.btn__label
         section.settings-section
           header.settings-section__header
@@ -47,9 +48,10 @@ main.app__screen
                 p.setting-row__hint
               div.setting-row__control
                 button.btn.btn--sm [dialog]
-                  svg
-                    rect
-                    path
+                  span.btn__icon
+                    svg
+                      rect
+                      path
                   span.btn__label
         section.settings-section
           header.settings-section__header

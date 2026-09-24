@@ -5,14 +5,16 @@ main.app__screen
         p.pagebar__lede
         div.pagebar__actions
           button.btn.btn--sm [live-campaigns-reload]
-            svg
-              path
-              path
-              path
+            span.btn__icon
+              svg
+                path
+                path
+                path
             span.btn__label
           button.btn.btn--primary.btn--sm [dialog]
-            svg
-              path
+            span.btn__icon
+              svg
+                path
             span.btn__label
       section.kpis.kpis--4
         div.kpi
@@ -137,28 +139,33 @@ main.app__screen
             div.action-bar
               div.action-bar__group
                 button.btn.btn--primary.btn--sm [live-campaign-launch]
-                  svg
-                    path
-                    path
+                  span.btn__icon
+                    svg
+                      path
+                      path
                   span.btn__label
                 button.btn.btn--sm [dialog]
-                  svg
-                    rect
-                    path
+                  span.btn__icon
+                    svg
+                      rect
+                      path
                   span.btn__label
               div.action-bar__group
                 button.btn.btn--ghost.btn--sm [dialog]
-                  svg
-                    path
-                    path
+                  span.btn__icon
+                    svg
+                      path
+                      path
                   span.btn__label
                 button.btn.btn--ghost.btn--sm [dialog]
-                  svg
-                    path
-                    path
+                  span.btn__icon
+                    svg
+                      path
+                      path
                   span.btn__label
                 button.btn.btn--ghost.btn--sm [live-campaign-clone]
-                  svg
-                    rect
-                    path
+                  span.btn__icon
+                    svg
+                      rect
+                      path
                   span.btn__label

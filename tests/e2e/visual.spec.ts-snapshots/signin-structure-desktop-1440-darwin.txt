@@ -11,17 +11,19 @@ div.auth-layout
   section.auth-panel
     div.auth-panel__controls
       button.btn.btn--ghost.btn--sm.lang-toggle [lang]
-        svg
-          path
-          path
-          path
-          path
-          path
-          path
+        span.btn__icon
+          svg
+            path
+            path
+            path
+            path
+            path
+            path
         span.btn__label
       button.btn.btn--ghost.btn--sm.btn--icon.theme-toggle [theme]
-        svg
-          path
+        span.btn__icon
+          svg
+            path
     main.auth-panel__main
       section.auth-card
         div.convo-lockup
@@ -47,9 +49,10 @@ div.auth-layout
             div.input-affix
               input.input [form]
               button.btn.btn--ghost.btn--sm.btn--icon.input-affix__button [password-visibility]
-                svg
-                  path
-                  circle
+                span.btn__icon
+                  svg
+                    path
+                    circle
           div.auth-form__meta
             a.auth-form__forgot
           button.btn.btn--primary.auth-form__submit [live-signin]

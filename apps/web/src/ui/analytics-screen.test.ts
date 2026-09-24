@@ -126,8 +126,8 @@ describe('the filter bar', () => {
     const root = renderAnalytics(state);
     const bar = root.querySelector('.filterbar') as HTMLElement;
     expect(bar.querySelectorAll('select').length).toBeGreaterThanOrEqual(8);
-    expect(bar.textContent).toContain('Mona Agent ×');
-    expect(bar.textContent).toContain('VIP ×');
+    expect(bar.textContent).toContain('Mona Agent');
+    expect(bar.textContent).toContain('VIP');
     expect(root.textContent).toContain('First-response distribution');
     expect(root.textContent).toContain('5–15m');
     state.analyticsView = 'agents';
@@ -143,7 +143,7 @@ describe('the filter bar', () => {
     delete withoutOptions.agentOptions;
     state.live.operationalReport = { status: 'ready', loadedAt: 1, value: withoutOptions as OperationalReport };
     state.live.operationalAgentOptions = { tenantId: 't', agents: operations().agents };
-    expect(renderAnalytics(state).querySelector('.filterbar')?.textContent).toContain('Mona Agent ×');
+    expect(renderAnalytics(state).querySelector('.filterbar')?.textContent).toContain('Mona Agent');
   });
 
   it('uses visible fallbacks for stale report filters and every picker source state', () => {
@@ -166,11 +166,11 @@ describe('the filter bar', () => {
       campaignId: 'missing-campaign', priority: 'future-priority', status: 'future-status',
     };
     const bar = renderAnalytics(state).querySelector('.filterbar') as HTMLElement;
-    expect(bar.textContent).toContain('Selected agent ×');
-    expect(bar.textContent).toContain('Selected team ×');
-    expect(bar.textContent).toContain('Selected Inbox ×');
-    expect(bar.textContent).toContain('Selected label ×');
-    expect(bar.textContent).toContain('Selected campaign ×');
+    expect(bar.textContent).toContain('Selected agent');
+    expect(bar.textContent).toContain('Selected team');
+    expect(bar.textContent).toContain('Selected Inbox');
+    expect(bar.textContent).toContain('Selected label');
+    expect(bar.textContent).toContain('Selected campaign');
     expect((bar.querySelector('[data-form="from"]') as HTMLInputElement).max).toBe('2026-09-09');
     expect((bar.querySelector('[data-form="to"]') as HTMLInputElement).min).toBe('2026-09-01');
 
@@ -192,16 +192,16 @@ describe('the filter bar', () => {
     state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{ id: 'campaign-x', name: 'Welcome' } as never] };
     state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, teamId: 'team-x', connectionId: 'connection-x', labelId: 'label-x', campaignId: 'campaign-x' };
     const resolved = renderAnalytics(state).querySelector('.filterbar') as HTMLElement;
-    expect(resolved.textContent).toContain('Sales ×');
-    expect(resolved.textContent).toContain('Admissions ×');
-    expect(resolved.textContent).toContain('Priority ×');
-    expect(resolved.textContent).toContain('Welcome ×');
+    expect(resolved.textContent).toContain('Sales');
+    expect(resolved.textContent).toContain('Admissions');
+    expect(resolved.textContent).toContain('Priority');
+    expect(resolved.textContent).toContain('Welcome');
 
     state.live.operationalReport = { status: 'error', error: { code: 'internal', message: 'Unavailable', requestId: 'agent-directory-fallback', status: 500, details: [] } };
     state.live.operationalAgentOptions = null;
     state.live.supervisorAgents = { status: 'ready', loadedAt: 1, value: [{ membershipId: 'supervisor-agent', name: 'Ahmed', email: 'ahmed@example.test', teams: [] }] };
     state.analyticsFilters = { ...NO_ANALYTICS_FILTERS, agentId: 'supervisor-agent' };
-    expect(renderAnalytics(state).querySelector('.filterbar')?.textContent).toContain('Ahmed ×');
+    expect(renderAnalytics(state).querySelector('.filterbar')?.textContent).toContain('Ahmed');
   });
 });
 

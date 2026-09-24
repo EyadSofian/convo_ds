@@ -250,7 +250,9 @@ function changePasswordDialog(state: AppState): HTMLElement {
     ],
     [
       closeButton(state),
-      button({ label: busy ? t(state, 'جارٍ التحديث…', 'Updating…') : t(state, 'تحديث كلمة المرور', 'Update password'), act: 'live-change-password', variant: 'primary', busy }),
+      // The label stays put while busy: the spinner says it is working, and a
+      // longer word would widen the button under the pointer.
+      button({ label: t(state, 'تحديث كلمة المرور', 'Update password'), act: 'live-change-password', variant: 'primary', busy }),
     ],
     { description: t(state, 'تبقى هذه الجلسة مفتوحة بعد نجاح التغيير.', 'This session stays signed in after a successful change.') },
   );
@@ -364,7 +366,7 @@ function connectChannel(state: AppState, kind: string): HTMLElement {
     [
       closeButton(state),
       button({
-        label: busy ? t(state, 'جارٍ الربط…', 'Connecting…') : t(state, 'ربط القناة', 'Connect channel'),
+        label: t(state, 'ربط القناة', 'Connect channel'),
         act: 'live-connect-channel',
         variant: 'primary',
         busy,

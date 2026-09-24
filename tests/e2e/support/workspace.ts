@@ -69,6 +69,7 @@ export const READY: Readonly<Record<string, string>> = {
 function readySelector(screen: string, query: string): string | undefined {
   if (screen === 'roles' && query.includes('role=')) return query.includes('tab=users') ? '[data-membership]' : '[data-permission]';
   if (screen === 'teams' && query.includes('team=')) return '[data-team-member]';
+  if (screen === 'people' && query.includes('tab=invitations')) return '[data-invitation]';
   return READY[screen];
 }
 

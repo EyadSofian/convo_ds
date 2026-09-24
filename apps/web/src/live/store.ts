@@ -89,6 +89,11 @@ export function reloading<T>(resource: Resource<T>, keep: boolean): Resource<T> 
   return keep && resource.status === 'ready' ? resource : LOADING;
 }
 
+/** A list read again: kept on screen during a refresh somebody asked for, a placeholder otherwise. */
+export function refetching<T>(live: LiveState, resource: Resource<T>): Resource<T> {
+  return reloading(resource, live.refreshing !== null);
+}
+
 export function fromResult<T>(result: ApiResult<T>, now: number): Resource<T> {
   return result.ok ? ready(result.data, now) : failed(result.error);
 }
@@ -270,6 +275,12 @@ export interface LiveState {
   selectedSavedViewId: string | null;
   contactFilters: { labelId: string; fieldId: string; fieldValue: string };
   busy: string | null;
+  /**
+   * The Refresh somebody pressed, by its action, while it is in flight. The
+   * screen keeps showing what it has while the lists are read again, and only
+   * that Refresh control shows progress.
+   */
+  refreshing: string | null;
   error: ApiError | null;
   /** Incremented on every settled mutation, so a view can key off freshness. */
   revision: number;
@@ -392,6 +403,7 @@ export function createLiveState(
     automationsApi,
     savedViewsApi,
     busy: null,
+    refreshing: null,
     error: null,
     revision: 0,
   };

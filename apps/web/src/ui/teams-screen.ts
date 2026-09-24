@@ -8,7 +8,7 @@ import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { adminHead, memberCell, resourceView, rowMenu, screenLink, statusBadge } from './admin-parts.js';
 import { t } from './copy.js';
-import { badge, button, emptyState, inlineError, isolated, page, selectControl, skeleton } from './parts.js';
+import { badge, button, emptyState, inlineError, isolated, page, refreshButton, selectControl, skeleton, toolbar } from './parts.js';
 
 /**
  * Teams, and one team in detail: its members, and the settings the API lets
@@ -43,17 +43,10 @@ function teamMenu(state: AppState, live: LiveState, team: Team): HTMLElement | n
 function teamsList(state: AppState): HTMLElement {
   const live = state.live;
   const manage = hasPermission(live, 'member.manage');
-  return page('teams', null, [
-    adminHead(state, {
-      trail: [{ label: t(state, 'إدارة المستخدمين', 'User management') }, { label: t(state, 'الفرق', 'Teams') }],
-      title: t(state, 'الفرق', 'Teams'),
-      titleIcon: 'team',
-      subtitle: t(state, 'اجمع الأعضاء في فرق لتوجيه المحادثات وتحديد النطاق.', 'Group members into teams for routing and scope.'),
-      actions: [
-        button({ icon: 'refresh', act: 'live-reload', small: true, variant: 'ghost', title: t(state, 'تحديث', 'Refresh'), busy: live.teams.status === 'loading' }),
-        manage ? button({ label: t(state, 'إنشاء فريق', 'Create Team'), icon: 'plus', act: 'dialog', arg: 'team-create', small: true, variant: 'primary' }) : null,
-      ],
-    }),
+  return page('teams', toolbar(t(state, 'اجمع الأعضاء في فرق لتوجيه المحادثات وتحديد النطاق.', 'Group members into teams for routing and scope.'), [
+    refreshButton(state, 'live-reload', live.teams.status === 'loading'),
+    manage ? button({ label: t(state, 'إنشاء فريق', 'Create Team'), icon: 'plus', act: 'dialog', arg: 'team-create', small: true, variant: 'primary' }) : null,
+  ]), [
     state.dialog === null ? inlineError(state, live.error) : null,
     h('section', { class: 'admin-panel', 'aria-label': t(state, 'قائمة الفرق', 'Team list') }, [
       resourceView(state, live.teams, {
@@ -87,10 +80,7 @@ function teamsList(state: AppState): HTMLElement {
 
 function teamDetail(state: AppState, teamId: string): HTMLElement {
   const live = state.live;
-  const trail = [
-    { label: t(state, 'إدارة المستخدمين', 'User management') },
-    { label: t(state, 'الفرق', 'Teams'), screen: 'teams' as const },
-  ];
+  const trail = [{ label: t(state, 'الفرق', 'Teams'), screen: 'teams' as const }];
   if (live.teams.status === 'idle' || live.teams.status === 'loading') {
     return page('teams', null, [adminHead(state, { trail: [...trail, { label: '…' }], title: '…' }), skeleton(state, 4)]);
   }
@@ -119,7 +109,6 @@ function teamDetail(state: AppState, teamId: string): HTMLElement {
     adminHead(state, {
       trail: [...trail, { label: team.name }],
       title: team.name,
-      titleIcon: 'team',
       subtitle: t(state, `عدد الأعضاء: ${formatNumber(team.member_count, state.lang)}`, `Members: ${String(team.member_count)}`),
       badges: [teamStatus(state, team)],
       actions: [teamMenu(state, live, team)],

@@ -7,13 +7,14 @@ import type {
 import type { ApiError } from '../api/client.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
-import { dateFormat, formatNumber, relativeTime } from '../format.js';
+import { dateFormat, relativeTime } from '../format.js';
 import { icon } from '../icons.js';
 import { channelTestIdentityField, channelTestLabelField, channelTokenField } from '../live/dispatch.js';
 import { rowsOf } from '../live/store.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { channelTile } from './brand.js';
+import { brandMark } from './channel-mark.js';
 import { CHANNEL_NAMES, EVIDENCE, phrase, READINESS, t } from './copy.js';
 import type { Phrase } from './copy.js';
 import {
@@ -25,6 +26,7 @@ import {
   isolated,
   page,
   panel,
+  refreshButton,
   segmented,
   skeleton,
   textInput,
@@ -48,6 +50,8 @@ export interface CatalogueItem {
   readonly description: Phrase;
   /** The provider-side identifier this kind is connected by. */
   readonly asset: Phrase;
+  /** What a connection of this kind is attached to, as the card names it. */
+  readonly assetLabel: Phrase;
   /** Whether the connection is made through a Meta app configured on the server. */
   readonly meta: boolean;
 }
@@ -58,6 +62,7 @@ export const CATALOGUE: readonly CatalogueItem[] = [
     name: { ar: 'واتساب للأعمال', en: 'WhatsApp Business' },
     description: { ar: 'رد على العملاء وأرسل القوالب المعتمدة من رقم واتساب للأعمال.', en: 'Reply to customers and send approved templates from your business number.' },
     asset: { ar: 'Phone Number ID', en: 'Phone Number ID' },
+    assetLabel: { ar: 'رقم واتساب للأعمال', en: 'WhatsApp Business number' },
     meta: true,
   },
   {
@@ -65,6 +70,7 @@ export const CATALOGUE: readonly CatalogueItem[] = [
     name: { ar: 'فيسبوك ماسنجر', en: 'Facebook Messenger' },
     description: { ar: 'استقبل رسائل صفحة فيسبوك وأجب عنها من صندوق الوارد.', en: 'Answer messages sent to your Facebook Page from the inbox.' },
     asset: { ar: 'Page ID', en: 'Page ID' },
+    assetLabel: { ar: 'صفحة فيسبوك', en: 'Facebook Page' },
     meta: true,
   },
   {
@@ -72,6 +78,7 @@ export const CATALOGUE: readonly CatalogueItem[] = [
     name: { ar: 'رسائل إنستغرام', en: 'Instagram Direct' },
     description: { ar: 'تعامل مع الرسائل المباشرة لحساب إنستغرام الاحترافي.', en: 'Handle direct messages to your Instagram professional account.' },
     asset: { ar: 'Instagram Account ID', en: 'Instagram Account ID' },
+    assetLabel: { ar: 'حساب إنستغرام احترافي', en: 'Instagram professional account' },
     meta: true,
   },
   {
@@ -79,6 +86,7 @@ export const CATALOGUE: readonly CatalogueItem[] = [
     name: { ar: 'دردشة الموقع', en: 'Website Chat' },
     description: { ar: 'تحدث مع زوار موقعك عبر نافذة دردشة موقّعة من خادمك.', en: 'Chat with site visitors through a widget your installation signs.' },
     asset: { ar: 'معرّف النافذة', en: 'Widget ID' },
+    assetLabel: { ar: 'نافذة الموقع', en: 'Website widget' },
     meta: false,
   },
   {
@@ -86,6 +94,7 @@ export const CATALOGUE: readonly CatalogueItem[] = [
     name: { ar: 'تيليجرام', en: 'Telegram' },
     description: { ar: 'محادثات عبر بوت تيليجرام.', en: 'Conversations through a Telegram bot.' },
     asset: { ar: 'اسم البوت', en: 'Bot username' },
+    assetLabel: { ar: 'بوت تيليجرام', en: 'Telegram bot' },
     meta: false,
   },
   {
@@ -93,6 +102,7 @@ export const CATALOGUE: readonly CatalogueItem[] = [
     name: { ar: 'قناة API مخصّصة', en: 'Custom API Channel' },
     description: { ar: 'اربط نظامك الخاص عبر تسليمات webhook موقّعة.', en: 'Connect your own system through signed webhook deliveries.' },
     asset: { ar: 'معرّف القناة', en: 'Channel ID' },
+    assetLabel: { ar: 'نقطة الربط', en: 'Connected endpoint' },
     meta: false,
   },
 ];
@@ -148,7 +158,7 @@ export function summarize(kind: string, implemented: boolean, connections: reado
 const STATUS_VIEW: Readonly<Record<IntegrationStatus, { readonly label: Phrase; readonly tone: Tone }>> = {
   connected: { label: { ar: 'متصلة', en: 'Connected' }, tone: 'success' },
   connecting: { label: { ar: 'جارٍ الربط', en: 'Connecting' }, tone: 'accent' },
-  attention: { label: { ar: 'تحتاج إكمال الإعداد', en: 'Attention needed' }, tone: 'warning' },
+  attention: { label: { ar: 'تحتاج إلى متابعة', en: 'Needs attention' }, tone: 'warning' },
   permission_expired: { label: { ar: 'انتهت الصلاحية', en: 'Permission expired' }, tone: 'danger' },
   disconnected: { label: { ar: 'مفصولة', en: 'Disconnected' }, tone: 'neutral' },
   not_connected: { label: { ar: 'غير متصلة', en: 'Not connected' }, tone: 'neutral' },
@@ -168,13 +178,7 @@ export function renderChannels(state: AppState): HTMLElement {
   const live = state.live;
   return page('channels', toolbar(
     t(state, 'اربط القنوات التي يتواصل عبرها عملاؤك. تظهر القناة «متصلة» فقط بعد أن يؤكد الخادم جاهزيتها.', 'Connect the channels your customers use. A channel shows as connected only after the server confirms it is healthy.'),
-    [button({
-      label: t(state, 'تحديث', 'Refresh'),
-      icon: 'refresh',
-      act: 'live-channels-reload',
-      small: true,
-      busy: live.connections.status === 'loading',
-    })],
+    [refreshButton(state, 'live-channels-reload', live.connections.status === 'loading')],
   ), catalogueBody(state, live));
 }
 
@@ -207,7 +211,6 @@ function integrationCard(
 ): HTMLElement {
   const summary = summarize(item.kind, entry?.implemented === true, connections);
   const view = STATUS_VIEW[summary.status];
-  const count = summary.active.length;
   const attention = summary.active.find((connection) => connection.status !== 'healthy');
   return h('article', { class: `integration integration--${summary.status}`, 'data-channel-kind': item.kind, 'aria-labelledby': `integration-${item.kind}` }, [
     h('header', { class: 'integration__head' }, [
@@ -223,21 +226,30 @@ function integrationCard(
       ? h('p', { class: 'integration__note' }, [t(state, 'غير مدعومة في هذا الإصدار بعد.', 'Not supported in this version yet.')])
       : h('ul', { class: 'integration__capabilities', 'aria-label': t(state, 'الإمكانات', 'Capabilities') }, capabilities(state, entry.capabilities)),
     h('dl', { class: 'integration__facts' }, [
-      h('div', {}, [
-        h('dt', {}, [t(state, 'الاتصالات', 'Connections')]),
-        h('dd', {}, [formatNumber(count, state.lang)]),
+      h('div', { class: 'integration__fact' }, [
+        h('dt', {}, [assetContext(state, item)]),
+        h('dd', {}, [summary.assetNames.length === 0 ? t(state, 'لا يوجد بعد', 'None yet') : isolated(summary.assetNames.join(', '))]),
       ]),
-      h('div', {}, [
-        h('dt', {}, [t(state, 'آخر تحقق ناجح', 'Last verified')]),
-        h('dd', {}, [summary.lastVerified === null ? '—' : relativeTime(summary.lastVerified, state.clock, state.lang)]),
-      ]),
-      h('div', {}, [
-        h('dt', {}, [t(state, 'الأصل المتصل', 'Connected asset')]),
-        h('dd', {}, [summary.assetNames.length === 0 ? '—' : isolated(summary.assetNames.join(', '))]),
-      ]),
+      summary.lastVerified === null
+        ? null
+        : h('div', { class: 'integration__fact' }, [
+            h('dt', {}, [t(state, 'آخر تحقق ناجح', 'Last verified')]),
+            h('dd', {}, [relativeTime(summary.lastVerified, state.clock, state.lang)]),
+          ]),
     ]),
     h('footer', { class: 'integration__actions' }, [primaryAction(state, item, summary.status, attention)]),
   ]);
+}
+
+/**
+ * What a connection of this kind is attached to, in the provider's own terms.
+ * Messenger connects through a Facebook Page, so the Page is named with
+ * Facebook's mark as context; the channel itself stays Messenger.
+ */
+function assetContext(state: AppState, item: CatalogueItem): Child {
+  const label = t(state, item.assetLabel.ar, item.assetLabel.en);
+  if (item.kind !== 'messenger') return label;
+  return h('span', { class: 'integration__context' }, [brandMark('facebook', 12), label]);
 }
 
 /** Who runs the channel: Meta's three products, Telegram, or this product itself. */
@@ -277,14 +289,14 @@ function primaryAction(
 /** Only what the server says the adapter supports. An unsupported capability is simply absent. */
 function capabilities(state: AppState, matrix: CapabilityMatrix): readonly HTMLElement[] {
   const items: HTMLElement[] = [];
-  const add = (supported: boolean, iconName: Parameters<typeof icon>[0], label: string): void => {
-    if (supported) items.push(h('li', { class: 'capability' }, [icon(iconName, 14), label]));
+  const add = (supported: boolean, label: string): void => {
+    if (supported) items.push(h('li', { class: 'capability' }, [label]));
   };
-  add(matrix.outboundTypes.includes('text'), 'chat', t(state, 'رسائل', 'Messages'));
-  add(matrix.templates, 'template', t(state, 'قوالب', 'Templates'));
-  add(matrix.attachmentTypes.length > 0, 'image', t(state, 'وسائط', 'Media'));
-  add(matrix.deliveryReceipts || matrix.readReceipts, 'checkDouble', t(state, 'إيصالات', 'Receipts'));
-  add(matrix.inboundEvents.length > 0, 'webhook', t(state, 'Webhooks', 'Webhooks'));
+  add(matrix.outboundTypes.includes('text'), t(state, 'رسائل', 'Messages'));
+  add(matrix.templates, t(state, 'قوالب', 'Templates'));
+  add(matrix.attachmentTypes.length > 0, t(state, 'وسائط', 'Media'));
+  add(matrix.deliveryReceipts || matrix.readReceipts, t(state, 'إيصالات', 'Receipts'));
+  add(matrix.inboundEvents.length > 0, t(state, 'Webhooks', 'Webhooks'));
   return items;
 }
 

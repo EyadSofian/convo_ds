@@ -34,16 +34,18 @@ main.app__screen
                 option
           div.filterbar__actions
             button.btn.btn--sm [live-report-reload]
-              svg
-                path
-                path
-                path
+              span.btn__icon
+                svg
+                  path
+                  path
+                  path
               span.btn__label
             button.btn.btn--primary.btn--sm [live-report-export]
-              svg
-                path
-                path
-                path
+              span.btn__icon
+                svg
+                  path
+                  path
+                  path
               span.btn__label
       p.freshness
         svg

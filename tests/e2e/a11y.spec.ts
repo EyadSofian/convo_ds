@@ -143,7 +143,7 @@ test.describe('axe: no WCAG 2.1 AA violations', () => {
     await page.keyboard.press('Escape');
 
     await page.locator('.nav__item[data-arg="roles"]').click();
-    await page.locator('.admin-head [data-arg="role-create"]').click();
+    await page.locator('.pagebar [data-arg="role-create"]').click();
     await expect(page.locator('.dialog')).toBeVisible();
     expect(describeViolations(await audit(page))).toEqual([]);
     await page.keyboard.press('Escape');

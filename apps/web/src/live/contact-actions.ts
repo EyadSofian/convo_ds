@@ -1,7 +1,7 @@
 import type { Contact } from '../api/contacts.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { forTenant, fromResult, LOADING, ready } from './store.js';
+import { forTenant, fromResult, LOADING, ready, refetching } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 
 /**
@@ -55,7 +55,7 @@ export async function loadOpenContact(context: LiveContext, contactId: string | 
 export async function loadContactsScreen(context: LiveContext): Promise<void> {
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
-    live.contacts = LOADING;
+    live.contacts = refetching(live, live.contacts);
     context.refresh();
     const result = await live.contactsApi.list(tenantId, {
       query: live.contactQuery,

@@ -10,11 +10,16 @@
 
   .integration-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    align-items: start;
-    gap: var(--space-3);
+    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+    align-items: stretch;
+    gap: var(--space-4);
   }
 
+  /*
+   * One compact card per integration: logo and name, provider, status, what it
+   * is connected to, and one action. No inner boxes: the capabilities read as a
+   * line, the facts as a short list under a single divider.
+   */
   .integration {
     display: flex;
     flex-direction: column;
@@ -24,43 +29,28 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--surface-1);
-    transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+    transition: border-color var(--motion-fast) var(--ease-out);
   }
 
   .integration:hover {
     border-color: var(--border-strong);
-    box-shadow: var(--shadow-sm);
   }
 
-  .integration--unavailable {
-    background: var(--surface-2);
+  .integration--unavailable .channel-tile {
+    opacity: 0.6;
   }
 
   .integration--unavailable:hover {
     border-color: var(--border);
-    box-shadow: none;
-  }
-
-  .integration--unavailable .channel-tile {
-    opacity: 0.55;
-  }
-
-  .integration--attention {
-    border-color: var(--warning);
   }
 
   .integration--loading {
-    min-block-size: 220px;
-  }
-
-  .integration__provider {
-    color: var(--text-muted);
-    font-size: var(--text-2xs);
+    min-block-size: 200px;
   }
 
   .integration__head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--space-3);
   }
 
@@ -77,6 +67,11 @@
     line-height: var(--leading-tight);
   }
 
+  .integration__provider {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+  }
+
   .integration__description {
     color: var(--text-secondary);
     font-size: var(--text-xs);
@@ -90,38 +85,43 @@
   .integration__capabilities {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-1);
-  }
-
-  .capability {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    block-size: 22px;
-    padding-inline: var(--space-2);
-    border-radius: var(--radius-sm);
-    background: var(--surface-2);
-    color: var(--text-secondary);
+    gap: var(--space-1) var(--space-3);
+    color: var(--text-muted);
     font-size: var(--text-2xs);
   }
 
   .integration__facts {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-2);
     margin-block-start: auto;
     padding-block-start: var(--space-3);
     border-block-start: 1px solid var(--border-subtle);
   }
 
-  .integration__facts dt {
+  .integration__fact {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .integration__fact dt {
     color: var(--text-muted);
     font-size: var(--text-2xs);
   }
 
-  .integration__facts dd {
+  .integration__fact dd {
+    min-inline-size: 0;
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
+    overflow-wrap: anywhere;
+  }
+
+  .integration__context {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
   }
 
   .integration__actions {
@@ -131,6 +131,8 @@
 
   .integration__buttons {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: var(--space-2);
   }
 
@@ -202,14 +204,11 @@
     gap: var(--space-4);
   }
 
+  /* Sections of the open connection, set apart by space and a heading, not boxes. */
   .connection__block {
     display: grid;
     align-content: start;
     gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--surface-1);
   }
 
   .connection__blocktitle {
@@ -275,11 +274,6 @@
     align-items: flex-end;
     justify-content: space-between;
     gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--surface-1);
-    box-shadow: var(--shadow-xs);
   }
 
   .filterbar__fields {
@@ -404,7 +398,7 @@
     content: '';
     inline-size: 12px;
     block-size: 8px;
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     background: var(--chart-bar);
   }
 
@@ -600,17 +594,6 @@
     display: flex;
     align-items: flex-start;
     gap: var(--space-3);
-  }
-
-  .admin-head__icon {
-    display: grid;
-    place-items: center;
-    flex: none;
-    inline-size: 40px;
-    block-size: 40px;
-    border-radius: var(--radius-lg);
-    background: var(--accent-soft);
-    color: var(--accent-text);
   }
 
   .admin-head__titles {
@@ -840,33 +823,25 @@
     overflow-wrap: anywhere;
   }
 
-  /* Role detail: compact summary, then the permission console. */
+  /*
+   * Role detail: a flat strip of four facts under the head (no box per fact),
+   * then the permission console.
+   */
   .role-summary {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--space-3);
+    border-block: 1px solid var(--border);
   }
 
-  .role-summary__card {
+  .role-summary__item {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: var(--space-half) var(--space-2);
-    padding: var(--space-3);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--surface-1);
+    align-content: center;
+    gap: var(--space-half);
+    padding: var(--space-3) var(--space-4);
   }
 
-  .role-summary__icon {
-    grid-row: span 2;
-    display: grid;
-    place-items: center;
-    inline-size: 32px;
-    block-size: 32px;
-    border-radius: var(--radius-md);
-    background: var(--surface-3);
-    color: var(--text-secondary);
+  .role-summary__item + .role-summary__item {
+    border-inline-start: 1px solid var(--border-subtle);
   }
 
   .role-summary__label {
@@ -880,17 +855,24 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* A tab panel whose content is its own set of cards is not framed again. */
+  .admin-panel--bare {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    overflow: visible;
+  }
+
+  .admin-panel--bare > .admin-panel__body {
+    padding: 0;
+  }
+
   .permissions__head {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
     gap: var(--space-2);
-  }
-
-  .permissions__title {
-    font-size: var(--text-md);
-    font-weight: 700;
   }
 
   .permissions__lede {
@@ -1048,17 +1030,24 @@
     background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
   }
 
+  /*
+   * Docked to the bottom of the visible page, above the phone's bottom
+   * navigation, with nothing showing beneath it: a sticky box stops at the
+   * scroll container's padding edge, so the offset cancels the page's end
+   * padding and the bar meets the edge exactly.
+   */
   .savebar {
     position: sticky;
-    inset-block-end: 0;
-    z-index: 5;
+    inset-block-end: calc(-1 * var(--page-pad-end));
+    z-index: var(--z-sticky);
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
-    margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
     padding: var(--space-3) var(--space-4);
-    border-block-start: 1px solid var(--border);
+    border: 1px solid var(--border);
+    border-block-end: 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     background: var(--surface-1);
     box-shadow: var(--shadow-up);
   }
@@ -1077,6 +1066,14 @@
     .role-summary {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .role-summary__item:nth-child(odd) {
+      border-inline-start: 0;
+    }
+
+    .role-summary__item:nth-child(n + 3) {
+      border-block-start: 1px solid var(--border-subtle);
+    }
   }
 
   @container screen (max-width: 900px) {
@@ -1089,10 +1086,6 @@
   @container screen (max-width: 640px) {
     .admin-head__row {
       flex-wrap: wrap;
-    }
-
-    .admin-head__icon {
-      display: none;
     }
 
     .admin-table thead {
@@ -1145,18 +1138,8 @@
       text-align: start;
     }
 
-    .role-summary {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: var(--space-2);
-    }
-
-    .role-summary__card {
-      grid-template-columns: minmax(0, 1fr);
-      padding: var(--space-2);
-    }
-
-    .role-summary__icon {
-      display: none;
+    .role-summary__item {
+      padding: var(--space-2) var(--space-3);
     }
 
     .permission-row {
@@ -1451,37 +1434,34 @@
     max-inline-size: 1480px;
   }
 
+  /* Page sections read as one underline tab row everywhere (admin-tabs). */
   .automation-tabs {
     display: flex;
-    gap: var(--space-half);
-    inline-size: max-content;
-    padding: var(--space-half);
-    border-radius: var(--radius-lg);
-    background: var(--surface-2);
+    gap: var(--space-1);
+    overflow-x: auto;
+    border-block-end: 1px solid var(--border);
   }
 
   .automation-tabs__item {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    block-size: var(--control-height-sm);
-    padding-inline: var(--space-3);
-    border-radius: var(--radius-md);
-    color: var(--text-muted);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
+    padding: var(--space-2) var(--space-3);
+    border-block-end: 2px solid transparent;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
     text-decoration: none;
+    white-space: nowrap;
   }
 
   .automation-tabs__item:hover {
     color: var(--text);
-    background: var(--surface-hover);
   }
 
   .automation-tabs__item[aria-current='page'] {
-    color: var(--text);
-    background: var(--surface-1);
-    box-shadow: var(--shadow-xs);
+    border-block-end-color: var(--accent);
+    color: var(--accent-text);
+    font-weight: var(--weight-semibold);
   }
 
   .automation-catalogue {
@@ -1496,11 +1476,11 @@
     grid-template-columns: auto minmax(0, 1fr) minmax(280px, 360px);
     align-items: center;
     gap: var(--space-5);
-    padding: var(--space-6);
+    padding: var(--space-5);
     overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
-    border-radius: var(--radius-xl);
-    background: linear-gradient(120deg, var(--accent-soft), var(--surface-1) 58%, var(--surface-2));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-1);
     grid-column: 1 / -1;
   }
 
@@ -1536,14 +1516,12 @@
     font-weight: var(--weight-semibold);
   }
 
+  /* Part of the hero, not a card inside it: a divider sets it apart. */
   .automation-blank {
     display: grid;
     gap: var(--space-2);
-    padding: var(--space-4);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--surface-1);
-    box-shadow: var(--shadow-xs);
+    padding-inline-start: var(--space-5);
+    border-inline-start: 1px solid var(--border-subtle);
   }
 
   .automation-blank label {
@@ -1635,7 +1613,7 @@
     place-items: center;
     inline-size: 36px;
     block-size: 36px;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     color: var(--accent-text);
     background: var(--accent-soft);
   }
@@ -1691,7 +1669,7 @@
     place-items: center;
     inline-size: 40px;
     block-size: 40px;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     color: var(--text-muted);
     background: var(--surface-3);
   }
@@ -1977,6 +1955,13 @@
     .automation-hero,
     .automation-builder__layout {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    .automation-blank {
+      padding-inline-start: 0;
+      padding-block-start: var(--space-4);
+      border-inline-start: 0;
+      border-block-start: 1px solid var(--border-subtle);
     }
 
     .automation-hero__mark {

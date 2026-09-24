@@ -1,40 +1,21 @@
 main.app__screen
   div.page.page--teams
     div.page__inner
-      header.admin-head
-        nav.breadcrumb
-          ol
-            li
-              span
-                bdi
-            li
-              span
-                bdi
-        div.admin-head__row
-          span.admin-head__icon
-            svg
-              circle
-              path
-              circle
-              path
-              circle
-              path
-          div.admin-head__titles
-            div.admin-head__titleline
-              h2.admin-head__title
-                bdi
-            p.admin-head__subtitle
-              bdi
-          div.admin-head__actions
-            button.btn.btn--ghost.btn--sm.btn--icon [live-reload]
+      div.pagebar
+        p.pagebar__lede
+        div.pagebar__actions
+          button.btn.btn--sm [live-reload]
+            span.btn__icon
               svg
                 path
                 path
                 path
-            button.btn.btn--primary.btn--sm [dialog]
+            span.btn__label
+          button.btn.btn--primary.btn--sm [dialog]
+            span.btn__icon
               svg
                 path
-              span.btn__label
+            span.btn__label
       section.admin-panel
         div.tablewrap
           table.table.admin-table

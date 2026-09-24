@@ -3,7 +3,7 @@ import type { Campaign, CampaignTestSend, CreateCampaignInput } from '../api/cam
 import type { ChannelTestRecipient } from '../api/channels.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { currentTenantId, failed, fromResult, LOADING } from './store.js';
+import { currentTenantId, failed, fromResult, LOADING, refetching } from './store.js';
 
 function t(context: LiveContext, ar: string, en: string): string {
   return context.state.lang === 'ar' ? ar : en;
@@ -12,9 +12,9 @@ function t(context: LiveContext, ar: string, en: string): string {
 export async function loadCampaignsScreen(context: LiveContext): Promise<void> {
   const tenantId = currentTenantId(context.live);
   if (tenantId === null) return;
-  context.live.campaigns = LOADING;
-  context.live.connections = LOADING;
-  context.live.testRecipients = LOADING;
+  context.live.campaigns = refetching(context.live, context.live.campaigns);
+  context.live.connections = refetching(context.live, context.live.connections);
+  context.live.testRecipients = refetching(context.live, context.live.testRecipients);
   context.refresh();
   const [campaigns, connections] = await Promise.all([
     context.live.campaignsApi.list(tenantId),
@@ -48,7 +48,7 @@ export async function loadCampaignReport(context: LiveContext): Promise<void> {
   if (tenantId === null) return;
   const generation = beginAnalyticsRequest(context);
   const filters = context.state.analyticsFilters;
-  context.live.campaignReport = LOADING;
+  context.live.campaignReport = refetching(context.live, context.live.campaignReport);
   context.refresh();
   const result = await context.live.campaignsApi.report(tenantId, filters);
   if (context.live.analyticsRequestGeneration !== generation) return;
@@ -64,7 +64,7 @@ export async function loadOperationalReport(context: LiveContext): Promise<void>
   const tenantId = currentTenantId(context.live);
   if (tenantId === null) return;
   const generation = beginAnalyticsRequest(context);
-  context.live.operationalReport = LOADING;
+  context.live.operationalReport = refetching(context.live, context.live.operationalReport);
   const optionsLoads: Promise<void>[] = [];
   if (context.live.teams.status === 'idle') {
     context.live.teams = LOADING;
@@ -109,7 +109,7 @@ export async function loadAssignmentReport(context: LiveContext, append = false)
   if (append && cursor === null) return;
   context.live.assignmentLoadingMore = append;
   if (!append) {
-    context.live.assignmentReport = LOADING;
+    context.live.assignmentReport = refetching(context.live, context.live.assignmentReport);
     context.live.assignmentNextCursor = null;
   }
   context.refresh();
@@ -132,7 +132,7 @@ export async function loadResponseReport(context: LiveContext): Promise<void> {
   if (tenantId === null) return;
   if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
   const generation = beginAnalyticsRequest(context);
-  context.live.responseReport = LOADING;
+  context.live.responseReport = refetching(context.live, context.live.responseReport);
   context.refresh();
   const result = await context.live.campaignsApi.responseReport(tenantId, context.state.analyticsFilters);
   if (context.live.analyticsRequestGeneration !== generation) return;
@@ -145,7 +145,7 @@ export async function loadResolutionReport(context: LiveContext): Promise<void> 
   if (tenantId === null) return;
   if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
   const generation = beginAnalyticsRequest(context);
-  context.live.resolutionReport = LOADING;
+  context.live.resolutionReport = refetching(context.live, context.live.resolutionReport);
   context.refresh();
   const result = await context.live.campaignsApi.resolutionReport(tenantId, context.state.analyticsFilters);
   if (context.live.analyticsRequestGeneration !== generation) return;
@@ -158,7 +158,7 @@ export async function loadTeamReport(context: LiveContext): Promise<void> {
   if (tenantId === null) return;
   if (context.live.operationalReport.status !== 'ready') await loadOperationalReport(context);
   const generation = beginAnalyticsRequest(context);
-  context.live.teamReport = LOADING;
+  context.live.teamReport = refetching(context.live, context.live.teamReport);
   context.refresh();
   const result = await context.live.campaignsApi.teamReport(tenantId, context.state.analyticsFilters);
   if (context.live.analyticsRequestGeneration !== generation) return;
