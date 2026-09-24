@@ -177,6 +177,7 @@ describe('Inbox list controls', () => {
     app.live.teams = ready([{ id: 'team-1', name: 'Sales', archived: false }, { id: 'team-2', name: 'Old', archived: true }] as never, 1);
     app.live.connections = ready([
       { id: 'connection-1', display_name: 'Main line', disconnected_at: null },
+      { id: 'connection-3', display_name: 'Second line', disconnected_at: null },
       { id: 'connection-2', display_name: 'Disconnected', disconnected_at: NOW.toISOString() },
     ] as never, 1);
     app.live.labels = ready([{ id: 'label-1', name: 'VIP', color: '#123456', state: 'active' }, { id: 'label-2', name: 'Old', state: 'retired' }] as never, 1);
@@ -186,6 +187,12 @@ describe('Inbox list controls', () => {
       app.dialogForm = { inboxFilterKey: key, inboxFilterOperator: 'eq' };
       const root = renderInbox(app);
       expect(root.querySelector('select[data-form="inboxFilterValue"]')?.textContent).not.toBe('');
+      if (key === 'connection_id') {
+        const options = root.querySelector('select[data-form="inboxFilterValue"]')?.textContent ?? '';
+        expect(options).toContain('Main line');
+        expect(options).toContain('Second line');
+        expect(options).not.toContain('Disconnected');
+      }
     }
     app.dialogForm = { inboxFilterKey: 'label_id', inboxFilterOperator: 'eq' };
     expect(renderInbox(app).querySelector('select[data-form="inboxFilterValue"]')?.textContent).toContain('VIP');
