@@ -205,28 +205,78 @@ function testRecipients(): readonly Record<string, unknown>[] {
   }];
 }
 
+export const CUSTOM_ROLE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+export const ADMIN_ROLE = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const AGENT_ROLE = 'agent-role';
+
 function people(): readonly Record<string, unknown>[] {
-  return [{
-    membership_id: MEMBERSHIP, email: 'hana@digital-school.example', status: 'active',
-    role: { id: 'agent-role', key: 'agent', name: 'Agent' }, scopes: [],
-  }];
+  return [
+    { membership_id: MEMBERSHIP, email: 'hana@digital-school.example', status: 'active', role: { id: AGENT_ROLE, key: 'agent', name: 'Agent' }, scopes: [] },
+    { membership_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddd01', email: 'omar@digital-school.example', status: 'active', role: { id: ADMIN_ROLE, key: 'admin', name: 'Admin' }, scopes: [{ type: 'tenant', id: null }] },
+    { membership_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddd02', email: 'layla@digital-school.example', status: 'active', role: { id: CUSTOM_ROLE, key: 'enrollment_lead', name: 'Enrollment lead' }, scopes: [{ type: 'team', id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }] },
+    { membership_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddd03', email: 'karim@digital-school.example', status: 'suspended', role: { id: AGENT_ROLE, key: 'agent', name: 'Agent' }, scopes: [{ type: 'tenant', id: null }] },
+  ];
 }
 
 function roles(): readonly Record<string, unknown>[] {
-  return [{
-    id: 'agent-role', key: 'agent', name: 'Agent', is_builtin: true,
-    grants: [
-      { permission_key: 'conversation.read', scope_level: 'own' },
-      { permission_key: 'conversation.reply', scope_level: 'own' },
-    ],
-  }];
+  const updated = new Date(Date.UTC(2026, 8, 1, 9, 0)).toISOString();
+  return [
+    {
+      id: AGENT_ROLE, key: 'agent', name: 'Agent', is_builtin: true, description: '', updated_at: updated,
+      grants: [
+        { permission_key: 'conversation.read', scope_level: 'own' },
+        { permission_key: 'conversation.reply', scope_level: 'own' },
+        { permission_key: 'conversation.note', scope_level: 'own' },
+        { permission_key: 'conversation.claim', scope_level: 'scoped' },
+      ],
+    },
+    {
+      id: ADMIN_ROLE, key: 'admin', name: 'Admin', is_builtin: true, description: '', updated_at: updated,
+      grants: ADMIN_PERMISSIONS.map((key) => ({ permission_key: key, scope_level: 'tenant' })),
+    },
+    {
+      id: CUSTOM_ROLE, key: 'enrollment_lead', name: 'Enrollment lead', is_builtin: false,
+      description: 'Handles enrolment conversations for the admissions team.',
+      updated_at: new Date(Date.UTC(2026, 8, 8, 14, 30)).toISOString(),
+      grants: [
+        { permission_key: 'conversation.read', scope_level: 'scoped' },
+        { permission_key: 'conversation.reply', scope_level: 'scoped' },
+        { permission_key: 'contact.read', scope_level: 'scoped' },
+        { permission_key: 'report.read', scope_level: 'tenant' },
+      ],
+    },
+  ];
 }
 
 function teams(): readonly Record<string, unknown>[] {
-  return [{
-    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Admissions', member_count: 1,
-    archived: false, members: [{ membership_id: MEMBERSHIP, email: 'hana@digital-school.example' }],
-  }];
+  return [
+    {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Admissions', member_count: 2,
+      archived: false, members: [
+        { membership_id: MEMBERSHIP, email: 'hana@digital-school.example' },
+        { membership_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddd02', email: 'layla@digital-school.example' },
+      ],
+    },
+    { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab2', name: 'Accounts', member_count: 0, archived: true, members: [] },
+  ];
+}
+
+/** The real 38-key catalogue with its real delegability (migration 0003). */
+const NON_DELEGABLE = new Set([
+  'campaign.approve', 'campaign.launch', 'campaign.control', 'automation.activate', 'automation.pause', 'automation.test',
+  'channel.manage', 'credential.rotate', 'member.manage', 'role.manage', 'catalog.manage', 'api_key.manage',
+  'audit.read', 'retention.manage', 'tenant.delete',
+]);
+const CATALOGUE_KEYS = [
+  'conversation.read', 'conversation.unassigned.preview', 'conversation.reply', 'conversation.note', 'conversation.claim',
+  'conversation.assign', 'conversation.handoff.request', 'conversation.close', 'contact.read', 'contact.edit', 'contact.merge',
+  'contact.export', 'consent.read', 'consent.record', 'suppression.write', 'campaign.read', 'campaign.draft', 'campaign.approve',
+  'campaign.launch', 'campaign.control', 'automation.read', 'automation.create', 'automation.edit', 'automation.activate',
+  'automation.pause', 'automation.test', 'channel.manage', 'credential.rotate', 'member.manage', 'role.manage', 'catalog.read',
+  'catalog.manage', 'integration.manage', 'api_key.manage', 'report.read', 'audit.read', 'retention.manage', 'tenant.delete',
+];
+function permissions(): readonly Record<string, unknown>[] {
+  return CATALOGUE_KEYS.map((key) => ({ key, description: `Permission ${key}`, delegable: !NON_DELEGABLE.has(key) }));
 }
 
 function timeline(): readonly Record<string, unknown>[] {
@@ -548,14 +598,19 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     if (path.endsWith('/teams')) {
       return json(route, paged(teams()));
     }
-    if (path.endsWith('/invitations') || path.endsWith('/ownership-transfers')) {
+    if (path.endsWith('/invitations')) {
+      return json(route, paged([{
+        id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', email: 'nour@digital-school.example', status: 'pending',
+        role: { id: 'agent-role', key: 'agent', name: 'Agent' }, scopes: [],
+        created_at: new Date(Date.UTC(2026, 8, 8, 9, 0)).toISOString(), expires_at: new Date(Date.UTC(2026, 8, 15, 9, 0)).toISOString(),
+        accepted_at: null, revoked_at: null,
+      }]));
+    }
+    if (path.endsWith('/ownership-transfers')) {
       return json(route, paged([]));
     }
     if (path.endsWith('/permissions')) {
-      return json(route, paged([
-        { key: 'conversation.read', description: 'Read assigned conversations', delegable: true },
-        { key: 'conversation.reply', description: 'Reply to assigned conversations', delegable: true },
-      ]));
+      return json(route, paged(permissions()));
     }
     if (path.endsWith('/reports/campaigns')) {
       return json(route, { data: campaignReport(), request_id: 'e2e' });

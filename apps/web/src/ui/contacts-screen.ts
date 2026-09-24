@@ -3,6 +3,7 @@ import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { initials } from '../format.js';
 import { icon } from '../icons.js';
+import { channelMark } from './channel-mark.js';
 import { rowsOf } from '../live/store.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
@@ -11,7 +12,7 @@ import { CHANNEL_NAMES, phrase, t } from './copy.js';
 import {
   avatar,
   button,
-  channelIcon,
+
   emptyState,
   errorState,
   field,
@@ -136,7 +137,7 @@ function contactRow(state: AppState, contact: ContactSummary, selected: boolean)
             : identities.map((identity) => phrase(state, CHANNEL_NAMES, identity.kind)).join(' · '),
         ]),
       ]),
-      h('span', { class: 'contactrow__channels', 'aria-hidden': 'true' }, identities.slice(0, 3).map((identity) => icon(channelIcon(identity.kind), 14))),
+      h('span', { class: 'contactrow__channels', 'aria-hidden': 'true' }, identities.slice(0, 3).map((identity) => channelMark(identity.kind, 14))),
       labels.length === 0
         ? null
         : h('span', { class: 'contactrow__labels' }, labels.slice(0, 2).map((label) =>

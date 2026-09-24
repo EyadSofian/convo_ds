@@ -8703,6 +8703,8 @@
           "key",
           "name",
           "is_builtin",
+          "description",
+          "updated_at",
           "grants"
         ],
         "description": "A tenant role. Authorization is decided by permission key; `name` is a label for humans and is never used in a decision.",
@@ -8721,6 +8723,16 @@
           },
           "is_builtin": {
             "type": "boolean"
+          },
+          "description": {
+            "type": "string",
+            "description": "What the role is for, as its author wrote it. Empty for built-in roles.",
+            "example": "Handles enrolment questions."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the role's name, description or grants last changed."
           },
           "grants": {
             "type": "array",

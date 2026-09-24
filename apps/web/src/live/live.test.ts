@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike } from '../api/client.js';
 import { disconnectedApi } from '../api/people.js';
 import type { AppHandle } from '../app.js';
-import { boot, mount } from '../app.js';
+import { boot, browserPageLifecycle, mount } from '../app.js';
 import type { RouterHost } from '../router.js';
 
 /**
@@ -154,12 +154,14 @@ function signedInApi(): FakeApi {
       status: 200,
       body: {
         data: [
-          { id: AGENT_ROLE, key: 'agent', name: 'Agent', is_builtin: true, grants: [] },
+          { id: AGENT_ROLE, key: 'agent', name: 'Agent', is_builtin: true, description: '', updated_at: NOW.toISOString(), grants: [] },
           {
             id: SUPERVISOR_ROLE,
             key: 'supervisor',
             name: 'Supervisor',
             is_builtin: true,
+            description: '',
+            updated_at: NOW.toISOString(),
             grants: [{ permission_key: 'conversation.read', scope_level: 'scoped' }],
           },
         ],
@@ -173,8 +175,12 @@ function signedInApi(): FakeApi {
         data: [
           { key: 'conversation.read', description: 'Read conversations.', delegable: true },
           { key: 'report.read', description: 'Read reports.', delegable: true },
+          // Delegable, but this Owner fixture does not hold it.
+          { key: 'contact.export', description: 'Export contacts.', delegable: true },
           // Not delegable: it must never be offered as a grant to hand out.
           { key: 'tenant.delete', description: 'Delete the company.', delegable: false },
+          // A key this build has no label or module for.
+          { key: 'future.thing', description: 'Something newer.', delegable: true },
         ],
       },
     })
@@ -376,7 +382,51 @@ function fillInvite(root: HTMLElement, email: string, roleId = AGENT_ROLE): void
 
 /* ------------------------------------------------------- loading and refusal -- */
 
-describe('what the People screen shows before and instead of an answer', () => {
+const CUSTOM_ROLE = 'r-custom';
+
+function customRole(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: CUSTOM_ROLE,
+    key: 'enrollment_lead',
+    name: 'Enrollment lead',
+    is_builtin: false,
+    description: 'Handles enrolment.',
+    updated_at: NOW.toISOString(),
+    grants: [{ permission_key: 'conversation.read', scope_level: 'scoped' }],
+    ...overrides,
+  };
+}
+
+/** The Owner's workspace with a custom role one colleague holds. */
+function rolesApi(): FakeApi {
+  return signedInApi()
+    .on(`GET /tenants/${TENANT}/roles`, {
+      status: 200,
+      body: {
+        data: [
+          { id: AGENT_ROLE, key: 'agent', name: 'Agent', is_builtin: true, description: '', updated_at: NOW.toISOString(), grants: [{ permission_key: 'conversation.read', scope_level: 'own' }] },
+          customRole(),
+        ],
+      },
+    })
+    .on(`GET /tenants/${TENANT}/people`, {
+      status: 200,
+      body: { data: [person(), person({ membership_id: 'm-2', email: 'nadia@digital-school.example', role: { id: CUSTOM_ROLE, key: 'enrollment_lead', name: 'Enrollment lead' } })] },
+    });
+}
+
+function openMenu(root: HTMLElement, id: string): void {
+  click(root, `[data-act="menu"][data-arg="${id}"]`);
+}
+
+function check(root: ParentNode, selector: string): void {
+  const element = find(root, selector);
+  if (!(element instanceof window.HTMLInputElement)) throw new Error(`not an input: ${selector}`);
+  element.checked = !element.checked;
+  element.dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+
+describe('what the user-management screens show before and instead of an answer', () => {
   it('marks the lists busy until the slowest one lands', async () => {
     const api = signedInApi();
     const release = api.hold(`GET /tenants/${TENANT}/people`);
@@ -388,7 +438,7 @@ describe('what the People screen shows before and instead of an answer', () => {
     release({ status: 200, body: { data: [] } });
     await settle();
     expect(root.querySelector('.page--people [aria-busy="true"]')).toBeNull();
-    expect(text(root)).toContain('No members yet');
+    expect(text(root)).toContain('No users yet');
   });
 
   it('reports a refusal as a permission state, with nothing to retry', async () => {
@@ -402,7 +452,6 @@ describe('what the People screen shows before and instead of an answer', () => {
     const refusal = find(root, '.errorstate--denied');
     expect(text(refusal)).toContain('You don’t have permission for this');
     expect(text(refusal)).toContain('Ask a workspace administrator for access.');
-    // Retrying cannot change a refusal, so no retry is offered for it.
     expect(refusal.querySelector('[data-act="live-reload"]')).toBeNull();
   });
 
@@ -411,7 +460,7 @@ describe('what the People screen shows before and instead of an answer', () => {
       status: 404,
       body: { error: { code: 'resource_not_found', message: 'Not found.' } },
     });
-    const { root } = start(api);
+    const { root } = start(api, '#/roles');
     await settle();
     expect(text(find(root, '.errorstate--denied'))).toContain('Not found or not available to you');
     expect(text(root)).not.toContain('You don’t have permission for this');
@@ -430,7 +479,7 @@ describe('what the People screen shows before and instead of an answer', () => {
     const api = signedInApi().on(`GET /tenants/${TENANT}/invitations`, () => {
       throw new Error('connection refused');
     });
-    const { root } = start(api);
+    const { root } = start(api, '#/people?tab=invitations');
     await settle();
 
     const failure = find(root, '.errorstate');
@@ -440,16 +489,15 @@ describe('what the People screen shows before and instead of an answer', () => {
   });
 
   it('quotes the request id so a failure can be traced in the API log', async () => {
-    const api = signedInApi().on(`GET /tenants/${TENANT}/ownership-transfers`, {
+    const api = signedInApi().on(`GET /tenants/${TENANT}/teams`, {
       status: 500,
       body: { error: { code: 'internal_error', message: 'Something broke.', request_id: 'r-77' } },
     });
-    const { root } = start(api);
+    const { root } = start(api, '#/teams');
     await settle();
 
     expect(text(root)).toContain('The server couldn’t complete this');
     expect(text(root)).toContain('Request ID: r-77');
-    // The internal message is for the log, not for the operator.
     expect(text(root)).not.toContain('Something broke.');
   });
 
@@ -459,7 +507,7 @@ describe('what the People screen shows before and instead of an answer', () => {
     await settle();
     const before = api.calls.length;
 
-    click(root, '.pagebar [data-act="live-reload"]');
+    click(root, '.admin-head [data-act="live-reload"]');
     await settle();
 
     const reads = api.calls.slice(before).map((call) => call.path);
@@ -468,9 +516,83 @@ describe('what the People screen shows before and instead of an answer', () => {
   });
 });
 
-/* -------------------------------------------------------------- mutations -- */
+/* ------------------------------------------------------------------ users -- */
 
-describe('changing people, roles and teams', () => {
+describe('the Users screen', () => {
+  it('lists members with role, teams, status and scope, and filters them', async () => {
+    const api = signedInApi()
+      .on(`GET /tenants/${TENANT}/people`, {
+        status: 200,
+        body: { data: [person(), person({ membership_id: 'm-2', email: 'nadia@digital-school.example', status: 'suspended', scopes: [{ type: 'team', id: 't-1' }, { type: 'team', id: 't-2' }, { type: 'queue', id: 'q-1' }] })] },
+      })
+      .on(`GET /tenants/${TENANT}/teams`, {
+        status: 200,
+        body: { data: [{ id: 'team-1', name: 'Admissions', member_count: 1, archived: false, members: [{ membership_id: MEMBERSHIP, email: 'hana@digital-school.example' }] }] },
+      });
+    const { app, root } = start(api);
+    await settle();
+
+    const hana = text(find(root, `tr[data-membership="${MEMBERSHIP}"]`));
+    expect(hana).toContain('Agent');
+    expect(hana).toContain('Admissions');
+    expect(hana).toContain('No scope');
+    const nadia = text(find(root, 'tr[data-membership="m-2"]'));
+    expect(nadia).toContain('No team');
+    expect(nadia).toContain('Suspended');
+    expect(nadia).toContain('Team × 2');
+    // A scope type this build does not name is shown by the server's own word.
+    expect(nadia).toContain('queue');
+    expect(text(find(root, '[role="tablist"]'))).toContain('Users2');
+
+    type(root, '[data-act="user-search"]', 'admissions');
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+    type(root, '[data-act="user-search"]', 'nobody-matches');
+    expect(text(root)).toContain('No user matches this search.');
+    expect(app.state.userSearch).toBe('nobody-matches');
+  });
+
+  it('keeps invitations on their own tab, with created and expiry dates', async () => {
+    const api = signedInApi()
+      .on(`GET /tenants/${TENANT}/invitations`, {
+        status: 200,
+        body: {
+          data: [
+            invitation({ id: 'inv-9' }),
+            invitation({ id: 'inv-8', status: 'accepted', accepted_at: NOW.toISOString() }),
+            invitation({ id: 'inv-r', status: 'revoked', revoked_at: NOW.toISOString() }),
+            invitation({ id: 'inv-x', status: 'bounced' }),
+          ],
+        },
+      })
+      .on(`DELETE /tenants/${TENANT}/invitations/inv-9`, { status: 204, body: null });
+    const { app, root } = start(api);
+    await settle();
+    // The Users tab shows no invitations; its tab counts the pending ones.
+    expect(root.querySelector('[data-invitation]')).toBeNull();
+    expect(text(find(root, '#tab-invitations'))).toContain('1');
+
+    const { root: invitations } = start(api, '#/people?tab=invitations');
+    await settle();
+    expect(find(invitations, '#tab-invitations').getAttribute('aria-selected')).toBe('true');
+    expect(text(find(invitations, '[data-invitation="inv-8"]'))).toContain('Accepted');
+    expect(text(find(invitations, '[data-invitation="inv-r"]'))).toContain('Revoked');
+    expect(text(find(invitations, '[data-invitation="inv-x"]'))).toContain('bounced');
+    expect(text(find(invitations, '[data-invitation="inv-8"]'))).toContain('—');
+    // Only the pending one can be withdrawn.
+    expect(invitations.querySelectorAll('[data-act="live-revoke-invite"]')).toHaveLength(1);
+    click(invitations, '[data-act="live-revoke-invite"]');
+    await settle();
+    expect(toasts(handle as AppHandle)).toEqual(['Invitation revoked']);
+    expect(app).toBeDefined();
+  });
+
+  it('offers an invitation from an empty invitations tab', async () => {
+    const { root } = start(signedInApi(), '#/people?tab=invitations');
+    await settle();
+    expect(text(root)).toContain('No invitations');
+    expect(root.querySelectorAll('[data-act="dialog"][data-arg="invite"]')).toHaveLength(2);
+  });
+
   it('shows pending on the control, and toasts only once the server commits', async () => {
     const api = signedInApi();
     const release = api.hold(`POST /tenants/${TENANT}/invitations`);
@@ -483,7 +605,6 @@ describe('changing people, roles and teams', () => {
 
     expect(find(root, '.dialog [data-act="live-invite"]').getAttribute('aria-busy')).toBe('true');
     expect(isDisabled(root, '.dialog [data-act="live-invite"]')).toBe(true);
-    // Nothing has been claimed while the request is still in the air.
     expect(app.state.toasts).toHaveLength(0);
 
     api.on(`GET /tenants/${TENANT}/invitations`, { status: 200, body: { data: [invitation()] } });
@@ -491,11 +612,8 @@ describe('changing people, roles and teams', () => {
     await settle();
 
     expect(toasts(app)).toEqual(['Invitation created for tarek@digital-school.example and queued. Email delivery depends on the configured provider.']);
-    // The dialog closes and the form is cleared only after the server accepted.
     expect(root.querySelector('.dialog')).toBeNull();
     expect(app.state.dialogForm['inviteEmail']).toBeUndefined();
-    // And the list shows what the server now holds, not what was typed.
-    expect(text(root.querySelector('.page--people'))).toContain('tarek@digital-school.example');
   });
 
   it('checks the invitation before sending it', async () => {
@@ -527,12 +645,8 @@ describe('changing people, roles and teams', () => {
     click(root, '.dialog [data-act="live-invite"]');
     await settle();
 
-    const posts = api.calls.filter(
-      (call) => call.method === 'POST' && call.path.endsWith('/invitations'),
-    );
+    const posts = api.calls.filter((call) => call.method === 'POST' && call.path.endsWith('/invitations'));
     expect(posts.map((call) => call.headers['x-csrf-token'])).toEqual(['csrf-token', 'csrf-token']);
-    // A second attempt is a new attempt, so it gets a new key rather than
-    // replaying the first one's stored response.
     expect(posts.map((call) => call.headers['idempotency-key'])).toEqual(['key-1', 'key-2']);
   });
 
@@ -559,86 +673,55 @@ describe('changing people, roles and teams', () => {
     expect(text(dialog)).toContain('You cannot grant access wider than your own. · Exceeds your access.');
     expect(text(dialog)).toContain('Request ID: r-12');
     expect(app.state.toasts).toHaveLength(0);
-    // What was typed survives, so the attempt can be corrected rather than
-    // retyped.
-    expect((find(root, '#invite-email') as HTMLInputElement).value).toBe(
-      'escalate@digital-school.example',
-    );
+    expect((find(root, '#invite-email') as HTMLInputElement).value).toBe('escalate@digital-school.example');
   });
 
-  it('revokes a pending invitation, and offers nothing on a settled one', async () => {
-    const api = signedInApi()
-      .on(`GET /tenants/${TENANT}/invitations`, {
-        status: 200,
-        body: {
-          data: [
-            invitation({ id: 'inv-9' }),
-            invitation({ id: 'inv-8', status: 'accepted', accepted_at: NOW.toISOString() }),
-          ],
-        },
-      })
-      .on(`DELETE /tenants/${TENANT}/invitations/inv-9`, { status: 204, body: null });
-    const { app, root } = start(api);
-    await settle();
-
-    expect(root.querySelectorAll('[data-act="live-revoke-invite"]')).toHaveLength(1);
-
-    click(root, '[data-act="live-revoke-invite"]');
-    await settle();
-    expect(toasts(app)).toEqual(['Invitation revoked']);
-  });
-
-  it('re-reads the server after a change rather than patching local state', async () => {
+  it('changes a role from the row menu, re-reading the server afterwards', async () => {
     const api = signedInApi().on(`PATCH /tenants/${TENANT}/people/${MEMBERSHIP}`, {
       status: 200,
-      body: {
-        data: person({ role: { id: SUPERVISOR_ROLE, key: 'supervisor', name: 'Supervisor' } }),
-      },
+      body: { data: person({ role: { id: SUPERVISOR_ROLE, key: 'supervisor', name: 'Supervisor' } }) },
     });
     const { app, root } = start(api);
     await settle();
 
-    // The reload after the change reports a scope the browser never asked for.
+    openMenu(root, `member:${MEMBERSHIP}`);
+    expect(find(root, '.row-menu').getAttribute('role')).toBe('menu');
+    click(root, `[data-act="dialog"][data-arg="member-role:${MEMBERSHIP}"]`);
+    // The current role is preselected, and saving it unchanged is not offered.
+    expect(isDisabled(root, '.dialog [data-act="live-member-role"]')).toBe(true);
     api.on(`GET /tenants/${TENANT}/people`, {
       status: 200,
-      body: {
-        data: [
-          person({
-            role: { id: SUPERVISOR_ROLE, key: 'supervisor', name: 'Supervisor' },
-            scopes: [{ type: 'tenant', id: null }],
-          }),
-        ],
-      },
+      body: { data: [person({ role: { id: SUPERVISOR_ROLE, key: 'supervisor', name: 'Supervisor' }, scopes: [{ type: 'tenant', id: null }] })] },
     });
-
-    choose(root, `tr[data-membership="${MEMBERSHIP}"] select[data-act="live-role"]`, SUPERVISOR_ROLE);
+    choose(root, '#member-role', SUPERVISOR_ROLE);
+    click(root, '.dialog [data-act="live-member-role"]');
     await settle();
 
-    expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({
-      roleId: SUPERVISOR_ROLE,
-    });
+    expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({ roleId: SUPERVISOR_ROLE });
     expect(toasts(app)).toEqual(['Role is now Supervisor']);
+    expect(root.querySelector('.dialog')).toBeNull();
     expect(text(find(root, `tr[data-membership="${MEMBERSHIP}"]`))).toContain('Whole workspace');
   });
 
-  it('keeps the lists on screen while a change is confirmed', async () => {
+  it('keeps the dialog open with the reason when a role change is refused', async () => {
     const api = signedInApi().on(`PATCH /tenants/${TENANT}/people/${MEMBERSHIP}`, {
-      status: 200,
-      body: { data: person() },
+      status: 403,
+      body: { error: { code: 'delegation_ceiling', message: 'Wider than your own.' } },
     });
-    const { root } = start(api);
+    const { app, root } = start(api);
     await settle();
-    const release = api.hold(`GET /tenants/${TENANT}/people`);
-
-    click(root, '[data-act="live-scope-tenant"]');
+    app.dispatch('dialog', `member-role:${MEMBERSHIP}`);
+    app.dispatch('live-member-role', MEMBERSHIP);
     await settle();
-    // The re-read is still out, and the member it is about is still drawn.
-    expect(root.querySelector(`tr[data-membership="${MEMBERSHIP}"]`)).not.toBeNull();
-    release({ status: 200, body: { data: [person()] } });
+    // Nothing chosen yet: nothing sent.
+    expect(api.calls.some((call) => call.method === 'PATCH')).toBe(false);
+    choose(root, '#member-role', SUPERVISOR_ROLE);
+    click(root, '.dialog [data-act="live-member-role"]');
     await settle();
+    expect(text(find(root, '.dialog'))).toContain('Wider than your own.');
   });
 
-  it('changes a status and grants the whole-company scope', async () => {
+  it('suspends, reactivates and grants the whole-workspace scope from the menu', async () => {
     const api = signedInApi().on(`PATCH /tenants/${TENANT}/people/${MEMBERSHIP}`, {
       status: 200,
       body: { data: person({ status: 'suspended' }) },
@@ -646,17 +729,23 @@ describe('changing people, roles and teams', () => {
     const { app, root } = start(api);
     await settle();
 
-    choose(root, 'select[data-act="live-status"]', 'suspended');
+    openMenu(root, `member:${MEMBERSHIP}`);
+    click(root, `[data-act="live-status"][data-arg="${MEMBERSHIP}:suspended"]`);
     await settle();
-    const patches = api.calls.filter((call) => call.method === 'PATCH');
-    expect(patches.at(-1)?.body).toEqual({ status: 'suspended' });
+    expect(api.calls.filter((call) => call.method === 'PATCH').at(-1)?.body).toEqual({ status: 'suspended' });
     expect(toasts(app)).toContain('Status is now Suspended');
 
-    click(root, '[data-act="live-scope-tenant"]');
+    api.on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person({ status: 'suspended' })] } });
+    app.dispatch('live-reload');
     await settle();
-    expect(api.calls.filter((call) => call.method === 'PATCH').at(-1)?.body).toEqual({
-      scopes: [{ type: 'tenant', id: null }],
-    });
+    openMenu(root, `member:${MEMBERSHIP}`);
+    expect(root.querySelector(`[data-arg="${MEMBERSHIP}:active"]`)).not.toBeNull();
+    // A suspended member cannot be offered ownership.
+    expect(root.querySelector(`[data-arg="ownership-offer:${MEMBERSHIP}"]`)).toBeNull();
+
+    click(root, `[data-act="live-scope-tenant"][data-arg="${MEMBERSHIP}"]`);
+    await settle();
+    expect(api.calls.filter((call) => call.method === 'PATCH').at(-1)?.body).toEqual({ scopes: [{ type: 'tenant', id: null }] });
     expect(toasts(app)).toContain('Scopes updated');
   });
 
@@ -665,218 +754,90 @@ describe('changing people, roles and teams', () => {
       status: 200,
       body: { data: person({ status: 'archived' }) },
     });
-    const { app, root } = start(api);
+    const { app } = start(api);
     await settle();
-    choose(root, 'select[data-act="live-status"]', 'revoked');
+    app.dispatch('live-status', `${MEMBERSHIP}:revoked`);
     await settle();
     expect(toasts(app)).toEqual(['Status is now archived']);
   });
 
-  it('offers only the delegable keys the server lists, and refuses to guess', async () => {
-    const { root } = start(signedInApi());
+  it('asks before revoking access, and closes once the server agrees', async () => {
+    const api = signedInApi().on(`PATCH /tenants/${TENANT}/people/${MEMBERSHIP}`, {
+      status: 200,
+      body: { data: person({ status: 'revoked' }) },
+    });
+    const { app, root } = start(api);
     await settle();
-
-    const grant = find(root, 'select[data-form="roleGrant"]') as HTMLSelectElement;
-    expect([...grant.options].map((option) => option.value)).toEqual([
-      '',
-      'conversation.read',
-      'report.read',
-    ]);
-    // Nothing is preselected and the control is refused until both halves of
-    // the grant have actually been chosen.
-    expect(grant.value).toBe('');
-    expect(isDisabled(root, '[data-act="live-create-role"]')).toBe(true);
-
-    choose(root, 'select[data-form="roleGrant"]', 'report.read');
-    expect(isDisabled(root, '[data-act="live-create-role"]')).toBe(true);
-    choose(root, 'select[data-form="roleScope"]', 'tenant');
-    expect(isDisabled(root, '[data-act="live-create-role"]')).toBe(false);
+    openMenu(root, `member:${MEMBERSHIP}`);
+    click(root, `[data-act="dialog"][data-arg="member-revoke:${MEMBERSHIP}"]`);
+    expect(api.calls.some((call) => call.method === 'PATCH')).toBe(false);
+    expect(text(find(root, '.dialog'))).toContain('will lose access to this workspace immediately');
+    click(root, '.dialog [data-act="live-member-revoke"]');
+    await settle();
+    expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({ status: 'revoked' });
+    expect(toasts(app)).toEqual(['Status is now Revoked']);
+    expect(root.querySelector('.dialog')).toBeNull();
   });
 
-  it('reports a refused permission catalogue instead of an empty select', async () => {
-    const api = signedInApi().on(`GET /tenants/${TENANT}/permissions`, {
-      status: 403,
-      body: { error: { code: 'permission_denied', message: 'Denied.' } },
+  it('offers nothing a member cannot have done to themselves, or to someone revoked', async () => {
+    const api = signedInApi().on(`GET /tenants/${TENANT}/people`, {
+      status: 200,
+      body: { data: [
+        person({ membership_id: 'own-membership', email: 'owner@digital-school.example', scopes: [{ type: 'tenant', id: null }] }),
+        person({ membership_id: 'm-gone', email: 'gone@digital-school.example', status: 'revoked' }),
+      ] },
     });
     const { root } = start(api);
     await settle();
-
-    expect(text(root)).toContain('You don’t have permission for this');
-    expect((find(root, 'select[data-form="roleGrant"]') as HTMLSelectElement).disabled).toBe(true);
-    expect(isDisabled(root, '[data-act="live-create-role"]')).toBe(true);
+    openMenu(root, 'member:own-membership');
+    expect(root.querySelector('[data-arg="own-membership:suspended"]')?.hasAttribute('disabled')).toBe(true);
+    expect(root.querySelector('[data-arg="ownership-offer:own-membership"]')).toBeNull();
+    expect(root.querySelector('[data-arg="member-revoke:own-membership"]')).toBeNull();
+    openMenu(root, 'member:m-gone');
+    expect(root.querySelector('[data-arg^="m-gone:"]')).toBeNull();
+    expect(root.querySelector('[data-arg="member-revoke:m-gone"]')).toBeNull();
   });
 
-  it('creates a custom role from the chosen key and scope, renames it, and deletes it', async () => {
-    const custom = { id: 'r-new', key: 'custom_lead', name: 'Lead', is_builtin: false, grants: [] };
+  it('adds and removes team membership from the member’s own dialog', async () => {
+    const team = { id: 'team-1', name: 'Admissions', member_count: 0, archived: false, members: [] };
+    const joined = { ...team, member_count: 1, members: [{ membership_id: MEMBERSHIP, email: 'hana@digital-school.example' }] };
     const api = signedInApi()
-      .on(`POST /tenants/${TENANT}/roles`, { status: 201, body: { data: custom } })
-      .on(`PATCH /tenants/${TENANT}/roles/r-new`, {
-        status: 200,
-        body: { data: { ...custom, name: 'Enrollment lead' } },
-      })
-      .on(`DELETE /tenants/${TENANT}/roles/r-new`, { status: 204, body: null });
+      .on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [team, { id: 'team-old', name: 'Old', member_count: 0, archived: true, members: [] }] } })
+      .on(`POST /tenants/${TENANT}/teams/team-1/members`, { status: 200, body: { data: joined } })
+      .on(`DELETE /tenants/${TENANT}/teams/team-1/members/${MEMBERSHIP}`, { status: 200, body: { data: team } });
     const { app, root } = start(api);
     await settle();
 
-    type(root, '[data-form="roleName"]', 'Lead');
-    choose(root, 'select[data-form="roleGrant"]', 'report.read');
-    choose(root, 'select[data-form="roleScope"]', 'tenant');
-
-    api.on(`GET /tenants/${TENANT}/roles`, {
-      status: 200,
-      body: {
-        data: [
-          {
-            id: AGENT_ROLE,
-            key: 'agent',
-            name: 'Agent',
-            is_builtin: true,
-            grants: [{ permission_key: 'conversation.read', scope_level: 'scoped' }],
-          },
-          { ...custom, grants: [{ permission_key: 'report.read', scope_level: 'tenant' }] },
-        ],
-      },
-    });
-    click(root, '[data-act="live-create-role"]');
+    app.dispatch('dialog', `member-teams:${MEMBERSHIP}`);
+    // An archived team the member is not in is not offered.
+    expect(text(find(root, '.dialog'))).not.toContain('Old');
+    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [joined] } });
+    click(root, `[data-act="live-member-team"][data-arg="team-1:${MEMBERSHIP}:add"]`);
     await settle();
-
-    expect(
-      api.calls.find((call) => call.method === 'POST' && call.path.endsWith('/roles'))?.body,
-    ).toEqual({
-      name: 'Lead',
-      description: '',
-      grants: [{ permission: 'report.read', scope: 'tenant' }],
-    });
-    expect(toasts(app)).toContain('Created the role Lead');
-    expect(app.state.dialogForm['roleGrant']).toBeUndefined();
-
-    // Only the custom role offers a rename and a delete; a built-in one shows
-    // its badge, because the database refuses to change it at all.
-    expect(root.querySelectorAll('[data-act="live-delete-role"]')).toHaveLength(1);
-    expect(root.querySelectorAll('[data-act="live-rename-role"]')).toHaveLength(1);
-    expect(text(find(root, '[data-role="agent"]'))).toContain('Built-in');
-    expect(isDisabled(root, '[data-act="live-rename-role"]')).toBe(true);
-
-    type(root, '[data-form="roleName_r-new"]', 'Enrollment lead');
-    expect(isDisabled(root, '[data-act="live-rename-role"]')).toBe(false);
-    click(root, '[data-act="live-rename-role"]');
+    expect(api.calls.find((call) => call.path.endsWith('/members'))?.body).toEqual({ membershipId: MEMBERSHIP });
+    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [team] } });
+    click(root, `[data-act="live-member-team"][data-arg="team-1:${MEMBERSHIP}:remove"]`);
     await settle();
-    // The rename resends the grants the *server* reported, so a rename cannot
-    // quietly widen what the role can do.
-    expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({
-      name: 'Enrollment lead',
-      description: '',
-      grants: [{ permission: 'report.read', scope: 'tenant' }],
-    });
-    expect(toasts(app)).toContain('Renamed to Enrollment lead');
-
-    click(root, '[data-act="live-delete-role"]');
-    await settle();
-    expect(toasts(app)).toContain('Role deleted');
-  });
-
-  it('keeps what was typed when creating a role is refused', async () => {
-    const api = signedInApi().on(`POST /tenants/${TENANT}/roles`, {
-      status: 409,
-      body: { error: { code: 'role_name_taken', message: 'A role with that name exists.' } },
-    });
-    const { app, root } = start(api);
-    await settle();
-    type(root, '[data-form="roleName"]', 'Agent');
-    choose(root, 'select[data-form="roleGrant"]', 'report.read');
-    choose(root, 'select[data-form="roleScope"]', 'own');
-    click(root, '[data-act="live-create-role"]');
-    await settle();
-    expect(text(root)).toContain('This conflicts with the current state');
-    expect(text(root)).toContain('A role with that name exists.');
-    expect(app.state.dialogForm['roleName']).toBe('Agent');
-  });
-
-  it('ignores a rename aimed at a role the server never sent', async () => {
-    const { app } = start(signedInApi());
-    await settle();
-    app.dispatch('live-rename-role', 'r-unknown');
-    await settle();
-    expect(app.state.toasts).toHaveLength(0);
-  });
-
-  it('creates a team, adds and removes a member, then archives and restores it', async () => {
-    const empty = {
-      id: 'team-1',
-      name: 'Enrollment',
-      member_count: 0,
-      archived: false,
-      members: [],
-    };
-    const filled = {
-      ...empty,
-      member_count: 1,
-      members: [{ membership_id: MEMBERSHIP, email: 'hana@digital-school.example' }],
-    };
-    const api = signedInApi()
-      .on(`POST /tenants/${TENANT}/teams`, { status: 201, body: { data: empty } })
-      .on(`POST /tenants/${TENANT}/teams/team-1/members`, { status: 200, body: { data: filled } })
-      .on(`DELETE /tenants/${TENANT}/teams/team-1/members/${MEMBERSHIP}`, {
-        status: 200,
-        body: { data: empty },
-      })
-      .on(`PATCH /tenants/${TENANT}/teams/team-1`, {
-        status: 200,
-        body: { data: { ...empty, archived: true } },
-      });
-    const { app, root } = start(api);
-    await settle();
-
-    type(root, '[data-form="teamName"]', 'Enrollment');
-    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [empty] } });
-    click(root, '[data-act="live-create-team"]');
-    await settle();
-    expect(toasts(app)).toContain('Created the team Enrollment');
-    expect(text(find(root, '[data-team="team-1"]'))).toContain('No members yet.');
-
-    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [filled] } });
-    choose(root, 'select[data-form="teamMember_team-1"]', MEMBERSHIP);
-    click(root, '[data-act="live-team-add"]');
-    await settle();
-    expect(api.calls.find((call) => call.path.endsWith('/members'))?.body).toEqual({
-      membershipId: MEMBERSHIP,
-    });
-    // The card names who is in the team, and does not offer to add them twice.
-    expect(text(find(root, '.memberlist'))).toContain('hana@digital-school.example');
-    expect(
-      (find(root, 'select[data-form="teamMember_team-1"]') as HTMLSelectElement).disabled,
-    ).toBe(true);
-
-    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [empty] } });
-    click(root, '[data-act="live-remove-member"]');
-    await settle();
-    expect(api.calls.some((call) => call.method === 'DELETE' && call.path.endsWith(MEMBERSHIP))).toBe(
-      true,
-    );
     expect(toasts(app)).toContain('Removed from the team');
-
-    api.on(`GET /tenants/${TENANT}/teams`, {
-      status: 200,
-      body: { data: [{ ...empty, archived: true }] },
-    });
-    click(root, '[data-act="live-archive-team"]');
+    app.dispatch('live-member-team', 'team-1:m:unknown');
     await settle();
-    // Archiving sends only what it changes — no echoed name to rename the team
-    // by accident.
-    expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({ archived: true });
-    expect(toasts(app)).toContain('Team archived');
-    expect(text(find(root, '[data-team="team-1"]'))).toContain('Archived');
-    // An archived team takes no new members, and the server refuses it too.
-    expect(isDisabled(root, '[data-act="live-team-add"]')).toBe(true);
+    expect(app.state.toasts).toHaveLength(2);
+  });
 
-    api.on(`PATCH /tenants/${TENANT}/teams/team-1`, { status: 200, body: { data: empty } });
-    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [empty] } });
-    click(root, '[data-act="live-archive-team"]');
+  it('says so when a dialog’s member, role or team has gone', async () => {
+    const { app, root } = start(signedInApi());
     await settle();
-    expect(api.calls.filter((call) => call.method === 'PATCH').at(-1)?.body).toEqual({
-      archived: false,
-    });
-    expect(toasts(app)).toContain('Team restored');
+    for (const dialog of ['member-role:x', 'member-revoke:x', 'member-teams:x', 'role-rename:x', 'role-delete:x', 'role-assign:x', 'team-rename:x']) {
+      app.dispatch('dialog', dialog);
+      expect(text(find(root, '.dialog'))).toContain('This item no longer exists');
+    }
+  });
+
+  it('says there are no teams yet in the member’s team dialog', async () => {
+    const { app, root } = start(signedInApi());
+    await settle();
+    app.dispatch('dialog', `member-teams:${MEMBERSHIP}`);
+    expect(text(find(root, '.dialog'))).toContain('There are no teams yet');
   });
 
   it('confirms an ownership offer first, then settles it three ways', async () => {
@@ -892,30 +853,22 @@ describe('changing people, roles and teams', () => {
     const settled = { ...transfer, settled_at: NOW.toISOString() };
     const api = signedInApi()
       .on(`POST /tenants/${TENANT}/ownership-transfers`, { status: 201, body: { data: transfer } })
-      .on(`POST /tenants/${TENANT}/ownership-transfers/tr-1/accept`, {
-        status: 200,
-        body: { data: { ...settled, status: 'accepted' } },
-      })
-      .on(`POST /tenants/${TENANT}/ownership-transfers/tr-1/decline`, {
-        status: 200,
-        body: { data: { ...settled, status: 'declined' } },
-      })
+      .on(`POST /tenants/${TENANT}/ownership-transfers/tr-1/accept`, { status: 200, body: { data: { ...settled, status: 'accepted' } } })
+      .on(`POST /tenants/${TENANT}/ownership-transfers/tr-1/decline`, { status: 200, body: { data: { ...settled, status: 'declined' } } })
       .on(`DELETE /tenants/${TENANT}/ownership-transfers/tr-1`, { status: 204, body: null });
     const { app, root } = start(api);
     await settle();
 
+    openMenu(root, `member:${MEMBERSHIP}`);
     click(root, `[data-act="dialog"][data-arg="ownership-offer:${MEMBERSHIP}"]`);
-    // Nothing is sent by opening the confirmation.
     expect(api.calls.some((call) => call.path.endsWith('/ownership-transfers') && call.method === 'POST')).toBe(false);
     expect(text(find(root, '.dialog'))).toContain('hana@digital-school.example');
 
-    api.on(`GET /tenants/${TENANT}/ownership-transfers`, {
-      status: 200,
-      body: { data: [transfer] },
-    });
+    api.on(`GET /tenants/${TENANT}/ownership-transfers`, { status: 200, body: { data: [transfer] } });
     click(root, '.dialog [data-act="live-offer-ownership"]');
     await settle();
     expect(root.querySelector('.dialog')).toBeNull();
+    expect(text(root)).toContain('Ownership transfer awaiting a decision');
     expect(text(root)).toContain('Offer to hana@digital-school.example');
 
     click(root, '[data-arg="tr-1:decline"]');
@@ -924,27 +877,21 @@ describe('changing people, roles and teams', () => {
     await settle();
     click(root, '[data-arg="tr-1:accept"]');
     await settle();
-
-    // The toast stack keeps the last three; the offer itself has scrolled off.
-    expect(toasts(app)).toEqual([
-      'Ownership offer declined',
-      'Ownership offer cancelled',
-      'Ownership transferred',
-    ]);
+    expect(toasts(app)).toEqual(['Ownership offer declined', 'Ownership offer cancelled', 'Ownership transferred']);
   });
 
-  it('does not offer ownership to yourself, and says so when the member has gone', async () => {
-    const api = signedInApi().on(`GET /tenants/${TENANT}/people`, {
+  it('names a pending offer’s recipient by id when they are no longer listed, and hides settled ones', async () => {
+    const api = signedInApi().on(`GET /tenants/${TENANT}/ownership-transfers`, {
       status: 200,
-      body: { data: [person({ membership_id: 'own-membership', email: 'owner@digital-school.example' })] },
+      body: { data: [
+        { id: 'tr-p', status: 'pending', from_membership: 'own-membership', to_membership: 'someone-gone', created_at: NOW.toISOString(), expires_at: NOW.toISOString(), settled_at: null },
+        { id: 'tr-old', status: 'accepted', from_membership: 'own-membership', to_membership: MEMBERSHIP, created_at: NOW.toISOString(), expires_at: NOW.toISOString(), settled_at: NOW.toISOString() },
+      ] },
     });
-    const { app, root } = start(api);
+    const { root } = start(api);
     await settle();
-    expect(root.querySelector('[data-arg^="ownership-offer:"]')).toBeNull();
-
-    app.dispatch('dialog', `ownership-offer:${MEMBERSHIP}`);
-    expect(text(find(root, '.dialog'))).toContain('This member no longer exists');
-    expect(root.querySelector('.dialog [data-act="live-offer-ownership"]')).toBeNull();
+    expect(root.querySelectorAll('.transfer')).toHaveLength(1);
+    expect(text(find(root, '.transfer'))).toContain('someone-gone');
   });
 
   it('ignores an ownership decision it does not recognise', async () => {
@@ -955,149 +902,628 @@ describe('changing people, roles and teams', () => {
     expect(app.state.toasts).toHaveLength(0);
   });
 
-  it('shows a settled offer’s outcome and no decision buttons', async () => {
-    const api = signedInApi().on(`GET /tenants/${TENANT}/ownership-transfers`, {
-      status: 200,
-      body: {
-        data: [
-          {
-            id: 'tr-old',
-            status: 'accepted',
-            from_membership: 'own-membership',
-            to_membership: 'someone-gone',
-            created_at: NOW.toISOString(),
-            expires_at: NOW.toISOString(),
-            settled_at: NOW.toISOString(),
-          },
-        ],
-      },
-    });
-    const { root } = start(api);
+  it('says the member has gone when an ownership offer points at nobody', async () => {
+    const { app, root } = start(signedInApi());
     await settle();
-
-    const row = find(root, '.transfer');
-    expect(text(row)).toContain('Accepted');
-    // A recipient who is no longer listed is named by the id the server sent.
-    expect(text(row)).toContain('someone-gone');
-    expect(root.querySelector('[data-act="live-ownership"]')).toBeNull();
-  });
-});
-
-/* ------------------------------------------------------- what is rendered -- */
-
-describe('rendering the rows the server sent', () => {
-  it('names each scope in words, and one it does not know by its own type', async () => {
-    const api = signedInApi().on(`GET /tenants/${TENANT}/people`, {
-      status: 200,
-      body: {
-        data: [
-          person({
-            scopes: [
-              { type: 'tenant', id: null },
-              { type: 'team', id: 'team-1' },
-              { type: 'region', id: 'north' },
-            ],
-          }),
-          person({ membership_id: 'm-2', email: 'nadia@digital-school.example', scopes: [] }),
-        ],
-      },
-    });
-    const { root } = start(api);
-    await settle();
-
-    const scopes = text(find(root, `tr[data-membership="${MEMBERSHIP}"]`));
-    expect(scopes).toContain('Whole workspace');
-    expect(scopes).toContain('Team');
-    expect(scopes).toContain('region');
-    // Somebody with no scope at all is flagged: they can see nothing.
-    expect(text(find(root, 'tr[data-membership="m-2"]'))).toContain('No scope');
-    // The whole-workspace grant is only offered to whoever lacks it.
-    expect(root.querySelectorAll('[data-act="live-scope-tenant"]')).toHaveLength(1);
+    app.dispatch('dialog', 'ownership-offer:nobody');
+    expect(text(find(root, '.dialog'))).toContain('This member no longer exists');
   });
 
-  it('distinguishes a revoked invitation from an accepted one', async () => {
-    const api = signedInApi().on(`GET /tenants/${TENANT}/invitations`, {
-      status: 200,
-      body: {
-        data: [
-          invitation({ id: 'inv-r', status: 'revoked', revoked_at: NOW.toISOString() }),
-          invitation({ id: 'inv-a', status: 'accepted', accepted_at: NOW.toISOString() }),
-          invitation({ id: 'inv-x', status: 'bounced' }),
-        ],
-      },
-    });
+  it('offers nothing it cannot back: no invite without member management, no role change without roles', async () => {
+    const api = signedInApi()
+      .on('GET /me/memberships', {
+        status: 200,
+        body: { data: [{ id: 'own-membership', tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' }, role: { id: 'custom', key: 'viewer', name: 'Viewer' }, permissions: ['member.manage'] }] },
+      })
+      .on(`GET /tenants/${TENANT}/roles`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } })
+      .on(`GET /tenants/${TENANT}/teams`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } });
     const { root } = start(api);
     await settle();
-
-    expect(text(find(root, '.badge--neutral'))).toContain('Revoked');
-    expect(text(find(root, '.badge--success'))).toContain('Accepted');
-    expect(text(root)).toContain('bounced');
-    // None offers a revoke: there is nothing left to withdraw.
-    expect(root.querySelector('[data-act="live-revoke-invite"]')).toBeNull();
+    openMenu(root, `member:${MEMBERSHIP}`);
+    expect(root.querySelector('[data-arg^="member-role:"]')).toBeNull();
+    expect(root.querySelector('[data-arg^="member-teams:"]')).toBeNull();
+    // Roles are not in the navigation: they need role.manage.
+    expect([...root.querySelectorAll('.nav__item')].map((item) => item.getAttribute('data-arg'))).toEqual(['people', 'teams', 'settings']);
   });
 
-  it('counts what the server sent in the summary, and nothing before it answers', async () => {
-    const api = signedInApi().on(`GET /tenants/${TENANT}/invitations`, {
-      status: 200,
-      body: { data: [invitation(), invitation({ id: 'inv-2', status: 'accepted' })] },
-    });
-    const release = api.hold(`GET /tenants/${TENANT}/teams`);
+  it('shows no menu at all when nothing can be done to a member', async () => {
+    const api = signedInApi()
+      .on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person({ membership_id: 'own-membership', email: 'owner@digital-school.example', status: 'revoked', scopes: [{ type: 'tenant', id: null }] })] } })
+      .on(`GET /tenants/${TENANT}/roles`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } })
+      .on(`GET /tenants/${TENANT}/teams`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } });
     const { root } = start(api);
     await settle();
-    const summary = find(root, '.people-summary');
-    // The lists are read together, so the summary waits for all of them.
-    expect(text(summary)).toContain('—');
-    release({ status: 200, body: { data: [] } });
-    await settle();
-    const values = [...find(root, '.people-summary').querySelectorAll('strong')].map((node) => node.textContent);
-    expect(values).toEqual(['1', '1', '0', '2']);
-  });
-
-  it('offers no invitation to a membership without member management', async () => {
-    const api = signedInApi().on('GET /me/memberships', {
-      status: 200,
-      body: {
-        data: [
-          {
-            id: 'own-membership',
-            tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' },
-            role: { id: 'custom', key: 'role_editor', name: 'Role editor' },
-            permissions: ['role.manage'],
-          },
-        ],
-      },
-    });
-    const { root } = start(api);
-    await settle();
-    expect(root.querySelector('.page--people')).not.toBeNull();
-    expect(root.querySelector('[data-arg="invite"]')).toBeNull();
+    expect(root.querySelector('[data-arg="member:own-membership"]')).toBeNull();
   });
 
   it('speaks Arabic by default, which is the workspace’s own language', async () => {
     const api = signedInApi().on(`POST /tenants/${TENANT}/teams`, {
       status: 201,
-      body: {
-        data: { id: 'team-1', name: 'القبول', member_count: 0, archived: false, members: [] },
-      },
+      body: { data: { id: 'team-1', name: 'القبول', member_count: 0, archived: false, members: [] } },
     });
     const root = mountRoot();
-    // Deliberately not switched to English, unlike every test above.
+    const app = mount({ root, host: createHost('#/teams'), now: NOW, fetch: api.fetch, readCsrfToken: () => 'csrf-token', newKey: () => 'key-1' });
+    handle = app;
+    await settle();
+
+    expect(text(find(root, '.header__title'))).toBe('الفرق');
+    expect(text(find(root, '.nav'))).toContain('إدارة المستخدمين');
+    click(root, '[data-act="dialog"][data-arg="team-create"]');
+    type(root, '#team-name', 'القبول');
+    click(root, '.dialog [data-act="live-create-team"]');
+    await settle();
+    expect(toasts(app)).toEqual(['أُنشئ الفريق القبول']);
+    expect(root.querySelector('.dialog')).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ roles -- */
+
+describe('the Roles screen', () => {
+  it('lists roles with type, holders and permission counts, built-in ones read-only', async () => {
+    const { root } = start(rolesApi(), '#/roles');
+    await settle();
+    const custom = text(find(root, '[data-role="enrollment_lead"]'));
+    expect(custom).toContain('Custom');
+    expect(custom).toContain('Handles enrolment.');
+    expect(custom).toContain('1 / 5');
+    expect(text(find(root, '[data-role="agent"]'))).toContain('Built-in');
+    // Built-ins come first, and offer no actions.
+    expect(root.querySelector('tbody tr')?.getAttribute('data-role')).toBe('agent');
+    expect(root.querySelector('[data-arg="role:agent-role"], [data-arg="role:22222222-2222-4222-8222-222222222222"]')).toBeNull();
+    expect(root.querySelector(`[data-arg="role:${CUSTOM_ROLE}"]`)).not.toBeNull();
+  });
+
+  it('shows counts as unknown when the member or catalogue lists were refused', async () => {
+    const api = rolesApi()
+      .on(`GET /tenants/${TENANT}/people`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } })
+      .on(`GET /tenants/${TENANT}/permissions`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } });
+    const { root } = start(api, '#/roles');
+    await settle();
+    const row = text(find(root, '[data-role="enrollment_lead"]'));
+    expect(row).toContain('—');
+    expect(row).toContain('1');
+    expect(root.querySelector('[data-arg="role-create"]')).not.toBeNull();
+  });
+
+  it('creates a role from a name and description, with no grants, then opens it', async () => {
+    const created = customRole({ id: 'r-new', key: 'lead', name: 'Lead', description: 'Leads.', grants: [] });
+    const api = rolesApi().on(`POST /tenants/${TENANT}/roles`, { status: 201, body: { data: created } });
+    const { app, root } = start(api, '#/roles');
+    await settle();
+
+    click(root, '[data-act="dialog"][data-arg="role-create"]');
+    expect(isDisabled(root, '.dialog [data-act="live-create-role"]')).toBe(true);
+    type(root, '#role-name', 'Lead');
+    const description = find(root, '#role-description') as HTMLTextAreaElement;
+    description.value = 'Leads.';
+    description.dispatchEvent(new window.Event('input', { bubbles: true }));
+    api.on(`GET /tenants/${TENANT}/roles`, { status: 200, body: { data: [customRole(), created] } });
+    click(root, '.dialog [data-act="live-create-role"]');
+    await settle();
+
+    expect(api.calls.find((call) => call.method === 'POST' && call.path.endsWith('/roles'))?.body).toEqual({ name: 'Lead', description: 'Leads.', grants: [] });
+    expect(toasts(app)).toContain('Created the role Lead');
+    expect(root.querySelector('.dialog')).toBeNull();
+    expect(app.state.route.params['role']).toBe('r-new');
+    expect(text(find(root, '.admin-head__title'))).toBe('Lead');
+  });
+
+  it('stays on the list when a created role does not come back in the list', async () => {
+    const api = rolesApi().on(`POST /tenants/${TENANT}/roles`, { status: 201, body: { data: customRole({ id: 'r-new', name: 'Ghost' }) } });
+    const { app } = start(api, '#/roles');
+    await settle();
+    app.dispatch('dialog', 'role-create');
+    app.dispatch('form', 'roleName:Ghost');
+    app.dispatch('live-create-role');
+    await settle();
+    expect(app.state.route.params['role']).toBeUndefined();
+    expect(app.state.dialog).toBeNull();
+  });
+
+  it('keeps what was typed when creating a role is refused', async () => {
+    const api = rolesApi().on(`POST /tenants/${TENANT}/roles`, {
+      status: 409,
+      body: { error: { code: 'role_name_taken', message: 'A role with that name exists.' } },
+    });
+    const { app, root } = start(api, '#/roles');
+    await settle();
+    click(root, '[data-act="dialog"][data-arg="role-create"]');
+    type(root, '#role-name', 'Agent');
+    click(root, '.dialog [data-act="live-create-role"]');
+    await settle();
+    expect(text(find(root, '.dialog'))).toContain('A role with that name exists.');
+    expect(app.state.dialogForm['roleName']).toBe('Agent');
+  });
+
+  it('edits a role’s name and description, resending the grants the server reported', async () => {
+    const api = rolesApi().on(`PATCH /tenants/${TENANT}/roles/${CUSTOM_ROLE}`, { status: 200, body: { data: customRole({ name: 'Admissions lead' }) } });
+    const { app, root } = start(api, '#/roles');
+    await settle();
+    openMenu(root, `role:${CUSTOM_ROLE}`);
+    click(root, `[data-act="dialog"][data-arg="role-rename:${CUSTOM_ROLE}"]`);
+    expect((find(root, '#role-rename') as HTMLInputElement).value).toBe('Enrollment lead');
+    type(root, '#role-rename', 'Admissions lead');
+    click(root, '.dialog [data-act="live-rename-role"]');
+    await settle();
+    expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({
+      name: 'Admissions lead',
+      description: 'Handles enrolment.',
+      grants: [{ permission: 'conversation.read', scope: 'scoped' }],
+    });
+    expect(toasts(app)).toContain('Renamed to Admissions lead');
+    expect(root.querySelector('.dialog')).toBeNull();
+
+    app.dispatch('dialog', `role-rename:${CUSTOM_ROLE}`);
+    const description = find(root, '#role-rename-description') as HTMLTextAreaElement;
+    description.value = '  New purpose  ';
+    description.dispatchEvent(new window.Event('input', { bubbles: true }));
+    app.dispatch('live-rename-role', CUSTOM_ROLE);
+    await settle();
+    expect(api.calls.filter((call) => call.method === 'PATCH').at(-1)?.body).toMatchObject({ description: 'New purpose' });
+  });
+
+  it('keeps the rename dialog open when the server refuses it', async () => {
+    const api = rolesApi().on(`PATCH /tenants/${TENANT}/roles/${CUSTOM_ROLE}`, { status: 409, body: { error: { code: 'role_exists', message: 'Taken.' } } });
+    const { app, root } = start(api, '#/roles');
+    await settle();
+    app.dispatch('dialog', `role-rename:${CUSTOM_ROLE}`);
+    app.dispatch('live-rename-role', CUSTOM_ROLE);
+    await settle();
+    expect(text(find(root, '.dialog'))).toContain('Taken.');
+  });
+
+  it('ignores a rename aimed at a role the server never sent', async () => {
+    const { app } = start(signedInApi());
+    await settle();
+    app.dispatch('live-rename-role', 'r-unknown');
+    await settle();
+    expect(app.state.toasts).toHaveLength(0);
+  });
+
+  it('refuses up front to delete a role somebody holds, and deletes an unused one', async () => {
+    const api = rolesApi()
+      .on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person()] } })
+      .on(`DELETE /tenants/${TENANT}/roles/${CUSTOM_ROLE}`, { status: 204, body: null });
+    const { app, root } = start(api, `#/roles?role=${CUSTOM_ROLE}`);
+    await settle();
+    app.dispatch('role-grant-toggle', 'report.read');
+    openMenu(root, `role:${CUSTOM_ROLE}`);
+    click(root, `[data-act="dialog"][data-arg="role-delete:${CUSTOM_ROLE}"]`);
+    expect(text(find(root, '.dialog'))).toContain('will be deleted permanently');
+    api.on(`GET /tenants/${TENANT}/roles`, { status: 200, body: { data: [] } });
+    click(root, '.dialog [data-act="live-delete-role"]');
+    await settle();
+    expect(toasts(app)).toContain('Role deleted');
+    expect(root.querySelector('.dialog')).toBeNull();
+    // Its page no longer exists, and neither does the draft on it.
+    expect(app.state.route.params['role']).toBeUndefined();
+    expect(app.state.roleDraft).toBeNull();
+
+    const held = rolesApi();
+    const { root: second } = start(held, '#/roles');
+    await settle();
+    (handle as AppHandle).dispatch('dialog', `role-delete:${CUSTOM_ROLE}`);
+    expect(text(find(second, '.dialog'))).toContain('1 member(s) hold this role');
+    expect(isDisabled(second, '.dialog [data-act="live-delete-role"]')).toBe(true);
+  });
+
+  it('keeps the page and the dialog when a delete is refused, and deletes from the list too', async () => {
+    const api = rolesApi()
+      .on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person()] } })
+      .on(`DELETE /tenants/${TENANT}/roles/${CUSTOM_ROLE}`, { status: 409, body: { error: { code: 'role_in_use', message: 'In use.' } } });
+    const { app, root } = start(api, '#/roles');
+    await settle();
+    app.dispatch('dialog', `role-delete:${CUSTOM_ROLE}`);
+    app.dispatch('live-delete-role', CUSTOM_ROLE);
+    await settle();
+    expect(text(find(root, '.dialog'))).toContain('In use.');
+    api.on(`DELETE /tenants/${TENANT}/roles/${CUSTOM_ROLE}`, { status: 204, body: null });
+    app.dispatch('live-delete-role', CUSTOM_ROLE);
+    await settle();
+    expect(app.state.route.screen).toBe('roles');
+  });
+});
+
+/* ------------------------------------------------------------ role detail -- */
+
+describe('a role in detail', () => {
+  it('shows the header, a compact summary and the permission modules', async () => {
+    const { root } = start(rolesApi(), `#/roles?role=${CUSTOM_ROLE}`);
+    await settle();
+    expect(text(find(root, '.breadcrumb'))).toContain('User managementRolesEnrollment lead');
+    expect(text(find(root, '.admin-head'))).toContain('Custom');
+    const summary = text(find(root, '.role-summary'));
+    expect(summary).toContain('Assigned users1');
+    expect(summary).toContain('Permissions1 / 5');
+    expect(summary).toContain('Role typeCustom');
+    expect(summary).toContain('Last updated');
+    expect(find(root, '#tab-permissions').getAttribute('aria-selected')).toBe('true');
+    expect(text(find(root, '.permissions__count'))).toBe('1 of 5 enabled');
+    // Real keys under friendly labels, grouped by module; an unknown key under Other.
+    const conversations = find(root, '[data-group="conversations"]');
+    expect(text(conversations)).toContain('Read conversations');
+    expect(text(conversations)).toContain('conversation.read');
+    expect(text(find(conversations, '.permission-card__count'))).toBe('1/1');
+    expect(text(find(root, '[data-group="other"]'))).toContain('future.thing');
+  });
+
+  it('explains every control it cannot offer instead of pretending it worked', async () => {
+    const { root } = start(rolesApi(), `#/roles?role=${CUSTOM_ROLE}`);
+    await settle();
+    // Not delegable: never on a custom role.
+    expect((find(root, '[data-permission="tenant.delete"] input') as HTMLInputElement).disabled).toBe(true);
+    expect(text(find(root, '[data-permission="tenant.delete"]'))).toContain('Not delegable');
+    // Delegable, but the operator does not hold it.
+    expect((find(root, '[data-permission="contact.export"] input') as HTMLInputElement).disabled).toBe(true);
+    expect(text(find(root, '[data-permission="contact.export"]'))).toContain('You don’t hold it');
+    // Held and delegable: editable.
+    expect((find(root, '[data-permission="report.read"] input') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('drafts a change, shows it as unsaved, then saves the whole grant set', async () => {
+    const api = rolesApi().on(`PATCH /tenants/${TENANT}/roles/${CUSTOM_ROLE}`, {
+      status: 200,
+      body: { data: customRole({ grants: [{ permission_key: 'conversation.read', scope_level: 'scoped' }, { permission_key: 'report.read', scope_level: 'own' }] }) },
+    });
+    const { app, root } = start(api, `#/roles?role=${CUSTOM_ROLE}`);
+    await settle();
+    expect(root.querySelector('.savebar')).toBeNull();
+
+    check(root, '[data-permission="report.read"] input');
+    expect(app.state.roleDraft?.grants).toEqual({ 'conversation.read': 'scoped', 'report.read': 'tenant' });
+    expect(text(find(root, '.permissions__count'))).toBe('2 of 5 enabled');
+    expect(root.querySelector('.savebar')).not.toBeNull();
+    choose(root, '[data-permission="report.read"] select', 'own');
+    expect(app.state.roleDraft?.grants['report.read']).toBe('own');
+    // Nothing reaches the server until Save.
+    expect(api.calls.some((call) => call.method === 'PATCH')).toBe(false);
+
+    api.on(`GET /tenants/${TENANT}/roles`, {
+      status: 200,
+      body: { data: [customRole({ grants: [{ permission_key: 'conversation.read', scope_level: 'scoped' }, { permission_key: 'report.read', scope_level: 'own' }] })] },
+    });
+    click(root, '.savebar [data-act="live-save-role"]');
+    await settle();
+    expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({
+      name: 'Enrollment lead',
+      description: 'Handles enrolment.',
+      grants: [{ permission: 'conversation.read', scope: 'scoped' }, { permission: 'report.read', scope: 'own' }],
+    });
+    expect(toasts(app)).toContain('Saved permissions for Enrollment lead');
+    expect(app.state.roleDraft).toBeNull();
+    expect(root.querySelector('.savebar')).toBeNull();
+  });
+
+  it('keeps the draft and shows the server’s refusal when saving fails', async () => {
+    const api = rolesApi().on(`PATCH /tenants/${TENANT}/roles/${CUSTOM_ROLE}`, {
+      status: 403,
+      body: { error: { code: 'delegation_ceiling', message: 'Wider than your own.' } },
+    });
+    const { app, root } = start(api, `#/roles?role=${CUSTOM_ROLE}`);
+    await settle();
+    check(root, '[data-permission="conversation.read"] input');
+    expect(app.state.roleDraft?.grants).toEqual({});
+    click(root, '[data-act="live-save-role"]');
+    await settle();
+    expect(text(root)).toContain('Wider than your own.');
+    expect(app.state.roleDraft).not.toBeNull();
+
+    // Unchecking and rechecking returns to the saved state: nothing unsaved.
+    check(root, '[data-permission="conversation.read"] input');
+    choose(root, '[data-permission="conversation.read"] select', 'scoped');
+    expect(root.querySelector('.savebar')).toBeNull();
+    check(root, '[data-permission="conversation.read"] input');
+    click(root, '[data-act="role-draft-discard"]');
+    expect(app.state.roleDraft).toBeNull();
+    expect(app.state.live.error).toBeNull();
+  });
+
+  it('ignores edits and saves that do not belong to an editable role', async () => {
+    const { app, root } = start(rolesApi(), `#/roles?role=${AGENT_ROLE}`);
+    await settle();
+    // A built-in role renders the same matrix, read-only, with no draft.
+    expect(text(root)).toContain('Permissions for this system role cannot be edited.');
+    expect((find(root, '[data-permission="conversation.read"] input') as HTMLInputElement).disabled).toBe(true);
+    expect(root.querySelector('.permission-row__lock')).toBeNull();
+    app.dispatch('role-grant-toggle', 'report.read');
+    app.dispatch('role-grant-scope', 'conversation.read:tenant');
+    expect(app.state.roleDraft).toBeNull();
+    app.dispatch('live-save-role', AGENT_ROLE);
+    await settle();
+    expect(app.state.toasts).toHaveLength(0);
+
+    const { app: custom } = start(rolesApi(), `#/roles?role=${CUSTOM_ROLE}`);
+    await settle();
+    // A scope for a key the draft does not hold, or one that is not a scope, changes nothing.
+    custom.dispatch('role-grant-scope', 'report.read:tenant');
+    custom.dispatch('role-grant-scope', 'conversation.read:everything');
+    expect(custom.state.roleDraft).toBeNull();
+    custom.dispatch('live-save-role', CUSTOM_ROLE);
+    await settle();
+    expect(custom.state.toasts).toHaveLength(0);
+  });
+
+  it('marks everything read-only for someone who cannot manage roles', async () => {
+    const api = rolesApi().on('GET /me/memberships', {
+      status: 200,
+      body: { data: [{ id: 'own-membership', tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' }, role: { id: 'custom', key: 'viewer', name: 'Viewer' }, permissions: ['member.manage', 'role.manage'] }] },
+    });
+    const { app, root } = start(api, `#/roles?role=${CUSTOM_ROLE}`);
+    await settle();
+    // Holds role.manage, but none of these keys: each explains why.
+    expect(text(find(root, '[data-permission="report.read"]'))).toContain('You don’t hold it');
+    app.state.live.session = { ...app.state.live.session, memberships: [] } as typeof app.state.live.session;
+    app.render();
+    expect(text(find(root, '[data-permission="report.read"]'))).toContain('You cannot manage roles');
+  });
+
+  it('searches permissions by label, key and description, and folds modules', async () => {
+    const { app, root } = start(rolesApi(), `#/roles?role=${CUSTOM_ROLE}`);
+    await settle();
+    click(root, '[data-act="permission-group"][data-arg="conversations"]');
+    expect(find(root, '[data-group="conversations"] .permission-card__toggle').getAttribute('aria-expanded')).toBe('false');
+    expect(root.querySelector('[data-group="conversations"] .permission-row')).toBeNull();
+
+    type(root, '[data-act="permission-search"]', 'export contacts');
+    expect([...root.querySelectorAll('.permission-row')].map((row) => row.getAttribute('data-permission'))).toEqual(['contact.export']);
+    type(root, '[data-act="permission-search"]', 'conversation.read');
+    // A search opens a folded module that matches.
+    expect(root.querySelector('[data-permission="conversation.read"]')).not.toBeNull();
+    type(root, '[data-act="permission-search"]', 'something newer');
+    expect(root.querySelector('[data-permission="future.thing"]')).not.toBeNull();
+    type(root, '[data-act="permission-search"]', 'zzz');
+    expect(text(root)).toContain('No permission matches this search.');
+    type(root, '[data-act="permission-search"]', '');
+    click(root, '[data-act="permission-group"][data-arg="conversations"]');
+    expect(app.state.collapsedGroups).toEqual([]);
+  });
+
+  it('warns about unsaved changes on the list and before the page unloads', async () => {
+    const { app, root } = start(rolesApi(), `#/roles?role=${CUSTOM_ROLE}`);
+    await settle();
+    check(root, '[data-permission="report.read"] input');
+    app.dispatch('nav', 'roles');
+    await settle();
+    expect(app.state.route.params['role']).toBeUndefined();
+    expect(text(root)).toContain('You have unsaved changes to Enrollment lead');
+  });
+
+  it('asks before the page unloads only while a draft differs from the saved role', async () => {
+    const api = rolesApi();
+    const root = mountRoot();
     const app = mount({
       root,
-      host: createHost(),
+      host: createHost(`#/roles?role=${CUSTOM_ROLE}`),
       now: NOW,
       fetch: api.fetch,
       readCsrfToken: () => 'csrf-token',
       newKey: () => 'key-1',
+      page: browserPageLifecycle(window),
     });
     handle = app;
     await settle();
+    const unload = (): boolean => {
+      const event = new window.Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(unload()).toBe(false);
+    app.dispatch('role-grant-toggle', 'report.read');
+    expect(unload()).toBe(true);
+    // Toggled back: a draft identical to the saved role is nothing to lose.
+    app.dispatch('role-grant-toggle', 'report.read');
+    expect(unload()).toBe(false);
+    // A draft for a role that has since gone is nothing to lose either.
+    app.state.roleDraft = { roleId: 'r-gone', grants: {} };
+    expect(unload()).toBe(false);
+  });
 
-    expect(text(find(root, '.header__title'))).toBe('الفريق والأدوار');
-    type(root, '[data-form="teamName"]', 'القبول');
-    click(root, '[data-act="live-create-team"]');
+  it('shows the holders on their own tab, and assigns more through the membership API', async () => {
+    const api = rolesApi().on(`PATCH /tenants/${TENANT}/people/${MEMBERSHIP}`, {
+      status: 200,
+      body: { data: person({ role: { id: CUSTOM_ROLE, key: 'enrollment_lead', name: 'Enrollment lead' } }) },
+    });
+    const { app, root } = start(api, `#/roles?role=${CUSTOM_ROLE}&tab=users`);
     await settle();
-    expect(toasts(app)).toEqual(['أُنشئ الفريق القبول']);
+    expect(find(root, '#tab-users').getAttribute('aria-selected')).toBe('true');
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(text(find(root, 'tbody'))).toContain('nadia@digital-school.example');
+    expect(text(root)).toContain('every member always holds exactly one role');
+
+    click(root, `[data-act="dialog"][data-arg="role-assign:${CUSTOM_ROLE}"]`);
+    expect(isDisabled(root, '.dialog [data-act="live-role-assign"]')).toBe(true);
+    type(root, '.dialog [data-form="assignSearch"]', 'hana');
+    check(root, `#assign-${MEMBERSHIP}`);
+    expect(text(find(root, '.dialog [data-act="live-role-assign"]'))).toContain('Assign (1)');
+    check(root, `#assign-${MEMBERSHIP}`);
+    check(root, `#assign-${MEMBERSHIP}`);
+    api.on(`GET /tenants/${TENANT}/people`, {
+      status: 200,
+      body: { data: [person({ role: { id: CUSTOM_ROLE, key: 'enrollment_lead', name: 'Enrollment lead' } }), person({ membership_id: 'm-2', email: 'nadia@digital-school.example', role: { id: CUSTOM_ROLE, key: 'enrollment_lead', name: 'Enrollment lead' } })] },
+    });
+    click(root, '.dialog [data-act="live-role-assign"]');
+    await settle();
+    expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({ roleId: CUSTOM_ROLE });
+    expect(toasts(app)).toContain('Role assigned to 1 member(s)');
+    expect(root.querySelector('.dialog')).toBeNull();
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
+
+    app.dispatch('dialog', `role-assign:${CUSTOM_ROLE}`);
+    expect(text(find(root, '.dialog'))).toContain('There are no other members to assign.');
+    app.dispatch('live-role-assign', CUSTOM_ROLE);
+    await settle();
+    expect(api.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+  });
+
+  it('stops assigning at the first refusal and keeps the dialog', async () => {
+    const api = rolesApi()
+      .on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person(), person({ membership_id: 'm-3', email: 'omar@digital-school.example' })] } })
+      .on(`PATCH /tenants/${TENANT}/people/${MEMBERSHIP}`, { status: 403, body: { error: { code: 'delegation_ceiling', message: 'Wider than your own.' } } });
+    const { app, root } = start(api, `#/roles?role=${CUSTOM_ROLE}&tab=users`);
+    await settle();
+    expect(text(root)).toContain('Nobody has this role');
+    app.dispatch('dialog', `role-assign:${CUSTOM_ROLE}`);
+    app.dispatch('assign-pick', MEMBERSHIP);
+    app.dispatch('assign-pick', 'm-3');
+    app.dispatch('live-role-assign', CUSTOM_ROLE);
+    await settle();
+    expect(api.calls.filter((call) => call.method === 'PATCH')).toHaveLength(1);
+    expect(text(find(root, '.dialog'))).toContain('Wider than your own.');
+    expect(app.state.toasts).toHaveLength(0);
+  });
+
+  it('says a role is unavailable, or still loading, rather than drawing a blank', async () => {
+    const api = rolesApi();
+    const release = api.hold(`GET /tenants/${TENANT}/roles`);
+    const { root } = start(api, '#/roles?role=missing');
+    await settle();
+    expect(root.querySelector('.page--roles [aria-busy="true"]')).not.toBeNull();
+    release({ status: 200, body: { data: [customRole()] } });
+    await settle();
+    expect(text(root)).toContain('This role does not exist');
+
+    const refused = signedInApi().on(`GET /tenants/${TENANT}/roles`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } });
+    const { root: second } = start(refused, '#/roles?role=missing');
+    await settle();
+    expect(text(second)).toContain('Role unavailable');
+    expect(text(second)).toContain('You don’t have permission for this');
+  });
+
+  it('shows the catalogue and holder lists as refused where the server refused them', async () => {
+    const api = rolesApi()
+      .on(`GET /tenants/${TENANT}/permissions`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } })
+      .on(`GET /tenants/${TENANT}/people`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } });
+    const { root } = start(api, `#/roles?role=${CUSTOM_ROLE}`);
+    await settle();
+    expect(text(find(root, '.role-summary'))).toContain('Permissions1');
+    expect(text(find(root, '.role-summary'))).toContain('Assigned users—');
+    expect(root.querySelector('.errorstate--denied')).not.toBeNull();
+    const { root: users } = start(api, `#/roles?role=${CUSTOM_ROLE}&tab=users`);
+    await settle();
+    expect(users.querySelector('.errorstate--denied')).not.toBeNull();
+    expect(users.querySelector('[data-arg^="role-assign:"]')).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ teams -- */
+
+describe('the Teams screen', () => {
+  const empty = { id: 'team-1', name: 'Enrollment', member_count: 0, archived: false, members: [] };
+  const filled = { ...empty, member_count: 1, members: [{ membership_id: MEMBERSHIP, email: 'hana@digital-school.example' }] };
+
+  it('creates a team from a dialog and lists it with members and status', async () => {
+    const api = signedInApi().on(`POST /tenants/${TENANT}/teams`, { status: 201, body: { data: empty } });
+    const { app, root } = start(api, '#/teams');
+    await settle();
+    expect(text(root)).toContain('No teams');
+    click(root, '.admin-head [data-act="dialog"][data-arg="team-create"]');
+    expect(isDisabled(root, '.dialog [data-act="live-create-team"]')).toBe(true);
+    type(root, '#team-name', 'Enrollment');
+    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [empty, { ...empty, id: 'team-2', name: 'Old', archived: true }] } });
+    click(root, '.dialog [data-act="live-create-team"]');
+    await settle();
+    expect(toasts(app)).toContain('Created the team Enrollment');
+    expect(text(find(root, '[data-team="team-1"]'))).toContain('Active');
+    expect(text(find(root, '[data-team="team-2"]'))).toContain('Archived');
+  });
+
+  it('adds and removes members, renames, archives and restores a team in detail', async () => {
+    const api = signedInApi()
+      .on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [empty] } })
+      .on(`POST /tenants/${TENANT}/teams/team-1/members`, { status: 200, body: { data: filled } })
+      .on(`DELETE /tenants/${TENANT}/teams/team-1/members/${MEMBERSHIP}`, { status: 200, body: { data: empty } })
+      .on(`PATCH /tenants/${TENANT}/teams/team-1`, { status: 200, body: { data: { ...empty, archived: true } } });
+    const { app, root } = start(api, '#/teams?team=team-1');
+    await settle();
+    expect(text(find(root, '.breadcrumb'))).toContain('User managementTeamsEnrollment');
+    expect(text(root)).toContain('No members yet');
+    expect(isDisabled(root, '[data-act="live-team-add"]')).toBe(true);
+
+    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [filled] } });
+    choose(root, 'select[data-form="teamMember_team-1"]', MEMBERSHIP);
+    click(root, '[data-act="live-team-add"]');
+    await settle();
+    expect(api.calls.find((call) => call.path.endsWith('/members'))?.body).toEqual({ membershipId: MEMBERSHIP });
+    expect(text(find(root, `[data-team-member="${MEMBERSHIP}"]`))).toContain('Agent');
+    // Everyone is in the team now: nobody left to add.
+    expect(text(find(root, 'select[data-form="teamMember_team-1"]'))).toContain('Nobody to add');
+
+    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [empty] } });
+    click(root, '[data-act="live-remove-member"]');
+    await settle();
+    expect(toasts(app)).toContain('Removed from the team');
+
+    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [{ ...empty, archived: true }] } });
+    openMenu(root, 'team:team-1');
+    click(root, '[data-act="live-archive-team"]');
+    await settle();
+    expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({ archived: true });
+    expect(toasts(app)).toContain('Team archived');
+    expect(text(root)).toContain('it takes no new members until it is restored');
+    expect(root.querySelector('[data-act="live-team-add"]')).toBeNull();
+
+    api.on(`PATCH /tenants/${TENANT}/teams/team-1`, { status: 200, body: { data: { ...empty, name: 'Admissions' } } });
+    api.on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [{ ...empty, name: 'Admissions' }] } });
+    openMenu(root, 'team:team-1');
+    click(root, '[data-act="live-archive-team"][data-arg="team-1:restore"]');
+    await settle();
+    expect(api.calls.filter((call) => call.method === 'PATCH').at(-1)?.body).toEqual({ archived: false });
+
+    openMenu(root, 'team:team-1');
+    click(root, '[data-act="dialog"][data-arg="team-rename:team-1"]');
+    // Unchanged or empty, the name is not sent.
+    expect(isDisabled(root, '.dialog [data-act="live-rename-team"]')).toBe(true);
+    app.dispatch('live-rename-team', 'team-1');
+    type(root, '#team-rename', 'Admissions office');
+    click(root, '.dialog [data-act="live-rename-team"]');
+    await settle();
+    expect(api.calls.filter((call) => call.method === 'PATCH').at(-1)?.body).toEqual({ name: 'Admissions office' });
+    expect(toasts(app)).toContain('Renamed to Admissions');
+    expect(root.querySelector('.dialog')).toBeNull();
+  });
+
+  it('names a member the people list does not include by the team’s own record', async () => {
+    const api = signedInApi()
+      .on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [{ ...filled, members: [{ membership_id: 'm-elsewhere', email: 'elsewhere@digital-school.example' }] }] } });
+    const { root } = start(api, '#/teams?team=team-1');
+    await settle();
+    expect(text(find(root, '[data-team-member="m-elsewhere"]'))).toContain('elsewhere@digital-school.example');
+  });
+
+  it('says a team is unavailable, or still loading, rather than drawing a blank', async () => {
+    const api = signedInApi();
+    const release = api.hold(`GET /tenants/${TENANT}/teams`);
+    const { root } = start(api, '#/teams?team=missing');
+    await settle();
+    expect(root.querySelector('.page--teams [aria-busy="true"]')).not.toBeNull();
+    release({ status: 200, body: { data: [] } });
+    await settle();
+    expect(text(root)).toContain('This team does not exist');
+
+    const refused = signedInApi().on(`GET /tenants/${TENANT}/teams`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } });
+    const { root: second } = start(refused, '#/teams?team=missing');
+    await settle();
+    expect(text(second)).toContain('Team unavailable');
+  });
+
+  it('offers no changes to someone who can only look', async () => {
+    const api = signedInApi()
+      .on(`GET /tenants/${TENANT}/teams`, { status: 200, body: { data: [filled] } })
+      .on('GET /me/memberships', {
+        status: 200,
+        body: { data: [{ id: 'own-membership', tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' }, role: { id: 'custom', key: 'roles', name: 'Roles only' }, permissions: ['role.manage'] }] },
+      });
+    const { app, root } = start(api, '#/teams?team=team-1');
+    await settle();
+    // Teams need member.manage; this membership lands on Roles instead.
+    expect(app.state.route.screen).toBe('roles');
+    app.state.route = { screen: 'teams', conversationId: null, params: { team: 'team-1' } };
+    app.render();
+    expect(root.querySelector('[data-act="live-remove-member"], [data-act="live-team-add"], [data-arg="team:team-1"]')).toBeNull();
+    app.state.route = { screen: 'teams', conversationId: null, params: {} };
+    app.render();
+    expect(root.querySelector('[data-arg="team-create"]')).toBeNull();
   });
 });
 

@@ -27,13 +27,18 @@ const NAV_ICONS: Readonly<Record<ScreenId, IconName>> = {
   'reset-password': 'lock',
   inbox: 'inbox',
   contacts: 'contacts',
-  channels: 'channels',
-  people: 'people',
+  channels: 'plug',
+  people: 'users',
+  roles: 'shieldUser',
+  teams: 'team',
   broadcasts: 'broadcasts',
-  automations: 'macro',
+  automations: 'workflow',
   analytics: 'analytics',
   settings: 'settings',
 };
+
+/** Screens under the "User management" heading in the navigation. */
+const USER_MANAGEMENT: readonly ScreenId[] = ['people', 'roles', 'teams'];
 
 export function renderShell(state: AppState, screen: HTMLElement): HTMLElement {
   return h(
@@ -149,10 +154,17 @@ function renderNav(state: AppState): HTMLElement {
       h(
         'ul',
         { class: 'nav__list' },
-        allowedScreens(live).map((screen) => {
+        allowedScreens(live).flatMap((screen, index, screens) => {
           const title = screenTitle(screen, state.lang);
           const current = state.route.screen === screen;
-          return h('li', {}, [
+          // The heading goes above the first user-management screen this
+          // membership can open, and nowhere if it can open none.
+          const heading = USER_MANAGEMENT.includes(screen) && !USER_MANAGEMENT.includes(screens[index - 1] as ScreenId)
+            ? h('li', { class: 'nav__group' }, [
+                h('span', { class: 'nav__group-label' }, [t(state, 'إدارة المستخدمين', 'User management')]),
+              ])
+            : null;
+          return [heading, h('li', {}, [
             h(
               'a',
               {
@@ -172,7 +184,7 @@ function renderNav(state: AppState): HTMLElement {
                   : null,
               ],
             ),
-          ]);
+          ])].filter((item): item is HTMLLIElement => item !== null);
         }),
       ),
       h('div', { class: 'nav__foot' }, [

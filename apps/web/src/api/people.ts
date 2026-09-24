@@ -61,6 +61,9 @@ export interface Role {
   readonly key: string;
   readonly name: string;
   readonly is_builtin: boolean;
+  /** Author's description; empty for built-in roles. */
+  readonly description: string;
+  readonly updated_at: string;
   readonly grants: readonly RoleGrant[];
 }
 

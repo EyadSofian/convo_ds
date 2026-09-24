@@ -69,6 +69,7 @@
     --brand-highlight: #ddff57;
     --on-brand: #ffffff;
     --on-highlight: #10213f;
+    --brand-tile: #ffffff;
 
     /* Not contrast-bearing: hairlines, layers and elevation. */
     --border: rgba(16, 33, 63, 0.1);
@@ -230,6 +231,7 @@
     --brand-highlight: #ddff57;
     --on-brand: #ffffff;
     --on-highlight: #10213f;
+    --brand-tile: #f3f6fb;
 
     --border: rgba(255, 255, 255, 0.08);
     --border-subtle: rgba(255, 255, 255, 0.05);

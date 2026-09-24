@@ -118,7 +118,12 @@ export const SCREEN_KEYS: Readonly<Record<ScreenId, readonly string[]>> = {
   inbox: ['conversation.read', 'conversation.unassigned.preview'],
   contacts: ['contact.read'],
   channels: ['channel.manage'],
-  people: ['member.manage', 'role.manage'],
+  // Each list is served under exactly one key (people, teams, invitations and
+  // ownership under member.manage; roles and the catalogue under role.manage),
+  // so each screen is offered under the key its data needs.
+  people: ['member.manage'],
+  roles: ['role.manage'],
+  teams: ['member.manage'],
   broadcasts: ['campaign.read', 'campaign.draft'],
   automations: ['automation.read', 'automation.create'],
   analytics: ['report.read'],

@@ -564,20 +564,79 @@ export function createRole(
  * what the browser thinks they are, so a rename cannot silently widen or narrow
  * what the role can do.
  */
-export function renameRole(context: LiveContext, role: Role, name: string): Promise<boolean> {
+export function renameRole(context: LiveContext, role: Role, name: string, description = role.description): Promise<boolean> {
   return mutate(
     context,
     `rename-role:${role.id}`,
     (tenantId) =>
       context.live.api.updateRole(tenantId, role.id, {
         name,
-        description: '',
+        // Defaults to the description the server reported, so a rename never
+        // quietly erases what the role's author wrote.
+        description,
         grants: role.grants.map((grant) => ({
           permission: grant.permission_key,
           scope: grant.scope_level,
         })),
       }),
     (updated) => t(context.state, `أُعيدت تسمية الدور ${updated.name}`, `Renamed to ${updated.name}`),
+  );
+}
+
+/**
+ * Replaces a custom role's grants with the set the operator reviewed.
+ *
+ * The whole set is sent, with the name and description the server reported,
+ * to the same endpoint a rename uses. Delegability, the operator's own grants
+ * and every scope are decided there; a refusal leaves the role untouched.
+ */
+export function saveRoleGrants(
+  context: LiveContext,
+  role: Role,
+  grants: readonly { permission: string; scope: string }[],
+): Promise<boolean> {
+  return mutate(
+    context,
+    `save-role:${role.id}`,
+    (tenantId) => context.live.api.updateRole(tenantId, role.id, { name: role.name, description: role.description, grants }),
+    (updated) => t(context.state, `حُفظت صلاحيات ${updated.name}`, `Saved permissions for ${updated.name}`),
+  );
+}
+
+/**
+ * Gives each chosen membership this role, one membership update at a time —
+ * the only role operation the API has. Stops at the first refusal and says
+ * how many were changed before it, then reloads once.
+ */
+export async function assignRole(context: LiveContext, roleId: string, membershipIds: readonly string[]): Promise<boolean> {
+  const { live, state } = context;
+  const tenantId = currentTenantId(live);
+  if (tenantId === null) return false;
+  live.busy = `assign-role:${roleId}`;
+  live.error = null;
+  context.refresh();
+  let changed = 0;
+  for (const membershipId of membershipIds) {
+    const result = await live.api.updateMembership(tenantId, membershipId, { roleId });
+    if (!result.ok) {
+      live.error = result.error;
+      break;
+    }
+    changed += 1;
+  }
+  live.busy = null;
+  live.revision += 1;
+  if (changed > 0) pushToast(state, t(state, `أُسند الدور إلى ${String(changed)} عضو`, `Role assigned to ${String(changed)} member(s)`));
+  await loadPeopleScreen(context, true);
+  return changed === membershipIds.length;
+}
+
+export function renameTeam(context: LiveContext, teamId: string, name: string): Promise<boolean> {
+  return mutate(
+    context,
+    `rename-team:${teamId}`,
+    (tenantId) => context.live.api.updateTeam(tenantId, teamId, { name }),
+    (team) => t(context.state, `أُعيدت تسمية الفريق ${team.name}`, `Renamed to ${team.name}`),
   );
 }
 

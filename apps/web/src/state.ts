@@ -121,6 +121,16 @@ export interface AppState {
    * status pill, never what is loaded or allowed, and it is never persisted.
    */
   offline: boolean;
+  /**
+   * Unsaved edits to one custom role's grants: key → scope level. Presentation
+   * state only; nothing reaches the server until Save, and the server decides.
+   */
+  roleDraft: { readonly roleId: string; readonly grants: Readonly<Record<string, string>> } | null;
+  /** Free-text filters on the user-management screens. Never persisted. */
+  userSearch: string;
+  permissionSearch: string;
+  /** Permission modules the operator folded away on the role screen. */
+  collapsedGroups: readonly string[];
   /** Everything the server said. Roles and permissions come only from here. */
   live: LiveState;
 }
@@ -169,6 +179,10 @@ export function createState(
     toasts: [],
     sequence: 0,
     offline: false,
+    roleDraft: null,
+    userSearch: '',
+    permissionSearch: '',
+    collapsedGroups: [],
     live,
   };
 }
@@ -225,6 +239,16 @@ export function routeParamsFor(state: AppState): Record<string, string> {
     // link on "this link is invalid". The server alone decides what it grants.
     const token = state.route.params['token'];
     if (token !== undefined && token !== '') params.token = token;
+  }
+  if (state.route.screen === 'people' && state.route.params['tab'] === 'invitations') params.tab = 'invitations';
+  if (state.route.screen === 'roles') {
+    const role = state.route.params['role'];
+    if (role !== undefined && role !== '') params.role = role;
+    if (role !== undefined && role !== '' && state.route.params['tab'] === 'users') params.tab = 'users';
+  }
+  if (state.route.screen === 'teams') {
+    const team = state.route.params['team'];
+    if (team !== undefined && team !== '') params.team = team;
   }
   if (state.route.screen === 'automations') {
     const view = state.route.params['view'];
@@ -342,7 +366,9 @@ export function screenTitle(screen: ScreenId, lang: Lang): string {
     inbox: { ar: 'صندوق الوارد', en: 'Inbox' },
     contacts: { ar: 'جهات الاتصال', en: 'Contacts' },
     channels: { ar: 'القنوات', en: 'Channels' },
-    people: { ar: 'الفريق والأدوار', en: 'People & roles' },
+    people: { ar: 'المستخدمون', en: 'Users' },
+    roles: { ar: 'الأدوار', en: 'Roles' },
+    teams: { ar: 'الفرق', en: 'Teams' },
     broadcasts: { ar: 'الحملات', en: 'Campaigns' },
     automations: { ar: 'الأتمتة', en: 'Automations' },
     analytics: { ar: 'التقارير', en: 'Analytics' },

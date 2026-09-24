@@ -6,6 +6,7 @@ import { catalogueItem } from './channels-screen';
 import { t } from './copy';
 import { button, dialogShell, field, inlineError, notice, selectControl, textInput } from './parts';
 import { channelTile } from './brand';
+import { renderAdminDialog } from './admin-dialogs';
 
 function closeButton(state: AppState): HTMLElement {
   return button({ label: t(state, 'إلغاء', 'Cancel'), act: 'close-dialog', variant: 'ghost' });
@@ -34,6 +35,8 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'inline-label') return inlineLabel(state, dialog.arg);
   if (dialog.kind === 'automation-delete') return automationDelete(state, dialog.arg);
   if (dialog.kind === 'whatsapp-template') return whatsappTemplatePicker(state);
+  const admin = renderAdminDialog(state, dialog.kind, dialog.arg);
+  if (admin !== null) return admin;
   return dialogShell(
     state,
     t(state, 'غير متاح', 'Not available'),

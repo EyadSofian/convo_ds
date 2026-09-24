@@ -274,7 +274,9 @@ describe('screenTitle', () => {
     expect(screenTitle('broadcasts', 'en')).toBe('Campaigns');
     expect(screenTitle('settings', 'ar')).toBe('الإعدادات');
     expect(screenTitle('channels', 'en')).toBe('Channels');
-    expect(screenTitle('people', 'en')).toBe('People & roles');
+    expect(screenTitle('people', 'en')).toBe('Users');
+    expect(screenTitle('roles', 'ar')).toBe('الأدوار');
+    expect(screenTitle('teams', 'en')).toBe('Teams');
     expect(screenTitle('contacts', 'en')).toBe('Contacts');
     expect(screenTitle('analytics', 'ar')).toBe('التقارير');
   });

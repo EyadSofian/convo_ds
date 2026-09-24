@@ -57,11 +57,20 @@ export const READY: Readonly<Record<string, string>> = {
   contacts: '.contactrow',
   channels: '[data-connection]',
   people: '[data-membership]',
+  roles: '[data-role]',
+  teams: '[data-team]',
   broadcasts: '[data-campaign]',
   analytics: '[data-report-ready]',
   settings: '[data-session]',
   automations: '.automation-template-card',
 };
+
+/** A role or team opened in detail proves its data with its own rows, not the list's. */
+function readySelector(screen: string, query: string): string | undefined {
+  if (screen === 'roles' && query.includes('role=')) return query.includes('tab=users') ? '[data-membership]' : '[data-permission]';
+  if (screen === 'teams' && query.includes('team=')) return '[data-team-member]';
+  return READY[screen];
+}
 
 /** Opens a workspace screen with the API scripted and waits for its data. */
 export async function openScreen(page: Page, screen: string, query = ''): Promise<void> {
@@ -69,7 +78,7 @@ export async function openScreen(page: Page, screen: string, query = ''): Promis
   await installApi(page);
   await page.goto(`/#/${screen}${query}`);
   await expect(page.locator(`.page--${screen === 'broadcasts' ? 'campaigns' : screen}`)).toBeVisible();
-  const selector = READY[screen];
+  const selector = readySelector(screen, query);
   if (selector !== undefined) await expect(page.locator(selector).first()).toBeVisible();
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
   await fontsReady(page);
@@ -169,4 +178,4 @@ export const MATRIX: readonly { direction: Direction; theme: Theme }[] = [
 ];
 
 /** The screens behind the navigation, besides the inbox. */
-export const SCREENS = ['contacts', 'channels', 'people', 'broadcasts', 'automations', 'analytics', 'settings'] as const;
+export const SCREENS = ['contacts', 'channels', 'people', 'roles', 'teams', 'broadcasts', 'automations', 'analytics', 'settings'] as const;

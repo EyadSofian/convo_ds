@@ -77,6 +77,7 @@ import {
 import {
   addTeamMember,
   archiveTeam,
+  assignRole,
   authorizeTestRecipient,
   changeRole,
   changeScopes,
@@ -97,7 +98,9 @@ import {
   offerOwnership,
   removeTeamMember,
   renameRole,
+  renameTeam,
   rotateChannelCredential,
+  saveRoleGrants,
   revokeInvitation,
   revokeTestRecipient,
   settleOwnership,
@@ -364,6 +367,21 @@ export function teamMemberField(teamId: string): string {
 /** The form key for a custom role's rename field, for the same reason. */
 export function roleNameField(roleId: string): string {
   return `roleName_${roleId}`;
+}
+
+/** The form key holding a team's proposed new name in the rename dialog. */
+export function teamNameField(teamId: string): string {
+  return `teamName_${teamId}`;
+}
+
+/** Closes the dialog a successful change came from, if it is still open. */
+function closeDialogAfter(context: LiveContext, done: boolean): boolean {
+  if (done && context.state.dialog !== null) {
+    context.state.dialog = null;
+    context.state.dialogForm = {};
+    context.refresh();
+  }
+  return done;
 }
 
 /** The form key for a connection's credential-rotation field. */
@@ -1214,11 +1232,6 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
 
   'live-revoke-invite': async (context, arg) => revokeInvitation(context, arg),
 
-  'live-role': async (context, arg) => {
-    const { id, value } = splitArg(arg);
-    return changeRole(context, id, value);
-  },
-
   'live-status': async (context, arg) => {
     const { id, value } = splitArg(arg);
     return changeStatus(context, id, value);
@@ -1227,26 +1240,81 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-scope-tenant': async (context, arg) => changeScopes(context, arg, TENANT_SCOPE),
 
   'live-create-role': async (context) => {
-    // No fallbacks: the control is disabled until a permission and a scope have
-    // been chosen, so a default here would only ever paper over a rendering bug
-    // by inventing a grant nobody picked.
-    const created = await createRole(context, form(context, 'roleName'), '', [
-      { permission: form(context, 'roleGrant'), scope: form(context, 'roleScope') },
-    ]);
+    // A role starts with no grants; its permissions are chosen on its own page,
+    // where each one is decided by the server when the role is saved.
+    const name = form(context, 'roleName');
+    const created = await createRole(context, name, form(context, 'roleDescription'), []);
     if (created) {
-      clearForm(context, ['roleName', 'roleGrant', 'roleScope']);
-      context.refresh();
+      const role = rowsOf(context.live.roles).find((entry) => entry.name === name);
+      closeDialogAfter(context, true);
+      if (role !== undefined) {
+        context.state.route = { screen: 'roles', conversationId: null, params: { ...context.state.route.params, role: role.id } };
+        context.refresh();
+      }
     }
+    return created;
   },
 
-  'live-delete-role': async (context, arg) => deleteRole(context, arg),
+  'live-save-role': async (context, arg) => {
+    const role = rowsOf(context.live.roles).find((entry) => entry.id === arg);
+    const draft = context.state.roleDraft;
+    if (role === undefined || draft === null || draft.roleId !== role.id) return false;
+    const saved = await saveRoleGrants(context, role, Object.entries(draft.grants).map(([permission, scope]) => ({ permission, scope })));
+    if (saved) {
+      context.state.roleDraft = null;
+      context.refresh();
+    }
+    return saved;
+  },
+
+  'live-role-assign': async (context, arg) => {
+    const picked = form(context, 'assignPicked').split(',').filter((id) => id !== '');
+    if (picked.length === 0) return false;
+    return closeDialogAfter(context, await assignRole(context, arg, picked));
+  },
+
+  'live-member-role': async (context, arg) => {
+    const roleId = form(context, 'memberRole');
+    if (roleId === '') return false;
+    return closeDialogAfter(context, await changeRole(context, arg, roleId));
+  },
+
+  'live-member-revoke': async (context, arg) => closeDialogAfter(context, await changeStatus(context, arg, 'revoked')),
+
+  'live-member-team': async (context, arg) => {
+    const [teamId = '', membershipId = '', change = ''] = arg.split(':');
+    if (change === 'add') return addTeamMember(context, teamId, membershipId);
+    if (change === 'remove') return removeTeamMember(context, teamId, membershipId);
+    return false;
+  },
+
+  'live-rename-team': async (context, arg) => {
+    const name = form(context, teamNameField(arg));
+    if (name === '') return false;
+    return closeDialogAfter(context, await renameTeam(context, arg, name));
+  },
+
+  'live-delete-role': async (context, arg) => {
+    const deleted = await deleteRole(context, arg);
+    if (deleted) {
+      if (context.state.roleDraft?.roleId === arg) context.state.roleDraft = null;
+      // Its page no longer exists; return to the list rather than a dead end.
+      if (context.state.route.params['role'] === arg) {
+        const params = Object.fromEntries(Object.entries(context.state.route.params).filter(([name]) => name !== 'role' && name !== 'tab'));
+        context.state.route = { ...context.state.route, params };
+      }
+    }
+    return closeDialogAfter(context, deleted);
+  },
 
   'live-create-team': async (context) => {
     const created = await createTeam(context, form(context, 'teamName'));
     if (created) {
       clearForm(context, ['teamName']);
+      closeDialogAfter(context, true);
       context.refresh();
     }
+    return created;
   },
 
   'live-archive-team': async (context, arg) => {
@@ -1266,9 +1334,12 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     if (role === undefined) {
       return false;
     }
-    const renamed = await renameRole(context, role, form(context, roleNameField(arg)));
+    const key = roleNameField(arg);
+    const description = context.state.dialogForm[`${key}_description`];
+    const renamed = await renameRole(context, role, edited(context, key, role.name), description === undefined ? role.description : description.trim());
     if (renamed) {
-      clearForm(context, [roleNameField(arg)]);
+      clearForm(context, [key, `${key}_description`]);
+      closeDialogAfter(context, true);
       context.refresh();
     }
     return renamed;

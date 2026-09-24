@@ -2,6 +2,8 @@ import { SCREENS } from './router';
 import type { ScreenId } from './router';
 import type { AppState } from './state';
 import { clampListWidth, NO_ANALYTICS_FILTERS } from './state';
+import type { Role } from './api/people';
+import { rowsOf } from './live/store';
 
 /**
  * Every interactive control in the UI carries `data-act` (+ optional `data-arg`)
@@ -37,6 +39,9 @@ export function selectedId(state: AppState): string | null {
   return state.route.conversationId;
 }
 
+/** Route params that point inside a screen rather than at it. */
+const DETAIL_PARAMS: readonly string[] = ['role', 'team', 'tab'];
+
 const nav: ActionHandler = (context, arg) => {
   if (!isMember(SCREENS, arg)) return;
   const state = context.state;
@@ -45,6 +50,12 @@ const nav: ActionHandler = (context, arg) => {
   // Choosing a destination is what a navigation drawer is for; leaving it open
   // over the screen that was just chosen would hide that screen.
   state.navOpen = false;
+  // A destination opens at its top: a role, team or tab picked on the way is
+  // not carried to it. Without this "All roles" left the missing role on screen.
+  state.route = {
+    ...state.route,
+    params: Object.fromEntries(Object.entries(state.route.params).filter(([name]) => !DETAIL_PARAMS.includes(name))),
+  };
   context.navigate(arg, arg === 'inbox' ? selectedId(state) : null);
 };
 
@@ -249,6 +260,81 @@ const togglePanelDrawer: ActionHandler = (context) => {
   context.refresh();
 };
 
+/* ------------------------------------------------------ user management -- */
+
+const userSearch: ActionHandler = (context, arg) => {
+  context.state.userSearch = arg;
+  context.refresh();
+};
+
+const permissionSearch: ActionHandler = (context, arg) => {
+  context.state.permissionSearch = arg;
+  context.refresh();
+};
+
+const permissionGroup: ActionHandler = (context, arg) => {
+  const collapsed = context.state.collapsedGroups;
+  context.state.collapsedGroups = collapsed.includes(arg) ? collapsed.filter((id) => id !== arg) : [...collapsed, arg];
+  context.refresh();
+};
+
+/**
+ * The custom role on screen, if it can be drafted at all. Built-in roles
+ * never get a draft: the server refuses any change to them.
+ */
+function draftableRole(state: AppState): Role | null {
+  const roleId = state.route.params['role'];
+  const role = rowsOf(state.live.roles).find((entry) => entry.id === roleId);
+  return role === undefined || role.is_builtin ? null : role;
+}
+
+function draftGrants(state: AppState, role: Role): Record<string, string> {
+  return state.roleDraft !== null && state.roleDraft.roleId === role.id
+    ? { ...state.roleDraft.grants }
+    : Object.fromEntries(role.grants.map((grant) => [grant.permission_key, grant.scope_level]));
+}
+
+/** Turns one permission on (at workspace scope, adjustable) or off, in the draft only. */
+const roleGrantToggle: ActionHandler = (context, arg) => {
+  const role = draftableRole(context.state);
+  if (role === null) return;
+  const grants = draftGrants(context.state, role);
+  if (grants[arg] === undefined) grants[arg] = 'tenant';
+  else delete grants[arg];
+  context.state.roleDraft = { roleId: role.id, grants };
+  context.refresh();
+};
+
+const GRANT_SCOPES: readonly string[] = ['tenant', 'scoped', 'own'];
+
+const roleGrantScope: ActionHandler = (context, arg) => {
+  const role = draftableRole(context.state);
+  const separator = arg.lastIndexOf(':');
+  const key = arg.slice(0, separator);
+  const scope = arg.slice(separator + 1);
+  if (role === null || !GRANT_SCOPES.includes(scope)) return;
+  const grants = draftGrants(context.state, role);
+  if (grants[key] === undefined) return;
+  grants[key] = scope;
+  context.state.roleDraft = { roleId: role.id, grants };
+  context.refresh();
+};
+
+const roleDraftDiscard: ActionHandler = (context) => {
+  context.state.roleDraft = null;
+  context.state.live.error = null;
+  context.refresh();
+};
+
+/** Adds or removes one member from the assign-users selection. */
+const assignPick: ActionHandler = (context, arg) => {
+  const picked = new Set((context.state.dialogForm['assignPicked'] ?? '').split(',').filter((id) => id !== ''));
+  if (picked.has(arg)) picked.delete(arg);
+  else picked.add(arg);
+  context.state.dialogForm = { ...context.state.dialogForm, assignPicked: [...picked].join(',') };
+  context.refresh();
+};
+
 export const ACTIONS: Readonly<Record<string, ActionHandler>> = {
   nav,
   theme: toggleTheme,
@@ -279,6 +365,13 @@ export const ACTIONS: Readonly<Record<string, ActionHandler>> = {
   'campaign-report': campaignReport,
   'analytics-view': analyticsView,
   'campaign-open': campaignOpen,
+  'user-search': userSearch,
+  'permission-search': permissionSearch,
+  'permission-group': permissionGroup,
+  'role-grant-toggle': roleGrantToggle,
+  'role-grant-scope': roleGrantScope,
+  'role-draft-discard': roleDraftDiscard,
+  'assign-pick': assignPick,
 };
 
 export function runAction(name: string, context: ActionContext, arg: string): boolean {

@@ -14,6 +14,10 @@ export interface RoleSummary {
   readonly key: string;
   readonly name: string;
   readonly is_builtin: boolean;
+  /** What the role is for, as its author wrote it. Empty for built-ins. */
+  readonly description: string;
+  /** When the role's name, description or grants last changed. */
+  readonly updated_at: string;
   /** Grants by key with the scope each reaches. Denial is an absent key. */
   readonly grants: readonly { readonly permission_key: string; readonly scope_level: ScopeLevel }[];
 }
@@ -79,7 +83,13 @@ export class PermissionService {
         key: string;
         name: string;
         is_builtin: boolean;
-      }>('SELECT id::text, key, name, is_builtin FROM roles ORDER BY key');
+        description: string;
+        updated_at: string;
+      }>(
+        `SELECT id::text, key, name, is_builtin, description,
+                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
+           FROM roles ORDER BY key`,
+      );
 
       const grants = await sql.query<{
         role_id: string;

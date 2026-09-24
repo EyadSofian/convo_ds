@@ -1,39 +1,55 @@
 main.app__screen
   div.page.page--people
     div.page__inner
-      div.pagebar
-        p.pagebar__lede
-        div.pagebar__actions
-          button.btn.btn--sm [live-reload]
+      header.admin-head
+        nav.breadcrumb
+          ol
+            li
+              span
+                bdi
+            li
+              span
+                bdi
+        div.admin-head__row
+          span.admin-head__icon
             svg
+              circle
               path
               path
               path
-            span.btn__label
-          button.btn.btn--primary.btn--sm [dialog]
-            svg
-              path
-            span.btn__label
-      section.people-summary
-        span.people-summary__item
-          strong
-          span
-        span.people-summary__item
-          strong
-          span
-        span.people-summary__item
-          strong
-          span
-        span.people-summary__item
-          strong
-          span
-      section.panel
-        header.panel__header
-          div.panel__titles
-            h2.panel__title
-        div.panel__body.panel__body--flush
+          div.admin-head__titles
+            div.admin-head__titleline
+              h2.admin-head__title
+                bdi
+            p.admin-head__subtitle
+              bdi
+          div.admin-head__actions
+            button.btn.btn--ghost.btn--sm.btn--icon [live-reload]
+              svg
+                path
+                path
+                path
+            button.btn.btn--primary.btn--sm [dialog]
+              svg
+                circle
+                path
+                path
+              span.btn__label
+      div.admin-tabs
+        a.admin-tabs__tab
+          span.admin-tabs__count
+        a.admin-tabs__tab
+          span.admin-tabs__count
+      section.admin-panel
+        div.admin-panel__body
+          div.admin-toolbar
+            label.admin-search
+              svg
+                circle
+                path
+              input.admin-search__input [user-search]
           div.tablewrap
-            table.table
+            table.table.admin-table
               thead
                 tr
                   th
@@ -41,124 +57,100 @@ main.app__screen
                   th
                   th
                   th
+                  th.admin-table__actions
                     span.visually-hidden
               tbody
                 tr
                   td
                     div.member
                       span.avatar.avatar--sm
-                      div
+                      div.member__text
                         span.table__primary
                           bdi
                         span.table__sub
                   td
-                    select.select [live-role]
-                      option
                   td
-                    select.select [live-status]
-                      option
-                      option
-                      option
+                    span.chip-list
+                      span.chip
+                  td
+                    span.badge.badge--success
+                      span.badge__dot
                   td
                     span.badge.badge--warning
+                  td.admin-table__actions
+                    div.menu-anchor
+                      button.btn.btn--ghost.btn--sm.btn--icon.row-menu__trigger [menu]
+                        svg
+                          circle
+                          circle
+                          circle
+                tr
                   td
-                    div.row-actions
-                      button.btn.btn--ghost.btn--sm [live-scope-tenant]
-                        span.btn__label
-      section.panel
-        header.panel__header
-          div.panel__titles
-            h2.panel__title
-        div.panel__body
-          div.empty.empty--neutral
-            span.empty__icon
-              svg
-                circle
-                path
-                path
-                path
-            div.empty__text
-              p.empty__title
-              p.empty__body
-      div.report-grid
-        section.panel
-          header.panel__header
-            div.panel__titles
-              h2.panel__title
-          div.panel__body
-            form.inline-form
-              input.input [form]
-              button.btn.btn--sm [live-create-team]
-                svg
-                  path
-                span.btn__label
-            ul.card-list
-              li.mini-card
-                div.mini-card__head
-                  h3.mini-card__title
-                  span.badge.badge--neutral
-                ul.memberlist
-                  li.memberlist__item
-                    bdi
-                    button.btn.btn--ghost.btn--sm.btn--icon [live-remove-member]
-                      svg
-                        path
-                div.inline-form
-                  select.select [form]
-                    option
-                  button.btn.btn--sm [live-team-add]
-                    span.btn__label
-                  button.btn.btn--ghost.btn--sm [live-archive-team]
-                    span.btn__label
-        section.panel
-          header.panel__header
-            div.panel__titles
-              h2.panel__title
-          div.panel__body
-            div.role-form
-              input.input [form]
-              select.select [form-toggle]
-                option
-                option
-                option
-              select.select [form-toggle]
-                option
-                option
-                option
-                option
-              button.btn.btn--sm [live-create-role]
-                svg
-                  path
-                span.btn__label
-            p.field__hint
-            ul.card-list
-              li.mini-card
-                div.mini-card__head
-                  h3.mini-card__title
-                  span.badge.badge--neutral
-                    svg
-                      rect
-                      path
-                  span.badge.badge--neutral
-                p.mini-card__grants
-      section.panel
-        header.panel__header
-          div.panel__titles
-            h2.panel__title
-        div.panel__body
-          div.notice.notice--info
-            span.notice__icon
-              svg
-                path
-                path
-            div.notice__text
-          div.empty.empty--neutral
-            span.empty__icon
-              svg
-                circle
-                path
-                path
-                path
-            div.empty__text
-              p.empty__title
-              p.empty__body
+                    div.member
+                      span.avatar.avatar--sm
+                      div.member__text
+                        span.table__primary
+                          bdi
+                  td
+                  td
+                    span.muted
+                  td
+                    span.badge.badge--success
+                      span.badge__dot
+                  td
+                    span.badge-row
+                      span.badge.badge--neutral
+                  td.admin-table__actions
+                    div.menu-anchor
+                      button.btn.btn--ghost.btn--sm.btn--icon.row-menu__trigger [menu]
+                        svg
+                          circle
+                          circle
+                          circle
+                tr
+                  td
+                    div.member
+                      span.avatar.avatar--sm
+                      div.member__text
+                        span.table__primary
+                          bdi
+                  td
+                  td
+                    span.chip-list
+                      span.chip
+                  td
+                    span.badge.badge--success
+                      span.badge__dot
+                  td
+                    span.badge-row
+                      span.badge.badge--neutral
+                  td.admin-table__actions
+                    div.menu-anchor
+                      button.btn.btn--ghost.btn--sm.btn--icon.row-menu__trigger [menu]
+                        svg
+                          circle
+                          circle
+                          circle
+                tr
+                  td
+                    div.member
+                      span.avatar.avatar--sm
+                      div.member__text
+                        span.table__primary
+                          bdi
+                  td
+                  td
+                    span.muted
+                  td
+                    span.badge.badge--warning
+                      span.badge__dot
+                  td
+                    span.badge-row
+                      span.badge.badge--neutral
+                  td.admin-table__actions
+                    div.menu-anchor
+                      button.btn.btn--ghost.btn--sm.btn--icon.row-menu__trigger [menu]
+                        svg
+                          circle
+                          circle
+                          circle
