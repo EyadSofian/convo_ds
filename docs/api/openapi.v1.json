@@ -1138,6 +1138,26 @@
               "type": "string",
               "maxLength": 200
             }
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "array", "items": { "type": "string", "format": "uuid" }, "maxItems": 20 },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "fieldId",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "name": "fieldValue",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "maxLength": 500 }
           }
         ],
         "responses": {
@@ -1163,6 +1183,125 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
+        }
+      },
+      "post": {
+        "operationId": "createContact",
+        "summary": "Create a contact on an explicit channel identity",
+        "description": "Requires `contact.edit` scoped to the selected channel connection. The identity is never inferred or merged, and creation does not record marketing consent.",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["displayName", "connectionId", "externalId"],
+                "properties": {
+                  "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "connectionId": { "type": "string", "format": "uuid" },
+                  "externalId": { "type": "string", "minLength": 1, "maxLength": 256 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new contact, with its single channel-scoped identity and no implied consent.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ContactResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/tenants/{tenantId}/contacts/import": {
+      "post": {
+        "operationId": "importContacts",
+        "summary": "Atomically import contacts from a validated CSV preview",
+        "description": "Requires `contact.edit` scoped to the selected connection. Accepts at most 500 explicit display-name/channel-identity pairs; any repeated or already-live identity rejects the entire batch. No consent is inferred.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["connectionId", "rows"],
+                "properties": {
+                  "connectionId": { "type": "string", "format": "uuid" },
+                  "rows": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 500,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["displayName", "externalId"],
+                      "properties": {
+                        "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+                        "externalId": { "type": "string", "minLength": 1, "maxLength": 256 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "All rows were imported.", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "object", "properties": { "created": { "type": "integer" } } } } } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/tenants/{tenantId}/contacts/export": {
+      "get": {
+        "operationId": "exportContacts",
+        "summary": "Export caller-readable contacts as CSV",
+        "description": "Requires `contact.export` and returns only contacts within the caller's `contact.read` scope. The export is capped at 10,000 rows; each row contains display name and active channel identity. Formula-like cells are neutralized.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" }
+        ],
+        "responses": {
+          "200": { "description": "CSV content and a suggested filename.", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "object", "required": ["filename", "content", "rowCount"], "properties": { "filename": { "type": "string" }, "content": { "type": "string" }, "rowCount": { "type": "integer" } } } } } } } },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
         }
       }
     },

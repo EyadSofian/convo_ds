@@ -1,7 +1,8 @@
-import type { ContactSummary } from '../api/contacts.js';
+import { previewContactCsv, type ContactSummary } from '../api/contacts.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { initials } from '../format.js';
+import { hasPermission } from '../live/ability.js';
 import { icon } from '../icons.js';
 import { channelMark } from './channel-mark.js';
 import { rowsOf } from '../live/store.js';
@@ -17,6 +18,7 @@ import {
   field,
   inlineError,
   isolated,
+  notice,
   page,
   panel,
   refreshButton,
@@ -29,20 +31,19 @@ import {
 /**
  * The Contacts directory.
  *
- * A list, a search over display names, and one record at a time. What is
- * deliberately absent is as much of the design as what is here: no "new
- * contact" (a contact exists because somebody wrote to us), no merge (a reviewed
- * decision with an audit trail that does not exist yet), and no search by
- * number (matching a similar number is an identity inference the model refuses).
+ * A scoped directory with explicit channel-identity create/import, while
+ * preserving consent as a separate, reviewable permission record.
  */
 export function renderContacts(state: AppState): HTMLElement {
   const live = state.live;
   return page('contacts', toolbar(
-    t(state, 'كل جهة اتصال نشأت من رسالة وصلت عبر إحدى قنواتك.', 'Every contact was created by a message on one of your channels.'),
+    t(state, 'جهات الاتصال وهوياتها على قنواتك.', 'Contacts and their channel identities.'),
     [refreshButton(state, 'live-contacts-reload', live.contacts.status === 'loading')],
   ), [
     // No dialog opens over this screen, so a refusal is always shown here.
     inlineError(state, live.error),
+    hasPermission(live, 'contact.edit') ? createContactForm(state, live) : null,
+    importExportPanel(state, live),
     h('div', { class: 'split split--contacts' }, [
       h('section', { class: 'panel split__list', 'aria-label': t(state, 'جهات الاتصال', 'Contacts') }, [
         h('div', { class: 'panel__header panel__header--stack' }, [
@@ -61,6 +62,71 @@ export function renderContacts(state: AppState): HTMLElement {
       h('section', { class: 'panel split__detail', 'aria-label': t(state, 'بيانات جهة الاتصال', 'Contact details') }, [selectedBody(state, live)]),
     ]),
     catalogPanel(state, live),
+  ]);
+}
+
+function createContactForm(state: AppState, live: LiveState): HTMLElement {
+  const connections = rowsOf(live.connections).filter((connection) => connection.disconnected_at === null);
+  return h('form', { class: 'panel contact-create', 'data-submit': 'live-contact-create' }, [
+    h('div', { class: 'contact-create__intro' }, [
+      h('div', {}, [
+        h('h2', { class: 'panel__title' }, [t(state, 'إضافة جهة اتصال', 'Add a contact')]),
+        h('p', { class: 'field__hint' }, [t(state, 'اربط السجل بهوية قناة محددة. الإضافة لا تسجّل موافقة تسويقية.', 'Attach the record to a specific channel identity. Creating a contact does not record marketing consent.')]),
+      ]),
+    ]),
+    h('div', { class: 'contact-create__fields' }, [
+      field(t(state, 'اسم العميل', 'Customer name'), textInput('contactCreateName', state.dialogForm['contactCreateName'] ?? '', t(state, 'الاسم المعروض', 'Display name'))),
+      field(t(state, 'القناة', 'Channel'), selectControl({ act: 'form', form: 'contactCreateConnection', value: state.dialogForm['contactCreateConnection'] ?? '', options: [
+        { value: '', label: t(state, 'اختر قناة متصلة', 'Choose a connected channel') },
+        ...connections.map((connection) => ({ value: connection.id, label: `${phrase(state, CHANNEL_NAMES, connection.kind)} · ${connection.display_name}` })),
+      ] })),
+      field(t(state, 'معرّف العميل على القناة', 'Customer channel ID'), h('input', { class: 'input', type: 'text', dir: 'ltr', value: state.dialogForm['contactCreateExternalId'] ?? '', placeholder: t(state, 'رقم أو معرّف القناة', 'Channel phone or provider ID'), 'data-act': 'form', 'data-form': 'contactCreateExternalId' })),
+      live.connections.status === 'idle' || live.connections.status === 'error' || live.connections.status === 'loading'
+        ? button({ label: t(state, 'تحميل القنوات', 'Load channels'), act: 'live-contact-connections', variant: 'ghost', busy: live.connections.status === 'loading' })
+        : button({ label: t(state, 'إنشاء جهة الاتصال', 'Create contact'), act: 'live-contact-create', variant: 'primary', disabled: connections.length === 0 || live.busy !== null }),
+    ]),
+    connections.length === 0 ? h('p', { class: 'contact-create__notice', role: 'status' }, [t(state, 'لا توجد قناة متاحة لإنشاء هوية عليها. اربط قناة أولاً.', 'No channel is available for an identity. Connect a channel first.')]) : null,
+  ]);
+}
+
+function importExportPanel(state: AppState, live: LiveState): HTMLElement | null {
+  const mayImport = hasPermission(live, 'contact.edit');
+  const mayExport = hasPermission(live, 'contact.export');
+  if (!mayImport && !mayExport) return null;
+  const csv = state.dialogForm['contactImportCsv'] ?? '';
+  const preview = csv === '' ? null : previewContactCsv(csv);
+  const connections = rowsOf(live.connections).filter((connection) => connection.disconnected_at === null);
+  return h('section', { class: 'panel contact-transfer', 'aria-labelledby': 'contact-transfer-title' }, [
+    h('div', { class: 'contact-transfer__head' }, [
+      h('div', {}, [
+        h('h2', { class: 'panel__title', id: 'contact-transfer-title' }, [t(state, 'استيراد وتصدير جهات الاتصال', 'Import and export contacts')]),
+        h('p', { class: 'field__hint' }, [t(state, 'الاستيراد ينشئ هويات على قناة واحدة ولا يضيف موافقة تسويقية تلقائيًا.', 'Imports attach identities to one channel and never add marketing consent automatically.')]),
+      ]),
+      mayExport ? button({ label: t(state, 'تصدير CSV', 'Export CSV'), icon: 'download', act: 'live-contacts-export', variant: 'ghost', busy: live.busy === 'contacts:export' }) : null,
+    ]),
+    mayImport ? h('div', { class: 'contact-transfer__import' }, [
+      field(t(state, 'قناة الهويات', 'Identity channel'), selectControl({
+        form: 'contactImportConnection', value: state.dialogForm['contactImportConnection'] ?? '',
+        options: [{ value: '', label: t(state, 'اختر قناة متصلة', 'Choose a connected channel') }, ...connections.map((entry) => ({ value: entry.id, label: `${phrase(state, CHANNEL_NAMES, entry.kind)} · ${entry.display_name}` }))],
+      })),
+      h('label', { class: 'field' }, [
+        h('span', { class: 'field__label' }, [t(state, 'ملف CSV', 'CSV file')]),
+        h('input', { class: 'input', type: 'file', accept: '.csv,text/csv', 'data-act': 'live-contact-import-file', 'aria-label': t(state, 'اختر ملف جهات الاتصال CSV', 'Choose contacts CSV file') }),
+      ]),
+      live.connections.status === 'idle' || live.connections.status === 'error'
+        ? button({ label: t(state, 'تحميل القنوات', 'Load channels'), act: 'live-contact-connections', variant: 'ghost' }) : null,
+      h('a', { class: 'contact-transfer__template', href: `data:text/csv;charset=utf-8,${encodeURIComponent('display_name,external_id\\r\\nExample Customer,201000000000\\r\\n')}`, download: 'contacts-template.csv' }, [t(state, 'تنزيل نموذج CSV', 'Download CSV template')]),
+      state.dialogForm['contactImportError'] === 'size'
+        ? notice('warning', 'info', t(state, 'حجم الملف أكبر من 1 ميجابايت.', 'CSV files must be 1 MB or smaller.'))
+        : preview === null ? null : preview.ok
+        ? h('div', { class: 'contact-transfer__preview', role: 'status' }, [
+            h('strong', {}, [t(state, `${String(preview.rows.length)} جهة جاهزة للاستيراد`, `${String(preview.rows.length)} contacts ready to import`)]),
+            h('span', {}, [state.dialogForm['contactImportFileName'] ?? 'CSV']),
+            h('span', {}, [preview.rows.slice(0, 3).map((row) => `${row.displayName} · ${row.externalId}`).join('، ')]),
+          ])
+        : notice('warning', 'info', t(state, 'تعذّرت معاينة الملف. تأكد من النموذج وأن الملف لا يتجاوز 1 ميجابايت و500 صف.', `Could not preview this file: ${preview.message}`)),
+      button({ label: t(state, 'استيراد جهات الاتصال', 'Import contacts'), icon: 'contacts', act: 'live-contacts-import', variant: 'primary', disabled: preview?.ok !== true || (state.dialogForm['contactImportConnection'] ?? '') === '' || connections.length === 0 || live.busy !== null, busy: live.busy === 'contacts:import' }),
+    ]) : null,
   ]);
 }
 

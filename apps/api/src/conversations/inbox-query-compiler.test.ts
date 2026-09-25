@@ -16,6 +16,15 @@ const principal: Principal = {
 const base: InboxQuery = { queue: 'all', search: null, sort: 'activity_desc', cursor: null, limit: 50, filters: [] };
 
 describe('compileInboxQuery', () => {
+  it('keeps archived history hidden by default but exposes it for an explicit archived filter', () => {
+    const live = compileInboxQuery(base, principal, new Map());
+    expect(live.where).toContain("c.status <> 'archived'");
+    const archived = compileInboxQuery({ ...base, filters: [{ key: 'status', operator: 'eq', value: 'archived' }] }, principal, new Map());
+    expect(archived.where).toContain('TRUE');
+    expect(archived.where).toContain('c.status = $1::text');
+    expect(archived.params).toEqual(['archived']);
+  });
+
   it('binds browser strings and implements labels as ALL', () => {
     const query: InboxQuery = {
       ...base,

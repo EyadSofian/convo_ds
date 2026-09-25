@@ -12,6 +12,25 @@ main.app__screen
                 path
                 path
             span.btn__label
+      form.panel.contact-create
+        div.contact-create__intro
+          div
+            h2.panel__title
+            p.field__hint
+        div.contact-create__fields
+          label.field
+            span.field__label
+            input.input [form]
+          label.field
+            span.field__label
+            select.select [form]
+              option
+          label.field
+            span.field__label
+            input.input [form]
+          button.btn.btn--ghost [live-contact-connections]
+            span.btn__label
+        p.contact-create__notice
       div.split.split--contacts
         section.panel.split__list
           div.panel__header.panel__header--stack

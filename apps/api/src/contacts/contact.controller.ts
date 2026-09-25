@@ -8,12 +8,10 @@ import { ContactService } from './contact.service.js';
 /**
  * The contact surface.
  *
- * Reading, correcting the business fields, and recording consent. There is no
- * "create contact" and no "merge": a contact comes into existence because
- * somebody wrote to us, and joining two of them is a reviewed act that this
- * build does not offer. Both absences are deliberate — an endpoint that created
- * contacts from typed-in phone numbers would be the identity inference the
- * whole model refuses (CT-03).
+ * Contacts can be created only with an explicit, selected channel identity;
+ * identity matching and merge remain human decisions. Consent is append-only
+ * evidence recorded through its dedicated endpoint, never inferred from
+ * contact creation or import.
  */
 @Controller()
 export class ContactController {
@@ -45,6 +43,12 @@ export class ContactController {
     return pageEnvelope(rows, null, request.id);
   }
 
+  @Get('tenants/:tenantId/contacts/export')
+  async export(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return { data: await this.contacts.exportCsv(session, tenantId), request_id: request.id };
+  }
+
   @Get('tenants/:tenantId/contacts/:contactId')
   async read(
     @Param('tenantId') tenantId: string,
@@ -56,6 +60,34 @@ export class ContactController {
       data: await this.contacts.read(session, tenantId, contactId),
       request_id: request.id,
     };
+  }
+
+  @Post('tenants/:tenantId/contacts')
+  async create(
+    @Param('tenantId') tenantId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return {
+      data: await this.contacts.create(session, tenantId, parseCreate(body)),
+      request_id: request.id,
+    };
+  }
+
+  @Post('tenants/:tenantId/contacts/import')
+  async import(
+    @Param('tenantId') tenantId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    const input = parseImport(body);
+    return { data: await this.contacts.importBatch(session, tenantId, input), request_id: request.id };
   }
 
   @Patch('tenants/:tenantId/contacts/:contactId')
@@ -103,6 +135,42 @@ const SOURCES = ['customer_message', 'agent_recorded', 'import', 'web_form'];
 
 interface UpdateInput {
   readonly displayName: string;
+}
+
+function parseCreate(body: unknown): { displayName: string; connectionId: string; externalId: string } {
+  const record = asRecord(body);
+  const displayName = typeof record['displayName'] === 'string' ? record['displayName'].trim() : '';
+  const connectionId = record['connectionId'];
+  const externalId = typeof record['externalId'] === 'string' ? record['externalId'].trim() : '';
+  const details: { field: string; code: string; message: string }[] = [];
+  if (displayName.length < 1 || displayName.length > 200) details.push({ field: 'displayName', code: 'invalid', message: 'A display name is 1 to 200 characters.' });
+  if (typeof connectionId !== 'string' || !UUID.test(connectionId)) details.push({ field: 'connectionId', code: 'invalid', message: 'Choose a valid channel connection.' });
+  if (externalId.length < 1 || externalId.length > 256) details.push({ field: 'externalId', code: 'invalid', message: 'A channel identity is 1 to 256 characters.' });
+  if (details.length > 0) throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', details);
+  return { displayName, connectionId: connectionId as string, externalId };
+}
+
+function parseImport(body: unknown): { connectionId: string; rows: readonly { displayName: string; externalId: string }[] } {
+  const record = asRecord(body);
+  const details: { field: string; code: string; message: string }[] = [];
+  const connectionId = record['connectionId'];
+  if (typeof connectionId !== 'string' || !UUID.test(connectionId)) details.push({ field: 'connectionId', code: 'invalid', message: 'Choose a valid channel connection.' });
+  const sourceRows = record['rows'];
+  if (!Array.isArray(sourceRows) || sourceRows.length < 1 || sourceRows.length > 500) {
+    details.push({ field: 'rows', code: 'invalid', message: 'Import between 1 and 500 contacts per file.' });
+  }
+  const rows = Array.isArray(sourceRows) ? sourceRows.flatMap((value, index) => {
+    const row = asRecordOrNull(value);
+    const displayName = typeof row?.['displayName'] === 'string' ? row['displayName'].trim() : '';
+    const externalId = typeof row?.['externalId'] === 'string' ? row['externalId'].trim() : '';
+    if (displayName.length < 1 || displayName.length > 200) details.push({ field: `rows[${index}].displayName`, code: 'invalid', message: 'Use a display name of 1 to 200 characters.' });
+    if (externalId.length < 1 || externalId.length > 256) details.push({ field: `rows[${index}].externalId`, code: 'invalid', message: 'Use a channel identity of 1 to 256 characters.' });
+    return displayName.length > 0 && displayName.length <= 200 && externalId.length > 0 && externalId.length <= 256
+      ? [{ displayName, externalId }]
+      : [];
+  }) : [];
+  if (details.length > 0) throw new ApiHttpError(400, 'validation_failed', 'The import file is not valid.', details);
+  return { connectionId: connectionId as string, rows };
 }
 
 function parseUpdate(body: unknown): UpdateInput {

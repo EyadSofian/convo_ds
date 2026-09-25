@@ -11,9 +11,10 @@ import type { EventSourceLike } from './realtime.js';
 /**
  * Contacts, through the real client, actions and renderer.
  *
- * What is worth asserting here is mostly what the screen refuses to do. There
- * is no "new contact" and no merge, the search is over names rather than
- * numbers, a suppression is shown above the consent it overrides, and the two
+ * What is worth asserting here is mostly that contact actions remain explicit:
+ * a new record has a selected channel-scoped identity and never implies consent;
+ * there is no automatic merge, the search is over names rather than numbers, a
+ * suppression is shown above the consent it overrides, and the two
  * refusals the server makes — an import is not consent, a grant cannot lift an
  * opt-out — reach the operator in their own words rather than as a generic
  * failure.
@@ -130,7 +131,7 @@ function contactsApi(): FakeApi {
             id: MEMBERSHIP,
             tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' },
             role: { id: 'owner-role', key: 'owner', name: 'Owner' },
-            permissions: ['conversation.read', 'conversation.assign', 'conversation.handoff.request', 'contact.read', 'contact.edit', 'consent.record'],
+            permissions: ['conversation.read', 'conversation.assign', 'conversation.handoff.request', 'contact.read', 'contact.edit', 'contact.export', 'consent.record'],
           },
         ],
       },
@@ -255,12 +256,48 @@ describe('the contacts directory', () => {
     expect(row).not.toContain('واتساب');
   });
 
-  it('offers no way to create a contact or merge two', async () => {
-    const { root } = await open(contactsApi());
-    // A contact exists because somebody wrote to us. A form that made one from
-    // a typed-in number would be an identity claim nobody verified.
+  it('creates a contact only after a channel identity is selected, without inventing consent', async () => {
+    const created = contact({ id: 'contact-new', displayName: 'New customer', consent: [], suppressed: [] });
+    const api = contactsApi()
+      .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null }] } })
+      .on(`POST /tenants/${TENANT}/contacts`, { status: 201, body: { data: created } });
+    const { root } = await open(api);
     expect(root.querySelector('[data-act="live-contact-create"]')).toBeNull();
+    click(root, '[data-act="live-contact-connections"]');
+    await settle();
+    choose(root, '[data-form="contactCreateConnection"]', 'cn-1');
+    type(root, '[data-form="contactCreateName"]', 'New customer');
+    type(root, '[data-form="contactCreateExternalId"]', '201000000000');
+    click(root, '[data-act="live-contact-create"]');
+    await settle();
+    expect(api.calls.find((call) => call.method === 'POST' && call.path === `/tenants/${TENANT}/contacts`)?.body).toEqual({
+      displayName: 'New customer', connectionId: 'cn-1', externalId: '201000000000',
+    });
+    expect(root.querySelector('.contact[data-contact="contact-new"]')).not.toBeNull();
+    expect(text(root)).toContain('سجّل موافقة التسويق');
     expect(root.querySelector('[data-act="live-contact-merge"]')).toBeNull();
+  });
+
+  it('previews a small CSV and submits an explicit connection-bound atomic import', async () => {
+    const api = contactsApi()
+      .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null }] } })
+      .on(`POST /tenants/${TENANT}/contacts/import`, { status: 201, body: { data: { created: 2 } } });
+    const { root } = await open(api);
+    click(root, '[data-act="live-contact-connections"]');
+    await settle();
+    choose(root, '[data-form="contactImportConnection"]', 'cn-1');
+    const input = root.querySelector('input[data-act="live-contact-import-file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [{ name: 'leads.csv', size: 66, text: async () => 'display_name,external_id\r\nSara,201\r\nMona,202\r\n' }] });
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await settle();
+    expect(text(root)).toContain('جهة جاهزة للاستيراد');
+    click(root, '[data-act="live-contacts-import"]');
+    await settle();
+    expect(api.calls.find((call) => call.method === 'POST' && call.path === `/tenants/${TENANT}/contacts/import`)?.body).toEqual({
+      connectionId: 'cn-1',
+      rows: [{ displayName: 'Sara', externalId: '201' }, { displayName: 'Mona', externalId: '202' }],
+    });
+    expect(text(root)).toContain('لم تُسجّل موافقات تسويقية');
   });
 
   it('searches by name, through the server', async () => {
