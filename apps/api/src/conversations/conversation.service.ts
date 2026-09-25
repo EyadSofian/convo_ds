@@ -385,17 +385,18 @@ export class ConversationService {
       if(query.cursor!==null){const decoded=codec.decode(query.cursor,binding);if(decoded.status==='rejected')throw new ApiHttpError(400,decoded.code,decoded.message);cursor=cursorPredicate(query.sort,decoded.after.value,decoded.after.id,add);}
       const viewer=add(principal.membershipId);const limit=add(query.limit+1);
       const rows = await sql.query<
-        RawConversation & { display_name: string; kind: string; read_through: Date | null; cursor_value:string; participant_membership_ids: readonly string[] }
+        RawConversation & { display_name: string; kind: string; contact_display_name: string | null; read_through: Date | null; cursor_value:string; participant_membership_ids: readonly string[] }
       >(
         // The read cursor is joined for THIS membership only. Unread is a fact
         // about a person, so a row's unread flag is not a property of the row —
         // two agents looking at the same list see different answers, correctly.
-        `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, r.read_through, ${cursorValue(query.sort)} AS cursor_value,
+        `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, contact.display_name AS contact_display_name, r.read_through, ${cursorValue(query.sort)} AS cursor_value,
                 ARRAY(SELECT participant.membership_id::text FROM conversation_participants participant WHERE participant.conversation_id = c.id
                       UNION
                       SELECT collaborator.membership_id::text FROM conversation_collaborators collaborator WHERE collaborator.conversation_id = c.id AND collaborator.removed_at IS NULL) AS participant_membership_ids
            FROM conversations c
            JOIN channel_connections n ON n.id = c.connection_id
+           LEFT JOIN contacts contact ON contact.id=c.contact_id AND contact.deleted_at IS NULL
            LEFT JOIN conversation_reads r
              ON r.conversation_id = c.id AND r.membership_id = ${viewer}
           WHERE ${compiled.where}${cursor}
@@ -423,6 +424,7 @@ export class ConversationService {
           ...rowOf(row),
           inboxLabel: row.display_name,
           channel: row.kind,
+          contactDisplayName: row.contact_display_name ?? null,
           participantMembershipIds: participants,
           unread:
             row.read_through === null ||

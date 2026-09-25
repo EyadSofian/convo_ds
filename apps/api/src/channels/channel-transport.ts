@@ -23,6 +23,8 @@ export interface ChannelTransportPort {
     facebookPageId?: string | null,
   ): Promise<ConnectionCheck>;
   send(kind: ChannelKind, credential: string, command: SendCommand): Promise<SendOutcome>;
+  /** Optional provider profile lookup. A missing name must never block inbound. */
+  fetchPeerProfile?(kind: ChannelKind, credential: string, peerIdentity: string): Promise<string | null>;
   /** Optional because only WhatsApp exposes the template catalogue. */
   fetchTemplates?(
     kind: ChannelKind,

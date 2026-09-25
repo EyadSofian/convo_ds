@@ -211,6 +211,22 @@ describe('connected integrations', () => {
     expect(details.querySelector('input[type="password"]')?.getAttribute('autocomplete')).toBe('off');
   });
 
+  it('shows and edits the linked Page for an Instagram connection', () => {
+    const { state, element } = screen([connection({ id: 'cn-ig', kind: 'instagram', facebook_page_id: null })]);
+    state.expandedConnection = 'cn-ig';
+    const initial = element().querySelector('.connection__details') as HTMLElement;
+    expect(initial.textContent).toContain('Linked Facebook Page');
+    expect(initial.textContent).toContain('Not configured');
+    expect(initial.querySelector('[data-submit="live-instagram-page"]')).not.toBeNull();
+    expect((initial.querySelector('[data-form="channelPage_cn-ig"]') as HTMLInputElement).value).toBe('');
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [connection({ id: 'cn-ig', kind: 'instagram', facebook_page_id: '123456789' })] };
+    state.dialogForm = { 'channelPage_cn-ig': '987654321' };
+    const edited = element().querySelector('.connection__details') as HTMLElement;
+    expect(edited.textContent).toContain('123456789');
+    expect((edited.querySelector('[data-form="channelPage_cn-ig"]') as HTMLInputElement).value).toBe('987654321');
+    expect(edited.querySelector('[data-act="live-instagram-page"]')?.getAttribute('data-arg')).toBe('cn-ig');
+  });
+
   it('explains Meta capability refusals instead of leaving an opaque provider code', () => {
     const { state, element } = screen([connection({ last_error_code: 'provider_error_3' })]);
     state.expandedConnection = 'cn-1';

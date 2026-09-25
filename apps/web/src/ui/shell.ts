@@ -373,6 +373,8 @@ function renderNotifications(state: AppState): HTMLElement {
                 h('span', { class: 'notification-row__dot', 'aria-hidden': 'true' }),
                 h('span', { class: 'notification-row__content' }, [
                   h('span', { class: 'notification-row__title' }, [notificationTitle(state, entry)]),
+                  entry.senderName == null ? null : h('span', { class: 'notification-row__sender', dir: 'auto' }, [entry.senderName]),
+                  entry.messagePreview == null ? null : h('span', { class: 'notification-row__preview', dir: 'auto' }, [entry.messagePreview]),
                   h('time', {
                     datetime: entry.createdAt,
                     title: new Date(entry.createdAt).toLocaleString(state.lang === 'ar' ? 'ar-EG' : 'en-US'),

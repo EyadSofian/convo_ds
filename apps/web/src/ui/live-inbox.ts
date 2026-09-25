@@ -625,10 +625,10 @@ function conversationRow(state: AppState, live: LiveState, conversation: Convers
       'aria-current': open ? 'true' : 'false',
     },
     [
-      avatar({ initials: initials(conversation.peerIdentity), channel: conversation.channel }),
+      avatar({ initials: initials(conversation.contactDisplayName || conversation.peerIdentity), channel: conversation.channel }),
       h('span', { class: 'convrow__main' }, [
         h('span', { class: 'convrow__line' }, [
-          h('span', { class: 'convrow__name' }, [isolated(conversation.peerIdentity)]),
+          h('span', { class: 'convrow__name' }, [isolated(conversation.contactDisplayName || conversation.peerIdentity)]),
           h('span', { class: 'convrow__time' }, [relativeTime(conversation.lastActivityAt, state.clock, state.lang)]),
         ]),
         h('span', { class: 'convrow__line convrow__meta' }, [
@@ -704,11 +704,12 @@ function renderThreadZone(state: AppState, live: LiveState): HTMLElement {
 }
 
 function threadHeader(state: AppState, live: LiveState, conversation: Conversation, supervisorMode: boolean): HTMLElement {
+  const customerName = conversation.contactDisplayName || (live.openContact.status === 'ready' ? live.openContact.value.displayName : null) || conversation.peerIdentity;
   return h('header', { class: 'thread__header' }, [
     listToggle(state),
-    avatar({ initials: initials(conversation.peerIdentity), channel: conversation.channel }),
+    avatar({ initials: initials(customerName), channel: conversation.channel }),
     h('div', { class: 'thread__names' }, [
-      h('h2', { class: 'thread__name' }, [isolated(conversation.peerIdentity)]),
+      h('h2', { class: 'thread__name' }, [isolated(customerName)]),
       h('p', { class: 'thread__sub' }, [
         `${phrase(state, CHANNEL_NAMES, conversation.channel)} · ${conversation.inboxLabel}`,
       ]),
@@ -719,6 +720,10 @@ function threadHeader(state: AppState, live: LiveState, conversation: Conversati
     ]),
     h('div', { class: 'thread__toolbar' }, [
       supervisorMode ? h('span', { class: 'badge badge--neutral' }, [t(state, 'قراءة فقط', 'Read-only')]) : lifecycleControls(state, live, conversation),
+      supervisorMode ? null : button({
+        icon: 'mail', act: 'live-inbox-mark-unread', variant: 'ghost', small: true,
+        title: t(state, 'تحديد كغير مقروءة', 'Mark unread'),
+      }),
       button({
         icon: 'panel',
         act: 'panel',
@@ -944,7 +949,7 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
     h('div', { class: 'composer__toolbar' }, [
       tabs,
       live.error === null
-        ? h('span', { class: 'composer__hint' }, [t(state, 'يُرسل إلى العميل عبر القناة', 'Sent to the customer on this channel')])
+        ? h('span', { class: 'composer__hint' }, [t(state, 'Enter للإرسال · Shift+Enter لسطر جديد', 'Enter to send · Shift+Enter for a new line')])
         : h('span', { class: 'composer__hint composer__hint--error', role: 'alert' }, [live.error.message]),
       whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
       button({

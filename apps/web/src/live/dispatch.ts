@@ -28,10 +28,12 @@ import {
   deleteNote,
   editNote,
   loadNotes,
+  markConversationUnread,
   transitionConversation,
 } from './lifecycle-actions.js';
 import {
   assignConversation,
+  releaseOwnConversation,
   loadAssignees,
   requestHandoff,
   setCollaborator,
@@ -939,6 +941,8 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     assignConversation(context, context.live.routingChoice),
 
   'live-routing-unassign': async (context) => assignConversation(context, null),
+  'live-routing-release-own': async (context) => releaseOwnConversation(context),
+  'live-inbox-mark-unread': async (context) => markConversationUnread(context),
 
   'live-routing-ask': async (context) => requestHandoff(context, context.live.routingChoice),
 

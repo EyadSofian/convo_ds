@@ -156,6 +156,24 @@ export class RoutingService {
     });
   }
 
+  /** An assignee may put only their own work back into the queue. This never
+   * grants the ability to move another person's conversation. */
+  async releaseOwn(
+    session: AuthenticatedSession,
+    tenantId: string,
+    conversationId: string,
+    expectedVersion: number,
+  ): Promise<ConversationDetail> {
+    this.authorization.assertTenantId(conversationId);
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const detail = await requireConversation(sql, conversationId);
+      if (detail.assigneeMembershipId !== principal.membershipId ||
+          !authorize(principal, 'conversation.claim', resourceOf(detail)).allowed) throw denied();
+      await this.moveAssignee(sql, tenantId, detail, expectedVersion, null, principal.membershipId, 'unassign');
+      return requireConversation(sql, conversationId);
+    });
+  }
+
   /**
    * The one place the assignee column changes outside a claim.
    *

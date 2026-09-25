@@ -240,6 +240,10 @@ describe('parseConnectChannel', () => {
     const valid = parseConnectChannel({ ...VALID_CONNECT, kind: 'instagram', settings: { facebookPageId: '483612954841071' } });
     expect(valid.ok && valid.value.settings.facebookPageId).toBe('483612954841071');
     expect(parseInstagramPage({ facebookPageId: '../invalid' }).ok).toBe(false);
+    expect(parseInstagramPage(null).ok).toBe(false);
+    expect(parseInstagramPage({ facebookPageId: '483612954841071' }).ok).toBe(true);
+    expect(parseConnectChannel({ ...VALID_CONNECT, kind: 'messenger', settings: { facebookPageId: '483612954841071' } }).ok).toBe(false);
+    expect(parseConnectChannel({ ...VALID_CONNECT, kind: 'instagram', settings: { facebookPageId: '../invalid' } }).ok).toBe(false);
   });
   it('accepts a complete request and trims what it keeps', () => {
     const result = parseConnectChannel({ ...VALID_CONNECT, displayName: '  Enrollment line  ' });

@@ -9,6 +9,8 @@ main.app__screen
               svg
                 path
                 path
+                path
+                path
             span.btn__label
       div.split.split--contacts
         section.panel.split__list

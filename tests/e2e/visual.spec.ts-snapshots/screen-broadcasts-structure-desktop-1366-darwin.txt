@@ -9,6 +9,8 @@ main.app__screen
               svg
                 path
                 path
+                path
+                path
             span.btn__label
           button.btn.btn--primary.btn--sm [dialog]
             span.btn__icon

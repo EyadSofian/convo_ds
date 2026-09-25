@@ -38,6 +38,8 @@ main.app__screen
                 svg
                   path
                   path
+                  path
+                  path
               span.btn__label
             button.btn.btn--primary.btn--sm [live-report-export]
               span.btn__icon

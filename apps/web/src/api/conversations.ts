@@ -48,6 +48,7 @@ export interface Conversation extends EntityMetadata {
   readonly participantMembershipIds: readonly string[];
   /** Resolved from the customer's first message; null until somebody writes. */
   readonly contactId: string | null;
+  readonly contactDisplayName?: string | null;
   /** Why an agent said they were waiting. Only while the status is `pending`. */
   readonly pendingReason: string | null;
   readonly snoozedUntil: string | null;
@@ -364,6 +365,14 @@ export class ConversationsApi {
       `/tenants/${tenantId}/conversations/${conversationId}/read`,
       { body: {} },
     );
+  }
+
+  markUnread(tenantId: string, conversationId: string): Promise<ApiResult<{ readonly unread: true }>> {
+    return this.client.post(`/tenants/${tenantId}/conversations/${conversationId}/unread`);
+  }
+
+  releaseOwn(tenantId: string, conversationId: string, version: number): Promise<ApiResult<Conversation>> {
+    return this.client.post(`/tenants/${tenantId}/conversations/${conversationId}/release`, { body: { version } });
   }
 
   /* -------------------------------------------------------------- routing -- */

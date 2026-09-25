@@ -145,6 +145,34 @@ describe('sending a text message', () => {
 });
 
 describe('Messenger and Instagram Graph contracts', () => {
+  it('resolves only the exact Page-scoped sender and never exposes an error body', async () => {
+    const { adapter, calls } = transport(() => json(200, { id: '4528904674043162', name: 'Eyad', username: 'eyad_sofian' }));
+    expect(await adapter.fetchPeerProfile('instagram', TOKEN, '4528904674043162')).toBe('Eyad');
+    expect(calls[0]).toMatchObject({ url: `${GRAPH}/4528904674043162?fields=id,name,username`, method: 'GET' });
+    expect(calls[0]?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
+    expect(await adapter.fetchPeerProfile('instagram', TOKEN, '../../invalid')).toBeNull();
+    const mismatch = transport(() => json(200, { id: 'different', name: 'Wrong person' }));
+    expect(await mismatch.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
+    const denied = transport(() => graphError(403, 10, 'private provider detail'));
+    expect(await denied.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
+  });
+
+  it('uses a Messenger name, first/last name, or Instagram username without trusting malformed profiles', async () => {
+    const full = transport(() => json(200, { id: '123', first_name: '  Eyad ', last_name: ' Sofian  ' }));
+    expect(await full.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBe('Eyad Sofian');
+    expect(full.calls[0]?.url).toBe(`${GRAPH}/123?fields=id,name,first_name,last_name`);
+    const handle = transport(() => json(200, { id: '123', username: ' eyad_sofian ' }));
+    expect(await handle.adapter.fetchPeerProfile('instagram', TOKEN, '123')).toBe('eyad_sofian');
+    const empty = transport(() => json(200, { id: '123', name: null, username: null, first_name: null, last_name: null }));
+    expect(await empty.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
+    const long = transport(() => json(200, { id: '123', name: 'x'.repeat(201) }));
+    expect(await long.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
+    const down = transport(() => new Error('credential must never reach caller'));
+    expect(await down.adapter.fetchPeerProfile('instagram', TOKEN, '123')).toBeNull();
+    expect(await full.adapter.fetchPeerProfile('whatsapp', TOKEN, '123')).toBeNull();
+    expect(await full.adapter.validateConnection('custom', TOKEN, '123')).toMatchObject({ ok: false, code: 'channel_not_supported' });
+  });
+
   it('sends Messenger replies through the Page endpoint and preserves Meta message ids', async () => {
     const { adapter, calls } = transport(() => json(200, { recipient_id: 'psid-1', message_id: 'mid.page.1' }));
     const outcome = await adapter.send('messenger', TOKEN, { ...TEXT, assetIdentity: 'page-1', peerIdentity: 'psid-1' });

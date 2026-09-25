@@ -13,6 +13,8 @@ div.inbox
               svg
                 path
                 path
+                path
+                path
           button.btn.btn--ghost.btn--sm.btn--icon.listhead__close [close-overlays]
             span.btn__icon
               svg
@@ -364,6 +366,11 @@ div.inbox
                 circle
                 path
             span.btn__label
+        button.btn.btn--ghost.btn--sm.btn--icon [live-inbox-mark-unread]
+          span.btn__icon
+            svg
+              rect
+              path
         button.btn.btn--ghost.btn--sm.btn--icon.thread__paneltoggle.thread__paneltoggle--inline [panel]
           span.btn__icon
             svg

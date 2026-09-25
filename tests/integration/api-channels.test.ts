@@ -3,7 +3,7 @@ import argon2 from 'argon2';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import type { Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
@@ -1199,6 +1199,18 @@ describe('with a stubbed provider transport', () => {
     const unchanged = await send(api, owner, 'GET', '/channels');
     const before = (unchanged.json() as { data: Array<{ id: string; facebook_page_id: string }> }).data.find((item) => item.id === id);
     expect(before?.facebook_page_id).toBe('483612900000001');
+
+    answer = { ok: false, assetIdentity: null, code: null, message: null };
+    const unnamedRefusal = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: '483612900000002' });
+    expect(unnamedRefusal.statusCode).toBe(422);
+
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `UPDATE channel_credentials SET status='revoked', revoked_at=now() WHERE connection_id=$1 AND status='active'`, [id],
+    ));
+    const noCredential = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: '483612900000002' });
+    expect(noCredential.statusCode).toBe(422);
+    const rotated = await send(api, owner, 'POST', `/channels/${id}/credential`, { accessToken: 'EAAGtestaccesstoken0002' });
+    expect(rotated.statusCode).toBe(200);
 
     answer = { ok: true, assetIdentity: '17841470000000001', code: null, message: null };
     const verified = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: '483612900000003' });
@@ -2436,6 +2448,98 @@ describe('the outbound path', () => {
 });
 
 /* ------------------------------------------------- the other four channels -- */
+
+describe('durable Meta sender profile enrichment', () => {
+  it('does not claim profiles when the configured provider has no profile capability', async () => {
+    const api = await createHarness();
+    try {
+      expect(await api.app.get(ChannelNormalizationService).drainProfiles(api.tenantId)).toBe(0);
+    } finally {
+      await api.app.close();
+    }
+  });
+
+  it('resolves a Page-scoped sender after inbound commits, then shows the name without replacing its identity', async () => {
+    const profile = vi.fn(async (): Promise<string | null> => 'Eyad Test');
+    const api = await createHarness({ channelTransport: {
+      name: 'profile-test',
+      validateConnection: async () => ({ ok: true, assetIdentity: '483612954841071', code: null, message: null }),
+      send: async () => ({ status: 'definitely_rejected', code: 'not_sent', message: 'Test only.', retryable: false }),
+      fetchPeerProfile: profile,
+    } });
+    try {
+      const owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+      const connected = await send(api, owner, 'POST', '/channels', {
+        kind: 'messenger', externalAssetId: '483612954841071', displayName: 'I BOTS test Page',
+        accessToken: 'synthetic-page-token-for-profile-test', appId: api.appId,
+      });
+      expect(connected.statusCode).toBe(201);
+      const connectionId = (connected.json() as { data: { id: string } }).data.id;
+      const delivered = await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
+        sender: { id: '4528904674043162' }, recipient: { id: '483612954841071' },
+        timestamp: 1789000000000, message: { mid: 'mid.profile.1', text: 'Controlled message' },
+      }] }] });
+      expect(delivered.statusCode).toBe(200);
+      const normalizer = api.app.get(ChannelNormalizationService);
+      await normalizer.drain(api.tenantId);
+      expect(await normalizer.pendingProfileTenants()).toContain(api.tenantId);
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(1);
+      expect(profile).toHaveBeenCalledWith('messenger', 'synthetic-page-token-for-profile-test', '4528904674043162');
+      const rows = await withTenant(api.pool, api.tenantId, (client) => client.query<{
+        display_name: string; external_id: string;
+      }>(`SELECT c.display_name, i.external_id FROM contacts c
+           JOIN contact_identities i ON i.contact_id=c.id
+          WHERE i.scope_id=$1 AND i.external_id='4528904674043162'`, [connectionId]));
+      expect(rows.rows).toEqual([{ display_name: 'Eyad Test', external_id: '4528904674043162' }]);
+      expect(await normalizer.pendingProfileTenants()).not.toContain(api.tenantId);
+
+      // Profile lookups are optional enrichment. A transient Meta failure must
+      // not remove the already-ingested message, and the due row can retry.
+      profile.mockResolvedValueOnce(null);
+      await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
+        sender: { id: '4528904674043163' }, recipient: { id: '483612954841071' },
+        timestamp: 1789000001000, message: { mid: 'mid.profile.2', text: 'Still delivered' },
+      }] }] });
+      await normalizer.drain(api.tenantId);
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(0);
+      const waiting = await withTenant(api.pool, api.tenantId, (client) => client.query<{ attempts: number }>(
+        `SELECT attempts FROM contact_profile_queue q JOIN contact_identities i ON i.contact_id=q.contact_id
+          WHERE i.external_id='4528904674043163'`,
+      ));
+      expect(waiting.rows[0]?.attempts).toBe(1);
+      await withTenant(api.pool, api.tenantId, (client) => client.query(
+        'UPDATE contact_profile_queue SET next_attempt_at=now() WHERE tenant_id=$1', [api.tenantId],
+      ));
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(1);
+
+      // A manually corrected contact name wins over a later provider result.
+      await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
+        sender: { id: '4528904674043164' }, recipient: { id: '483612954841071' },
+        timestamp: 1789000002000, message: { mid: 'mid.profile.3', text: 'Manual name' },
+      }] }] });
+      await normalizer.drain(api.tenantId);
+      await withTenant(api.pool, api.tenantId, (client) => client.query(
+        `UPDATE contacts SET display_name='Operator correction'
+          WHERE id=(SELECT contact_id FROM contact_identities WHERE external_id='4528904674043164')`,
+      ));
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(0);
+      const corrected = await withTenant(api.pool, api.tenantId, (client) => client.query<{ display_name: string }>(
+        `SELECT display_name FROM contacts WHERE id=(SELECT contact_id FROM contact_identities WHERE external_id='4528904674043164')`,
+      ));
+      expect(corrected.rows[0]?.display_name).toBe('Operator correction');
+
+      profile.mockRejectedValueOnce(new Error('Provider credential detail must remain private'));
+      await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
+        sender: { id: '4528904674043165' }, recipient: { id: '483612954841071' },
+        timestamp: 1789000003000, message: { mid: 'mid.profile.4', text: 'Provider temporarily unavailable' },
+      }] }] });
+      await normalizer.drain(api.tenantId);
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(0);
+    } finally {
+      await api.app.close();
+    }
+  }, 180_000);
+});
 
 describe('the channels beyond WhatsApp', () => {
   let api: Harness;

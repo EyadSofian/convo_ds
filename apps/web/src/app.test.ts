@@ -799,6 +799,28 @@ describe('layers, focus and the keyboard', () => {
     expect(send.disabled).toBe(true);
   });
 
+  it('sends a reply with Enter once, but keeps Shift+Enter and IME composition in the draft', async () => {
+    const conversation = '55555555-5555-4555-8555-555555555555';
+    const api = signedIn()
+      .on(`GET /tenants/${TENANT}/conversations/${conversation}`, { status: 200, body: { data: {
+        id: conversation, peerIdentity: '2010', channel: 'messenger', inboxLabel: 'Page', status: 'open',
+        priority: 'normal', assigneeMembershipId: 'm-1111', version: 2, contactId: null,
+        labels: [], customFields: [],
+      } } })
+      .on(`GET /tenants/${TENANT}/conversations/${conversation}/messages`, { status: 200, body: { data: { messages: [], next_cursor: null } } })
+      .on(`POST /tenants/${TENANT}/conversations/${conversation}/messages`, { status: 200, body: { data: { id: 'sent-1' } } });
+    const { root } = start(`#/inbox/${conversation}`, api);
+    await settle();
+    const input = root.querySelector('.composer__input') as HTMLTextAreaElement;
+    type(input, 'Hello');
+    expect(press(input, 'Enter', { shiftKey: true }).defaultPrevented).toBe(false);
+    expect(press(input, 'Enter', { isComposing: true }).defaultPrevented).toBe(false);
+    expect(api.called(`POST /tenants/${TENANT}/conversations/${conversation}/messages`)).toBe(false);
+    expect(press(input, 'Enter').defaultPrevented).toBe(true);
+    await settle();
+    expect(api.called(`POST /tenants/${TENANT}/conversations/${conversation}/messages`)).toBe(true);
+  });
+
   it('updates the template preview in place and resets the send idempotency key when a variable changes', async () => {
     const conversation = '55555555-5555-4555-8555-555555555555';
     const api = signedIn()

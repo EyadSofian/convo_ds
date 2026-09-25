@@ -2013,6 +2013,24 @@
         }
       }
     },
+    "/tenants/{tenantId}/conversations/{conversationId}/unread": {
+      "post": {
+        "operationId": "markConversationUnread",
+        "summary": "Mark this caller's conversation unread",
+        "description": "Clears only this caller's read cursor. It does not alter another member's cursor or provider receipts.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "conversationId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "responses": {
+          "200": { "description": "This caller's read cursor was cleared.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MarkUnreadResponse" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/notes/{noteId}": {
       "patch": {
         "operationId": "updateNote",
@@ -4290,6 +4308,25 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/release": {
+      "post": {
+        "operationId": "releaseOwnConversation",
+        "summary": "Release the caller's own claimed conversation",
+        "description": "Only the current assignee with conversation.claim permission may return their conversation to the unassigned queue. The version fence prevents a stale release.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "conversationId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClaimConversationRequest" } } } },
+        "responses": {
+          "200": { "description": "The unassigned conversation.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationResponse" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -7059,7 +7096,9 @@
           "targetType": { "type": "string", "enum": ["conversation", "handoff", "campaign", "automation"] },
           "targetId": { "type": "string", "format": "uuid" },
           "createdAt": { "type": "string", "format": "date-time" },
-          "readAt": { "type": ["string", "null"], "format": "date-time" }
+          "readAt": { "type": ["string", "null"], "format": "date-time" },
+          "senderName": { "type": ["string", "null"], "description": "Available only while the recipient can still read the target conversation." },
+          "messagePreview": { "type": ["string", "null"], "description": "Authorized in-app preview only. Push payloads remain generic." }
         }
       },
       "NotificationPageResponse": {
@@ -9473,6 +9512,10 @@
             "type": "string",
             "example": "15559998888"
           },
+          "contactDisplayName": {
+            "type": ["string", "null"],
+            "description": "Current contact name if available; otherwise the client may show the channel identity."
+          },
           "teamId": {
             "type": [
               "string",
@@ -10516,6 +10559,15 @@
           "request_id": {
             "type": "string"
           }
+        }
+      },
+      "MarkUnreadResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "object", "additionalProperties": false, "required": ["unread"], "properties": { "unread": { "type": "boolean", "const": true } } },
+          "request_id": { "type": "string" }
         }
       },
       "AssignConversationRequest": {

@@ -60,3 +60,37 @@ test('the notification drawer fits a phone in Arabic and English', async ({ page
     await page.locator('.notification-bell').click();
   }
 });
+
+test('a phone notification shows its authorized sender and preview, then opens the exact thread', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await freezeClock(page);
+  await installApi(page, { notifications: [{
+    id: NOTIFICATION, kind: 'new_message', targetType: 'conversation', targetId: CONVERSATION,
+    createdAt: '2026-09-09T09:29:00.000Z', readAt: null,
+    senderName: 'Eyad Test', messagePreview: 'Controlled test message',
+  }] });
+  await page.goto('/#/channels');
+  await expect(page.locator('[data-connection]').first()).toBeVisible();
+  await page.locator('.notification-bell').click();
+  const row = page.locator('[data-act="notification-open"]');
+  await expect(row).toContainText('Eyad Test');
+  await expect(row).toContainText('Controlled test message');
+  await row.click();
+  await expect(page).toHaveURL(new RegExp(`/#/inbox/${CONVERSATION}$`));
+  await expect(page.locator('.thread__header')).toBeVisible();
+  await expect(page.locator('.zone--thread')).toBeVisible();
+  await expect(page.locator('.notification-bell__badge')).toHaveCount(0);
+});
+
+test('claiming a conversation on a phone moves it to Mine and opens its thread', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await freezeClock(page);
+  await installApi(page);
+  await page.goto('/#/inbox?queue=unassigned');
+  await expect(page.locator('[data-act="live-inbox-claim"]').first()).toBeVisible();
+  await page.locator('[data-act="live-inbox-claim"]').first().click();
+  await expect(page).toHaveURL(new RegExp(`/#/inbox/${CONVERSATION}`));
+  await expect(page.locator('.zone--thread')).toBeVisible();
+  await expect(page.locator('.thread__header')).toBeVisible();
+  await expect(page.locator('.segmented__item[data-arg="mine"]')).toHaveAttribute('aria-pressed', 'true');
+});

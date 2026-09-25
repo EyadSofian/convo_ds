@@ -85,6 +85,7 @@ describe('migrate', () => {
       '0038_conversation_episode_actor_fk_set_null.sql',
       '0039_notifications.sql',
       '0040_whatsapp_template_send_evidence.sql',
+      '0041_meta_contact_profile_queue.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -141,6 +142,7 @@ describe('migrate', () => {
       'contact_custom_field_values',
       'contact_identities',
       'contact_labels',
+      'contact_profile_queue',
       'contacts',
       'conversation_audit',
       'conversation_collaborators',

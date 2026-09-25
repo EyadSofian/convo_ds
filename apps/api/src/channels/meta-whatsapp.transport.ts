@@ -78,6 +78,30 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
+  /** Page-scoped Meta identities need a Page credential; webhook IDs are not names. */
+  async fetchPeerProfile(kind: ChannelKind, credential: string, peerIdentity: string): Promise<string | null> {
+    if (kind !== 'messenger' && kind !== 'instagram') return null;
+    if (!/^[0-9]{1,32}$/.test(peerIdentity)) return null;
+    const fields = kind === 'messenger' ? 'id,name,first_name,last_name' : 'id,name,username';
+    try {
+      const response = await this.fetchImpl(`${this.graphBase}/${encodeURIComponent(peerIdentity)}?fields=${fields}`, {
+        method: 'GET', headers: { authorization: `Bearer ${credential}` },
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (!response.ok) return null;
+      const body = await readJson(response) as { id?: unknown; name?: unknown; username?: unknown; first_name?: unknown; last_name?: unknown } | null;
+      if (body?.id !== peerIdentity) return null;
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      const first = typeof body.first_name === 'string' ? body.first_name.trim() : '';
+      const last = typeof body.last_name === 'string' ? body.last_name.trim() : '';
+      const username = typeof body.username === 'string' ? body.username.trim() : '';
+      const candidate = name || [first, last].filter(Boolean).join(' ') || username;
+      return candidate.length > 0 && candidate.length <= 200 ? candidate : null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Reads the phone number back from Graph.
    *
@@ -418,9 +442,8 @@ function isMetaGraphKind(kind: ChannelKind): kind is 'whatsapp' | 'messenger' | 
   return kind === 'whatsapp' || kind === 'messenger' || kind === 'instagram';
 }
 
-function connectionFields(kind: 'whatsapp' | 'messenger' | 'instagram'): string {
-  if (kind === 'whatsapp') return 'id,display_phone_number,verified_name';
-  return kind === 'messenger' ? 'id,name' : 'id,username';
+function connectionFields(kind: 'whatsapp' | 'messenger'): string {
+  return kind === 'whatsapp' ? 'id,display_phone_number,verified_name' : 'id,name';
 }
 
 function unsupportedConnection(kind: ChannelKind): ConnectionCheck {

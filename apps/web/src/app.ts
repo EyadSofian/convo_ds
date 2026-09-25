@@ -946,6 +946,19 @@ export function mount(options: MountOptions): AppHandle {
     const keyboard = event as KeyboardEvent;
     const target = keyboard.target;
 
+    // Enter sends a reply; Shift+Enter keeps the deliberate multi-line path.
+    // Ignore composition so choosing an Arabic/Asian IME candidate never sends.
+    if (keyboard.key === 'Enter' && !keyboard.shiftKey && !keyboard.isComposing &&
+        target instanceof HTMLTextAreaElement && target.classList.contains('composer__input') &&
+        !target.classList.contains('composer__input--note')) {
+      keyboard.preventDefault();
+      if (target.value.trim() !== '' && state.live.busy !== 'send-reply') {
+        state.live.composer = target.value;
+        dispatch('live-inbox-send');
+      }
+      return;
+    }
+
     if (
       target instanceof HTMLElement &&
       target.classList.contains('list-resizer') &&

@@ -900,6 +900,8 @@
   .notification-row--unread .notification-row__dot { background: var(--accent); }
   .notification-row__content { display: grid; gap: 2px; min-inline-size: 0; }
   .notification-row__title { font-size: var(--text-sm); font-weight: var(--weight-medium); }
+  .notification-row__sender { font-size: var(--text-sm); font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .notification-row__preview { font-size: var(--text-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .notification-row time { color: var(--text-muted); font-size: var(--text-xs); }
 
   .menu,

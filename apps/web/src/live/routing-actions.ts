@@ -198,6 +198,20 @@ export async function assignConversation(
   );
 }
 
+/** Return only one's own assignment to the shared queue. */
+export async function releaseOwnConversation(context: LiveContext): Promise<boolean> {
+  const open = context.live.openConversation;
+  if (open.status !== 'ready') return false;
+  return mutate(context, `routing:${open.value.id}`,
+    (tenantId) => context.live.conversationsApi.releaseOwn(tenantId, open.value.id, open.value.version),
+    async (record) => {
+      context.live.openConversation = ready(record, context.now());
+      context.state.inboxQueue = 'unassigned';
+      await refreshInboxLists(context);
+    },
+    t(context, 'عادت المحادثة إلى غير المسندة.', 'Returned to Unassigned.'));
+}
+
 /** Offers the conversation to a named colleague. */
 export async function requestHandoff(context: LiveContext, membershipId: string): Promise<boolean> {
   const { live } = context;

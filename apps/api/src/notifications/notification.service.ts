@@ -4,6 +4,7 @@ import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
+import { readDetail, requireReadable } from '../conversations/record.js';
 
 export type NotificationKind = 'new_message' | 'assignment' | 'handoff' | 'campaign' | 'automation_failure';
 export type NotificationTarget = 'conversation' | 'handoff' | 'campaign' | 'automation';
@@ -14,6 +15,8 @@ export interface Notification {
   readonly targetId: string;
   readonly createdAt: string;
   readonly readAt: string | null;
+  readonly senderName: string | null;
+  readonly messagePreview: string | null;
 }
 interface NotificationRow {
   readonly id: string;
@@ -22,6 +25,7 @@ interface NotificationRow {
   readonly target_id: string;
   readonly created_at: Date;
   readonly read_at: Date | null;
+  readonly dedupe_key: string;
 }
 interface PageCursor { readonly at: string; readonly id: string; }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -43,10 +47,11 @@ function decodeCursor(value: string | undefined): PageCursor | null {
     throw badQuery();
   }
 }
-function view(row: NotificationRow): Notification {
+function view(row: NotificationRow, senderName: string | null = null, messagePreview: string | null = null): Notification {
   return {
     id: row.id, kind: row.kind, targetType: row.target_type, targetId: row.target_id,
     createdAt: row.created_at.toISOString(), readAt: row.read_at?.toISOString() ?? null,
+    senderName, messagePreview,
   };
 }
 
@@ -93,7 +98,7 @@ export class NotificationService {
     if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw badQuery();
     return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
       const rows = await sql.query<NotificationRow>(
-        `SELECT id::text, kind, target_type, target_id::text, created_at, read_at
+        `SELECT id::text, kind, target_type, target_id::text, created_at, read_at, dedupe_key
            FROM notifications
           WHERE recipient_membership_id=$1
             AND ($2::timestamptz IS NULL OR (created_at, id) < ($2::timestamptz, $3::uuid))
@@ -105,7 +110,26 @@ export class NotificationService {
       const nextCursor = rows.rows.length > limit && last !== undefined
         ? Buffer.from(JSON.stringify({ at: last.created_at.toISOString(), id: last.id })).toString('base64url')
         : null;
-      return { items: page.map(view), nextCursor };
+      // A notification is not a grant. Resolve its preview against the
+      // caller's *current* conversation permission on every list request.
+      // Push payloads remain generic and never contain this content.
+      const items = await Promise.all(page.map(async (row) => {
+        if (row.target_type !== 'conversation' && row.target_type !== 'handoff') return view(row);
+        const detail = await readDetail(sql, row.target_id);
+        if (detail === null) return view(row);
+        try { requireReadable(principal, detail); }
+        catch (error) {
+          if (error instanceof ApiHttpError && error.getStatus() === 403) return view(row);
+          throw error;
+        }
+        const eventId = row.kind === 'new_message' ? row.dedupe_key.match(/^inbound:([0-9a-f-]{36})$/i)?.[1] : undefined;
+        const inbound = eventId === undefined ? null : await sql.query<{ text_body: string | null }>(
+          `SELECT text_body FROM inbound_events
+            WHERE id=$1 AND conversation_id=$2 AND kind='message'`, [eventId, row.target_id],
+        );
+        return view(row, detail.contactDisplayName ?? null, inbound?.rows[0]?.text_body?.slice(0, 180) ?? null);
+      }));
+      return { items, nextCursor };
     });
   }
 

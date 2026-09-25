@@ -9,6 +9,8 @@ export interface Notification {
   readonly targetId: string;
   readonly createdAt: string;
   readonly readAt: string | null;
+  readonly senderName?: string | null;
+  readonly messagePreview?: string | null;
 }
 
 export class NotificationsApi {
