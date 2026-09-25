@@ -5,8 +5,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike } from '../api/client.js';
 import type { AppHandle } from '../app.js';
 import { mount } from '../app.js';
+import type { LiveContext } from './actions.js';
+import { createContact, importContacts, loadContactConnections } from './contact-actions.js';
 import type { RouterHost } from '../router.js';
 import type { EventSourceLike } from './realtime.js';
+import { createState } from '../state.js';
 
 /**
  * Contacts, through the real client, actions and renderer.
@@ -207,6 +210,23 @@ afterEach(() => {
 });
 
 describe('the contacts directory', () => {
+  it('safely declines contact actions when input or tenant context is absent', async () => {
+    const state = createState(NOW);
+    state.live.session = { status: 'signed_out', error: null };
+    const context = {
+      state, live: state.live, refresh: () => undefined, now: () => NOW.getTime(), newKey: () => 'key',
+      endSession: () => undefined, switchWorkspace: () => undefined,
+    } as LiveContext;
+    expect(await loadContactConnections(context)).toBe(false);
+    expect(await createContact(context, { displayName: '', connectionId: 'cn-1', externalId: 'wa-1' })).toBe(false);
+    expect(await createContact(context, { displayName: 'Sara', connectionId: '', externalId: 'wa-1' })).toBe(false);
+    expect(await createContact(context, { displayName: 'Sara', connectionId: 'cn-1', externalId: '' })).toBe(false);
+    context.state.dialogForm = { contactImportCsv: 'invalid', contactImportConnection: 'cn-1' };
+    expect(await importContacts(context)).toBe(false);
+    context.state.dialogForm = { contactImportCsv: 'display_name,external_id\nSara,wa-1', contactImportConnection: '' };
+    expect(await importContacts(context)).toBe(false);
+  });
+
   it('shows at most two of a contact’s labels on its row', async () => {
     const label = (id: string, name: string): Record<string, unknown> => ({ id, name, color: '#6558d9', state: 'active', version: 1 });
     const api = contactsApi().on(`GET /tenants/${TENANT}/contacts`, {
@@ -329,6 +349,7 @@ describe('the contacts directory', () => {
     click(root, '[data-act="live-contact-connections"]');
     await settle();
     const input = root.querySelector('input[data-act="live-contact-import-file"]') as HTMLInputElement;
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
     Object.defineProperty(input, 'files', { value: [{ name: 'too-large.csv', size: 1_000_001, text: async () => '' }] });
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
     await settle();
