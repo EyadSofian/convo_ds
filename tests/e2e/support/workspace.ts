@@ -43,10 +43,13 @@ export async function fontsReady(page: Page): Promise<void> {
  * spinner, a skeleton shimmer — are loading states, not entrances.
  */
 export async function motionSettled(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const entrances = document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity);
-    await Promise.all(entrances.map((animation) => animation.finished.then(() => undefined, () => undefined)));
-  });
+  // Polled rather than awaited once: a render that lands mid-entrance rebuilds
+  // the elements, and their continuing animations are new objects.
+  await page.waitForFunction(() =>
+    document.getAnimations().every(
+      (animation) => animation.playState !== 'running' || animation.effect?.getComputedTiming().iterations === Infinity,
+    ),
+  );
 }
 
 /**

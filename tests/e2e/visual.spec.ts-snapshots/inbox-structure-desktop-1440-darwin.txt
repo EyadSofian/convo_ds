@@ -53,6 +53,13 @@ div.inbox
           option
           option
           option
+        button.btn.btn--ghost.btn--sm [live-inbox-archived-toggle]
+          span.btn__icon
+            svg
+              rect
+              path
+              path
+          span.btn__label
     button.list-resizer [resize-list-step]
     div.zone__body
       div.convlist
@@ -334,7 +341,7 @@ div.inbox
           svg
             path
             path
-      span.avatar.avatar--md
+      span.avatar.avatar--md.avatar--tone-3
         span.avatar__channel.channel-tile--whatsapp
           svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
             path
@@ -486,67 +493,117 @@ div.inbox
           svg
             path
     div.zone__body
-      div.contact
-        section.panel-section.contact__who
-          div.contact__identity-head
-            span.avatar.avatar--lg
-            div
+      div.contact.contact--panel
+        section.contact__who
+          div.contact__hero
+            span.avatar.avatar--xl.avatar--tone-3
+            div.contact__hero-copy
+              p.contact__eyebrow
               p.contact__name
                 bdi
-              p.contact__sub
+              ul.contact__reach
+                li.contact__reach-chip
+                  span.contact__reach-mark.channel-tile--whatsapp
+                    svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
+                      path
           p.consent__suppressed
-          div.inline-form
+        dl.contact__facts
+          div.contact__fact.contact__fact--blue
+            dt.contact__fact-label
+            dd.contact__fact-value
+          div.contact__fact.contact__fact--danger
+            dt.contact__fact-label
+            dd.contact__fact-value
+          div.contact__fact.contact__fact--violet
+            dt.contact__fact-label
+            dd.contact__fact-value
+          div.contact__fact.contact__fact--neutral
+            dt.contact__fact-label
+            dd.contact__fact-value
+        div.contact__cards
+          section.panel-section.contact__card.contact__details
+            h3.panel-section__title
+              span.section-chip.section-chip--blue
+                svg
+                  circle
+                  path
+              span.panel-section__text
+            div.inline-form
+              label.field
+                span.field__label
+                input.input [form]
+              button.btn.btn--sm [live-contact-save-panel]
+                span.btn__label
+            dl.attrgrid
+              dt
+              dd
+                bdi
+              dt
+              dd
+                bdi
+          section.panel-section.contact__card.contact__channels
+            h3.panel-section__title
+              span.section-chip.section-chip--cyan
+                svg
+                  path
+                  path
+              span.panel-section__text
+            ul.contact__identities
+              li.contact__identity
+                span.contact__identitykind
+                  span.contact__identitymark.channel-tile--whatsapp
+                    svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
+                      path
+                span.contact__identityvalue
+                  bdi.mono
+                span.badge.badge--success
+                  span.badge__dot
+          section.panel-section.contact__card.contact__consent
+            h3.panel-section__title
+              span.section-chip.section-chip--green
+                svg
+                  path
+                  path
+              span.panel-section__text
+            ul.consent__list
+              li.consent__row
+                span.badge.badge--success
+                span.consent__what
+                span.consent__source
+            div.consent__actions
+              button.btn.btn--sm [live-consent-panel]
+                span.btn__label
+              button.btn.btn--ghost.btn--sm [live-consent-panel]
+                span.btn__label
+            p.field__hint
+          section.panel-section.metadata
+            h3.panel-section__title
+              span.section-chip.section-chip--violet
+                svg
+                  path
+                  circle
+              span.panel-section__text
+            div.metadata__labels
+              span.metadata__label
+                span.metadata__swatch
+                bdi
+                button.btn.btn--ghost.btn--sm.btn--icon.metadata__remove [live-metadata-label]
+                  span.btn__icon
+                    svg
+                      path
             label.field
               span.field__label
-              input.input [form]
-            button.btn.btn--sm [live-contact-save-panel]
-              span.btn__label
-          dl.attrgrid
-            dt
-            dd
-              bdi
-            dt
-            dd
-              bdi
-        section.panel-section.metadata
-          h3.panel-section__title
-          div.metadata__labels
-            span.metadata__label
-              span.metadata__swatch
-              bdi
-              button.btn.btn--ghost.btn--sm.btn--icon.metadata__remove [live-metadata-label]
-                span.btn__icon
-                  svg
-                    path
-          label.field
-            span.field__label
-            select.select [live-metadata-label]
-              option
-              option
-        section.panel-section
-          h3.panel-section__title
-          ul.contact__identities
-            li.contact__identity
-              span.contact__identitykind
-              span.contact__identityvalue
-                bdi.mono
-              span.badge.badge--success
-                span.badge__dot
-        section.panel-section
-          h3.panel-section__title
-          ul.consent__list
-            li.consent__row
-              span.badge.badge--success
-              span.consent__what
-              span.consent__source
-          div.consent__actions
-            button.btn.btn--sm [live-consent-panel]
-              span.btn__label
-            button.btn.btn--ghost.btn--sm [live-consent-panel]
-              span.btn__label
-          p.field__hint
+              select.select [live-metadata-label]
+                option
+                option
       section.panel-section.metadata
         h3.panel-section__title
+          span.section-chip.section-chip--amber
+            svg
+              path
+              path
+              path
+          span.panel-section__text
         p.field__hint
         label.field
           span.field__label
@@ -556,6 +613,12 @@ div.inbox
             option
       section.routing.panel-section
         h3.panel-section__title
+          span.section-chip.section-chip--blue
+            svg
+              circle
+              path
+              path
+          span.panel-section__text
         div.routing__current
           p.routing__assignee
             span.routing__key
@@ -578,6 +641,12 @@ div.inbox
             span.btn__label
       section.notes.panel-section
         h3.panel-section__title
+          span.section-chip.section-chip--amber
+            svg
+              path
+              path
+              path
+          span.panel-section__text
         p.field__hint
         ul.notes__list
           li.notes__item
@@ -603,6 +672,12 @@ div.inbox
             p.notes__body
       section.episodes.panel-section
         h3.panel-section__title
+          span.section-chip.section-chip--pink
+            svg
+              path
+              path
+              path
+          span.panel-section__text
         ol.episodes__list
           li.episodes__item
             div.episodes__top

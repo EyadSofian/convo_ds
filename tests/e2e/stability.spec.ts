@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { CONVERSATION, installApi } from './support/api';
-import { box, fontsReady, freezeClock, openInbox, openScreen, overflowsHorizontally, setDirection, setTheme } from './support/workspace';
+import { box, fontsReady, freezeClock, motionSettled, openInbox, openScreen, overflowsHorizontally, setDirection, setTheme } from './support/workspace';
 
 /**
  * Nothing moves when work starts or ends. Measured in a real engine, because
@@ -113,6 +113,7 @@ test.describe('the live status in the header', () => {
     await page.evaluate(() => (window as unknown as Streams).__streams?.[0]?.fire('open'));
     await expect(page.locator('.header [data-realtime="live"]')).toBeVisible();
     await fontsReady(page);
+    await motionSettled(page);
 
     const measure = async (): Promise<unknown[]> => [
       await box(page.locator('.header')),

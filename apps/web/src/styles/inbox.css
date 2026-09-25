@@ -830,10 +830,12 @@
     padding: var(--space-2) var(--space-3) var(--space-3);
   }
 
+  /* A zero basis: the hint takes only the room left on the row and
+     ellipsises, instead of forcing Send onto a second line. */
   .composer__hint,
   .composer__blocked {
     display: inline-flex;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     align-items: center;
     justify-content: flex-end;
     gap: var(--space-1);

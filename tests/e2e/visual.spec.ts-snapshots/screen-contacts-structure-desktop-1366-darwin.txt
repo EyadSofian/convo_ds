@@ -1,39 +1,74 @@
 main.app__screen
   div.page.page--contacts
     div.page__inner
-      div.pagebar
-        p.pagebar__lede
-        div.pagebar__actions
-          button.btn.btn--sm.btn--refresh [live-contacts-reload]
-            span.btn__icon
+      section.contacts-hero
+        div.contacts-hero__top
+          div.contacts-hero__intro
+            span.contacts-hero__icon
+              svg
+                rect
+                circle
+                path
+            div.contacts-hero__copy
+              h2.contacts-hero__title
+              p.contacts-hero__lede
+          div.contacts-hero__actions
+            button.btn.btn--sm.btn--refresh.contacts-hero__ghost [live-contacts-reload]
+              span.btn__icon
+                svg
+                  path
+                  path
+                  path
+                  path
+              span.btn__label
+            button.btn.btn--sm.contacts-hero__ghost [live-contacts-tool]
+              span.btn__icon
+                svg
+                  path
+                  path
+              span.btn__label
+            button.btn.btn--sm.contacts-hero__primary [live-contacts-tool]
+              span.btn__icon
+                svg
+                  circle
+                  path
+                  path
+              span.btn__label
+        dl.contacts-hero__stats
+          div.contacts-stat.contacts-stat--blue
+            span.contacts-stat__icon
+              svg
+                circle
+                path
+                path
+                path
+            dt.contacts-stat__label
+            dd.contacts-stat__value
+          div.contacts-stat.contacts-stat--green
+            span.contacts-stat__icon
+              svg
+                path
+                path
+            dt.contacts-stat__label
+            dd.contacts-stat__value
+          div.contacts-stat.contacts-stat--violet
+            span.contacts-stat__icon
               svg
                 path
                 path
                 path
+            dt.contacts-stat__label
+            dd.contacts-stat__value
+          div.contacts-stat.contacts-stat--lime
+            span.contacts-stat__icon
+              svg
                 path
-            span.btn__label
-      form.panel.contact-create
-        div.contact-create__intro
-          div
-            h2.panel__title
-            p.field__hint
-        div.contact-create__fields
-          label.field
-            span.field__label
-            input.input [form]
-          label.field
-            span.field__label
-            select.select [form]
-              option
-          label.field
-            span.field__label
-            input.input [form]
-          button.btn.btn--ghost [live-contact-connections]
-            span.btn__label
-        p.contact-create__notice
+                circle
+            dt.contacts-stat__label
+            dd.contacts-stat__value
       div.split.split--contacts
-        section.panel.split__list
-          div.panel__header.panel__header--stack
+        section.panel.split__list.contacts-directory
+          div.panel__header.panel__header--stack.contacts-directory__head
             form.searchbar
               svg
                 circle
@@ -52,85 +87,141 @@ main.app__screen
             ul.contactlist
               li
                 button.contactrow [live-contact-open]
-                  span.avatar.avatar--sm
+                  span.avatar.avatar--md.avatar--tone-3
+                    span.avatar__channel.channel-tile--whatsapp
+                      svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
+                        path
                   span.contactrow__main
                     span.contactrow__name
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
-                      path
+                    span.contactrow__channel.channel-tile--whatsapp
+                      svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
+                        path
                   span.contactrow__labels
                     span.metadata__label
                       span.metadata__swatch
+                  span.contactrow__chevron
+                    svg.icon--directional
+                      path
               li
                 button.contactrow [live-contact-open]
-                  span.avatar.avatar--sm
+                  span.avatar.avatar--md.avatar--tone-0
+                    span.avatar__channel.channel-tile--messenger
+                      svg.channel-mark.channel-mark--brand.channel-mark--messenger
+                        path
                   span.contactrow__main
                     span.contactrow__name
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--brand.channel-mark--messenger
+                    span.contactrow__channel.channel-tile--messenger
+                      svg.channel-mark.channel-mark--brand.channel-mark--messenger
+                        path
+                  span.contactrow__chevron
+                    svg.icon--directional
                       path
               li
                 button.contactrow [live-contact-open]
-                  span.avatar.avatar--sm
+                  span.avatar.avatar--md.avatar--tone-1
+                    span.avatar__channel.channel-tile--instagram
+                      svg.channel-mark.channel-mark--brand.channel-mark--instagram
+                        defs
+                          radialgradient
+                            stop
+                            stop
+                            stop
+                            stop
+                            stop
+                        path
                   span.contactrow__main
                     span.contactrow__name
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--brand.channel-mark--instagram
-                      defs
-                        radialgradient
-                          stop
-                          stop
-                          stop
-                          stop
-                          stop
+                    span.contactrow__channel.channel-tile--instagram
+                      svg.channel-mark.channel-mark--brand.channel-mark--instagram
+                        defs
+                          radialgradient
+                            stop
+                            stop
+                            stop
+                            stop
+                            stop
+                        path
+                  span.contactrow__chevron
+                    svg.icon--directional
                       path
               li
                 button.contactrow [live-contact-open]
-                  span.avatar.avatar--sm
+                  span.avatar.avatar--md.avatar--tone-0
+                    span.avatar__channel.channel-tile--web_chat
+                      svg.channel-mark.channel-mark--product.channel-mark--web_chat
+                        rect
+                        path
+                        circle
+                        circle
+                        path
+                        circle
+                        circle
+                        circle
                   span.contactrow__main
                     span.contactrow__name
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--product.channel-mark--web_chat
-                      rect
-                      path
-                      circle
-                      circle
-                      path
-                      circle
-                      circle
-                      circle
+                    span.contactrow__channel.channel-tile--web_chat
+                      svg.channel-mark.channel-mark--product.channel-mark--web_chat
+                        rect
+                        path
+                        circle
+                        circle
+                        path
+                        circle
+                        circle
+                        circle
                   span.contactrow__labels
                     span.metadata__label
                       span.metadata__swatch
+                  span.contactrow__chevron
+                    svg.icon--directional
+                      path
               li
                 button.contactrow [live-contact-open]
-                  span.avatar.avatar--sm
+                  span.avatar.avatar--md.avatar--tone-2
+                    span.avatar__channel.channel-tile--whatsapp
+                      svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
+                        path
                   span.contactrow__main
                     span.contactrow__name
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
+                    span.contactrow__channel.channel-tile--whatsapp
+                      svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
+                        path
+                  span.contactrow__chevron
+                    svg.icon--directional
                       path
               li
                 button.contactrow [live-contact-open]
-                  span.avatar.avatar--sm
+                  span.avatar.avatar--md.avatar--tone-6
+                    span.avatar__channel.channel-tile--messenger
+                      svg.channel-mark.channel-mark--brand.channel-mark--messenger
+                        path
                   span.contactrow__main
                     span.contactrow__name
                       bdi
                     span.contactrow__meta
                   span.contactrow__channels
-                    svg.channel-mark.channel-mark--brand.channel-mark--messenger
+                    span.contactrow__channel.channel-tile--messenger
+                      svg.channel-mark.channel-mark--brand.channel-mark--messenger
+                        path
+                  span.contactrow__chevron
+                    svg.icon--directional
                       path
-        section.panel.split__detail
+        section.panel.split__detail.contacts-profile
           div.panel__body
             div.empty.empty--neutral
               span.empty__icon
@@ -140,7 +231,7 @@ main.app__screen
               div.empty__text
                 p.empty__title
                 p.empty__body
-      section.panel
+      section.panel.catalog-panel
         header.panel__header
           div.panel__titles
             h2.panel__title
