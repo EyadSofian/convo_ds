@@ -34,4 +34,31 @@ describe('own Inbox actions fail closed', () => {
     expect(ctx.live.error).toEqual(ERROR);
     expect(ctx.live.openConversation.status).toBe('ready');
   });
+
+  it('removes protected thread content after releasing an own-only assignment', async () => {
+    const ctx = context();
+    ctx.live.openConversationId = 'conversation-1';
+    ctx.live.openConversation = ready({ id: 'conversation-1', version: 3 } as never, ctx.now());
+    ctx.live.timeline = ready([{ id: 'private-message' }] as never, ctx.now());
+    ctx.live.notes = ready([{ id: 'private-note' }] as never, ctx.now());
+    ctx.live.composer = 'unsent reply';
+    ctx.live.noteDraft = 'unsent note';
+    ctx.state.route = { screen: 'inbox', conversationId: 'conversation-1', params: {} };
+    const releaseOwn = vi.fn().mockResolvedValue({ ok: true, data: { id: 'conversation-1', version: 4 } });
+    Object.assign(ctx.live, { conversationsApi: {
+      releaseOwn,
+      unassigned: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      list: vi.fn().mockResolvedValue({ ok: true, data: { items: [], nextCursor: null } }),
+    } as unknown as ConversationsApi });
+    expect(await releaseOwnConversation(ctx)).toBe(true);
+    expect(releaseOwn).toHaveBeenCalledWith('tenant-1', 'conversation-1', 3);
+    expect(ctx.state.inboxQueue).toBe('unassigned');
+    expect(ctx.state.route.conversationId).toBeNull();
+    expect(ctx.live.openConversationId).toBeNull();
+    expect(ctx.live.openConversation.status).toBe('idle');
+    expect(ctx.live.timeline.status).toBe('idle');
+    expect(ctx.live.notes.status).toBe('idle');
+    expect(ctx.live.composer).toBe('');
+    expect(ctx.live.noteDraft).toBe('');
+  });
 });

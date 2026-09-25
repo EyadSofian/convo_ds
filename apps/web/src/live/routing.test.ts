@@ -430,7 +430,9 @@ describe('assigning a conversation', () => {
     await settle();
     expect(api.bodyOf(`POST /tenants/${TENANT}/conversations/${CONVERSATION}/release`)).toEqual({ version: 4 });
     expect(app.state.inboxQueue).toBe('unassigned');
-    expect(text(root.querySelector('.routing__assignee') as HTMLElement)).toContain('لا أحد بعد');
+    expect(app.state.route.conversationId).toBeNull();
+    expect(root.querySelector('.routing__assignee')).toBeNull();
+    expect(root.querySelector('[data-act="live-routing-release-own"]')).toBeNull();
   });
 
   it('marks only the operator’s conversation unread and refreshes the queue', async () => {

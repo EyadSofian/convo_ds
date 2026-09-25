@@ -6,7 +6,7 @@ STAGING_ID='6c7d3ce1-db61-40fd-9cf7-bffac954eda5'
 PRODUCTION_ID='ea473c79-c29e-4aab-91c4-e48f606dc057'
 # Deployment is intentionally pinned to the latest reviewed schema. Update this
 # guard together with the PR that introduces the next forward migration.
-EXPECTED_MIGRATION='0041_meta_contact_profile_queue.sql'
+EXPECTED_MIGRATION='0042_meta_profile_tenant_backfill.sql'
 
 usage() {
   echo 'usage: deploy-railway.sh <staging|production> <full-sha> <service> [--confirm-production]' >&2

@@ -1,10 +1,13 @@
-import { readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Pool } from 'pg';
+import { asExecutor } from '../../packages/database/src/index.js';
+import { applyInstallationConfig } from '../../packages/domain/src/index.js';
 import {
   MIGRATION_ADVISORY_LOCK_KEY,
   migrate,
@@ -86,6 +89,7 @@ describe('migrate', () => {
       '0039_notifications.sql',
       '0040_whatsapp_template_send_evidence.sql',
       '0041_meta_contact_profile_queue.sql',
+      '0042_meta_profile_tenant_backfill.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
@@ -205,6 +209,75 @@ describe('migrate', () => {
     // Counted from the directory rather than pinned: a forward-only migration
     // added by a later slice must not make this assertion a lie somebody edits.
     expect(recorded.rows[0]?.count).toBe(String(MIGRATION_FILES.length));
+  });
+
+  it('backfills unresolved Meta names under each tenant RLS context', async () => {
+    await applyInstallationConfig(asExecutor(pool), 'saas');
+    const client = await pool.connect();
+    let contactId = '';
+    const tenantId = randomUUID();
+    let connectionId = '';
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT set_config($1,$2,true)', ['convo.tenant_id', tenantId]);
+      await client.query(
+        `INSERT INTO tenants (id,name,slug,status) VALUES ($1,'Profile fixture','profile-fixture','active')`, [tenantId],
+      );
+      const connection = await client.query<{ id: string }>(
+        `INSERT INTO channel_connections (tenant_id,kind,external_asset_id,display_name)
+         VALUES ($1,'instagram','controlled-asset','Test Instagram') RETURNING id::text`, [tenantId],
+      );
+      connectionId = connection.rows[0]!.id;
+      const contact = await client.query<{ id: string }>(
+        `INSERT INTO contacts (tenant_id,display_name,search_name)
+         VALUES ($1,'123456789','123456789') RETURNING id::text`, [tenantId],
+      );
+      contactId = contact.rows[0]!.id;
+      await client.query(
+        `INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id)
+         VALUES ($1,$2,'instagram',$3,'123456789')`, [tenantId, contactId, connectionId],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    // Without a context, FORCE RLS hid this row from the initial 0041 SELECT.
+    const invisible = await pool.query('SELECT count(*)::int AS count FROM contact_identities');
+    expect(invisible.rows[0]?.count).toBe(0);
+    const migration = readFileSync(fileURLToPath(new URL(
+      '../../packages/database/migrations/0042_meta_profile_tenant_backfill.sql', import.meta.url,
+    )), 'utf8');
+    const applyBackfill = async (): Promise<void> => {
+      const migrationClient = await pool.connect();
+      try {
+        await migrationClient.query('BEGIN');
+        await migrationClient.query(migration);
+        await migrationClient.query('COMMIT');
+      } catch (error) {
+        await migrationClient.query('ROLLBACK');
+        throw error;
+      } finally {
+        migrationClient.release();
+      }
+    };
+    await applyBackfill();
+    const queued = await pool.query<{ tenant_id: string; connection_id: string }>(
+      'SELECT tenant_id::text,connection_id::text FROM contact_profile_queue WHERE contact_id=$1', [contactId],
+    );
+    expect(queued.rows).toEqual([{ tenant_id: tenantId, connection_id: connectionId }]);
+    const tenantRls = await pool.query<{ relforcerowsecurity: boolean }>(
+      "SELECT relforcerowsecurity FROM pg_class WHERE oid='tenants'::regclass",
+    );
+    expect(tenantRls.rows[0]?.relforcerowsecurity).toBe(true);
+    await applyBackfill();
+    const once = await pool.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM contact_profile_queue WHERE contact_id=$1', [contactId],
+    );
+    expect(once.rows[0]?.count).toBe(1);
   });
 
   it('configures episode actor FKs to clear only actor IDs on membership deletion', async () => {
