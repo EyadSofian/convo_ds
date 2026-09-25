@@ -4,11 +4,8 @@ import type { EntityMetadata } from './metadata.js';
 /**
  * The contact operations, typed against the pinned OpenAPI.
  *
- * There is no `create` and no `merge` here because there are none on the wire:
- * a contact exists because somebody wrote to us, and joining two of them is a
- * reviewed act this build does not offer. Their absence is the point — a
- * "create contact" form would invite somebody to type a phone number and call
- * it a person, which is the identity inference the model refuses.
+ * Contacts may be explicitly created against one selected channel identity.
+ * Identities are never inferred or merged, and create does not imply consent.
  */
 
 export interface ContactIdentity {
@@ -63,6 +60,40 @@ export interface ConsentInput {
   readonly proofRef: string | null;
 }
 
+export interface ContactImportRow { readonly displayName: string; readonly externalId: string }
+export type ContactCsvPreview =
+  | { readonly ok: true; readonly rows: readonly ContactImportRow[] }
+  | { readonly ok: false; readonly message: string };
+
+/** Parse the deliberately narrow, documented CSV format without guessing identities. */
+export function previewContactCsv(source: string): ContactCsvPreview {
+  if (new TextEncoder().encode(source).byteLength > 1_000_000) return { ok: false, message: 'CSV must be 1 MB or smaller.' };
+  const records = csvRecords(source.replace(/^\uFEFF/, ''));
+  if (records === null || records.length < 2) return { ok: false, message: 'Use a CSV header and at least one contact row.' };
+  const headers = records[0]?.map((cell) => cell.trim().toLowerCase());
+  if (headers?.length !== 2 || headers[0] !== 'display_name' || headers[1] !== 'external_id') {
+    return { ok: false, message: 'Expected exactly these columns: display_name, external_id.' };
+  }
+  const data = records.slice(1).filter((record) => record.some((cell) => cell.trim() !== ''));
+  if (data.length < 1 || data.length > 500) return { ok: false, message: 'Import between 1 and 500 contacts per file.' };
+  const seen = new Set<string>();
+  const rows: ContactImportRow[] = [];
+  for (let index = 0; index < data.length; index += 1) {
+    const row = data[index]!;
+    // csvRecords always starts each record with a first cell; a missing second
+    // cell is allowed through parsing and rejected by the shape check below.
+    const displayName = row[0]!.trim();
+    const externalId = row[1]?.trim() ?? '';
+    if (row.length !== 2 || displayName.length < 1 || displayName.length > 200 || externalId.length < 1 || externalId.length > 256) {
+      return { ok: false, message: `Row ${index + 2} must contain a name (1–200 characters) and channel ID (1–256 characters).` };
+    }
+    if (seen.has(externalId)) return { ok: false, message: `Row ${index + 2} repeats a channel ID from this file.` };
+    seen.add(externalId);
+    rows.push({ displayName, externalId });
+  }
+  return { ok: true, rows };
+}
+
 export class ContactsApi {
   constructor(private readonly client: ApiClient) {}
 
@@ -88,6 +119,18 @@ export class ContactsApi {
     return this.client.get<Contact>(`/tenants/${tenantId}/contacts/${contactId}`);
   }
 
+  create(tenantId: string, input: { readonly displayName: string; readonly connectionId: string; readonly externalId: string }): Promise<ApiResult<Contact>> {
+    return this.client.post<Contact>(`/tenants/${tenantId}/contacts`, { body: input });
+  }
+
+  import(tenantId: string, input: { readonly connectionId: string; readonly rows: readonly ContactImportRow[] }): Promise<ApiResult<{ readonly created: number }>> {
+    return this.client.post<{ readonly created: number }>(`/tenants/${tenantId}/contacts/import`, { body: input });
+  }
+
+  export(tenantId: string): Promise<ApiResult<{ readonly filename: string; readonly content: string; readonly rowCount: number }>> {
+    return this.client.get<{ readonly filename: string; readonly content: string; readonly rowCount: number }>(`/tenants/${tenantId}/contacts/export`);
+  }
+
   update(
     tenantId: string,
     contactId: string,
@@ -107,4 +150,30 @@ export class ContactsApi {
       body: input,
     });
   }
+}
+
+function csvRecords(source: string): string[][] | null {
+  const records: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+  let closedQuote = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]!;
+    if (quoted) {
+      if (char === '"' && source[index + 1] === '"') { cell += '"'; index += 1; }
+      else if (char === '"') { quoted = false; closedQuote = true; }
+      else cell += char;
+    } else if (char === '"' && cell === '' && !closedQuote) quoted = true;
+    else if (char === ',') { row.push(cell); cell = ''; closedQuote = false; }
+    else if (char === '\n' || char === '\r') {
+      if (char === '\r' && source[index + 1] === '\n') index += 1;
+      row.push(cell); records.push(row); row = []; cell = ''; closedQuote = false;
+    } else if (char === '"') return null;
+    else if (closedQuote) return null;
+    else cell += char;
+  }
+  if (quoted) return null;
+  if (cell !== '' || row.length > 0) { row.push(cell); records.push(row); }
+  return records;
 }

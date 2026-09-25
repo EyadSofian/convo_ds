@@ -25,7 +25,14 @@ export function compileInboxQuery(
     params.push(value);
     return `$${params.length}`;
   };
-  const clauses = ["c.status <> 'archived'", readableScope(principal, add)];
+  // Archived history is intentionally hidden from the operational Inbox, but
+  // remains queryable through the explicit status filter. This keeps the
+  // archive out of live queues without making archived records disappear.
+  const requestsArchived = query.filters.some((filter) =>
+    filter.key === 'status' && (filter.value === 'archived' ||
+      (Array.isArray(filter.value) && filter.value.includes('archived'))),
+  );
+  const clauses = [requestsArchived ? 'TRUE' : "c.status <> 'archived'", readableScope(principal, add)];
   if (query.queue === 'mine') clauses.push(`c.assignee_membership_id = ${add(principal.membershipId)}::uuid`);
   for (const filter of query.filters) clauses.push(predicate(filter, customFields, add));
   if (query.search !== null) clauses.push(searchPredicate(query.search, add));

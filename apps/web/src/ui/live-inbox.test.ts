@@ -22,6 +22,16 @@ function state() {
 }
 
 describe('Inbox list controls', () => {
+  it('makes archived conversations discoverable without including them in the live queue by default', () => {
+    const app = state();
+    const archive = renderInbox(app).querySelector('[data-act="live-inbox-archived-toggle"]') as HTMLButtonElement;
+    expect(archive).not.toBeNull();
+    expect(archive.textContent).toContain('Archived');
+    expect(archive.getAttribute('aria-pressed')).toBe('false');
+    app.live.inboxQuery = { ...app.live.inboxQuery, filters: [{ key: 'status', operator: 'eq', value: 'archived' }] };
+    expect(renderInbox(app).querySelector('[data-act="live-inbox-archived-toggle"]')?.getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('renders the refresh action and a clearly named circular supervisor control', () => {
     const app = state();
     const root = renderInbox(app);

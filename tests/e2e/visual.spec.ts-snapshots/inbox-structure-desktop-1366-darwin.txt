@@ -53,6 +53,13 @@ div.inbox
           option
           option
           option
+        button.btn.btn--ghost.btn--sm [live-inbox-archived-toggle]
+          span.btn__icon
+            svg
+              rect
+              path
+              path
+          span.btn__label
     button.list-resizer [resize-list-step]
     div.zone__body
       div.convlist
@@ -488,12 +495,15 @@ div.inbox
     div.zone__body
       div.contact
         section.panel-section.contact__who
-          div.contact__identity-head
+          div.contact__hero
             span.avatar.avatar--lg
-            div
+            div.contact__hero-copy
               p.contact__name
                 bdi
               p.contact__sub
+              div.contact__quickfacts
+                span.badge.badge--accent
+                span.badge.badge--warning
           p.consent__suppressed
           div.inline-form
             label.field
@@ -523,7 +533,7 @@ div.inbox
             select.select [live-metadata-label]
               option
               option
-        section.panel-section
+        section.panel-section.contact__channels
           h3.panel-section__title
           ul.contact__identities
             li.contact__identity
@@ -532,19 +542,20 @@ div.inbox
                 bdi.mono
               span.badge.badge--success
                 span.badge__dot
-        section.panel-section
-          h3.panel-section__title
-          ul.consent__list
-            li.consent__row
-              span.badge.badge--success
-              span.consent__what
-              span.consent__source
-          div.consent__actions
-            button.btn.btn--sm [live-consent-panel]
-              span.btn__label
-            button.btn.btn--ghost.btn--sm [live-consent-panel]
-              span.btn__label
-          p.field__hint
+        div.contact__consent-wrap
+          section.panel-section
+            h3.panel-section__title
+            ul.consent__list
+              li.consent__row
+                span.badge.badge--success
+                span.consent__what
+                span.consent__source
+            div.consent__actions
+              button.btn.btn--sm [live-consent-panel]
+                span.btn__label
+              button.btn.btn--ghost.btn--sm [live-consent-panel]
+                span.btn__label
+            p.field__hint
       section.panel-section.metadata
         h3.panel-section__title
         p.field__hint

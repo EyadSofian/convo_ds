@@ -924,6 +924,20 @@ export function mount(options: MountOptions): AppHandle {
     }
     const act = target.getAttribute('data-act');
     if (act === null) return;
+    if (target instanceof HTMLInputElement && target.type === 'file' && act === 'live-contact-import-file') {
+      const file = target.files?.[0];
+      if (file === undefined) return;
+      if (file.size > 1_000_000) {
+        state.dialogForm = { ...state.dialogForm, contactImportCsv: '', contactImportFileName: '', contactImportError: 'size' };
+        refresh();
+        return;
+      }
+      void file.text().then((content) => {
+        state.dialogForm = { ...state.dialogForm, contactImportCsv: content, contactImportFileName: file.name, contactImportError: '' };
+        refresh();
+      });
+      return;
+    }
     const formName = target.getAttribute('data-form');
     const arg = formName === null ? target.value : `${formName}:${target.value}`;
     const previousInputValue = formName === null ? undefined : state.dialogForm[formName];

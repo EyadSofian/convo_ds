@@ -95,6 +95,145 @@ export class ContactService {
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
   ) {}
 
+  /** Create one explicitly scoped channel identity; never infer a merge. */
+  async create(
+    session: AuthenticatedSession,
+    tenantId: string,
+    input: { readonly displayName: string; readonly connectionId: string; readonly externalId: string },
+  ): Promise<ContactDetail> {
+    this.authorization.assertTenantId(input.connectionId);
+    try {
+      return await this.authorization.withPrincipal(session, tenantId, async ({ sql }) => {
+        const principal = await this.authorization.requirePermission(sql, session, 'contact.edit', { inboxId: input.connectionId });
+        const connection = await sql.query<{ kind: string }>(
+          `SELECT kind FROM channel_connections WHERE id=$1 AND disconnected_at IS NULL`, [input.connectionId],
+        );
+        const kind = connection.rows[0]?.kind;
+        if (kind === undefined) throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+        const existing = await sql.query(
+          `SELECT 1 FROM contact_identities WHERE kind=$1 AND scope_id=$2 AND external_id=$3 AND valid_to IS NULL`,
+          [kind, input.connectionId, input.externalId],
+        );
+        if (existing.rows.length > 0) {
+          throw new ApiHttpError(409, 'contact_identity_exists', 'This channel identity is already attached to a contact.');
+        }
+        const inserted = await sql.query<{ id: string }>(
+          `INSERT INTO contacts (tenant_id,display_name,search_name)
+           VALUES ($1,$2,$3) RETURNING id::text`,
+          [tenantId, input.displayName, normalizeSearchText(input.displayName)],
+        );
+        const contactId = requireRow(inserted.rows, 'the contact insert returned no id').id;
+        await sql.query(
+          `INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id,provenance)
+           VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+          [tenantId, contactId, kind, input.connectionId, input.externalId,
+            JSON.stringify({ source: 'agent_recorded', actorMembershipId: principal.membershipId })],
+        );
+        // No consent is created here. Audience planning remains responsible for
+        // excluding anyone without recorded marketing consent or with suppression.
+        return detailOf(sql, contactId);
+      });
+    } catch (error) {
+      // The partial unique index is the race-safe authority if two operators
+      // create the same identity concurrently. The enclosing transaction
+      // rolls back the contact row too, so this remains an atomic conflict.
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') {
+        throw new ApiHttpError(409, 'contact_identity_exists', 'This channel identity is already attached to a contact.');
+      }
+      throw error;
+    }
+  }
+
+  /** Atomically import explicitly scoped identities; duplicates abort the batch. */
+  async importBatch(
+    session: AuthenticatedSession,
+    tenantId: string,
+    input: { readonly connectionId: string; readonly rows: readonly { readonly displayName: string; readonly externalId: string }[] },
+  ): Promise<{ readonly created: number }> {
+    this.authorization.assertTenantId(input.connectionId);
+    try {
+      return await this.authorization.withPrincipal(session, tenantId, async ({ sql }) => {
+      const principal = await this.authorization.requirePermission(sql, session, 'contact.edit', { inboxId: input.connectionId });
+      const connection = await sql.query<{ kind: string }>(
+        `SELECT kind FROM channel_connections WHERE id=$1 AND disconnected_at IS NULL`, [input.connectionId],
+      );
+      const kind = connection.rows[0]?.kind;
+      if (kind === undefined) throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+      const identities = new Set<string>();
+      const repeatedRows: number[] = [];
+      input.rows.forEach((row, index) => {
+        if (identities.has(row.externalId)) repeatedRows.push(index + 1);
+        identities.add(row.externalId);
+      });
+      const existing = await sql.query<{ external_id: string }>(
+        `SELECT external_id FROM contact_identities WHERE kind=$1 AND scope_id=$2 AND external_id=ANY($3::text[]) AND valid_to IS NULL`,
+        [kind, input.connectionId, [...identities]],
+      );
+      const conflicts = new Set([...existing.rows.map((row) => row.external_id), ...repeatedRows.map((index) => input.rows[index - 1]!.externalId)]);
+      if (conflicts.size > 0) {
+        const rows = input.rows.flatMap((row, index) => conflicts.has(row.externalId) ? [index + 1] : []);
+        throw new ApiHttpError(409, 'contact_import_conflicts', 'Some channel identities already exist or repeat in this file. No contacts were imported.',
+          rows.map((row) => ({ field: `rows[${row - 1}].externalId`, code: 'duplicate', message: `Row ${row} has a duplicate channel identity.` })));
+      }
+      for (const row of input.rows) {
+        const inserted = await sql.query<{ id: string }>(
+          `INSERT INTO contacts (tenant_id,display_name,search_name) VALUES ($1,$2,$3) RETURNING id::text`,
+          [tenantId, row.displayName, normalizeSearchText(row.displayName)],
+        );
+        const contactId = requireRow(inserted.rows, 'the contact insert returned no id').id;
+        await sql.query(
+          `INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id,provenance)
+           VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+          [tenantId, contactId, kind, input.connectionId, row.externalId,
+            JSON.stringify({ source: 'import', actorMembershipId: principal.membershipId })],
+        );
+      }
+        return { created: input.rows.length };
+      });
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') {
+        throw new ApiHttpError(409, 'contact_import_conflicts', 'A channel identity was imported concurrently. No contacts were imported.');
+      }
+      throw error;
+    }
+  }
+
+  /** CSV for the caller's authorized contact scope, bounded against accidental huge downloads. */
+  async exportCsv(session: AuthenticatedSession, tenantId: string): Promise<{ readonly filename: string; readonly content: string; readonly rowCount: number }> {
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      await this.authorization.requirePermission(sql, session, 'contact.export');
+      const reach = reachFor(principal, 'contact.read');
+      if (reach === 'none') throw denied();
+      const tenantWide = principal.scopes.some((scope) => scope.type === 'tenant');
+      const teams = principal.scopes.flatMap((scope) => scope.type === 'team' && scope.id !== null ? [scope.id] : []);
+      const inboxes = principal.scopes.flatMap((scope) => scope.type === 'inbox' && scope.id !== null ? [scope.id] : []);
+      const result = await sql.query<{ display_name: string; kind: string | null; scope_id: string | null; external_id: string | null }>(
+        `SELECT c.display_name,i.kind,i.scope_id::text,i.external_id
+           FROM contacts c LEFT JOIN contact_identities i ON i.contact_id=c.id AND i.valid_to IS NULL
+            AND ($1::text='tenant' OR EXISTS (
+              SELECT 1 FROM conversations identity_visible WHERE identity_visible.contact_id=c.id
+                AND identity_visible.connection_id=i.scope_id
+                AND ($3::boolean OR identity_visible.team_id=ANY($4::uuid[]) OR identity_visible.connection_id=ANY($5::uuid[]))
+                AND ($1::text='scoped' OR identity_visible.assignee_membership_id=$2
+                  OR EXISTS (SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id=identity_visible.id AND cp.membership_id=$2)
+                  OR EXISTS (SELECT 1 FROM conversation_collaborators cc WHERE cc.conversation_id=identity_visible.id AND cc.membership_id=$2 AND cc.removed_at IS NULL))
+            ))
+          WHERE c.deleted_at IS NULL AND ($1::text='tenant' OR EXISTS (
+            SELECT 1 FROM conversations visible WHERE visible.contact_id=c.id
+              AND ($3::boolean OR visible.team_id=ANY($4::uuid[]) OR visible.connection_id=ANY($5::uuid[]))
+              AND ($1::text='scoped' OR visible.assignee_membership_id=$2
+                OR EXISTS (SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id=visible.id AND cp.membership_id=$2)
+                OR EXISTS (SELECT 1 FROM conversation_collaborators cc WHERE cc.conversation_id=visible.id AND cc.membership_id=$2 AND cc.removed_at IS NULL))
+          )) ORDER BY c.created_at,c.id,i.id LIMIT 10001`,
+        [reach, principal.membershipId, tenantWide, teams, inboxes],
+      );
+      if (result.rows.length > 10_000) throw new ApiHttpError(413, 'contact_export_too_large', 'This export exceeds 10,000 rows. Narrow the contact scope before exporting.');
+      const csv = [['display_name','channel','connection_id','external_id'], ...result.rows.map((row) => [row.display_name,row.kind ?? '',row.scope_id ?? '',row.external_id ?? ''])]
+        .map((row) => row.map(csvCell).join(',')).join('\r\n');
+      return { filename: `contacts-${new Date().toISOString().slice(0, 10)}.csv`, content: `\uFEFF${csv}`, rowCount: result.rows.length };
+    });
+  }
+
   /**
    * The contact behind a scoped identity, created if this is the first time we
    * have seen it.
@@ -537,4 +676,12 @@ function denied(): ApiHttpError {
     'permission_denied',
     'You do not have permission to perform this action.',
   );
+}
+
+function csvCell(value: string): string {
+  // Spreadsheet programs may execute formula-like cells when opening a CSV.
+  // A tab prefix prevents execution while remaining removable by the importer
+  // on re-upload (all input cells are whitespace-trimmed before validation).
+  const safe = /^[\t\r ]*[=+@-]/.test(value) ? `\t${value}` : value;
+  return `"${safe.replaceAll('"', '""')}"`;
 }

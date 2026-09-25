@@ -51,9 +51,18 @@ describe('resource query clients', () => {
     await api.list('tenant', ' Sara ');
     await api.list('tenant', { query: '', labelId: '', fieldId: 'field', fieldValue: '' });
     await api.list('tenant', { query: '', labelId: '', fieldId: '', fieldValue: 'orphan' });
+    await api.list('tenant', { query: '', labelId: 'label', fieldId: 'field', fieldValue: 'value with spaces' });
     expect(fake.get).toHaveBeenNthCalledWith(1, '/tenants/tenant/contacts?q=Sara');
     expect(fake.get).toHaveBeenNthCalledWith(2, '/tenants/tenant/contacts');
     expect(fake.get).toHaveBeenNthCalledWith(3, '/tenants/tenant/contacts');
+    expect(fake.get).toHaveBeenNthCalledWith(4, '/tenants/tenant/contacts?label=label&fieldId=field&fieldValue=value+with+spaces');
+  });
+
+  it('sends contact export through the authenticated API client', async () => {
+    const fake = client();
+    const api = new ContactsApi(fake.value);
+    await api.export('tenant');
+    expect(fake.get).toHaveBeenCalledWith('/tenants/tenant/contacts/export');
   });
 
   it('encodes every inbox filter and omits every empty one', async () => {

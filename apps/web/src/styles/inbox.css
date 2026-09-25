@@ -1002,6 +1002,53 @@
 
   .contact {
     display: grid;
+    gap: var(--space-2);
+  }
+
+  .contact__who {
+    gap: var(--space-4);
+    margin: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, var(--accent-soft), var(--surface-1) 72%);
+    box-shadow: var(--shadow-xs);
+  }
+
+  .contact__hero {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+
+  .contact__hero-copy {
+    min-inline-size: 0;
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .contact__quickfacts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin-block-start: var(--space-1);
+  }
+
+  .contact__channels,
+  .contact__consent-wrap > .panel-section {
+    margin-inline: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--surface-1);
+  }
+
+  .contact__consent-wrap {
+    padding-block-end: var(--space-3);
+  }
+
+  .contact__name {
+    overflow-wrap: anywhere;
   }
 
   .contact__identity-head {

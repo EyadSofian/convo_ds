@@ -93,16 +93,23 @@ export function contactError(state: AppState, error: ApiError, retryAct?: string
 export function contactBody(state: AppState, contact: Contact, live: LiveState, where: 'panel' | 'screen'): HTMLElement {
   const busy = live.busy === `contact:${contact.id}`;
   const liveIdentities = contact.identities.filter((identity) => identity.validTo === null);
+  const marketingConsent = contact.consent.find((record) => record.purpose === 'marketing');
   return h('div', { class: 'contact', 'data-contact': contact.id }, [
     h('section', { class: 'panel-section contact__who' }, [
-      h('div', { class: 'contact__identity-head' }, [
+      h('div', { class: 'contact__hero' }, [
         avatar({ initials: initials(contact.displayName), size: 'lg' }),
-        h('div', {}, [
+        h('div', { class: 'contact__hero-copy' }, [
           h('p', { class: 'contact__name' }, [isolated(contact.displayName)]),
           h('p', { class: 'contact__sub' }, [
             liveIdentities.length === 0
               ? t(state, 'لا توجد هوية سارية', 'No live identity')
               : liveIdentities.map((identity) => phrase(state, CHANNEL_NAMES, identity.kind)).join(' · '),
+          ]),
+          h('div', { class: 'contact__quickfacts' }, [
+            badge(t(state, `${String(contact.identities.length)} وسيلة اتصال`, `${String(contact.identities.length)} channel identities`), 'accent'),
+            badge(marketingConsent?.state === 'granted'
+              ? t(state, 'موافقة تسويقية مسجلة', 'Marketing consent recorded')
+              : t(state, 'لا توجد موافقة تسويقية', 'No marketing consent'), marketingConsent?.state === 'granted' ? 'success' : 'warning'),
           ]),
         ]),
       ]),
@@ -135,14 +142,14 @@ export function contactBody(state: AppState, contact: Contact, live: LiveState, 
 
     metadataSection(state, live, 'contact', contact),
 
-    h('section', { class: 'panel-section', 'aria-labelledby': `identities-${where}` }, [
-      h('h3', { class: 'panel-section__title', id: `identities-${where}` }, [t(state, 'قنوات التواصل', 'Channels')]),
+    h('section', { class: 'panel-section contact__channels', 'aria-labelledby': `identities-${where}` }, [
+      h('h3', { class: 'panel-section__title', id: `identities-${where}` }, [t(state, 'طرق التواصل', 'Contact methods')]),
       contact.identities.length === 0
         ? h('p', { class: 'field__hint' }, [t(state, 'لا توجد هويات مسجلة.', 'No identities recorded.')])
         : h('ul', { class: 'contact__identities' }, contact.identities.map((identity) => identityRow(state, identity))),
     ]),
 
-    consentSection(state, contact, live, where),
+    h('div', { class: 'contact__consent-wrap' }, [consentSection(state, contact, live, where)]),
   ]);
 }
 

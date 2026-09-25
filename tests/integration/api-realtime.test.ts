@@ -1271,6 +1271,63 @@ describe('contacts', () => {
     expect(identities[0]).toMatchObject({ kind: 'whatsapp', externalId: peer, validTo: null });
   });
 
+  it('creates an operator-entered contact with an explicit connection identity and no implied consent', async () => {
+    const externalId = 'manual-contact-identity-1';
+    const created = await send(api, owner, 'POST', '/contacts', {
+      displayName: 'Synthetic imported lead', connectionId: inboxA, externalId,
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const body = (created.json() as { data: { id: string; displayName: string; identities: { kind: string; scopeId: string; externalId: string }[]; consent: unknown[] } }).data;
+    expect(body).toMatchObject({ displayName: 'Synthetic imported lead', consent: [] });
+    expect(body.identities).toEqual([expect.objectContaining({ kind: 'whatsapp', scopeId: inboxA, externalId })]);
+    const duplicate = await send(api, owner, 'POST', '/contacts', {
+      displayName: 'Do not merge', connectionId: inboxA, externalId,
+    });
+    expect(duplicate.statusCode).toBe(409);
+    expect(duplicate.json()).toMatchObject({ error: { code: 'contact_identity_exists' } });
+  });
+
+  it('imports a validated CSV batch atomically and exports contacts only with export permission', async () => {
+    const imported = await send(api, owner, 'POST', '/contacts/import', {
+      connectionId: inboxA,
+      rows: [
+        { displayName: 'Synthetic CSV lead A', externalId: 'csv-lead-a' },
+        { displayName: '=Formula-safe lead', externalId: '+201000000001' },
+      ],
+    });
+    expect(imported.statusCode, imported.body).toBe(201);
+    expect(imported.json()).toMatchObject({ data: { created: 2 } });
+    const importedConsentRows = await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `SELECT 1 FROM consents c JOIN contact_identities i ON i.contact_id=c.contact_id
+        WHERE i.scope_id=$1 AND i.external_id IN ('csv-lead-a','+201000000001')`, [inboxA],
+    ));
+    expect(importedConsentRows.rows).toHaveLength(0);
+
+    const duplicateBatch = await send(api, owner, 'POST', '/contacts/import', {
+      connectionId: inboxA,
+      rows: [
+        { displayName: 'Would be rolled back', externalId: 'csv-lead-new' },
+        { displayName: 'Already present', externalId: 'csv-lead-a' },
+      ],
+    });
+    expect(duplicateBatch.statusCode).toBe(409);
+    const rolledBack = await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `SELECT 1 FROM contact_identities WHERE scope_id=$1 AND external_id='csv-lead-new' AND valid_to IS NULL`, [inboxA],
+    ));
+    expect(rolledBack.rows).toHaveLength(0);
+
+    const exportResponse = await send(api, owner, 'GET', '/contacts/export');
+    expect(exportResponse.statusCode).toBe(200);
+    const exported = (exportResponse.json() as { data: { content: string; rowCount: number } }).data;
+    expect(exported.content).toContain('"display_name","channel","connection_id","external_id"');
+    expect(exported.content).toContain('Synthetic CSV lead A');
+    expect(exported.content).toContain('\t=Formula-safe lead');
+    expect(exported.content).toContain('\t+201000000001');
+    expect(exported.rowCount).toBeGreaterThanOrEqual(2);
+    const deniedExport = await send(api, agentA, 'GET', '/contacts/export');
+    expect(deniedExport.statusCode).toBe(403);
+  });
+
   it('reuses the contact for the same identity, and never guesses a link', async () => {
     await customerWrites(INBOX_A, peer, 'رسالة ثانية', 'wamid.rt-101');
     const again = await withTenant(api.pool, api.tenantId, (client) =>
@@ -3433,9 +3490,17 @@ describe('the conversation lifecycle', () => {
   });
 
   it('keeps the archived thread out of the working list but reachable by id', async () => {
+    const state = await current();
+    if (state.status !== 'archived') {
+      if (state.status !== 'resolved') await move(owner, { command: 'resolve', resolution: 'Archive visibility test' });
+      await move(owner, { command: 'archive' });
+    }
     const list = await send(api, owner, 'GET', '/conversations?queue=all');
     const ids = (list.json() as { data: { id: string }[] }).data.map((row) => row.id);
     expect(ids).not.toContain(conversationId);
+    const archivedList = await send(api, owner, 'GET', `/conversations?queue=all&filter=${encodeURIComponent(JSON.stringify({ key: 'status', operator: 'eq', value: 'archived' }))}`);
+    const archivedIds = (archivedList.json() as { data: { id: string }[] }).data.map((row) => row.id);
+    expect(archivedIds).toContain(conversationId);
     expect((await send(api, owner, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(200);
   });
 

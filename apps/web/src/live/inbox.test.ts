@@ -282,6 +282,18 @@ afterEach(() => {
 });
 
 describe('the queue', () => {
+  it('filters to archived conversations and restores the live queue on the next toggle', async () => {
+    const archived = `/tenants/${TENANT}/conversations?queue=mine&filter=${encodeURIComponent(JSON.stringify({ key: 'status', operator: 'eq', value: 'archived' }))}`;
+    const api = inboxApi().on(archived, { status: 200, body: { data: [] } });
+    const { root } = await open(api);
+    click(root, '[data-act="live-inbox-archived-toggle"]');
+    await settle();
+    expect(api.countOf(`GET ${archived}`)).toBe(1);
+    click(root, '[data-act="live-inbox-archived-toggle"]');
+    await settle();
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations?queue=mine`)).toBe(2);
+  });
+
   it('reloads both inbox halves with the operator filters', async () => {
     const api = inboxApi()
       .on(`GET /tenants/${TENANT}/conversations/unassigned?priority=urgent`, {

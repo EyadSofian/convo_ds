@@ -3,6 +3,10 @@ import type { ScopeRef } from '../api/people.js';
 import { NO_ANALYTICS_FILTERS } from '../state.js';
 import type { LiveContext } from './actions.js';
 import {
+  createContact,
+  exportContacts,
+  importContacts,
+  loadContactConnections,
   loadContactsScreen,
   openContact,
   recordConsent,
@@ -838,6 +842,19 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return loadInboxScreen(context);
   },
 
+  'live-inbox-archived-toggle': async (context) => {
+    const filters = context.live.inboxQuery.filters.filter((filter) => filter.key !== 'status');
+    const archived = context.live.inboxQuery.filters.some((filter) => filter.key === 'status' && filter.value === 'archived');
+    context.live.inboxQuery = {
+      ...context.live.inboxQuery,
+      filters: archived ? filters : [...filters, { key: 'status', operator: 'eq', value: 'archived' }],
+      cursor: null,
+    };
+    context.live.selectedSavedViewId = null;
+    context.state.inboxQueue = 'mine';
+    return loadInboxScreen(context);
+  },
+
   'live-inbox-sort': async (context, arg) => {
     if (!(INBOX_SORTS as readonly string[]).includes(arg)) return false;
     context.live.inboxQuery = { ...context.live.inboxQuery, sort: arg as InboxSort, cursor: null };
@@ -1029,6 +1046,16 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     context.live.contactQuery = form(context, 'contactQuery');
     return loadContactsScreen(context);
   },
+
+  'live-contact-create': async (context) => createContact(context, {
+    displayName: form(context, 'contactCreateName'),
+    connectionId: form(context, 'contactCreateConnection'),
+    externalId: form(context, 'contactCreateExternalId'),
+  }),
+
+  'live-contact-connections': async (context) => loadContactConnections(context),
+  'live-contacts-import': async (context) => importContacts(context),
+  'live-contacts-export': async (context) => exportContacts(context),
 
   'live-inbox-filter': async (context, arg) => {
     const { id, value } = splitArg(arg);
