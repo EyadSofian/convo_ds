@@ -1688,6 +1688,10 @@ describe('the outbound path', () => {
 
     const result = await dispatcher.dispatch(api.tenantId);
     expect(result.accepted).toBeGreaterThan(0);
+    // Provider URLs are scoped by the external Page/IG/phone asset ID, never
+    // by CONVO's internal channel_connections UUID.
+    expect(sent.at(-1)?.assetIdentity).toBe(PHONE_ID);
+    expect(sent.at(-1)?.assetIdentity).not.toBe(connectionId);
 
     const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
     const message = (read.json() as { data: Record<string, unknown> }).data;

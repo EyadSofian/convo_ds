@@ -55,6 +55,8 @@ export interface DispatchResult {
 interface ClaimRow {
   readonly message_id: string;
   readonly connection_id: string;
+  /** Provider-side asset ID (Page ID, Instagram account ID, or phone-number ID). */
+  readonly external_asset_id: string;
   readonly peer_identity: string;
   readonly conversation_id: string | null;
   readonly message_type: string;
@@ -266,7 +268,7 @@ export class ChannelDispatcherService {
           WHERE o.message_id = taken.message_id
             AND m.id = o.message_id
             AND c.id = m.connection_id
-          RETURNING o.message_id::text, o.connection_id::text, o.peer_identity,
+          RETURNING o.message_id::text, o.connection_id::text, c.external_asset_id, o.peer_identity,
                     m.conversation_id::text AS conversation_id,
                     m.message_type, m.text_body, m.template_name, m.template_language, m.template_components,
                     m.dispatch_version, o.attempts,
@@ -348,7 +350,9 @@ export class ChannelDispatcherService {
     // Step 4. Outside any transaction: a network call inside one holds a
     // connection open for as long as the provider takes to answer.
     const outcome = await this.transport.send(claim.kind as never, prepared.token, {
-      assetIdentity: claim.connection_id,
+      // The transport needs Meta's asset identifier, not our tenant-scoped
+      // connection UUID. The latter is only used to open the stored credential.
+      assetIdentity: claim.external_asset_id,
       peerIdentity: claim.peer_identity,
       messageType: claim.message_type,
       text: claim.text_body,
