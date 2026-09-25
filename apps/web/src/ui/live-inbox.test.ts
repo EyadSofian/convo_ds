@@ -348,6 +348,33 @@ describe('Inbox list controls', () => {
     expect(root.querySelector('[data-message="unsafe"]')?.textContent).toContain('Customer attachment');
   });
 
+  it('rejects malformed and non-Meta attachment URLs while accepting Instagram CDN stickers', () => {
+    const app = state();
+    app.live.openConversationId = 'conversation-1';
+    app.live.openConversation = { status: 'ready', loadedAt: 1, value: {
+      id: 'conversation-1', contactId: null, connectionId: 'connection-1', peerIdentity: 'visitor',
+      inboxLabel: 'Messenger', channel: 'messenger', teamId: null, assigneeMembershipId: 'member-1',
+      status: 'open', priority: 'normal', version: 2, labels: [], customFields: [],
+    } as never };
+    const rejected = [
+      null, [], 'not an attachment', { type: 'document', providerId: 'https://scontent.xx.fbcdn.net/a' },
+      { type: 'image', providerId: 42 }, { type: 'image', providerId: 'a'.repeat(8193) },
+      { type: 'image', providerId: 'not a URL' }, { type: 'image', providerId: 'http://scontent.xx.fbcdn.net/a' },
+      { type: 'image', providerId: 'https://user@scontent.xx.fbcdn.net/a' },
+      { type: 'image', providerId: 'https://:secret@scontent.xx.fbcdn.net/a' },
+      { type: 'image', providerId: 'https://scontent.xx.fbcdn.net:444/a' },
+      { type: 'image', providerId: 'https://example.test/a' },
+    ];
+    app.live.timeline = ready([
+      { id: 'rejected', direction: 'in', text: null, attachments: rejected, at: NOW.toISOString() },
+      { id: 'sticker', direction: 'in', text: null, attachments: [{ type: 'sticker', providerId: 'https://scontent.cdninstagram.com/sticker.png' }], at: NOW.toISOString() },
+    ] as never, 1);
+    const root = renderInbox(app);
+    expect(root.querySelector('[data-message="rejected"] img')).toBeNull();
+    expect(root.querySelector('[data-message="rejected"]')?.textContent).toContain('Customer attachment');
+    expect(root.querySelector<HTMLImageElement>('[data-message="sticker"] img')?.src).toBe('https://scontent.cdninstagram.com/sticker.png');
+  });
+
   it('keeps free-form reply available in an open window but hides template controls in the supervisor lens', () => {
     const app = state();
     app.live.openConversationId = 'conversation-1';
