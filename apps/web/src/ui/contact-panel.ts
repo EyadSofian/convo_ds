@@ -99,6 +99,7 @@ export function contactBody(state: AppState, contact: Contact, live: LiveState, 
       h('div', { class: 'contact__hero' }, [
         avatar({ initials: initials(contact.displayName), size: 'lg' }),
         h('div', { class: 'contact__hero-copy' }, [
+          h('p', { class: 'contact__eyebrow' }, [t(state, 'ملف العميل', 'CUSTOMER PROFILE')]),
           h('p', { class: 'contact__name' }, [isolated(contact.displayName)]),
           h('p', { class: 'contact__sub' }, [
             liveIdentities.length === 0
