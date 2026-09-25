@@ -18,6 +18,7 @@ describe('conversation timeline reactions', () => {
     ]);
     expect(statement).toContain("r.kind='reaction'");
     expect(statement).toContain('target.provider_message_id=r.provider_message_id');
+    expect(statement).toContain('target.tenant_id=r.tenant_id');
     expect(statement).toContain('target.conversation_id=$1');
     expect(statement).toContain('target.created_at < COALESCE((SELECT c.archived_at');
   });

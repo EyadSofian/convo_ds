@@ -142,7 +142,8 @@ export async function readTimeline(
         WHERE r.connection_id=$2 AND r.peer_identity=$3 AND r.kind='reaction'
           AND EXISTS (
             SELECT 1 FROM outbound_messages target
-             WHERE target.connection_id=r.connection_id
+             WHERE target.tenant_id=r.tenant_id
+               AND target.connection_id=r.connection_id
                AND target.peer_identity=r.peer_identity
                AND target.provider_message_id=r.provider_message_id
                AND (target.conversation_id=$1 OR (target.conversation_id IS NULL
