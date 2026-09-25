@@ -86,7 +86,7 @@ export const CONTRAST_REQUIREMENTS: readonly ContrastRequirement[] = [
       note: 'text on a reading surface',
     })),
   ),
-  ...(['success', 'warning', 'danger', 'unknown'] as const).flatMap((fg) => [
+  ...(['success', 'warning', 'danger', 'unknown', 'violet'] as const).flatMap((fg) => [
     { fg, bg: `${fg}-soft`, min: 4.5, note: 'status text on its own tint' },
     { fg, bg: 'surface-1', min: 4.5, note: 'status text on a panel' },
     { fg, bg: 'canvas', min: 4.5, note: 'status text on the ground' },

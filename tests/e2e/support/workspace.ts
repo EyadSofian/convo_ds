@@ -36,6 +36,20 @@ export async function fontsReady(page: Page): Promise<void> {
 }
 
 /**
+ * Page and record entrances (src/motion.ts) fade and rise for a few hundred
+ * milliseconds after a screen or record opens. Geometry and contrast are
+ * properties of the settled screen, not of a frame mid-entrance, so a
+ * measurement waits for every finite animation to end. Infinite ones — a
+ * spinner, a skeleton shimmer — are loading states, not entrances.
+ */
+export async function motionSettled(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const entrances = document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity);
+    await Promise.all(entrances.map((animation) => animation.finished.then(() => undefined, () => undefined)));
+  });
+}
+
+/**
  * Opens the inbox on a conversation against the scripted API and waits for
  * the server's answers to be drawn.
  */
@@ -50,6 +64,7 @@ export async function openInbox(page: Page): Promise<void> {
   await expect(page.locator('.convrow').first()).toBeVisible();
   await expect(page.locator('.msg').first()).toBeVisible();
   await fontsReady(page);
+  await motionSettled(page);
 }
 
 /** What proves each screen has its server data on it, not just its frame. */
@@ -83,6 +98,7 @@ export async function openScreen(page: Page, screen: string, query = ''): Promis
   if (selector !== undefined) await expect(page.locator(selector).first()).toBeVisible();
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
   await fontsReady(page);
+  await motionSettled(page);
 }
 
 /** Opens the real automation editor through the same links an operator uses. */

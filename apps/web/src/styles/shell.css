@@ -399,7 +399,8 @@
     grid-template-columns: var(--nav-w) minmax(0, 1fr);
     block-size: 100dvh;
     overflow: hidden;
-    background: var(--canvas);
+    /* The brand wash sits behind every screen and shows through the glass header. */
+    background: var(--canvas-art), var(--canvas);
   }
 
   .app[data-nav='expanded'] {
@@ -484,7 +485,7 @@
     gap: var(--space-1);
     min-block-size: 0;
     padding: var(--space-3) var(--space-2);
-    background: var(--nav-bg);
+    background: var(--grad-nav);
     border-inline-end: 1px solid var(--nav-border);
     color: var(--nav-text);
   }
@@ -542,7 +543,8 @@
     font-weight: var(--weight-medium);
     text-decoration: none;
     white-space: nowrap;
-    transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+    transition: background var(--motion-base) var(--ease-out), color var(--motion-base) var(--ease-out),
+      translate var(--motion-base) var(--ease-out);
   }
 
   .nav__item:hover,
@@ -551,10 +553,32 @@
     color: var(--nav-text-strong);
   }
 
+  .nav__item:active {
+    translate: 0 1px;
+  }
+
   .nav__item[aria-current='page'] {
-    background: var(--accent);
+    background: var(--grad-brand);
     color: var(--nav-text-strong);
     box-shadow: var(--shadow-accent);
+  }
+
+  /* A lime notch on the rail edge marks where you are, in both widths. */
+  .nav__item[aria-current='page']::before {
+    content: '';
+    position: absolute;
+    inset-block: var(--space-2);
+    inset-inline-start: calc(-1 * var(--space-2));
+    inline-size: 3px;
+    border-start-end-radius: var(--radius-xs);
+    border-end-end-radius: var(--radius-xs);
+    background: var(--brand-highlight);
+    box-shadow: 0 0 12px var(--brand-highlight);
+  }
+
+  .app-root[data-view='enter'] .nav__item[aria-current='page'] {
+    animation: convo-bloom var(--motion-slow) var(--ease-emphasis) backwards;
+    animation-delay: calc(0ms - var(--view-elapsed, 0ms));
   }
 
   .nav__item:focus-visible,
@@ -692,8 +716,25 @@
     gap: var(--space-3);
     min-inline-size: 0;
     padding-inline: var(--space-5) var(--space-4);
-    border-block-end: 1px solid var(--border);
-    background: var(--surface-1);
+    border-block-end: 1px solid var(--glass-edge);
+    /* The header is lifted to the popover plane so its own menus open over
+       the screen below it. The glass itself is drawn on a pseudo-element: a
+       backdrop filter on the header would become the containing block of the
+       notification sheet, which is `position: fixed` on a phone. */
+    position: relative;
+    z-index: var(--z-popover);
+  }
+
+  .header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--glass);
+    box-shadow: inset 0 -1px 0 var(--glass-rim);
+    backdrop-filter: saturate(1.6) blur(var(--blur-glass));
+    -webkit-backdrop-filter: saturate(1.6) blur(var(--blur-glass));
+    pointer-events: none;
   }
 
   .header__menu {
@@ -709,7 +750,7 @@
 
   .header__title {
     font-size: var(--text-lg);
-    font-weight: 700;
+    font-weight: var(--weight-bold);
     letter-spacing: -0.01em;
     line-height: var(--leading-tight);
     white-space: nowrap;
@@ -855,7 +896,7 @@
     background: var(--surface-hover);
   }
 
-  .user-button .avatar {
+  .user-button .avatar:not([class*='avatar--tone-']) {
     background: var(--accent-soft);
     color: var(--accent-text);
     text-transform: uppercase;
@@ -935,10 +976,12 @@
     z-index: var(--z-popover);
     min-inline-size: 240px;
     padding: var(--space-1);
-    background: var(--glass);
+    background: var(--glass-strong);
     border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
+    backdrop-filter: saturate(1.5) blur(var(--blur-glass));
+    -webkit-backdrop-filter: saturate(1.5) blur(var(--blur-glass));
     transform-origin: top;
   }
 
@@ -1066,11 +1109,11 @@
     align-items: flex-start;
     gap: var(--space-3);
     padding: var(--space-3);
-    background: var(--glass);
+    background: var(--glass-strong);
     border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
-    backdrop-filter: blur(var(--blur-glass));
+    backdrop-filter: saturate(1.5) blur(var(--blur-glass));
   }
 
   .toast > svg {
@@ -1150,8 +1193,12 @@
     overscroll-behavior: contain;
   }
 
+  /* The conversation sits on a tinted, faintly dotted ground so white
+     customer bubbles and blue replies both stand off it. */
   .zone--thread {
-    background: var(--surface-2);
+    background:
+      radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent) 9%, transparent) 1px, transparent 0) 0 0 / 22px 22px,
+      linear-gradient(180deg, var(--surface-2), color-mix(in srgb, var(--canvas) 70%, var(--surface-2)));
   }
 
   /* Narrow screen area: the queue is a drawer from the inline start. */

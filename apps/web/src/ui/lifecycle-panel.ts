@@ -4,7 +4,7 @@ import { h } from '../dom.js';
 import { futureTime, relativeTime } from '../format.js';
 import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
-import { badge, button, errorState, isolated } from './parts.js';
+import { badge, button, errorState, isolated, sectionTitle } from './parts.js';
 import type { Tone } from './parts.js';
 import type { IconName } from '../icons.js';
 
@@ -356,7 +356,7 @@ export function lifecycleNotice(state: AppState, conversation: Conversation): Ch
  */
 export function notesSection(state: AppState, live: LiveState): HTMLElement {
   return h('section', { class: 'notes panel-section', 'aria-labelledby': 'notes-heading' }, [
-    h('h3', { class: 'panel-section__title', id: 'notes-heading' }, [t(state, 'ملاحظات داخلية', 'Private notes')]),
+    sectionTitle('note', 'amber', t(state, 'ملاحظات داخلية', 'Private notes'), 'notes-heading'),
     h('p', { class: 'field__hint' }, [
       t(state, 'لا يراها العميل ولا تُرسل إلى أي قناة. اكتب ملاحظة جديدة من تبويب «ملاحظة داخلية».', 'Never sent to the customer or any channel. Write one from the Private note tab.'),
     ]),
@@ -476,7 +476,7 @@ export function episodesSection(state: AppState, live: LiveState): Child {
     return null;
   }
   return h('section', { class: 'episodes panel-section', 'aria-labelledby': 'episodes-heading' }, [
-    h('h3', { class: 'panel-section__title', id: 'episodes-heading' }, [t(state, 'مراحل المتابعة', 'Episodes')]),
+    sectionTitle('history', 'pink', t(state, 'مراحل المتابعة', 'Episodes'), 'episodes-heading'),
     h(
       'ol',
       { class: 'episodes__list' },

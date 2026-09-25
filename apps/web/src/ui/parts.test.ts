@@ -9,6 +9,7 @@ import { brandMark, channelMark, productChannelIcon } from './channel-mark';
 import { CHANNEL_NAMES, describeError, phrase, t } from './copy';
 import {
   avatar,
+  sectionTitle,
   badge,
   button,
   countBadge,
@@ -70,6 +71,17 @@ describe('button', () => {
   });
 });
 
+describe('section titles', () => {
+  it('draws a toned icon chip before the heading text', () => {
+    const title = sectionTitle('shield', 'green', 'Consent', 'consent-screen');
+    expect(title.tagName).toBe('H3');
+    expect(title.id).toBe('consent-screen');
+    expect(title.textContent).toBe('Consent');
+    expect(title.querySelector('.section-chip--green svg')).not.toBeNull();
+    expect(title.querySelector('.section-chip')?.getAttribute('aria-hidden')).toBe('true');
+  });
+});
+
 describe('badges, avatars and counts', () => {
   it('draws a toned badge with an optional dot or icon', () => {
     expect(badge('Draft').className).toBe('badge badge--neutral');
@@ -80,6 +92,10 @@ describe('badges, avatars and counts', () => {
 
   it('shows initials, or a person glyph for somebody the caller may not identify', () => {
     expect(avatar({ initials: 'مخ' }).className).toBe('avatar avatar--md');
+    // A seeded avatar wears the same tone for the same person everywhere.
+    const toned = avatar({ initials: 'ES', seed: 'Eyad Sofian', size: 'xl' }).className;
+    expect(toned).toMatch(/^avatar avatar--xl avatar--tone-[0-7]$/);
+    expect(avatar({ initials: 'ES', seed: 'Eyad Sofian' }).className).toBe(toned.replace('avatar--xl', 'avatar--md'));
     expect(avatar({ initials: 'مخ', size: 'lg' }).textContent).toBe('مخ');
     const masked = avatar({ initials: '', channel: 'whatsapp', size: 'sm' });
     expect(masked.querySelector('svg')).not.toBeNull();

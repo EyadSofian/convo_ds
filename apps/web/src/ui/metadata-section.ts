@@ -6,7 +6,7 @@ import { hasPermission } from '../live/ability.js';
 import { rowsOf } from '../live/store.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
-import { button, field, isolated, selectControl, textInput } from './parts.js';
+import { button, field, isolated, sectionTitle, selectControl, textInput } from './parts.js';
 
 function t(state: AppState, ar: string, en: string): string {
   return state.lang === 'ar' ? ar : en;
@@ -36,9 +36,9 @@ export function metadataSection(
 
   const headingId = `metadata-${target}-${entity.id}`;
   return h('section', { class: 'panel-section metadata', 'data-metadata': target, 'aria-labelledby': headingId }, [
-    h('h3', { class: 'panel-section__title', id: headingId }, [
-      target === 'contact' ? t(state, 'تصنيفات العميل وحقوله', 'Contact labels & fields') : t(state, 'تصنيفات المحادثة وحقولها', 'Conversation labels & fields'),
-    ]),
+    target === 'contact'
+      ? sectionTitle('tag', 'violet', t(state, 'تصنيفات العميل وحقوله', 'Contact labels & fields'), headingId)
+      : sectionTitle('layers', 'amber', t(state, 'تصنيفات المحادثة وحقولها', 'Conversation labels & fields'), headingId),
     entityLabels.length === 0
       ? h('p', { class: 'field__hint' }, [t(state, 'بلا تصنيف.', 'No labels.')])
       : h('div', { class: 'metadata__labels' }, entityLabels.map((label) =>

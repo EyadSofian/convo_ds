@@ -5,7 +5,9 @@ import {
   dayLabel,
   durationLabel,
   formatNumber,
+  AVATAR_TONES,
   initials,
+  toneOf,
   LOCALE,
   NUMBERING_SYSTEM,
   numberFormat,
@@ -20,14 +22,34 @@ import {
 const NOW = new Date('2026-09-08T12:00:00.000Z');
 
 describe('initials', () => {
-  it('takes the first grapheme of the first and last word', () => {
-    expect(initials('مريم خالد عبد الجواد')).toBe('ما');
+  it('takes two capitals from a Latin name and one letter from an Arabic one', () => {
     expect(initials('Lina Haddad')).toBe('LH');
+    expect(initials('eyad sofian')).toBe('ES');
+    // Two joined Arabic letters would spell a word fragment, not initials.
+    expect(initials('مريم خالد عبد الجواد')).toBe('م');
   });
 
   it('handles a single word and blank input', () => {
     expect(initials('نور')).toBe('ن');
+    expect(initials('eyad')).toBe('E');
     expect(initials('   ')).toBe('؟');
+  });
+});
+
+describe('toneOf', () => {
+  it('is stable for a seed and stays inside the palette', () => {
+    expect(toneOf('سارة عبد الله')).toBe(toneOf('سارة عبد الله'));
+    for (const seed of ['', 'a', 'Eyad Sofian', 'eyad', 'محمد الشريف', 'ct-01']) {
+      const tone = toneOf(seed);
+      expect(Number.isInteger(tone)).toBe(true);
+      expect(tone).toBeGreaterThanOrEqual(0);
+      expect(tone).toBeLessThan(AVATAR_TONES);
+    }
+  });
+
+  it('spreads different people across the palette', () => {
+    const names = ['سارة عبد الله', 'محمد الشريف', 'ليلى منصور', 'أحمد فؤاد', 'نور الهدى', 'يوسف كمال', 'Eyad Sofian', 'Lina Haddad', 'Mona Khalil', 'Karim Adel'];
+    expect(new Set(names.map(toneOf)).size).toBeGreaterThanOrEqual(5);
   });
 });
 

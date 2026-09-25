@@ -18,8 +18,8 @@
     <meta name="application-name" content="DS Omnichannel" />
     <title>DS Omnichannel</title>
     <style>
-      html[data-theme='light'] { background: #f5f7fb; color: #10213f; }
-      html[data-theme='dark'] { background: #07111f; color: #edf2fa; }
+      html[data-theme='light'] { background: #e8eef8; color: #0a1630; }
+      html[data-theme='dark'] { background: #050c18; color: #eef3fb; }
       body { margin: 0; }
       #app.app-boot { display: grid; grid-template-columns: 64px minmax(0, 1fr); height: 100dvh; overflow: hidden; }
       html[data-theme='light'] #app.app-boot { --boot-line: rgba(16,33,63,.07); --boot-edge: rgba(16,33,63,.1); --boot-nav: #071a3a; --boot-surface: #ffffff; }
@@ -118,11 +118,12 @@
       })();
     </script>
     <!--
-      IBM Plex Sans Arabic is self-hosted from /fonts (SIL OFL 1.1, licence beside
-      the files). No third-party font host is contacted.
+      Inter (Latin) and Readex Pro (Arabic) are self-hosted variable fonts from
+      /fonts (SIL OFL 1.1, licences beside the files). No third-party font host
+      is contacted.
     -->
-    <link rel="preload" href="/fonts/ibm-plex-sans-arabic-400-arabic.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/ibm-plex-sans-arabic-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/readex-pro-arabic-wght.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/inter-latin-wght.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
     <!--

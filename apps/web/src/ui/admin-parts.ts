@@ -69,7 +69,7 @@ export function teamList(state: AppState, teams: readonly Team[]): Child {
 export function memberCell(state: AppState, person: Person): HTMLElement {
   const self = person.email === openSession(state.live).email;
   return h('div', { class: 'member' }, [
-    avatar({ initials: initials(person.email.split('@')[0] as string), size: 'sm' }),
+    avatar({ initials: initials(person.email.split('@')[0] as string), size: 'sm', seed: person.email }),
     h('div', { class: 'member__text' }, [
       h('span', { class: 'table__primary' }, [isolated(person.email)]),
       self ? h('span', { class: 'table__sub' }, [t(state, 'أنت', 'You')]) : null,

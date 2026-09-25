@@ -38,15 +38,42 @@ export function dateFormat(
   return new Intl.DateTimeFormat(LOCALE[lang], { ...options, numberingSystem: NUMBERING_SYSTEM });
 }
 
-/** Two-letter (per script) initials, used for avatars. */
+const ARABIC_SCRIPT = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+/**
+ * Avatar initials.
+ *
+ * Latin names give two capitals ("Eyad Sofian" → "ES", "eyad" → "E"). Arabic
+ * names give one letter: two Arabic letters side by side join into a fragment
+ * of a word ("سارة عبد الله" would read "سا"), which is neither initials nor
+ * the name.
+ */
 export function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter((word) => word.length > 0);
   const head = words[0];
   const tail = words[words.length - 1];
   if (head === undefined || tail === undefined) return '؟';
   const first = [...head].slice(0, 1).join('');
-  if (words.length === 1) return first;
-  return `${first}${[...tail].slice(0, 1).join('')}`;
+  if (words.length === 1 || ARABIC_SCRIPT.test(first)) return first.toLocaleUpperCase('en');
+  return `${first}${[...tail].slice(0, 1).join('')}`.toLocaleUpperCase('en');
+}
+
+/** How many avatar tones the stylesheet defines (`--tone-0` … `--tone-7`). */
+export const AVATAR_TONES = 8;
+
+/**
+ * A stable tone for a person, from their name or id: the same contact wears the
+ * same colour on every screen and every reload, and different people spread
+ * across the palette. FNV-1a, because it is tiny and distributes short strings
+ * well; nothing about it is security-relevant.
+ */
+export function toneOf(seed: string): number {
+  let hash = 0x811c9dc5;
+  for (const glyph of seed) {
+    hash ^= glyph.codePointAt(0) as number;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash % AVATAR_TONES;
 }
 
 /**

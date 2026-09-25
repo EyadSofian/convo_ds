@@ -21,11 +21,11 @@ Tints are for charts, tables, illustrations and small status surfaces. They shou
 
 ## Typography
 
-- IBM Plex Sans is the default interface and body family.
-- IBM Plex Mono Bold is reserved for large headings and occasional compact labels.
-- IBM Plex Sans Bold is used for subheads; IBM Plex Sans Regular for body text.
-- Primary body copy must be at least `16px`; compact operational labels may be smaller only when their tested contrast and readability remain acceptable. Footer/legal text must be at least `12px`; large display text starts at `19px`.
+- The operator application uses **Inter** for Latin text and all figures, and **Readex Pro** for Arabic. Both are self-hosted variable fonts (SIL OFL 1.1) under `apps/web/public/fonts`. The product owner replaced IBM Plex Sans Arabic in September 2026 because it read flat and dated on dense operator screens.
+- Readex Pro is scaled to 96% (`size-adjust`) so Arabic sits on Inter's x-height instead of reading a size larger.
+- Primary body copy is 14px with 13px compact operational labels; contrast for every text token is mechanically checked in both themes (`apps/web/src/theme.test.ts`). Footer/legal text must be at least `12px`.
 - Western digits remain enabled in both Arabic and English interfaces for operational consistency.
+- Email templates still name IBM Plex as their font stack; they are rendered by the recipient's mail client and are unaffected.
 
 ## Logo rules
 
@@ -44,7 +44,8 @@ Approved high-contrast product combinations include blue/yellow, yellow/blue, bl
 
 The operator product should remain calm and dense enough for daily work:
 
-- Powder and white surfaces carry the main workspace.
+- White work cards sit on a blue-tinted ground (`--canvas`, with a soft blue/lime wash) so cards read as cards and long sessions are not one sheet of white.
+- Navy-to-Berlitz-Blue hero gradients (`--grad-hero`) carry page headers and customer profiles; glass is reserved for chrome (header, hero controls, menus).
 - Blue identifies actions, focus and current navigation.
 - Yellow is a strong accent and must not dominate long work sessions.
 - Dark mode uses Charcoal-derived surfaces with yellow/blue accents; it is not a neon marketing composition.

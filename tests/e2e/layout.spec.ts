@@ -363,14 +363,16 @@ test.describe('workspace screens at desktop size', () => {
 });
 
 test.describe('typography and digits', () => {
-  test('renders the self-hosted Arabic-first family, not a fallback', async ({ page }) => {
+  test('renders the self-hosted Inter and Readex Pro pair, not a fallback', async ({ page }) => {
     await openInbox(page);
     const loaded = await page.evaluate(() =>
       Array.from(document.fonts).filter((face) => face.status === 'loaded').map((face) => face.family),
     );
-    expect(loaded).toContain('IBM Plex Sans Arabic');
+    // The inbox draws Arabic names and Latin figures, so both faces load.
+    expect(loaded).toContain('Readex Pro');
+    expect(loaded).toContain('Inter');
     const family = await page.locator('body').evaluate((element) => getComputedStyle(element).fontFamily);
-    expect(family.startsWith('"IBM Plex Sans Arabic"')).toBe(true);
+    expect(family.startsWith('Inter, "Readex Pro"')).toBe(true);
   });
 
   test('keeps conversation copy inside the readable band', async ({ page }) => {
