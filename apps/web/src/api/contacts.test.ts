@@ -19,4 +19,10 @@ describe('previewContactCsv', () => {
     expect(previewContactCsv(`display_name,external_id\n${Array.from({ length: 501 }, (_, index) => `N${index},id-${index}`).join('\n')}`)).toMatchObject({ ok: false, message: expect.stringContaining('500') });
     expect(previewContactCsv('x'.repeat(1_000_001))).toMatchObject({ ok: false, message: expect.stringContaining('1 MB') });
   });
+
+  it('rejects incomplete and overlong identity fields', () => {
+    expect(previewContactCsv('display_name,external_id\nSara')).toMatchObject({ ok: false, message: expect.stringContaining('Row 2') });
+    expect(previewContactCsv(`display_name,external_id\n${'N'.repeat(201)},id`)).toMatchObject({ ok: false, message: expect.stringContaining('Row 2') });
+    expect(previewContactCsv(`display_name,external_id\nSara,${'x'.repeat(257)}`)).toMatchObject({ ok: false, message: expect.stringContaining('Row 2') });
+  });
 });

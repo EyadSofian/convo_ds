@@ -56,6 +56,13 @@ describe('resource query clients', () => {
     expect(fake.get).toHaveBeenNthCalledWith(3, '/tenants/tenant/contacts');
   });
 
+  it('sends contact export through the authenticated API client', async () => {
+    const fake = client();
+    const api = new ContactsApi(fake.value);
+    await api.export('tenant');
+    expect(fake.get).toHaveBeenCalledWith('/tenants/tenant/contacts/export');
+  });
+
   it('encodes every inbox filter and omits every empty one', async () => {
     const fake = client();
     const api = new ConversationsApi(fake.value);
