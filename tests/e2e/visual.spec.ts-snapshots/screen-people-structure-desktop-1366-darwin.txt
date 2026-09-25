@@ -47,7 +47,7 @@ main.app__screen
                 tr
                   td
                     div.member
-                      span.avatar.avatar--sm
+                      span.avatar.avatar--sm.avatar--tone-6
                       div.member__text
                         span.table__primary
                           bdi
@@ -71,7 +71,7 @@ main.app__screen
                 tr
                   td
                     div.member
-                      span.avatar.avatar--sm
+                      span.avatar.avatar--sm.avatar--tone-1
                       div.member__text
                         span.table__primary
                           bdi
@@ -94,7 +94,7 @@ main.app__screen
                 tr
                   td
                     div.member
-                      span.avatar.avatar--sm
+                      span.avatar.avatar--sm.avatar--tone-1
                       div.member__text
                         span.table__primary
                           bdi
@@ -118,7 +118,7 @@ main.app__screen
                 tr
                   td
                     div.member
-                      span.avatar.avatar--sm
+                      span.avatar.avatar--sm.avatar--tone-6
                       div.member__text
                         span.table__primary
                           bdi

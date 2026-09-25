@@ -4,6 +4,7 @@ import {
   box,
   fontsReady,
   freezeClock,
+  motionSettled,
   openInbox,
   overflowsHorizontally,
   pageScrolls,
@@ -73,6 +74,7 @@ async function openLive(page: Page, hash = `/#/inbox/${CONVERSATION}`): Promise<
   await page.evaluate(() => window.__streams[0]?.fire('open'));
   await expect(page.locator('.header [data-realtime="live"]')).toBeVisible();
   await fontsReady(page);
+  await motionSettled(page);
 }
 
 const pill = (page: Page): Promise<string | null> =>
@@ -232,6 +234,7 @@ test.describe('the phone', () => {
     await expect(page.locator('.msg').first()).toBeVisible();
     await expect(page.locator('.zone--list')).toBeHidden();
     await expect(page.locator('.bottom-nav')).toBeHidden();
+    await motionSettled(page);
     const composer = await box(page.locator('.composer'));
     expect(composer.y + composer.height).toBeCloseTo(844, 0);
 
