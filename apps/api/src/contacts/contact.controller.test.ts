@@ -36,6 +36,16 @@ describe('ContactController.create', () => {
       .rejects.toMatchObject({ status: 400, code: 'validation_failed' });
     expect(contacts.create).not.toHaveBeenCalled();
   });
+
+  it('rejects non-object and wrongly typed create fields', async () => {
+    const auth = { authenticate: vi.fn().mockResolvedValue(session), requireCsrf: vi.fn() };
+    const contacts = { create: vi.fn() };
+    const controller = new ContactController(auth as never, contacts as unknown as ContactService);
+    const request = { headers: { cookie: 'session=cookie' }, id: 'request-1' } as unknown as FastifyRequest;
+    await expect(controller.create(tenantId, null, 'csrf', request)).rejects.toMatchObject({ status: 400, code: 'validation_failed' });
+    await expect(controller.create(tenantId, { displayName: 4, connectionId: null, externalId: false }, 'csrf', request))
+      .rejects.toMatchObject({ status: 400, code: 'validation_failed' });
+  });
 });
 
 describe('ContactController bulk contact tools', () => {
@@ -62,6 +72,17 @@ describe('ContactController bulk contact tools', () => {
       .rejects.toMatchObject({ status: 400, code: 'validation_failed' });
     await expect(controller.import(tenantId, { connectionId, rows: [{ displayName: '', externalId: '201' }] }, 'csrf', request))
       .rejects.toMatchObject({ status: 400, code: 'validation_failed' });
+    expect(contacts.importBatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing connection, non-array rows and non-object import entries', async () => {
+    const auth = { authenticate: vi.fn().mockResolvedValue(session), requireCsrf: vi.fn() };
+    const contacts = { importBatch: vi.fn() };
+    const controller = new ContactController(auth as never, contacts as unknown as ContactService);
+    const request = { headers: { cookie: 'session=cookie' }, id: 'request-4' } as unknown as FastifyRequest;
+    await expect(controller.import(tenantId, {}, 'csrf', request)).rejects.toMatchObject({ status: 400, code: 'validation_failed' });
+    await expect(controller.import(tenantId, { connectionId, rows: 'bad' }, 'csrf', request)).rejects.toMatchObject({ status: 400, code: 'validation_failed' });
+    await expect(controller.import(tenantId, { connectionId, rows: [null] }, 'csrf', request)).rejects.toMatchObject({ status: 400, code: 'validation_failed' });
     expect(contacts.importBatch).not.toHaveBeenCalled();
   });
 });

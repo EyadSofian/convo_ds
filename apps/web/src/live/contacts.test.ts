@@ -120,7 +120,7 @@ function contact(overrides: Record<string, unknown> = {}): Record<string, unknow
   };
 }
 
-function contactsApi(): FakeApi {
+function contactsApi(permissions = ['conversation.read', 'conversation.assign', 'conversation.handoff.request', 'contact.read', 'contact.edit', 'contact.export', 'consent.record']): FakeApi {
   return new FakeApi()
     .on('GET /auth/session', {
       status: 200,
@@ -134,7 +134,7 @@ function contactsApi(): FakeApi {
             id: MEMBERSHIP,
             tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' },
             role: { id: 'owner-role', key: 'owner', name: 'Owner' },
-            permissions: ['conversation.read', 'conversation.assign', 'conversation.handoff.request', 'contact.read', 'contact.edit', 'contact.export', 'consent.record'],
+            permissions,
           },
         ],
       },
@@ -210,6 +210,26 @@ afterEach(() => {
 });
 
 describe('the contacts directory', () => {
+  it('renders import-only transfer controls safely while a file is ready and a request is busy', async () => {
+    const { app, root } = await open(contactsApi(['contact.read', 'contact.edit']));
+    app.state.live.connections = { status: 'ready', loadedAt: NOW.getTime(), value: [{
+      id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null,
+    }] as never };
+    app.state.dialogForm = { contactImportCsv: 'display_name,external_id\nSara,wa-1' };
+    app.state.live.busy = 'contacts:import';
+    app.render();
+    expect(root.querySelector('[data-act="live-contacts-export"]')).toBeNull();
+    expect(text(root)).toContain('CSV');
+    expect((root.querySelector('[data-act="live-contacts-import"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('renders export-only transfer controls without exposing the import workflow', async () => {
+    const { root } = await open(contactsApi(['contact.read', 'contact.export']));
+    expect(root.querySelector('[data-act="live-contacts-export"]')).not.toBeNull();
+    expect(root.querySelector('[data-act="live-contacts-import"]')).toBeNull();
+    expect(root.querySelector('input[data-act="live-contact-import-file"]')).toBeNull();
+  });
+
   it('safely declines contact actions when input or tenant context is absent', async () => {
     const state = createState(NOW);
     state.live.session = { status: 'signed_out', error: null };
@@ -221,6 +241,7 @@ describe('the contacts directory', () => {
     expect(await createContact(context, { displayName: '', connectionId: 'cn-1', externalId: 'wa-1' })).toBe(false);
     expect(await createContact(context, { displayName: 'Sara', connectionId: '', externalId: 'wa-1' })).toBe(false);
     expect(await createContact(context, { displayName: 'Sara', connectionId: 'cn-1', externalId: '' })).toBe(false);
+    expect(await importContacts(context)).toBe(false);
     context.state.dialogForm = { contactImportCsv: 'invalid', contactImportConnection: 'cn-1' };
     expect(await importContacts(context)).toBe(false);
     context.state.dialogForm = { contactImportCsv: 'display_name,external_id\nSara,wa-1', contactImportConnection: '' };
