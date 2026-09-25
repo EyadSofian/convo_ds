@@ -166,6 +166,46 @@ function click(target: Element | null, init: MouseEventInit = {}): void {
   target.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, ...init }));
 }
 
+// An update is advisory: an installed operator session keeps its draft until
+// the person explicitly chooses the new version.
+describe('installed app updates', () => {
+  it('shows the latest-version action without replacing the open screen or auto-reloading', async () => {
+    const reload = vi.fn();
+    const checkForUpdate = vi.fn(async () => true);
+    const { root, app } = start('#/inbox', signedIn(), { checkForUpdate, reloadForUpdate: reload });
+    await settle();
+    app.state.live.composer = 'unsent draft';
+    await app.checkForUpdate();
+    expect(root.querySelector('[data-act="app-update"]')).not.toBeNull();
+    expect(app.state.live.composer).toBe('unsent draft');
+    expect(reload).not.toHaveBeenCalled();
+    await app.checkForUpdate();
+    expect(checkForUpdate).toHaveBeenCalledTimes(1);
+    click(root.querySelector('[data-act="app-update"]'));
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not render a late version result after the screen has been destroyed', async () => {
+    let resolveCheck: (value: boolean) => void = () => undefined;
+    const checkForUpdate = () => new Promise<boolean>((resolve) => { resolveCheck = resolve; });
+    const { app } = start('#/inbox', signedIn(), { checkForUpdate });
+    await settle();
+    const pending = app.checkForUpdate();
+    app.destroy();
+    handle = null;
+    resolveCheck(true);
+    await pending;
+    expect(app.state.updateAvailable).toBe(false);
+  });
+
+  it('keeps the operator working when the release check loses network access', async () => {
+    const { app } = start('#/inbox', signedIn(), { checkForUpdate: async () => { throw new Error('offline'); } });
+    await settle();
+    await expect(app.checkForUpdate()).resolves.toBeUndefined();
+    expect(app.state.updateAvailable).toBe(false);
+  });
+});
+
 function press(target: EventTarget, key: string, init: KeyboardEventInit = {}): KeyboardEvent {
   const event = new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
   target.dispatchEvent(event);
@@ -1141,6 +1181,37 @@ describe('following an export', () => {
 });
 
 describe('boot', () => {
+  it('checks installed-web releases on its foreground timer without polling while hidden', async () => {
+    const previousVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    let visible = 'hidden';
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visible });
+    let tick = (): void => undefined;
+    const interval = vi.spyOn(window, 'setInterval').mockImplementation((handler) => {
+      tick = handler as () => void;
+      return 7 as unknown as ReturnType<typeof window.setInterval>;
+    });
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { code: 'x', message: 'x' } }), { status: 401 }));
+    vi.stubGlobal('fetch', fetch);
+    try {
+      document.body.replaceChildren();
+      handle = boot(document, createHost());
+      await settle();
+      tick();
+      expect(handle.state.updateAvailable).toBe(false);
+      visible = 'visible';
+      tick();
+      await settle();
+      expect(handle.state.updateAvailable).toBe(false);
+    } finally {
+      handle?.destroy();
+      handle = null;
+      if (previousVisibility === undefined) Reflect.deleteProperty(document, 'visibilityState');
+      else Object.defineProperty(document, 'visibilityState', previousVisibility);
+      interval.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('finds the page’s mount node, or creates one, with the browser’s own services', async () => {
     const store = memoryStore({ [THEME_KEY]: 'dark' });
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'x', message: 'x' } }), { status: 401 }));

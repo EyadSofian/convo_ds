@@ -194,6 +194,13 @@ describe('Messenger and Instagram Graph contracts', () => {
     expect(calls[0]?.body).not.toHaveProperty('messaging_type');
   });
 
+  it('preserves emoji-only text in Messenger and Instagram Graph payloads', async () => {
+    const { adapter, calls } = transport(() => json(200, { recipient_id: 'test-peer', message_id: 'mid.emoji' }));
+    await adapter.send('messenger', TOKEN, { ...TEXT, assetIdentity: 'page-1', peerIdentity: 'test-peer', text: '❤️😀' });
+    await adapter.send('instagram', TOKEN, { ...TEXT, assetIdentity: 'ig-1', facebookPageId: 'page-1', peerIdentity: 'test-peer', text: '❤️😀' });
+    expect(calls.map((call) => (call.body as { message: { text: string } }).message.text)).toEqual(['❤️😀', '❤️😀']);
+  });
+
   it('validates the configured Page and Instagram assets before the channel is considered connected', async () => {
     const { adapter, calls } = transport((call) => {
       if (call.url.includes('page-1')) return json(200, { id: 'page-1', name: 'I BOTS' });

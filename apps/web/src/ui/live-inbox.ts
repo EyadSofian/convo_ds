@@ -807,6 +807,17 @@ function timelineView(state: AppState, live: LiveState): Child {
 }
 
 function messageBubble(state: AppState, message: TimelineMessage): HTMLElement {
+  if (message.direction === 'reaction') {
+    const removed = message.reaction_action === 'unreact';
+    return h('article', { class: 'msg msg--reaction', 'data-message': message.id }, [
+      h('span', { class: 'msg__reaction', dir: 'auto' }, [
+        removed
+          ? t(state, `أزال العميل تفاعله ${message.text ?? ''}`, `Customer removed reaction ${message.text ?? ''}`)
+          : t(state, `تفاعل العميل ${message.text ?? ''}`, `Customer reacted ${message.text ?? ''}`),
+      ]),
+      h('time', { datetime: message.at, class: 'msg__reaction-time' }, [clockTime(message.at, state.lang)]),
+    ]);
+  }
   return h('article', { class: message.direction === 'out' ? 'msg msg--out' : 'msg msg--in', 'data-message': message.id }, [
     message.template_name === undefined || message.template_name === null ? null : h('div', { class: 'msg__template-label' }, [t(state, `قالب واتساب · ${message.template_name}`, `WhatsApp template · ${message.template_name}`)]),
     h('div', { class: 'msg__bubble' }, [message.template_preview ?? message.text ?? '']),

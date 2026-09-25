@@ -299,6 +299,35 @@ describe('Inbox list controls', () => {
     expect(renderInbox(app).querySelector('[data-act="live-whatsapp-template-open"]')).toBeNull();
   });
 
+  it('shows Unicode emoji messages and Instagram reactions without turning reactions into customer messages', () => {
+    const app = state();
+    app.live.openConversationId = 'conversation-1';
+    app.live.openConversation = { status: 'ready', loadedAt: 1, value: {
+      id: 'conversation-1', contactId: null, connectionId: 'connection-1', peerIdentity: 'visitor',
+      inboxLabel: 'Instagram', channel: 'instagram', teamId: null, assigneeMembershipId: 'member-1',
+      status: 'open', priority: 'normal', version: 2, labels: [], customFields: [],
+    } as never };
+    app.live.timeline = ready([
+      { id: 'in-1', direction: 'in', text: 'أهلًا 😀', at: NOW.toISOString() },
+      { id: 'react-1', direction: 'reaction', text: '❤️', reaction_action: 'react', at: NOW.toISOString() },
+    ] as never, 1);
+    let root = renderInbox(app);
+    expect(root.querySelector('.msg--in .msg__bubble')?.textContent).toBe('أهلًا 😀');
+    expect(root.querySelector('.msg--reaction')?.textContent).toContain('Customer reacted ❤️');
+    expect(root.querySelectorAll('.msg--in')).toHaveLength(1);
+    app.live.timeline = ready([{ id: 'react-2', direction: 'reaction', text: '❤️', reaction_action: 'unreact', at: NOW.toISOString() }] as never, 1);
+    root = renderInbox(app);
+    expect(root.querySelector('.msg--reaction')?.textContent).toContain('Customer removed reaction ❤️');
+    app.lang = 'ar';
+    app.live.timeline = ready([
+      { id: 'react-3', direction: 'reaction', text: null, reaction_action: 'react', at: NOW.toISOString() },
+      { id: 'react-4', direction: 'reaction', text: null, reaction_action: 'unreact', at: NOW.toISOString() },
+    ] as never, 1);
+    root = renderInbox(app);
+    expect(root.querySelectorAll('.msg--reaction')[0]?.textContent).toContain('تفاعل العميل');
+    expect(root.querySelectorAll('.msg--reaction')[1]?.textContent).toContain('أزال العميل تفاعله');
+  });
+
   it('keeps free-form reply available in an open window but hides template controls in the supervisor lens', () => {
     const app = state();
     app.live.openConversationId = 'conversation-1';

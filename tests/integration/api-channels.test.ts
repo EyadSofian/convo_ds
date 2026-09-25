@@ -2657,7 +2657,7 @@ describe('the channels beyond WhatsApp', () => {
               sender: { id: 'igsid-1' },
               recipient: { id: IG_ID },
               timestamp: 1789000000000,
-              message: { mid: 'mid.ig.1', text: 'رسالة إنستغرام' },
+              message: { mid: 'mid.ig.1', text: 'رسالة إنستغرام 😀' },
             },
           ],
         },
@@ -2666,11 +2666,12 @@ describe('the channels beyond WhatsApp', () => {
     expect(response.statusCode).toBe(200);
     await normalizer.drain(api.tenantId);
     const rows = await withTenant(api.pool, api.tenantId, (client) =>
-      client.query<{ connection_id: string }>(
-        `SELECT connection_id::text FROM inbound_events WHERE provider_message_id = 'mid.ig.1'`,
+      client.query<{ connection_id: string; text_body: string }>(
+        `SELECT connection_id::text, text_body FROM inbound_events WHERE provider_message_id = 'mid.ig.1'`,
       ),
     );
     expect(rows.rows[0]?.connection_id).toBe(connectionId);
+    expect(rows.rows[0]?.text_body).toBe('رسالة إنستغرام 😀');
   });
 
   it('acknowledges a verified Meta delivery no adapter claims', async () => {

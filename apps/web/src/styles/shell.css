@@ -750,6 +750,23 @@
     margin-inline-start: auto;
   }
 
+  .header__update {
+    flex: none;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    white-space: nowrap;
+  }
+
+  .lang-toggle {
+    min-inline-size: 62px;
+    justify-content: center;
+    gap: var(--space-1);
+    font-weight: var(--weight-semibold);
+    direction: ltr;
+  }
+
+  .theme-toggle { flex: none; }
+
   /* ---------------------------------------------------------- status pill --
      Fixed height, never wraps, and lives in the header: a reconnect changes
      its word and colour, never the position of anything else on the page.
@@ -836,6 +853,12 @@
   .user-button:hover,
   .user-button[aria-expanded='true'] {
     background: var(--surface-hover);
+  }
+
+  .user-button .avatar {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    text-transform: uppercase;
   }
 
   /* ------------------------------------------------------ floating layers -- */
@@ -1019,6 +1042,13 @@
    * under the header, where it covers nothing being typed.
    */
   @media (max-width: 760px) {
+    .header__update {
+      inline-size: var(--control-height-sm);
+      padding-inline: 0;
+      justify-content: center;
+    }
+    .header__update .btn__label { display: none; }
+    .lang-toggle { min-inline-size: 55px; }
     .toasts {
       inset-inline: var(--space-4);
       inline-size: auto;

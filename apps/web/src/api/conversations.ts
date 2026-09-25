@@ -149,7 +149,7 @@ export type TransitionCommand =
 
 export interface TimelineMessage {
   readonly id: string;
-  readonly direction: 'in' | 'out';
+  readonly direction: 'in' | 'out' | 'reaction';
   readonly at: string;
   readonly content_type: string | null;
   readonly text: string | null;
@@ -162,6 +162,7 @@ export interface TimelineMessage {
   readonly template_name?: string | null;
   readonly template_language?: string | null;
   readonly template_preview?: string | null;
+  readonly reaction_action?: string | null;
 }
 
 export interface WhatsAppTemplateParameterDefinition {
