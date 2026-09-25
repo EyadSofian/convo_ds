@@ -1,8 +1,23 @@
 import { expect, test } from '@playwright/test';
-import { PASSWORD } from './support/api';
-import { openInbox, openScreen } from './support/workspace';
+import { CONVERSATION, installApi, PASSWORD } from './support/api';
+import { freezeClock, openInbox, openScreen } from './support/workspace';
 
 test.describe('focused product UX repairs', () => {
+  test('phone notification drawer shows sender and attachment context without leaking lock-screen content', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await freezeClock(page);
+    await installApi(page, { notifications: [{
+      id: 'notice-image', kind: 'new_message', targetType: 'conversation', targetId: CONVERSATION,
+      createdAt: '2026-09-09T09:28:00Z', readAt: null, senderName: 'Controlled Sender', messagePreview: null,
+    }] });
+    await page.goto(`/#/inbox/${CONVERSATION}`);
+    await expect(page.locator('.notification-bell__badge')).toHaveText('1');
+    await page.locator('.notification-bell').click();
+    await expect(page.locator('.notification-row__sender')).toHaveText('Controlled Sender');
+    await expect(page.locator('.notification-row__preview')).toHaveText('صورة أو مرفق');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
   test('emoji messages, Instagram reactions, and the compact account header work on a phone', async ({ page }) => {
     await openInbox(page);
     let outbound: Record<string, unknown> | null = null;
@@ -15,12 +30,14 @@ test.describe('focused product UX repairs', () => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [
         { id: 'emoji-in', direction: 'in', at: '2026-09-09T09:15:00Z', content_type: 'text', text: 'أهلًا 😀', attachments: [], author_membership_id: null, command_state: null, delivery_state: null, delivery_anomaly: null, provider_message_id: 'mid.in' },
         { id: 'emoji-reaction', direction: 'reaction', at: '2026-09-09T09:16:00Z', content_type: 'reaction', text: '❤️', reaction_action: 'react', attachments: [], author_membership_id: null, command_state: null, delivery_state: null, delivery_anomaly: null, provider_message_id: 'mid.out' },
+        { id: 'facebook-like', direction: 'in', at: '2026-09-09T09:17:00Z', content_type: 'image', text: null, attachments: [{ type: 'image', providerId: 'https://scontent.xx.fbcdn.net/like.png' }], author_membership_id: null, command_state: null, delivery_state: null, delivery_anomaly: null, provider_message_id: 'mid.like' },
       ], page: { next_cursor: null, has_more: false } }) });
     });
     await page.reload();
-    await expect(page.locator('.msg--in .msg__bubble')).toContainText('أهلًا 😀');
+    await expect(page.locator('[data-message="emoji-in"] .msg__bubble')).toContainText('أهلًا 😀');
     await expect(page.locator('.msg--reaction')).toContainText('تفاعل العميل ❤️');
     await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('[data-message="facebook-like"] img')).toHaveAttribute('src', 'https://scontent.xx.fbcdn.net/like.png');
     await expect(page.locator('.lang-toggle')).toContainText('EN');
     await expect(page.locator('.user-button .avatar')).toContainText('H');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

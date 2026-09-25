@@ -384,7 +384,11 @@ function renderNotifications(state: AppState): HTMLElement {
                 h('span', { class: 'notification-row__content' }, [
                   h('span', { class: 'notification-row__title' }, [notificationTitle(state, entry)]),
                   entry.senderName == null ? null : h('span', { class: 'notification-row__sender', dir: 'auto' }, [entry.senderName]),
-                  entry.messagePreview == null ? null : h('span', { class: 'notification-row__preview', dir: 'auto' }, [entry.messagePreview]),
+                  entry.messagePreview == null && (entry.kind !== 'new_message' || entry.senderName == null)
+                    ? null
+                    : h('span', { class: 'notification-row__preview', dir: 'auto' }, [
+                      entry.messagePreview ?? t(state, 'صورة أو مرفق', 'Image or attachment'),
+                    ]),
                   h('time', {
                     datetime: entry.createdAt,
                     title: new Date(entry.createdAt).toLocaleString(state.lang === 'ar' ? 'ar-EG' : 'en-US'),

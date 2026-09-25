@@ -350,7 +350,7 @@ export interface MountOptions {
   readonly reloadForUpdate?: (() => void) | undefined;
 }
 
-export type PageEvent = 'visibilitychange' | 'pageshow' | 'online' | 'offline' | 'beforeunload';
+export type PageEvent = 'visibilitychange' | 'pageshow' | 'focus' | 'online' | 'offline' | 'beforeunload';
 
 /** The slice of `window`/`document` the resume path listens to. */
 export interface PageLifecycle {
@@ -434,7 +434,7 @@ export function boot(
   // foregrounded, but leave the operator's draft intact until they choose Update.
   const updatePoll = view.setInterval(() => {
     if (document_.visibilityState !== 'hidden') void app.checkForUpdate();
-  }, 180_000);
+  }, 60_000);
   return {
     ...app,
     destroy: () => {
@@ -812,6 +812,12 @@ export function mount(options: MountOptions): AppHandle {
     }
   };
 
+  // Standalone mobile PWAs do not consistently emit pageshow when resumed.
+  // Focus is another foreground signal; the probe is deduplicated in checkForUpdate.
+  const onFocus = (): void => {
+    if ((page as PageLifecycle).visible()) void checkForUpdate();
+  };
+
   /**
    * Leaving the page with unsaved role permissions asks first. The browser
    * shows its own wording; setting `returnValue` is what triggers it.
@@ -1145,6 +1151,7 @@ export function mount(options: MountOptions): AppHandle {
   page?.addEventListener('offline', onOffline);
   page?.addEventListener('visibilitychange', onVisibility);
   page?.addEventListener('pageshow', onPageShow);
+  page?.addEventListener('focus', onFocus);
   page?.addEventListener('beforeunload', onBeforeUnload);
   const stopRouter = onRouteChange(host, handleRoute);
 
@@ -1168,6 +1175,7 @@ export function mount(options: MountOptions): AppHandle {
       page?.removeEventListener('offline', onOffline);
       page?.removeEventListener('visibilitychange', onVisibility);
       page?.removeEventListener('pageshow', onPageShow);
+      page?.removeEventListener('focus', onFocus);
       page?.removeEventListener('beforeunload', onBeforeUnload);
       root.removeEventListener('click', onClick);
       root.removeEventListener('submit', onSubmit);

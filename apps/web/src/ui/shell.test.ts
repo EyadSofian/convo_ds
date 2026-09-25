@@ -125,6 +125,20 @@ describe('header', () => {
     state.lang = 'ar';
     expect(bell().querySelector('.notification-row--unread')?.textContent).toContain('رسالة عميل جديدة');
   });
+  it('labels a readable attachment notification but never invents a preview for an inaccessible target', () => {
+    const state = signedIn();
+    state.openMenu = 'notifications';
+    state.live.notifications = { status: 'ready', loadedAt: 1, value: [
+      { id: 'image', kind: 'new_message', targetType: 'conversation', targetId: 'c', createdAt: NOW.toISOString(), readAt: null, senderName: 'Eyad', messagePreview: null },
+      { id: 'hidden', kind: 'new_message', targetType: 'conversation', targetId: 'other', createdAt: NOW.toISOString(), readAt: null },
+    ] };
+    const rows = renderShell(state, screen()).querySelectorAll('.notification-row');
+    expect(rows[0]?.textContent).toContain('Eyad');
+    expect(rows[0]?.textContent).toContain('Image or attachment');
+    expect(rows[1]?.querySelector('.notification-row__preview')).toBeNull();
+    state.lang = 'ar';
+    expect(renderShell(state, screen()).querySelector('.notification-row__preview')?.textContent).toBe('صورة أو مرفق');
+  });
   it('shows the page title and the company name, never its slug', () => {
     const shell = renderShell(signedIn(), screen());
     expect(shell.querySelector('h1.header__title')?.textContent).toBe('Inbox');
