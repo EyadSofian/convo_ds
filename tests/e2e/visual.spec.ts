@@ -217,6 +217,28 @@ test.describe('inbox baselines', () => {
   });
 });
 
+test.describe('contacts workspace', () => {
+  test('directory and selected customer profile — desktop', async ({ page }) => {
+    await openScreen(page, 'contacts');
+    await page.locator('[data-act="live-contact-open"]').first().click();
+    await expect(page.locator('.contact__who')).toBeVisible();
+    await expect(page.locator('.contact__eyebrow')).toHaveText(/CUSTOMER PROFILE|ملف العميل/);
+    await fontsReady(page);
+    await expect(page).toHaveScreenshot('contacts-profile-desktop.png');
+  });
+
+  test('customer profile — Arabic mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openScreen(page, 'contacts');
+    await setDirection(page, 'rtl');
+    await page.locator('[data-act="live-contact-open"]').first().click();
+    await expect(page.locator('.contact__who')).toBeVisible();
+    await page.locator('.contact__who').evaluate((element) => element.scrollIntoView({ block: 'center' }));
+    await fontsReady(page);
+    await expect(page.locator('.contact__who')).toHaveScreenshot('contacts-profile-arabic-mobile.png');
+  });
+});
+
 test.describe('state baselines', () => {
   for (const [name, reply] of [
     ['empty', { status: 200, body: { data: [] } }],
