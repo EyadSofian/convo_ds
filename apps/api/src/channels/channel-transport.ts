@@ -20,6 +20,7 @@ export interface ChannelTransportPort {
     kind: ChannelKind,
     credential: string,
     assetIdentity: string,
+    facebookPageId?: string | null,
   ): Promise<ConnectionCheck>;
   send(kind: ChannelKind, credential: string, command: SendCommand): Promise<SendOutcome>;
   /** Optional because only WhatsApp exposes the template catalogue. */

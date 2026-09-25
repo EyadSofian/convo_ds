@@ -473,6 +473,11 @@ test.describe('the Channels catalogue', () => {
     await expect(page.locator('#channel-token')).toHaveAttribute('type', 'password');
     await page.keyboard.press('Escape');
 
+    await page.locator('[data-arg="connect-channel:instagram"]').click();
+    await expect(page.locator('#channel-page')).toBeVisible();
+    await expect(page.locator('label[for="channel-page"]')).toContainText('صفحة فيسبوك');
+    await page.keyboard.press('Escape');
+
     await page.locator('[data-arg="connect-channel:web_chat"]').click();
     await expect(page.locator('#channel-app')).toHaveCount(0);
   });
@@ -483,6 +488,7 @@ test.describe('the Channels catalogue', () => {
     const details = page.locator('[data-connection="cn-instagram-01"] .connection__details');
     await expect(details).toBeVisible();
     await expect(details.locator('.checklist__item--done')).toHaveCount(1);
+    await expect(details.locator(`[data-submit="live-instagram-page"]`)).toBeVisible();
     await expect(page.locator(`[data-connection="${CONNECTION}"] .connection__details`)).toHaveCount(0);
   });
 });

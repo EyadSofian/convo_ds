@@ -142,6 +142,8 @@ export type SendOutcome =
 
 export interface SendCommand {
   readonly assetIdentity: string;
+  /** Linked Facebook Page for Instagram accounts authorized via Facebook Login. */
+  readonly facebookPageId?: string | null;
   readonly peerIdentity: string;
   readonly messageType: string;
   readonly text: string | null;

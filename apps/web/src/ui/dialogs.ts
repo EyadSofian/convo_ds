@@ -340,6 +340,12 @@ function connectChannel(state: AppState, kind: string): HTMLElement {
           textInput('channelAsset', form['channelAsset'] ?? '', '', { id: 'channel-asset', required: true }),
           fieldError(state, 'channelAsset'),
         ]),
+        kind === 'instagram' ? h('div', { class: 'field' }, [
+          h('label', { class: 'field__label', for: 'channel-page' }, [t(state, 'معرّف صفحة فيسبوك المرتبطة', 'Linked Facebook Page ID')]),
+          textInput('channelPage', form['channelPage'] ?? '', '123456789012345', { id: 'channel-page', inputmode: 'numeric', required: true }),
+          h('p', { class: 'field__hint' }, [t(state, 'استخدم رمز وصول الصفحة نفسها. يتحقق الخادم من ربط الصفحة بحساب إنستجرام.', 'Use the matching Page access token. The server verifies that this Page links to the Instagram account.')]),
+          fieldError(state, 'channelPage'),
+        ]) : null,
         h('div', { class: 'field' }, [
           h('label', { class: 'field__label', for: 'channel-name' }, [t(state, 'اسم العرض', 'Display name')]),
           textInput('channelName', form['channelName'] ?? '', t(state, 'مثال: خط التسجيل', 'e.g. Admissions line'), { id: 'channel-name', required: true }),
@@ -394,6 +400,7 @@ function metaSetupGuide(state: AppState, kind: string): HTMLElement {
       : [
           ['استخدم حساب Instagram احترافيًا ومربوطًا بصفحة Facebook التي تملكها', 'Use a professional Instagram account linked to a Facebook Page you control'],
           ['انسخ Instagram Account ID، وليس @username', 'Copy the Instagram Account ID, not the @username'],
+          ['انسخ Page ID واستخدم Page access token للصفحة المرتبطة بحساب إنستجرام', 'Copy the linked Page ID and use its Page access token'],
           ['امنح تطبيق Meta صلاحية Instagram Messaging لهذا الأصل وفَعّل الـWebhook', 'Grant the Meta app Instagram Messaging access to this asset and enable its webhook'],
         ];
 

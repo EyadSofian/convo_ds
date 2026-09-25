@@ -27,6 +27,7 @@ function matrix(kind: string, overrides: Partial<CapabilityMatrix> = {}): Capabi
 function connection(overrides: Partial<ChannelConnection> = {}): ChannelConnection {
   return {
     id: 'cn-1', kind: 'whatsapp', provider: 'meta', display_name: 'Admissions', external_asset_id: '109876543210',
+    facebook_page_id: null,
     provider_app_id: '123456789012345', status: 'healthy', capabilities: matrix('whatsapp'),
     evidence: [
       { kind: 'asset_verified', satisfied: true, observed_at: '2026-09-09T08:00:00.000Z' },
@@ -77,6 +78,12 @@ describe('summarize', () => {
     expect(summarize('instagram', true, [healthy]).lastVerified).toBeNull();
     expect(summarize('whatsapp', true, [connection({ last_error_code: 'credential_rejected', status: 'degraded' })]).status).toBe('permission_expired');
     expect(summarize('whatsapp', true, [healthy]).assetNames).toEqual(['Admissions']);
+    const inboundOnly = connection({ evidence: [
+      ...healthy.evidence,
+      { kind: 'first_outbound', satisfied: false, observed_at: null },
+    ] });
+    expect(summarize('whatsapp', true, [inboundOnly]).status).toBe('send_unverified');
+    expect(card(screen([inboundOnly]).element(), 'whatsapp').textContent).toContain('Send unverified');
   });
 
   it('lists the six integrations the product offers', () => {

@@ -314,7 +314,7 @@ describe('channel connections', () => {
     const byKind = new Map(entries.map((entry) => [entry.kind, entry.capabilities]));
     // The three differences that matter most, asserted through the API rather
     // than only in the domain unit tests.
-    expect(byKind.get('instagram')?.['host']).toBe('graph.instagram.com');
+    expect(byKind.get('instagram')?.['host']).toBe('graph.facebook.com');
     expect(byKind.get('whatsapp')?.['host']).toBe('graph.facebook.com');
     expect(byKind.get('whatsapp')?.['templates']).toBe(true);
     expect(byKind.get('messenger')?.['templates']).toBe(false);
@@ -483,6 +483,7 @@ describe('channel connections', () => {
         displayName: `Synthetic ${kind} ${String(index)}`,
         accessToken: `synthetic-test-token-${String(index).padStart(3, '0')}`,
         appId: api.appId,
+        ...(kind === 'instagram' ? { settings: { facebookPageId: String(100000000000000 + index) } } : {}),
       });
       expect(response.statusCode, `asset ${String(index)}`).toBe(201);
       const connection = (response.json() as { data: { id: string; status: string } }).data;
@@ -1136,13 +1137,17 @@ describe('with a stubbed provider transport', () => {
   let api: Harness;
   let owner: Browser;
   let answer: ConnectionCheck;
+  let checkedInstagramPageId: string | null | undefined;
   let templatesAnswer: TemplateFetchResult = { ok: true, templates: [] };
 
   beforeAll(async () => {
     api = await createHarness({
       channelTransport: {
         name: 'test-stub',
-        validateConnection: () => Promise.resolve(answer),
+        validateConnection: (kind, _credential, _assetIdentity, facebookPageId) => {
+          if (kind === 'instagram') checkedInstagramPageId = facebookPageId;
+          return Promise.resolve(answer);
+        },
         fetchTemplates: () => Promise.resolve(templatesAnswer),
         send: () =>
           Promise.resolve({
@@ -1176,6 +1181,44 @@ describe('with a stubbed provider transport', () => {
       'first_inbound',
       'first_outbound',
     ]);
+  });
+
+  it('binds an existing Instagram connection only after verifying the linked Page', async () => {
+    const created = await send(api, owner, 'POST', '/channels', {
+      kind: 'instagram', externalAssetId: '17841470000000001', displayName: 'Test Instagram',
+      accessToken: 'EAAGtestaccesstoken0001', appId: api.appId,
+      settings: { facebookPageId: '483612900000001' },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const id = (created.json() as { data: { id: string } }).data.id;
+
+    answer = { ok: false, assetIdentity: null, code: 'asset_mismatch', message: 'Wrong Page.' };
+    const rejected = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: '483612900000002' });
+    expect(rejected.statusCode).toBe(422);
+    expect(checkedInstagramPageId).toBe('483612900000002');
+    const unchanged = await send(api, owner, 'GET', '/channels');
+    const before = (unchanged.json() as { data: Array<{ id: string; facebook_page_id: string }> }).data.find((item) => item.id === id);
+    expect(before?.facebook_page_id).toBe('483612900000001');
+
+    answer = { ok: true, assetIdentity: '17841470000000001', code: null, message: null };
+    const verified = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: '483612900000003' });
+    expect(verified.statusCode, verified.body).toBe(201);
+    expect(checkedInstagramPageId).toBe('483612900000003');
+    expect((verified.json() as { data: { facebook_page_id: string } }).data.facebook_page_id).toBe('483612900000003');
+
+    const malformed = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: 'not-an-id' });
+    expect(malformed.statusCode).toBe(400);
+    // A pre-upgrade Instagram row can have inbound evidence but no Page-bound
+    // outbound configuration. The API must not still call it healthy.
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `UPDATE channel_connections SET settings = settings - 'facebook_page_id' WHERE id = $1`, [id],
+    ));
+    const legacy = await send(api, owner, 'GET', '/channels');
+    const unbound = (legacy.json() as { data: Array<{ id: string; status: string; last_error_code: string }> }).data.find((item) => item.id === id);
+    expect(unbound).toMatchObject({ status: 'degraded', last_error_code: 'instagram_page_required' });
+    const whatsapp = await connect(api, owner, 'phone-stub-instagram-page');
+    const whatsappId = (whatsapp.json() as { data: { id: string } }).data.id;
+    expect((await send(api, owner, 'POST', `/channels/${whatsappId}/instagram-page`, { facebookPageId: '483612900000003' })).statusCode).toBe(404);
   });
 
   it('falls back to a generic code when the provider refuses without naming one', async () => {
@@ -2430,7 +2473,9 @@ describe('the channels beyond WhatsApp', () => {
       ...(kind === 'whatsapp' || kind === 'messenger' || kind === 'instagram'
         ? { appId: api.appId }
         : {}),
-      ...(settings === undefined ? {} : { settings }),
+      ...(kind === 'instagram'
+        ? { settings: { facebookPageId: '123456789012345', ...settings } }
+        : settings === undefined ? {} : { settings }),
     });
     expect(response.statusCode, JSON.stringify(response.json())).toBe(201);
     return (response.json() as { data: { id: string } }).data.id;

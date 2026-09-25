@@ -50,6 +50,7 @@ export interface ChannelConnection {
   readonly provider: string;
   readonly display_name: string;
   readonly external_asset_id: string;
+  readonly facebook_page_id: string | null;
   readonly provider_app_id: string | null;
   readonly status: ChannelReadiness;
   readonly capabilities: CapabilityMatrix;
@@ -93,6 +94,7 @@ export interface ConnectChannelInput {
   readonly displayName: string;
   readonly accessToken: string;
   readonly providerAppId: string | null;
+  readonly settings?: { readonly facebookPageId: string };
 }
 
 export class ChannelsApi {
@@ -144,6 +146,12 @@ export class ChannelsApi {
       `/tenants/${tenantId}/channels/${connectionId}/credential`,
       { body: { accessToken } },
     );
+  }
+
+  setInstagramPage(tenantId: string, connectionId: string, facebookPageId: string): Promise<ApiResult<ChannelConnection>> {
+    return this.client.post<ChannelConnection>(`/tenants/${tenantId}/channels/${connectionId}/instagram-page`, {
+      body: { facebookPageId },
+    });
   }
 
   disconnect(tenantId: string, connectionId: string): Promise<ApiResult<undefined>> {

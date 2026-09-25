@@ -89,13 +89,20 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     kind: ChannelKind,
     credential: string,
     assetIdentity: string,
+    facebookPageId?: string | null,
   ): Promise<ConnectionCheck> {
     if (!isMetaGraphKind(kind)) return unsupportedConnection(kind);
+    if (kind === 'instagram' && !facebookPageId) return {
+      ok: false, assetIdentity: null, code: 'instagram_page_required',
+      message: 'Configure the Facebook Page linked to this Instagram account.',
+    };
 
     let response: Response;
     try {
       response = await this.fetchImpl(
-        `${this.graphBase}/${encodeURIComponent(assetIdentity)}?fields=${connectionFields(kind)}`,
+        kind === 'instagram'
+          ? `${this.graphBase}/me?fields=id,instagram_business_account{id}`
+          : `${this.graphBase}/${encodeURIComponent(assetIdentity)}?fields=${connectionFields(kind)}`,
         {
           method: 'GET',
           headers: { authorization: `Bearer ${credential}` },
@@ -111,7 +118,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       };
     }
 
-    const body = (await readJson(response)) as { id?: unknown; error?: GraphError } | null;
+    const body = (await readJson(response)) as { id?: unknown; instagram_business_account?: { id?: unknown }; error?: GraphError } | null;
     if (!response.ok) {
       const failure = classify(response.status, body?.error);
       return {
@@ -122,7 +129,10 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       };
     }
     const id = typeof body?.id === 'string' ? body.id : null;
-    if (id !== assetIdentity) {
+    if (kind === 'instagram' && (id !== facebookPageId || body?.instagram_business_account?.id !== assetIdentity)) {
+      return { ok: false, assetIdentity: id, code: 'asset_mismatch', message: 'The Page token does not belong to the Page linked to this Instagram account.' };
+    }
+    if (kind !== 'instagram' && id !== assetIdentity) {
       // A token that reads *a* number but not *this* one. Reporting ok here
       // would let a connection go live pointed at somebody else's asset.
       return {
@@ -132,11 +142,15 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
         message: 'The token does not grant access to the configured provider asset.',
       };
     }
-    return { ok: true, assetIdentity: id, code: null, message: null };
+    return { ok: true, assetIdentity, code: null, message: null };
   }
 
   async send(kind: ChannelKind, credential: string, command: SendCommand): Promise<SendOutcome> {
     if (!isMetaGraphKind(kind)) return unsupportedSend(kind);
+    if (kind === 'instagram' && !command.facebookPageId) return {
+      status: 'definitely_rejected', code: 'instagram_page_required',
+      message: 'The linked Facebook Page is not configured.', retryable: true,
+    };
 
     const payload = this.payloadFor(kind, command);
     if (payload === null) {
@@ -151,7 +165,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     let response: Response;
     try {
       response = await this.fetchImpl(
-        `${this.graphBase}/${encodeURIComponent(command.assetIdentity)}/messages`,
+        `${this.graphBase}/${encodeURIComponent(kind === 'instagram' ? command.facebookPageId! : command.assetIdentity)}/messages`,
         {
           method: 'POST',
           headers: {

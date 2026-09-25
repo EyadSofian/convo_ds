@@ -118,6 +118,7 @@ describe('pinned OpenAPI contract', () => {
       "connectChannel",
       "disconnectChannel",
       "rotateChannelCredential",
+      "setInstagramLinkedPage",
       "listOutboundMessages",
       "queueOutboundMessage",
       "syncWhatsAppTemplates",

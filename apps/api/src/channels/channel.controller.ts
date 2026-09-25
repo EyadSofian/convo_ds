@@ -94,6 +94,19 @@ export class ChannelController {
     await reply.status(200).send({ data: rotated, request_id: request.id });
   }
 
+  @Post('tenants/:tenantId/channels/:connectionId/instagram-page')
+  async setInstagramPage(
+    @Param('tenantId') tenantId: string,
+    @Param('connectionId') connectionId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return { data: await this.channels.setInstagramPage(session, tenantId, connectionId, body), request_id: request.id };
+  }
+
   @Delete('tenants/:tenantId/channels/:connectionId')
   async disconnect(
     @Param('tenantId') tenantId: string,

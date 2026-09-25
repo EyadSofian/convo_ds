@@ -11,6 +11,7 @@ const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 const fail = <T>(): ApiResult<T> => ({ ok: false, error: ERROR });
 const CONNECTION: ChannelConnection = {
   id: 'channel-1', kind: 'whatsapp', provider: 'meta', display_name: 'Courses', external_asset_id: 'phone-1',
+  facebook_page_id: null,
   provider_app_id: 'app-1', status: 'healthy', capabilities: {
     kind: 'whatsapp', version: 'v21.0', host: 'graph.facebook.com', inboundEvents: [], outboundTypes: ['text','template'],
     attachmentTypes: [], textLimit: { characters: 4096, bytes: 4096 }, windowHours: 24,

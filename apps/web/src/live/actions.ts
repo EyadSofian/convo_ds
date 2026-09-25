@@ -384,6 +384,15 @@ export function rotateChannelCredential(
   );
 }
 
+export function setInstagramPage(context: LiveContext, connectionId: string, facebookPageId: string): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `instagram-page:${connectionId}`,
+    (tenantId) => context.live.channels.setInstagramPage(tenantId, connectionId, facebookPageId),
+    () => t(context.state, 'تحقق Meta من صفحة فيسبوك المرتبطة بإنستجرام', 'Meta verified the linked Facebook Page'),
+  );
+}
+
 export function disconnectChannel(context: LiveContext, connectionId: string): Promise<boolean> {
   return mutateChannels(
     context,
