@@ -15,12 +15,14 @@ test.describe('focused product UX repairs', () => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [
         { id: 'emoji-in', direction: 'in', at: '2026-09-09T09:15:00Z', content_type: 'text', text: 'أهلًا 😀', attachments: [], author_membership_id: null, command_state: null, delivery_state: null, delivery_anomaly: null, provider_message_id: 'mid.in' },
         { id: 'emoji-reaction', direction: 'reaction', at: '2026-09-09T09:16:00Z', content_type: 'reaction', text: '❤️', reaction_action: 'react', attachments: [], author_membership_id: null, command_state: null, delivery_state: null, delivery_anomaly: null, provider_message_id: 'mid.out' },
+        { id: 'facebook-like', direction: 'in', at: '2026-09-09T09:17:00Z', content_type: 'image', text: null, attachments: [{ type: 'image', providerId: 'https://scontent.xx.fbcdn.net/like.png' }], author_membership_id: null, command_state: null, delivery_state: null, delivery_anomaly: null, provider_message_id: 'mid.like' },
       ], page: { next_cursor: null, has_more: false } }) });
     });
     await page.reload();
-    await expect(page.locator('.msg--in .msg__bubble')).toContainText('أهلًا 😀');
+    await expect(page.locator('[data-message="emoji-in"] .msg__bubble')).toContainText('أهلًا 😀');
     await expect(page.locator('.msg--reaction')).toContainText('تفاعل العميل ❤️');
     await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('[data-message="facebook-like"] img')).toHaveAttribute('src', 'https://scontent.xx.fbcdn.net/like.png');
     await expect(page.locator('.lang-toggle')).toContainText('EN');
     await expect(page.locator('.user-button .avatar')).toContainText('H');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
