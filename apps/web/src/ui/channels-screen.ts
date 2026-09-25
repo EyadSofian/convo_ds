@@ -15,7 +15,7 @@ import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { channelTile } from './brand.js';
 import { brandMark } from './channel-mark.js';
-import { CHANNEL_NAMES, EVIDENCE, phrase, READINESS, t } from './copy.js';
+import { CHANNEL_NAMES, EVIDENCE, ERROR_CODES, phrase, READINESS, t } from './copy.js';
 import type { Phrase } from './copy.js';
 import {
   badge,
@@ -393,7 +393,9 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
           : h('p', { class: 'connection__error', role: 'status' }, [
               icon('alert', 14),
               t(state, 'آخر خطأ: ', 'Last error: '),
-              isolated(connection.last_error_code, true),
+              h('span', { class: 'connection__error-code' }, [isolated(connection.last_error_code, true)]),
+              ' · ',
+              phrase(state, ERROR_CODES, connection.last_error_code),
             ]),
       ]),
       h('section', { class: 'connection__block', 'aria-labelledby': `${id}-facts` }, [
@@ -416,6 +418,16 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
       ? h('p', { class: 'field__hint' }, [t(state, 'هذا الاتصال مفصول. سجله محفوظ، ويمكن ربط الأصل من جديد.', 'This connection is disconnected. Its history is kept and the asset can be connected again.')])
       : h('div', { class: 'connection__manage' }, [
           h('div', { class: 'connection__actions' }, [
+            connection.kind === 'whatsapp'
+              ? button({
+                  label: t(state, 'مزامنة قوالب واتساب', 'Sync WhatsApp templates'),
+                  icon: 'refresh',
+                  act: 'live-sync-channel-templates',
+                  arg: connection.id,
+                  small: true,
+                  busy: live.busy === `sync-channel-templates:${connection.id}`,
+                })
+              : null,
             button({
               label: t(state, 'التحقق من الاتصال', 'Verify connection'),
               icon: 'shield',

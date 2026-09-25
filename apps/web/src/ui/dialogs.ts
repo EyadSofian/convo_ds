@@ -324,6 +324,7 @@ function connectChannel(state: AppState, kind: string): HTMLElement {
             : t(state, 'سيوقّع خادمك التسليمات بهذا المفتاح. احتفظ به في نظامك المرسل فقط.', 'Your installation signs deliveries with this key. Keep it only in the sending system.'),
         ]),
       ]),
+      item.meta ? metaSetupGuide(state, item.kind) : null,
       inlineError(state, live.error),
       h('form', { class: 'form-grid', 'data-submit': 'live-connect-channel', novalidate: true }, [
         item.meta
@@ -375,6 +376,32 @@ function connectChannel(state: AppState, kind: string): HTMLElement {
       }),
     ],
   );
+}
+
+function metaSetupGuide(state: AppState, kind: string): HTMLElement {
+  const steps: readonly [string, string][] = kind === 'whatsapp'
+    ? [
+        ['جهّز رقم WhatsApp Business المملوك للمؤسسة', 'Prepare the business-owned WhatsApp number'],
+        ['انسخ Phone Number ID من WhatsApp Manager، وليس رقم الهاتف نفسه', 'Copy the Phone Number ID from WhatsApp Manager, not the phone number'],
+        ['استخدم رمز وصول مخوّل لهذا الأصل؛ لا تستخدم App Secret أو رمز صفحة أخرى', 'Use a token authorized for this asset; never use an App Secret or a token for another asset'],
+      ]
+    : kind === 'messenger'
+      ? [
+          ['تأكد أن صفحة Facebook مملوكة لمساحة الأعمال ومضافة إلى تطبيق Meta', 'Confirm the Facebook Page is owned by the business and added to the Meta app'],
+          ['انسخ Page ID واستخدم Page access token لنفس الصفحة', 'Copy the Page ID and use a Page access token for that same Page'],
+          ['فعّل استقبال الرسائل والـWebhook في Meta قبل اختبار أول رسالة', 'Enable messaging and the Meta webhook before testing the first inbound message'],
+        ]
+      : [
+          ['استخدم حساب Instagram احترافيًا ومربوطًا بصفحة Facebook التي تملكها', 'Use a professional Instagram account linked to a Facebook Page you control'],
+          ['انسخ Instagram Account ID، وليس @username', 'Copy the Instagram Account ID, not the @username'],
+          ['امنح تطبيق Meta صلاحية Instagram Messaging لهذا الأصل وفَعّل الـWebhook', 'Grant the Meta app Instagram Messaging access to this asset and enable its webhook'],
+        ];
+
+  return h('section', { class: 'channel-setup-guide', 'aria-label': t(state, 'قبل ربط Meta', 'Before connecting Meta') }, [
+    h('h3', { class: 'channel-setup-guide__title' }, [t(state, 'قبل الربط', 'Before you connect')]),
+    h('ol', { class: 'channel-setup-guide__steps' }, steps.map(([ar, en]) => h('li', {}, [t(state, ar, en)]))),
+    h('p', { class: 'field__hint' }, [t(state, 'بعد الحفظ اضغط «التحقق من الاتصال». ستظل القناة بانتظار الإعداد حتى يؤكد Meta الاعتماد ويصل Webhook حقيقي. لا ترسل بيانات العملاء للاختبار.', 'After saving, run “Verify connection”. The channel remains in setup until Meta accepts the credential and a real webhook arrives. Do not use customer data for testing.')]),
+  ]);
 }
 
 /** Disconnecting is confirmed, and says what it costs. */

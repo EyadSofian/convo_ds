@@ -196,11 +196,20 @@ describe('connected integrations', () => {
     expect(details.textContent).toContain('provider_not_connected');
     expect(details.textContent).toContain('Meta app');
     expect(details.querySelector('[data-act="live-test-channel"]')).not.toBeNull();
+    expect(details.querySelector('[data-act="live-sync-channel-templates"]')?.getAttribute('data-arg')).toBe('cn-1');
     expect((details.querySelector('[data-act="live-rotate-channel"]') as HTMLButtonElement).disabled).toBe(true);
     expect(details.querySelectorAll('.recipient')).toHaveLength(1);
     expect((details.querySelector('[data-act="live-authorize-test-recipient"]') as HTMLButtonElement).disabled).toBe(true);
     // The credential goes out as a password and is never shown back.
     expect(details.querySelector('input[type="password"]')?.getAttribute('autocomplete')).toBe('off');
+  });
+
+  it('explains Meta capability refusals instead of leaving an opaque provider code', () => {
+    const { state, element } = screen([connection({ last_error_code: 'provider_error_3' })]);
+    state.expandedConnection = 'cn-1';
+    const error = element().querySelector('.connection__error');
+    expect(error?.textContent).toContain('provider_error_3');
+    expect(error?.textContent).toContain('Meta app lacks the capability required for this asset');
   });
 
   it('enables the credential and recipient controls once they have something to send', () => {
@@ -214,6 +223,7 @@ describe('connected integrations', () => {
     expect(details.textContent).toContain('None');
     expect(details.textContent).toContain('Not stored');
     expect(details.querySelector('.recipient-list')).toBeNull();
+    expect(details.querySelector('[data-act="live-sync-channel-templates"]')).toBeNull();
   });
 
   it('keeps a disconnected connection’s history without offering to manage it', () => {

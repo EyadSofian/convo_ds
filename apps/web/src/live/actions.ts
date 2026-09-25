@@ -353,6 +353,19 @@ export function testChannel(context: LiveContext, connectionId: string): Promise
   );
 }
 
+export function syncWhatsAppTemplates(context: LiveContext, connectionId: string): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `sync-channel-templates:${connectionId}`,
+    (tenantId) => context.live.channels.syncWhatsAppTemplates(tenantId, connectionId),
+    (result) => t(
+      context.state,
+      `تمت مزامنة القوالب المعتمدة: ${String(result.imported)} جديد، ${String(result.disabled)} أُوقف.`,
+      `Approved templates synced: ${String(result.imported)} added, ${String(result.disabled)} disabled.`,
+    ),
+  );
+}
+
 export function rotateChannelCredential(
   context: LiveContext,
   connectionId: string,
