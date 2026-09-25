@@ -145,6 +145,34 @@ describe('sending a text message', () => {
 });
 
 describe('Messenger and Instagram Graph contracts', () => {
+  it('resolves only the exact Page-scoped sender and never exposes an error body', async () => {
+    const { adapter, calls } = transport(() => json(200, { id: '4528904674043162', name: 'Eyad', username: 'eyad_sofian' }));
+    expect(await adapter.fetchPeerProfile('instagram', TOKEN, '4528904674043162')).toBe('Eyad');
+    expect(calls[0]).toMatchObject({ url: `${GRAPH}/4528904674043162?fields=id,name,username`, method: 'GET' });
+    expect(calls[0]?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
+    expect(await adapter.fetchPeerProfile('instagram', TOKEN, '../../invalid')).toBeNull();
+    const mismatch = transport(() => json(200, { id: 'different', name: 'Wrong person' }));
+    expect(await mismatch.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
+    const denied = transport(() => graphError(403, 10, 'private provider detail'));
+    expect(await denied.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
+  });
+
+  it('uses a Messenger name, first/last name, or Instagram username without trusting malformed profiles', async () => {
+    const full = transport(() => json(200, { id: '123', first_name: '  Eyad ', last_name: ' Sofian  ' }));
+    expect(await full.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBe('Eyad Sofian');
+    expect(full.calls[0]?.url).toBe(`${GRAPH}/123?fields=id,name,first_name,last_name`);
+    const handle = transport(() => json(200, { id: '123', username: ' eyad_sofian ' }));
+    expect(await handle.adapter.fetchPeerProfile('instagram', TOKEN, '123')).toBe('eyad_sofian');
+    const empty = transport(() => json(200, { id: '123', name: null, username: null, first_name: null, last_name: null }));
+    expect(await empty.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
+    const long = transport(() => json(200, { id: '123', name: 'x'.repeat(201) }));
+    expect(await long.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
+    const down = transport(() => new Error('credential must never reach caller'));
+    expect(await down.adapter.fetchPeerProfile('instagram', TOKEN, '123')).toBeNull();
+    expect(await full.adapter.fetchPeerProfile('whatsapp', TOKEN, '123')).toBeNull();
+    expect(await full.adapter.validateConnection('custom', TOKEN, '123')).toMatchObject({ ok: false, code: 'channel_not_supported' });
+  });
+
   it('sends Messenger replies through the Page endpoint and preserves Meta message ids', async () => {
     const { adapter, calls } = transport(() => json(200, { recipient_id: 'psid-1', message_id: 'mid.page.1' }));
     const outcome = await adapter.send('messenger', TOKEN, { ...TEXT, assetIdentity: 'page-1', peerIdentity: 'psid-1' });
@@ -155,27 +183,34 @@ describe('Messenger and Instagram Graph contracts', () => {
     });
   });
 
-  it('sends Instagram replies through the professional-account endpoint', async () => {
+  it('sends Instagram replies through the verified linked Page endpoint', async () => {
     const { adapter, calls } = transport(() => json(200, { recipient_id: 'igsid-1', message_id: 'mid.ig.1' }));
-    const outcome = await adapter.send('instagram', TOKEN, { ...TEXT, assetIdentity: 'ig-account-1', peerIdentity: 'igsid-1' });
+    const outcome = await adapter.send('instagram', TOKEN, { ...TEXT, assetIdentity: 'ig-account-1', facebookPageId: 'page-1', peerIdentity: 'igsid-1' });
     expect(outcome).toMatchObject({ status: 'accepted', providerMessageId: 'mid.ig.1' });
     expect(calls[0]).toMatchObject({
-      url: `${GRAPH}/ig-account-1/messages`,
+      url: `${GRAPH}/page-1/messages`,
       body: { recipient: { id: 'igsid-1' }, message: { text: TEXT.text } },
     });
     expect(calls[0]?.body).not.toHaveProperty('messaging_type');
   });
 
+  it('preserves emoji-only text in Messenger and Instagram Graph payloads', async () => {
+    const { adapter, calls } = transport(() => json(200, { recipient_id: 'test-peer', message_id: 'mid.emoji' }));
+    await adapter.send('messenger', TOKEN, { ...TEXT, assetIdentity: 'page-1', peerIdentity: 'test-peer', text: '❤️😀' });
+    await adapter.send('instagram', TOKEN, { ...TEXT, assetIdentity: 'ig-1', facebookPageId: 'page-1', peerIdentity: 'test-peer', text: '❤️😀' });
+    expect(calls.map((call) => (call.body as { message: { text: string } }).message.text)).toEqual(['❤️😀', '❤️😀']);
+  });
+
   it('validates the configured Page and Instagram assets before the channel is considered connected', async () => {
     const { adapter, calls } = transport((call) => {
       if (call.url.includes('page-1')) return json(200, { id: 'page-1', name: 'I BOTS' });
-      return json(200, { id: 'ig-account-1', username: 'ibots' });
+      return json(200, { id: 'page-1', instagram_business_account: { id: 'ig-account-1' } });
     });
     await expect(adapter.validateConnection('messenger', TOKEN, 'page-1')).resolves.toMatchObject({ ok: true, assetIdentity: 'page-1' });
-    await expect(adapter.validateConnection('instagram', TOKEN, 'ig-account-1')).resolves.toMatchObject({ ok: true, assetIdentity: 'ig-account-1' });
+    await expect(adapter.validateConnection('instagram', TOKEN, 'ig-account-1', 'page-1')).resolves.toMatchObject({ ok: true, assetIdentity: 'ig-account-1' });
     expect(calls.map((call) => call.url)).toEqual([
       `${GRAPH}/page-1?fields=id,name`,
-      `${GRAPH}/ig-account-1?fields=id,username`,
+      `${GRAPH}/me?fields=id,instagram_business_account{id}`,
     ]);
   });
 
@@ -192,10 +227,19 @@ describe('Messenger and Instagram Graph contracts', () => {
     await expect(adapter.send('messenger', TOKEN, { ...TEXT, text: null })).resolves.toMatchObject({
       status: 'definitely_rejected', code: 'unsupported_message_type', retryable: false,
     });
-    await expect(adapter.send('instagram', TOKEN, { ...TEXT, text: '' })).resolves.toMatchObject({
+    await expect(adapter.send('instagram', TOKEN, { ...TEXT, facebookPageId: 'page-1', text: '' })).resolves.toMatchObject({
       status: 'definitely_rejected', code: 'unsupported_message_type', retryable: false,
     });
     expect(calls).toHaveLength(0);
+  });
+
+  it('refuses missing or mismatched linked Pages before marking Instagram ready', async () => {
+    const { adapter, calls } = transport(() => json(200, { id: 'page-2', instagram_business_account: { id: 'ig-account-1' } }));
+    await expect(adapter.validateConnection('instagram', TOKEN, 'ig-account-1')).resolves.toMatchObject({ ok: false, code: 'instagram_page_required' });
+    expect(calls).toHaveLength(0);
+    await expect(adapter.validateConnection('instagram', TOKEN, 'ig-account-1', 'page-1')).resolves.toMatchObject({ ok: false, code: 'asset_mismatch' });
+    await expect(adapter.send('instagram', TOKEN, { ...TEXT, assetIdentity: 'ig-account-1' })).resolves.toMatchObject({ status: 'definitely_rejected', code: 'instagram_page_required' });
+    expect(calls).toHaveLength(1);
   });
 
   it('falls back to the message collection when a direct Meta message id is blank', async () => {

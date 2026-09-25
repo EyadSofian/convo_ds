@@ -284,6 +284,52 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     expect(createLabel).toHaveBeenCalledWith('tenant-1', 'VIP', '#AA33FF');
   });
 
+  it('validates the Instagram linked Page and saves it through the channel API', async () => {
+    const { state, context } = active();
+    const setInstagramPage = vi.fn().mockResolvedValue({ ok: true, data: { id: 'ig-1' } });
+    Object.defineProperty(context.live, 'channels', { value: {
+      setInstagramPage,
+      connections: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      catalogue: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+    } });
+    state.dialogForm = { channelPage_ig1: 'not-numeric' };
+    expect(await LIVE_ACTIONS['live-instagram-page']?.(context, 'ig1')).toBe(false);
+    expect(setInstagramPage).not.toHaveBeenCalled();
+    state.dialogForm = { channelPage_ig1: '483612954841071' };
+    expect(await LIVE_ACTIONS['live-instagram-page']?.(context, 'ig1')).toBe(true);
+    expect(setInstagramPage).toHaveBeenCalledWith('tenant-1', 'ig1', '483612954841071');
+    expect(state.dialogForm['channelPage_ig1']).toBeUndefined();
+  });
+
+  it('requires a linked Page for Instagram and carries it only for that connection kind', async () => {
+    const { state, context } = active();
+    const connect = vi.fn().mockResolvedValue({ ok: true, data: { id: 'new-channel', display_name: 'Test channel' } });
+    Object.defineProperty(context.live, 'channels', { value: {
+      connect,
+      connections: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      catalogue: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+    } });
+    state.dialog = { kind: 'connect-channel', arg: 'instagram' };
+    state.dialogForm = { channelProviderApp: '123', channelAsset: '456', channelName: 'Test channel', channelToken: 'test-token' };
+    expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(false);
+    expect(connect).not.toHaveBeenCalled();
+    expect(state.formErrors['channelPage']).toBeTruthy();
+    state.dialogForm['channelPage'] = '789';
+    expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(true);
+    expect(connect).toHaveBeenCalledWith('tenant-1', expect.objectContaining({
+      kind: 'instagram', settings: { facebookPageId: '789' }, providerAppId: '123',
+    }), 'test-key');
+    expect(state.dialogForm).toEqual({});
+
+    state.dialog = { kind: 'connect-channel', arg: 'custom' };
+    state.dialogForm = { channelAsset: 'custom-1', channelName: 'Test channel', channelToken: 'test-token' };
+    expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(true);
+    expect(connect).toHaveBeenLastCalledWith('tenant-1', expect.objectContaining({
+      kind: 'custom', providerAppId: null,
+    }), 'test-key');
+    expect(connect.mock.calls.at(-1)?.[1]).not.toHaveProperty('settings');
+  });
+
   it('routes saved-view create, update, and retire actions to the server', async () => {
     const { state, context } = active();
     inboxReads(context);

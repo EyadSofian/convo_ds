@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const previewPort = Number(process.env['CONVO_E2E_PORT'] ?? '4173');
+const previewUrl = `http://127.0.0.1:${String(previewPort)}`;
+
 /**
  * End-to-end and layout-acceptance runner.
  *
@@ -47,7 +50,7 @@ export default defineConfig({
     },
   },
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: previewUrl,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
@@ -65,8 +68,8 @@ export default defineConfig({
     // The built bundle, not the dev server: layout evidence should describe
     // what ships. `--strictPort` so a stale server never silently serves an
     // older build to a passing test.
-    command: 'pnpm --filter @convo/web exec vite preview --port 4173 --strictPort --host 127.0.0.1',
-    url: 'http://127.0.0.1:4173',
+    command: `pnpm --filter @convo/web exec vite preview --port ${String(previewPort)} --strictPort --host 127.0.0.1`,
+    url: previewUrl,
     reuseExistingServer: false,
     timeout: 120_000,
   },

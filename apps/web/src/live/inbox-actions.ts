@@ -208,6 +208,10 @@ export async function openConversation(context: LiveContext, id: string): Promis
     // link pasted to a colleague should land on the same thread. `refresh`
     // syncs the address bar from the route.
     context.state.route = { ...context.state.route, conversationId: id };
+    // A deep link or notification may arrive while the phone's queue drawer is
+    // open. Selecting a thread must reveal that thread, not leave the drawer
+    // covering it.
+    context.state.listOpen = false;
     context.refresh();
 
     const conversation = await live.conversationsApi.read(tenantId, id);
@@ -239,7 +243,7 @@ export async function openConversation(context: LiveContext, id: string): Promis
     // Supervisor inspection is observational. It never alters the selected
     // agent's cursor and it also avoids manufacturing a supervisor read side
     // effect merely from opening a read-only lens.
-    if (live.supervisorAgentId === null) await markConversationRead(context, id);
+    if (live.supervisorAgentId === null && live.timeline.status === 'ready') await markConversationRead(context, id);
   });
 }
 
@@ -339,6 +343,10 @@ export async function claimConversation(
     }
     live.openConversation = ready(result.data, context.now());
     live.openConversationId = result.data.id;
+    context.state.inboxQueue = 'mine';
+    context.state.listOpen = false;
+    context.state.route = { ...context.state.route, screen: 'inbox', conversationId: result.data.id };
+    context.refresh();
     await Promise.all([
       refreshInboxLists(context),
       loadTimeline(context, result.data.id),

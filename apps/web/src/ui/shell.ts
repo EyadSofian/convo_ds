@@ -232,10 +232,20 @@ function renderHeader(state: AppState): HTMLElement {
       membership === null ? null : tenantControl(state, membership.tenant.name),
     ]),
     h('div', { class: 'header__tools' }, [
+      state.updateAvailable ? button({
+        label: t(state, 'تحديث متاح', 'Update available'),
+        icon: 'download',
+        act: 'app-update',
+        variant: 'default',
+        small: true,
+        title: t(state, 'تحديث التطبيق الآن', 'Reload the latest app'),
+        extraClass: 'header__update',
+      }) : null,
       statusPill(state),
       renderNotifications(state),
       button({
-        label: state.lang === 'ar' ? 'EN' : 'ع',
+        label: state.lang === 'ar' ? 'EN' : 'AR',
+        icon: 'globe',
         act: 'lang',
         arg: state.lang === 'ar' ? 'en' : 'ar',
         variant: 'ghost',
@@ -265,7 +275,7 @@ function renderHeader(state: AppState): HTMLElement {
             'aria-label': t(state, `حسابك: ${email}`, `Your account: ${email}`),
           },
           [
-            h('span', { class: 'avatar avatar--sm', 'aria-hidden': 'true' }, [initials(email.split('@')[0] as string)]),
+            h('span', { class: 'avatar avatar--sm', 'aria-hidden': 'true' }, [initials(email.split('@')[0] as string).toLocaleUpperCase()]),
             icon('chevronDown', 14),
           ],
         ),
@@ -373,6 +383,8 @@ function renderNotifications(state: AppState): HTMLElement {
                 h('span', { class: 'notification-row__dot', 'aria-hidden': 'true' }),
                 h('span', { class: 'notification-row__content' }, [
                   h('span', { class: 'notification-row__title' }, [notificationTitle(state, entry)]),
+                  entry.senderName == null ? null : h('span', { class: 'notification-row__sender', dir: 'auto' }, [entry.senderName]),
+                  entry.messagePreview == null ? null : h('span', { class: 'notification-row__preview', dir: 'auto' }, [entry.messagePreview]),
                   h('time', {
                     datetime: entry.createdAt,
                     title: new Date(entry.createdAt).toLocaleString(state.lang === 'ar' ? 'ar-EG' : 'en-US'),

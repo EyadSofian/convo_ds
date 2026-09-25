@@ -28,10 +28,12 @@ import {
   deleteNote,
   editNote,
   loadNotes,
+  markConversationUnread,
   transitionConversation,
 } from './lifecycle-actions.js';
 import {
   assignConversation,
+  releaseOwnConversation,
   loadAssignees,
   requestHandoff,
   setCollaborator,
@@ -94,12 +96,14 @@ import {
   loadSession,
   loadSettingsScreen,
   revokeSession,
+  syncWhatsAppTemplates,
   switchTenant,
   offerOwnership,
   removeTeamMember,
   renameRole,
   renameTeam,
   rotateChannelCredential,
+  setInstagramPage,
   saveRoleGrants,
   revokeInvitation,
   revokeTestRecipient,
@@ -416,6 +420,10 @@ async function exitSupervisor(context: LiveContext): Promise<boolean> {
 /** The form key for a connection's credential-rotation field. */
 export function channelTokenField(connectionId: string): string {
   return `channelToken_${connectionId}`;
+}
+
+export function channelPageField(connectionId: string): string {
+  return `channelPage_${connectionId}`;
 }
 
 export function channelTestIdentityField(connectionId: string): string {
@@ -933,6 +941,8 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     assignConversation(context, context.live.routingChoice),
 
   'live-routing-unassign': async (context) => assignConversation(context, null),
+  'live-routing-release-own': async (context) => releaseOwnConversation(context),
+  'live-inbox-mark-unread': async (context) => markConversationUnread(context),
 
   'live-routing-ask': async (context) => requestHandoff(context, context.live.routingChoice),
 
@@ -1195,6 +1205,8 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       ...(form(context, 'channelAsset') === '' ? { channelAsset: text(context, 'أدخل معرّف الأصل.', 'Enter the asset ID.') } : {}),
       ...(form(context, 'channelName') === '' ? { channelName: text(context, 'أدخل اسمًا للعرض.', 'Enter a display name.') } : {}),
       ...(form(context, 'channelToken').length < 8 ? { channelToken: text(context, 'أدخل رمزًا من 8 أحرف على الأقل.', 'Enter at least 8 characters.') } : {}),
+      ...(selectedKind === 'instagram' && !/^[0-9]{1,32}$/.test(form(context, 'channelPage'))
+        ? { channelPage: text(context, 'أدخل معرّف صفحة فيسبوك المرتبطة.', 'Enter the linked Facebook Page ID.') } : {}),
     };
     if (invalid(context, errors)) return false;
     const connected = await connectChannel(context, {
@@ -1203,6 +1215,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       displayName: form(context, 'channelName'),
       accessToken: form(context, 'channelToken'),
       providerAppId: meta ? form(context, 'channelProviderApp') : null,
+      ...(selectedKind === 'instagram' ? { settings: { facebookPageId: form(context, 'channelPage') } } : {}),
     });
     // The token is dropped from state whatever the answer was — a credential
     // left in a form field is a credential in a screenshot. The rest is kept on a
@@ -1220,6 +1233,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-test-channel': async (context, arg) => testChannel(context, arg),
+  'live-sync-channel-templates': async (context, arg) => syncWhatsAppTemplates(context, arg),
 
   'live-rotate-channel': async (context, arg) => {
     const rotated = await rotateChannelCredential(
@@ -1232,6 +1246,18 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       context.refresh();
     }
     return rotated;
+  },
+
+  'live-instagram-page': async (context, arg) => {
+    const value = form(context, channelPageField(arg));
+    if (!/^[0-9]{1,32}$/.test(value)) {
+      context.live.error = { status: 400, code: 'invalid_input', message: text(context, 'أدخل معرّف صفحة فيسبوك الرقمي.', 'Enter the numeric Facebook Page ID.'), requestId: null, details: [] };
+      context.refresh();
+      return false;
+    }
+    const saved = await setInstagramPage(context, arg, value);
+    if (saved) clearForm(context, [channelPageField(arg)]);
+    return saved;
   },
 
   'live-disconnect-channel': async (context, arg) => {

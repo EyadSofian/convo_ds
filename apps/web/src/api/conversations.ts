@@ -48,6 +48,7 @@ export interface Conversation extends EntityMetadata {
   readonly participantMembershipIds: readonly string[];
   /** Resolved from the customer's first message; null until somebody writes. */
   readonly contactId: string | null;
+  readonly contactDisplayName?: string | null;
   /** Why an agent said they were waiting. Only while the status is `pending`. */
   readonly pendingReason: string | null;
   readonly snoozedUntil: string | null;
@@ -148,7 +149,7 @@ export type TransitionCommand =
 
 export interface TimelineMessage {
   readonly id: string;
-  readonly direction: 'in' | 'out';
+  readonly direction: 'in' | 'out' | 'reaction';
   readonly at: string;
   readonly content_type: string | null;
   readonly text: string | null;
@@ -161,6 +162,7 @@ export interface TimelineMessage {
   readonly template_name?: string | null;
   readonly template_language?: string | null;
   readonly template_preview?: string | null;
+  readonly reaction_action?: string | null;
 }
 
 export interface WhatsAppTemplateParameterDefinition {
@@ -364,6 +366,14 @@ export class ConversationsApi {
       `/tenants/${tenantId}/conversations/${conversationId}/read`,
       { body: {} },
     );
+  }
+
+  markUnread(tenantId: string, conversationId: string): Promise<ApiResult<{ readonly unread: true }>> {
+    return this.client.post(`/tenants/${tenantId}/conversations/${conversationId}/unread`);
+  }
+
+  releaseOwn(tenantId: string, conversationId: string, version: number): Promise<ApiResult<Conversation>> {
+    return this.client.post(`/tenants/${tenantId}/conversations/${conversationId}/release`, { body: { version } });
   }
 
   /* -------------------------------------------------------------- routing -- */

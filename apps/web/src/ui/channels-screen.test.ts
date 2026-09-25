@@ -27,6 +27,7 @@ function matrix(kind: string, overrides: Partial<CapabilityMatrix> = {}): Capabi
 function connection(overrides: Partial<ChannelConnection> = {}): ChannelConnection {
   return {
     id: 'cn-1', kind: 'whatsapp', provider: 'meta', display_name: 'Admissions', external_asset_id: '109876543210',
+    facebook_page_id: null,
     provider_app_id: '123456789012345', status: 'healthy', capabilities: matrix('whatsapp'),
     evidence: [
       { kind: 'asset_verified', satisfied: true, observed_at: '2026-09-09T08:00:00.000Z' },
@@ -77,6 +78,12 @@ describe('summarize', () => {
     expect(summarize('instagram', true, [healthy]).lastVerified).toBeNull();
     expect(summarize('whatsapp', true, [connection({ last_error_code: 'credential_rejected', status: 'degraded' })]).status).toBe('permission_expired');
     expect(summarize('whatsapp', true, [healthy]).assetNames).toEqual(['Admissions']);
+    const inboundOnly = connection({ evidence: [
+      ...healthy.evidence,
+      { kind: 'first_outbound', satisfied: false, observed_at: null },
+    ] });
+    expect(summarize('whatsapp', true, [inboundOnly]).status).toBe('send_unverified');
+    expect(card(screen([inboundOnly]).element(), 'whatsapp').textContent).toContain('Send unverified');
   });
 
   it('lists the six integrations the product offers', () => {
@@ -196,11 +203,36 @@ describe('connected integrations', () => {
     expect(details.textContent).toContain('provider_not_connected');
     expect(details.textContent).toContain('Meta app');
     expect(details.querySelector('[data-act="live-test-channel"]')).not.toBeNull();
+    expect(details.querySelector('[data-act="live-sync-channel-templates"]')?.getAttribute('data-arg')).toBe('cn-1');
     expect((details.querySelector('[data-act="live-rotate-channel"]') as HTMLButtonElement).disabled).toBe(true);
     expect(details.querySelectorAll('.recipient')).toHaveLength(1);
     expect((details.querySelector('[data-act="live-authorize-test-recipient"]') as HTMLButtonElement).disabled).toBe(true);
     // The credential goes out as a password and is never shown back.
     expect(details.querySelector('input[type="password"]')?.getAttribute('autocomplete')).toBe('off');
+  });
+
+  it('shows and edits the linked Page for an Instagram connection', () => {
+    const { state, element } = screen([connection({ id: 'cn-ig', kind: 'instagram', facebook_page_id: null })]);
+    state.expandedConnection = 'cn-ig';
+    const initial = element().querySelector('.connection__details') as HTMLElement;
+    expect(initial.textContent).toContain('Linked Facebook Page');
+    expect(initial.textContent).toContain('Not configured');
+    expect(initial.querySelector('[data-submit="live-instagram-page"]')).not.toBeNull();
+    expect((initial.querySelector('[data-form="channelPage_cn-ig"]') as HTMLInputElement).value).toBe('');
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [connection({ id: 'cn-ig', kind: 'instagram', facebook_page_id: '123456789' })] };
+    state.dialogForm = { 'channelPage_cn-ig': '987654321' };
+    const edited = element().querySelector('.connection__details') as HTMLElement;
+    expect(edited.textContent).toContain('123456789');
+    expect((edited.querySelector('[data-form="channelPage_cn-ig"]') as HTMLInputElement).value).toBe('987654321');
+    expect(edited.querySelector('[data-act="live-instagram-page"]')?.getAttribute('data-arg')).toBe('cn-ig');
+  });
+
+  it('explains Meta capability refusals instead of leaving an opaque provider code', () => {
+    const { state, element } = screen([connection({ last_error_code: 'provider_error_3' })]);
+    state.expandedConnection = 'cn-1';
+    const error = element().querySelector('.connection__error');
+    expect(error?.textContent).toContain('provider_error_3');
+    expect(error?.textContent).toContain('Meta app lacks the capability required for this asset');
   });
 
   it('enables the credential and recipient controls once they have something to send', () => {
@@ -214,6 +246,7 @@ describe('connected integrations', () => {
     expect(details.textContent).toContain('None');
     expect(details.textContent).toContain('Not stored');
     expect(details.querySelector('.recipient-list')).toBeNull();
+    expect(details.querySelector('[data-act="live-sync-channel-templates"]')).toBeNull();
   });
 
   it('keeps a disconnected connection’s history without offering to manage it', () => {

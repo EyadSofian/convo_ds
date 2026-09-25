@@ -41,6 +41,18 @@ describe('renderDialog', () => {
     expect(renderDialog(state)).toBeNull();
     expect(open(state, 'nonsense').textContent).toContain('There is nothing to show here.');
   });
+
+  it('shows provider-specific, honest setup instructions before asking for Meta credentials', () => {
+    const state = base();
+    state.dialog = { kind: 'connect-channel', arg: 'whatsapp' };
+    const whatsapp = renderDialog(state) as HTMLElement;
+    expect(whatsapp.querySelector('.channel-setup-guide')?.textContent).toContain('Phone Number ID');
+    expect(whatsapp.querySelector('.channel-setup-guide')?.textContent).toContain('App Secret');
+    state.dialog = { kind: 'connect-channel', arg: 'instagram' };
+    expect((renderDialog(state) as HTMLElement).querySelector('.channel-setup-guide')?.textContent).toContain('Instagram Account ID');
+    state.dialog = { kind: 'connect-channel', arg: 'messenger' };
+    expect((renderDialog(state) as HTMLElement).querySelector('.channel-setup-guide')?.textContent).toContain('Page access token');
+  });
 });
 
 describe('WhatsApp template picker', () => {

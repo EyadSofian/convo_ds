@@ -353,6 +353,19 @@ export function testChannel(context: LiveContext, connectionId: string): Promise
   );
 }
 
+export function syncWhatsAppTemplates(context: LiveContext, connectionId: string): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `sync-channel-templates:${connectionId}`,
+    (tenantId) => context.live.channels.syncWhatsAppTemplates(tenantId, connectionId),
+    (result) => t(
+      context.state,
+      `تمت مزامنة القوالب المعتمدة: ${String(result.imported)} جديد، ${String(result.disabled)} أُوقف.`,
+      `Approved templates synced: ${String(result.imported)} added, ${String(result.disabled)} disabled.`,
+    ),
+  );
+}
+
 export function rotateChannelCredential(
   context: LiveContext,
   connectionId: string,
@@ -368,6 +381,15 @@ export function rotateChannelCredential(
         'حُفظ الاعتماد الجديد — يحتاج اختبارًا ليُثبت أنه يعمل',
         'The new credential is stored — test it to prove it works',
       ),
+  );
+}
+
+export function setInstagramPage(context: LiveContext, connectionId: string, facebookPageId: string): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `instagram-page:${connectionId}`,
+    (tenantId) => context.live.channels.setInstagramPage(tenantId, connectionId, facebookPageId),
+    () => t(context.state, 'تحقق Meta من صفحة فيسبوك المرتبطة بإنستجرام', 'Meta verified the linked Facebook Page'),
   );
 }
 

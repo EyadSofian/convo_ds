@@ -75,8 +75,10 @@ export const RECIPIENT_STATES: Readonly<Record<string, Phrase>> = {
 };
 
 export const ERROR_CODES: Readonly<Record<string, Phrase>> = {
+  instagram_page_required: { ar: 'صفحة فيسبوك المرتبطة بإنستجرام غير محددة أو لم تُتحقق.', en: 'The Facebook Page linked to Instagram is missing or unverified.' },
   provider_rejected: { ar: 'رفض المزوّد الرسالة', en: 'Rejected by provider' },
   provider_not_connected: { ar: 'المزوّد غير متصل', en: 'Provider not connected' },
+  provider_error_3: { ar: 'تطبيق Meta لا يملك الصلاحية أو القدرة المطلوبة لهذا الأصل. راجع صلاحيات التطبيق وربط الأصل.', en: 'The Meta app lacks the capability required for this asset. Review app permissions and asset access.' },
   marketing_consent_missing: { ar: 'لا توجد موافقة تسويقية', en: 'No marketing consent' },
   attempt_never_completed: { ar: 'لم تكتمل المحاولة', en: 'Attempt never completed' },
   channel_not_ready: { ar: 'القناة غير جاهزة', en: 'Channel not ready' },

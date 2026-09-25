@@ -368,6 +368,20 @@ export class ConversationController {
     };
   }
 
+  @Post('tenants/:tenantId/conversations/:conversationId/release')
+  @HttpCode(200)
+  async releaseOwn(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return { data: await this.routing.releaseOwn(session, tenantId, conversationId, expectedVersion(body)), request_id: request.id };
+  }
+
   /**
    * The people who could actually take this conversation.
    *
@@ -576,6 +590,19 @@ export class ConversationController {
       data: await this.notes.markRead(session, tenantId, conversationId, readThrough(body)),
       request_id: request.id,
     };
+  }
+
+  @Post('tenants/:tenantId/conversations/:conversationId/unread')
+  @HttpCode(200)
+  async markUnread(
+    @Param('tenantId') tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return { data: await this.notes.markUnread(session, tenantId, conversationId), request_id: request.id };
   }
 }
 

@@ -11,7 +11,7 @@ import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG, CHANNEL_TRANSPORT } from '../tokens.js';
 import { implementedKinds } from './adapters.js';
-import { parseConnectChannel, parseRotateCredential } from './channel-request.js';
+import { parseConnectChannel, parseInstagramPage, parseRotateCredential } from './channel-request.js';
 import type { ConnectChannelRequest } from './channel-request.js';
 import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
@@ -43,6 +43,7 @@ export interface ChannelConnectionSummary {
   readonly provider: string;
   readonly display_name: string;
   readonly external_asset_id: string;
+  readonly facebook_page_id: string | null;
   readonly provider_app_id: string | null;
   readonly status: Readiness;
   readonly capabilities: CapabilityMatrix;
@@ -76,6 +77,7 @@ interface ConnectionRow {
   readonly kind: ChannelKind;
   readonly display_name: string;
   readonly external_asset_id: string;
+  readonly facebook_page_id: string | null;
   readonly provider_app_id: string | null;
   readonly capabilities: unknown;
   readonly asset_verified_at: Date | null;
@@ -108,6 +110,9 @@ function credentialPurpose(kind: ChannelKind): 'access_token' | 'signing_key' {
 
 /** Only the channels we own store settings; the rest have nothing to put there. */
 function settingsColumn(request: ConnectChannelRequest): Record<string, unknown> {
+  if (request.kind === 'instagram') {
+    return { facebook_page_id: request.settings.facebookPageId };
+  }
   if (request.kind !== 'web_chat' && request.kind !== 'custom') {
     return {};
   }
@@ -288,7 +293,7 @@ export class ChannelService {
       const check = await this.credentials.withActive(
         sql,
         { tenantId, connectionId, purpose: credentialPurpose(connection.kind) },
-        (token) => this.transport.validateConnection(connection.kind, token, connection.external_asset_id),
+        (token) => this.transport.validateConnection(connection.kind, token, connection.external_asset_id, connection.facebook_page_id),
       );
 
       if (check === null) {
@@ -389,6 +394,40 @@ export class ChannelService {
     });
   }
 
+  /** Binds an existing Instagram connection to its verified Facebook Login Page. */
+  async setInstagramPage(
+    session: AuthenticatedSession,
+    tenantId: string,
+    connectionId: string,
+    body: unknown,
+  ): Promise<ChannelConnectionSummary> {
+    const parsed = parseInstagramPage(body);
+    if (!parsed.ok) throw new ApiHttpError(400, 'invalid_input', 'The request is not valid.', parsed.details);
+    return this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) => {
+      const connection = await requireConnection(sql, connectionId);
+      if (connection.kind !== 'instagram' || connection.disconnected_at !== null) {
+        throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+      }
+      const checked = await this.credentials.withActive(
+        sql, { tenantId, connectionId, purpose: 'access_token' },
+        (token) => this.transport.validateConnection('instagram', token, connection.external_asset_id, parsed.value.facebookPageId),
+      );
+      if (checked === null || !checked.ok) {
+        throw new ApiHttpError(422, checked?.code ?? 'credential_missing', checked?.message ?? 'The connection has no active credential.');
+      }
+      await sql.query(
+        `UPDATE channel_connections
+            SET settings = jsonb_set(settings, '{facebook_page_id}', to_jsonb($2::text)),
+                credential_verified_at = now(), last_error_code = NULL, last_error_at = NULL
+          WHERE id = $1`,
+        [connectionId, parsed.value.facebookPageId],
+      );
+      await refreshStatus(sql, connectionId);
+      const rows = await readConnections(sql, connectionId);
+      return requireRow(rows, 'the connection vanished mid-transaction');
+    });
+  }
+
   /**
    * Takes a connection out of service and revokes its credentials.
    *
@@ -428,6 +467,7 @@ export class ChannelService {
 async function requireConnection(sql: SqlExecutor, connectionId: string): Promise<ConnectionRow> {
   const rows = await sql.query<ConnectionRow>(
     `SELECT c.id::text, c.kind, c.display_name, c.external_asset_id,
+            c.settings->>'facebook_page_id' AS facebook_page_id,
             app.external_app_id AS provider_app_id, c.capabilities,
             c.asset_verified_at, c.credential_verified_at, c.webhook_subscribed_at,
             c.first_inbound_at, c.first_outbound_at, c.last_error_code, c.last_error_at,
@@ -460,7 +500,8 @@ async function recordError(sql: SqlExecutor, connectionId: string, code: string)
  */
 async function refreshStatus(sql: SqlExecutor, connectionId: string): Promise<void> {
   const rows = await sql.query<ConnectionRow>(
-    `SELECT id::text, kind, display_name, external_asset_id, NULL::text AS provider_app_id, capabilities,
+    `SELECT id::text, kind, display_name, external_asset_id, settings->>'facebook_page_id' AS facebook_page_id,
+            NULL::text AS provider_app_id, capabilities,
             asset_verified_at, credential_verified_at, webhook_subscribed_at,
             first_inbound_at, first_outbound_at, last_error_code, last_error_at,
             created_at, disconnected_at, NULL::text AS credential_fingerprint
@@ -488,7 +529,7 @@ function statusOf(row: ConnectionRow): Readiness {
   return readinessOf({
     evidence: evidenceOf(row),
     disconnected: row.disconnected_at !== null,
-    hasError: row.last_error_code !== null,
+    hasError: row.last_error_code !== null || (row.kind === 'instagram' && !row.facebook_page_id),
   });
 }
 
@@ -498,6 +539,7 @@ async function readConnections(
 ): Promise<readonly ChannelConnectionSummary[]> {
   const rows = await sql.query<ConnectionRow>(
     `SELECT c.id::text, c.kind, c.display_name, c.external_asset_id,
+            c.settings->>'facebook_page_id' AS facebook_page_id,
             app.external_app_id AS provider_app_id, c.capabilities,
             c.asset_verified_at, c.credential_verified_at, c.webhook_subscribed_at,
             c.first_inbound_at, c.first_outbound_at, c.last_error_code, c.last_error_at,
@@ -518,6 +560,7 @@ async function readConnections(
       provider: PROVIDER_OF[row.kind],
       display_name: row.display_name,
       external_asset_id: row.external_asset_id,
+      facebook_page_id: row.facebook_page_id,
       provider_app_id: row.provider_app_id,
       status: statusOf(row),
       capabilities: capabilitiesFor(row.kind),
@@ -528,8 +571,10 @@ async function readConnections(
         view('first_inbound', row.first_inbound_at),
         view('first_outbound', row.first_outbound_at),
       ],
-      missing_evidence: missingEvidence(evidence),
-      last_error_code: row.last_error_code,
+      missing_evidence: row.kind === 'instagram' && !row.facebook_page_id
+        ? [...missingEvidence(evidence), 'instagram_page_required']
+        : missingEvidence(evidence),
+      last_error_code: row.last_error_code ?? (row.kind === 'instagram' && !row.facebook_page_id ? 'instagram_page_required' : null),
       last_error_at: row.last_error_at?.toISOString() ?? null,
       created_at: row.created_at.toISOString(),
       disconnected_at: row.disconnected_at?.toISOString() ?? null,

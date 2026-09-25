@@ -725,6 +725,31 @@ describe('claiming', () => {
     );
   });
 
+  it('lets an agent mark only their cursor unread and release only their own claim', async () => {
+    const peer = '15557000991';
+    await customerWrites(INBOX_A, peer, 'Controlled queue message', 'wamid.rt-own-release');
+    const card = await cardFor(agentA, peer);
+    const claimed = await send(api, agentA, 'POST', `/conversations/${card.id}/claim`, { version: card.version });
+    expect(claimed.statusCode).toBe(200);
+    const version = (claimed.json() as { data: { version: number } }).data.version;
+    expect((await send(api, agentA, 'POST', `/conversations/${card.id}/read`, {})).statusCode).toBe(200);
+    expect((await send(api, owner, 'POST', `/conversations/${card.id}/read`, {})).statusCode).toBe(200);
+    const unread = await send(api, agentA, 'POST', `/conversations/${card.id}/unread`);
+    expect(unread.statusCode, unread.payload).toBe(200);
+    expect(unread.json()).toMatchObject({ data: { unread: true } });
+    const cursors = await withTenant(api.pool, api.tenantId, (client) => client.query<{ membership_id: string }>(
+      'SELECT membership_id::text FROM conversation_reads WHERE conversation_id=$1', [card.id],
+    ));
+    expect(cursors.rows.map((row) => row.membership_id)).not.toContain(agentAMembershipId);
+    expect(cursors.rows).toHaveLength(1);
+    expect((await send(api, agentB, 'POST', `/conversations/${card.id}/release`, { version })).statusCode).toBe(403);
+    const released = await send(api, agentA, 'POST', `/conversations/${card.id}/release`, { version });
+    expect(released.statusCode, released.payload).toBe(200);
+    expect((released.json() as { data: { assigneeMembershipId: string | null } }).data.assigneeMembershipId).toBeNull();
+    const queue = await send(api, agentA, 'GET', '/conversations/unassigned');
+    expect((queue.json() as { data: { id: string }[] }).data.map((row) => row.id)).toContain(card.id);
+  });
+
   it('produces exactly one winner when two agents claim at the same version', async () => {
     await customerWrites(INBOX_A, '15557000011', 'من يرد أولاً', 'wamid.rt-11');
     const card = await cardFor(agentA, '15557000011');
@@ -2199,7 +2224,7 @@ describe('durable member notifications', () => {
     expect((await send(api, browser, 'GET', '/notifications?unexpected=1')).statusCode).toBe(400);
   });
 
-  it('creates a private generic notification from an assigned customer message', async () => {
+  it('shows an authorized in-app message preview only to its recipient', async () => {
     const peer = '15557000990';
     await customerWrites(INBOX_A, peer, 'opening message', 'wamid.rt-notify-open');
     const row = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string; version: number }>(
@@ -2213,10 +2238,10 @@ describe('durable member notifications', () => {
     await customerWrites(INBOX_A, peer, 'private customer words', 'wamid.rt-notify-reply');
     const list = await send(api, agentA, 'GET', '/notifications?limit=25');
     expect(list.statusCode).toBe(200);
-    const matching = (list.json() as { data: { kind: string; targetId: string }[] }).data
+    const matching = (list.json() as { data: { kind: string; targetId: string; messagePreview: string | null }[] }).data
       .filter((entry) => entry.targetId === conversation.id);
     expect(matching.map((entry) => entry.kind).sort()).toEqual(['assignment', 'new_message']);
-    expect(list.payload).not.toContain('private customer words');
+    expect(matching.find((entry) => entry.kind === 'new_message')?.messagePreview).toBe('private customer words');
     const ownerList = await send(api, owner, 'GET', '/notifications?limit=25');
     expect(ownerList.payload).not.toContain(conversation.id);
   });

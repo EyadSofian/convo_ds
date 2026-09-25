@@ -24,7 +24,7 @@ export interface CapabilityMatrix {
   readonly kind: ChannelKind;
   /** The provider version this matrix was recorded against. */
   readonly version: string;
-  /** API host, because Instagram Login and Facebook Login differ (CH-IG-01). */
+  /** API host for the configured authentication path (CH-IG-01). */
   readonly host: string;
   readonly inboundEvents: readonly string[];
   readonly outboundTypes: readonly string[];
@@ -88,8 +88,9 @@ const MESSENGER: CapabilityMatrix = {
 const INSTAGRAM: CapabilityMatrix = {
   kind: 'instagram',
   version: PINNED_GRAPH_VERSION,
-  // Instagram Login talks to its own host, not Facebook's (CH-IG-01).
-  host: 'graph.instagram.com',
+  // This product uses Facebook Login and a linked Page access token. The
+  // separate Instagram Login flow uses graph.instagram.com and is not wired.
+  host: 'graph.facebook.com',
   inboundEvents: ['messages', 'messaging_postbacks', 'message_reactions'],
   outboundTypes: ['text', 'image'],
   attachmentTypes: ['image', 'video', 'audio', 'share', 'story_mention'],

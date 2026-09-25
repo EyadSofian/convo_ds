@@ -212,6 +212,20 @@ export class NoteService {
     });
   }
 
+  /** Mark unread for this membership only; it is not a customer receipt. */
+  async markUnread(session: AuthenticatedSession, tenantId: string, conversationId: string): Promise<{ readonly unread: true }> {
+    this.authorization.assertTenantId(conversationId);
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const detail = await requireConversation(sql, conversationId);
+      requireGrant(principal, 'conversation.read', detail);
+      await sql.query(
+        'DELETE FROM conversation_reads WHERE conversation_id=$1 AND membership_id=$2',
+        [conversationId, principal.membershipId],
+      );
+      return { unread: true };
+    });
+  }
+
   /* ----------------------------------------------------------- internals -- */
 
   private async mutate(

@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { parseConnectChannel, parseRotateCredential } from './channel-request.js';
+import { parseConnectChannel, parseInstagramPage, parseRotateCredential } from './channel-request.js';
 import { NO_PROVIDER_CODE, unconfiguredTransport } from './channel-transport.js';
 import {
   CredentialCipher,
@@ -234,6 +234,17 @@ const VALID_CONNECT = {
 };
 
 describe('parseConnectChannel', () => {
+  it('requires a numeric linked Page for Instagram Facebook Login', () => {
+    const missing = parseConnectChannel({ ...VALID_CONNECT, kind: 'instagram' });
+    expect(missing.ok).toBe(false);
+    const valid = parseConnectChannel({ ...VALID_CONNECT, kind: 'instagram', settings: { facebookPageId: '483612954841071' } });
+    expect(valid.ok && valid.value.settings.facebookPageId).toBe('483612954841071');
+    expect(parseInstagramPage({ facebookPageId: '../invalid' }).ok).toBe(false);
+    expect(parseInstagramPage(null).ok).toBe(false);
+    expect(parseInstagramPage({ facebookPageId: '483612954841071' }).ok).toBe(true);
+    expect(parseConnectChannel({ ...VALID_CONNECT, kind: 'messenger', settings: { facebookPageId: '483612954841071' } }).ok).toBe(false);
+    expect(parseConnectChannel({ ...VALID_CONNECT, kind: 'instagram', settings: { facebookPageId: '../invalid' } }).ok).toBe(false);
+  });
   it('accepts a complete request and trims what it keeps', () => {
     const result = parseConnectChannel({ ...VALID_CONNECT, displayName: '  Enrollment line  ' });
     if (!result.ok) throw new Error('unreachable');

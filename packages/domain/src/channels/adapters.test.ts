@@ -320,6 +320,11 @@ describe('MessengerAdapter', () => {
     expect(batch.events[0]).toMatchObject({ kind: 'unsupported', eventType: 'messaging.echo' });
   });
 
+  it('keeps an emoji-only Messenger customer message as text', () => {
+    const batch = adapter.normalize(messengerItem({ message: { mid: 'mid.emoji', text: '😀' } }), NOW);
+    expect(batch.events[0]).toMatchObject({ kind: 'message', contentType: 'text', text: '😀' });
+  });
+
   it('normalizes an attachment into its handle', () => {
     const batch = adapter.normalize(
       messengerItem({
@@ -470,6 +475,11 @@ describe('InstagramAdapter', () => {
       peerIdentity: 'igsid-1',
       text: 'أهلًا',
     });
+  });
+
+  it('keeps an emoji-only Instagram DM as a message, not a reaction or unsupported event', () => {
+    const batch = adapter.normalize(instagramMessage('ig.emoji', '❤️😀'), NOW);
+    expect(batch.events[0]).toMatchObject({ kind: 'message', contentType: 'text', text: '❤️😀' });
   });
 
   it('normalizes a reaction as its own kind, not as a message', () => {

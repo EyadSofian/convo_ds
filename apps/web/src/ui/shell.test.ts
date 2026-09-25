@@ -102,7 +102,8 @@ describe('header', () => {
     state.live.notifications = { status: 'ready', loadedAt: 1, value: [] };
     expect(bell().querySelector('.notification-menu__status')?.textContent).toContain('No notifications');
     state.live.notifications = { status: 'ready', loadedAt: 1, value: [
-      { id: 'n1', kind: 'new_message', targetType: 'conversation', targetId: 'c', createdAt: NOW.toISOString(), readAt: null },
+      { id: 'n1', kind: 'new_message', targetType: 'conversation', targetId: 'c', createdAt: NOW.toISOString(), readAt: null,
+        senderName: 'Controlled Sender', messagePreview: 'Controlled message preview' },
       { id: 'n2', kind: 'assignment', targetType: 'conversation', targetId: 'c', createdAt: NOW.toISOString(), readAt: NOW.toISOString() },
       { id: 'n3', kind: 'handoff', targetType: 'handoff', targetId: 'c', createdAt: NOW.toISOString(), readAt: null },
       { id: 'n4', kind: 'campaign', targetType: 'campaign', targetId: 'c', createdAt: NOW.toISOString(), readAt: null },
@@ -113,6 +114,8 @@ describe('header', () => {
     const open = bell();
     expect(open.querySelectorAll('.notification-row')).toHaveLength(5);
     expect(open.querySelector('.notification-row--unread')?.textContent).toContain('New customer message');
+    expect(open.querySelector('.notification-row__sender')?.textContent).toBe('Controlled Sender');
+    expect(open.querySelector('.notification-row__preview')?.textContent).toBe('Controlled message preview');
     expect(open.querySelector('.notification-menu__more[data-act="notification-more"]')).not.toBeNull();
     expect(open.querySelector('[data-act="notification-enable-push"]')).not.toBeNull();
     for (const status of ['enabled', 'checking', 'denied', 'unavailable', 'error'] as const) {

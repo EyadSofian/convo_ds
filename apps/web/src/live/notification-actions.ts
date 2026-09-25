@@ -223,17 +223,20 @@ export function runNotificationAction(context: LiveContext, name: string, arg: s
         ? context.live.notifications.value.find((entry) => entry.id === arg) : undefined;
       const tenantId = currentTenantId(context.live);
       if (notification === undefined || tenantId === null || context.live.notificationsApi === null) return;
+      context.state.openMenu = null;
+      const target = targetOf(notification);
+      context.state.route = { ...target, params: routeParamsWithLanguage(context.state, target.params) };
+      context.refresh();
+      if (target.screen === 'inbox' && target.conversationId !== null) {
+        await openConversation(context, target.conversationId);
+        // Do not clear an alert for a thread this member can no longer read.
+        // The conversation endpoint is the authority, including after a role
+        // or assignment change while the notification was waiting.
+        if (context.live.openConversation.status !== 'ready') return;
+      }
       if (notification.readAt === null) {
         const result = await context.live.notificationsApi.markRead(tenantId, notification.id);
         if (!result.ok) { context.live.error = result.error; context.refresh(); return; }
-      }
-      context.state.openMenu = null;
-      const target = targetOf(notification);
-      const wasInbox = context.state.route.screen === 'inbox';
-      context.state.route = { ...target, params: routeParamsWithLanguage(context.state, target.params) };
-      context.refresh();
-      if (wasInbox && target.screen === 'inbox' && target.conversationId !== null) {
-        await openConversation(context, target.conversationId);
       }
       await refreshNotificationCount(context);
     })();

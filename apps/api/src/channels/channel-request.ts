@@ -38,6 +38,8 @@ export interface ConnectChannelRequest {
 }
 
 export interface ChannelSettings {
+  /** Facebook Login for Instagram sends through this linked Page, not the IG account ID. */
+  readonly facebookPageId?: string | undefined;
   /**
    * Exact origins a widget may deliver from. Empty means "not configured yet",
    * which the ingress reads as no — an unconfigured allowlist is not an open one.
@@ -169,6 +171,12 @@ export function parseConnectChannel(input: unknown): ParseResult<ConnectChannelR
   }
 
   const settings = parseSettings(record['settings'], details);
+  if (kind === 'instagram' && settings.facebookPageId === undefined) {
+    details.push({ field: 'settings.facebookPageId', code: 'required', message: 'Provide the linked Facebook Page ID for Instagram.' });
+  }
+  if (kind !== 'instagram' && settings.facebookPageId !== undefined) {
+    details.push({ field: 'settings.facebookPageId', code: 'unsupported', message: 'A Facebook Page ID is only used for Instagram.' });
+  }
 
   if (details.length > 0 || kind === null) {
     return { ok: false, details };
@@ -199,10 +207,20 @@ function parseSettings(raw: unknown, details: ErrorDetail[]): ChannelSettings {
     return {};
   }
   const settings: {
+    facebookPageId?: string;
     origins?: readonly string[];
     ratePerMinute?: number;
     declaredTypes?: readonly string[];
   } = {};
+
+  if ('facebookPageId' in record) {
+    const pageId = record['facebookPageId'];
+    if (typeof pageId !== 'string' || !/^[0-9]{1,32}$/.test(pageId)) {
+      details.push({ field: 'settings.facebookPageId', code: 'malformed', message: 'Provide the numeric Facebook Page ID.' });
+    } else {
+      settings.facebookPageId = pageId;
+    }
+  }
 
   if ('origins' in record) {
     const origins = record['origins'];
@@ -258,4 +276,14 @@ export function parseRotateCredential(input: unknown): ParseResult<RotateCredent
   const details: ErrorDetail[] = [];
   const accessToken = parseToken(record['accessToken'], details);
   return details.length > 0 ? { ok: false, details } : { ok: true, value: { accessToken } };
+}
+
+export function parseInstagramPage(input: unknown): ParseResult<{ readonly facebookPageId: string }> {
+  const record = asRecord(input);
+  if (record === null) return malformedBody();
+  const value = record['facebookPageId'];
+  if (typeof value !== 'string' || !/^[0-9]{1,32}$/.test(value)) {
+    return { ok: false, details: [{ field: 'facebookPageId', code: 'malformed', message: 'Provide the numeric Facebook Page ID.' }] };
+  }
+  return { ok: true, value: { facebookPageId: value } };
 }

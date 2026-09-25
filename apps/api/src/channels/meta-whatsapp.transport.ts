@@ -78,6 +78,30 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
+  /** Page-scoped Meta identities need a Page credential; webhook IDs are not names. */
+  async fetchPeerProfile(kind: ChannelKind, credential: string, peerIdentity: string): Promise<string | null> {
+    if (kind !== 'messenger' && kind !== 'instagram') return null;
+    if (!/^[0-9]{1,32}$/.test(peerIdentity)) return null;
+    const fields = kind === 'messenger' ? 'id,name,first_name,last_name' : 'id,name,username';
+    try {
+      const response = await this.fetchImpl(`${this.graphBase}/${encodeURIComponent(peerIdentity)}?fields=${fields}`, {
+        method: 'GET', headers: { authorization: `Bearer ${credential}` },
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (!response.ok) return null;
+      const body = await readJson(response) as { id?: unknown; name?: unknown; username?: unknown; first_name?: unknown; last_name?: unknown } | null;
+      if (body?.id !== peerIdentity) return null;
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      const first = typeof body.first_name === 'string' ? body.first_name.trim() : '';
+      const last = typeof body.last_name === 'string' ? body.last_name.trim() : '';
+      const username = typeof body.username === 'string' ? body.username.trim() : '';
+      const candidate = name || [first, last].filter(Boolean).join(' ') || username;
+      return candidate.length > 0 && candidate.length <= 200 ? candidate : null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Reads the phone number back from Graph.
    *
@@ -89,13 +113,20 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     kind: ChannelKind,
     credential: string,
     assetIdentity: string,
+    facebookPageId?: string | null,
   ): Promise<ConnectionCheck> {
     if (!isMetaGraphKind(kind)) return unsupportedConnection(kind);
+    if (kind === 'instagram' && !facebookPageId) return {
+      ok: false, assetIdentity: null, code: 'instagram_page_required',
+      message: 'Configure the Facebook Page linked to this Instagram account.',
+    };
 
     let response: Response;
     try {
       response = await this.fetchImpl(
-        `${this.graphBase}/${encodeURIComponent(assetIdentity)}?fields=${connectionFields(kind)}`,
+        kind === 'instagram'
+          ? `${this.graphBase}/me?fields=id,instagram_business_account{id}`
+          : `${this.graphBase}/${encodeURIComponent(assetIdentity)}?fields=${connectionFields(kind)}`,
         {
           method: 'GET',
           headers: { authorization: `Bearer ${credential}` },
@@ -111,7 +142,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       };
     }
 
-    const body = (await readJson(response)) as { id?: unknown; error?: GraphError } | null;
+    const body = (await readJson(response)) as { id?: unknown; instagram_business_account?: { id?: unknown }; error?: GraphError } | null;
     if (!response.ok) {
       const failure = classify(response.status, body?.error);
       return {
@@ -122,7 +153,10 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       };
     }
     const id = typeof body?.id === 'string' ? body.id : null;
-    if (id !== assetIdentity) {
+    if (kind === 'instagram' && (id !== facebookPageId || body?.instagram_business_account?.id !== assetIdentity)) {
+      return { ok: false, assetIdentity: id, code: 'asset_mismatch', message: 'The Page token does not belong to the Page linked to this Instagram account.' };
+    }
+    if (kind !== 'instagram' && id !== assetIdentity) {
       // A token that reads *a* number but not *this* one. Reporting ok here
       // would let a connection go live pointed at somebody else's asset.
       return {
@@ -132,11 +166,15 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
         message: 'The token does not grant access to the configured provider asset.',
       };
     }
-    return { ok: true, assetIdentity: id, code: null, message: null };
+    return { ok: true, assetIdentity, code: null, message: null };
   }
 
   async send(kind: ChannelKind, credential: string, command: SendCommand): Promise<SendOutcome> {
     if (!isMetaGraphKind(kind)) return unsupportedSend(kind);
+    if (kind === 'instagram' && !command.facebookPageId) return {
+      status: 'definitely_rejected', code: 'instagram_page_required',
+      message: 'The linked Facebook Page is not configured.', retryable: true,
+    };
 
     const payload = this.payloadFor(kind, command);
     if (payload === null) {
@@ -151,7 +189,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     let response: Response;
     try {
       response = await this.fetchImpl(
-        `${this.graphBase}/${encodeURIComponent(command.assetIdentity)}/messages`,
+        `${this.graphBase}/${encodeURIComponent(kind === 'instagram' ? command.facebookPageId! : command.assetIdentity)}/messages`,
         {
           method: 'POST',
           headers: {
@@ -404,9 +442,8 @@ function isMetaGraphKind(kind: ChannelKind): kind is 'whatsapp' | 'messenger' | 
   return kind === 'whatsapp' || kind === 'messenger' || kind === 'instagram';
 }
 
-function connectionFields(kind: 'whatsapp' | 'messenger' | 'instagram'): string {
-  if (kind === 'whatsapp') return 'id,display_phone_number,verified_name';
-  return kind === 'messenger' ? 'id,name' : 'id,username';
+function connectionFields(kind: 'whatsapp' | 'messenger'): string {
+  return kind === 'whatsapp' ? 'id,display_phone_number,verified_name' : 'id,name';
 }
 
 function unsupportedConnection(kind: ChannelKind): ConnectionCheck {

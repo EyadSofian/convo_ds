@@ -813,6 +813,33 @@
         }
       }
     },
+    "/tenants/{tenantId}/channels/{connectionId}/instagram-page": {
+      "post": {
+        "operationId": "setInstagramLinkedPage",
+        "summary": "Verify and bind the linked Facebook Page for an Instagram connection",
+        "description": "Requires `channel.manage` and CSRF. The active encrypted Page credential must prove both the selected Page and its linked Instagram professional account before the Page ID is stored. Non-Instagram or disconnected connections return 404.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InstagramLinkedPageRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Verified connection with linked Page ID.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChannelConnectionResponse" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/channels/{connectionId}/messages": {
       "get": {
         "operationId": "listOutboundMessages",
@@ -1983,6 +2010,24 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/unread": {
+      "post": {
+        "operationId": "markConversationUnread",
+        "summary": "Mark this caller's conversation unread",
+        "description": "Clears only this caller's read cursor. It does not alter another member's cursor or provider receipts.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "conversationId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "responses": {
+          "200": { "description": "This caller's read cursor was cleared.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MarkUnreadResponse" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -4263,6 +4308,25 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/release": {
+      "post": {
+        "operationId": "releaseOwnConversation",
+        "summary": "Release the caller's own claimed conversation",
+        "description": "Only the current assignee with conversation.claim permission may return their conversation to the unassigned queue. The version fence prevents a stale release.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "conversationId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClaimConversationRequest" } } } },
+        "responses": {
+          "200": { "description": "The unassigned conversation.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationResponse" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -7032,7 +7096,9 @@
           "targetType": { "type": "string", "enum": ["conversation", "handoff", "campaign", "automation"] },
           "targetId": { "type": "string", "format": "uuid" },
           "createdAt": { "type": "string", "format": "date-time" },
-          "readAt": { "type": ["string", "null"], "format": "date-time" }
+          "readAt": { "type": ["string", "null"], "format": "date-time" },
+          "senderName": { "type": ["string", "null"], "description": "Available only while the recipient can still read the target conversation." },
+          "messagePreview": { "type": ["string", "null"], "description": "Authorized in-app preview only. Push payloads remain generic." }
         }
       },
       "NotificationPageResponse": {
@@ -7331,6 +7397,7 @@
           "provider",
           "display_name",
           "external_asset_id",
+          "facebook_page_id",
           "provider_app_id",
           "status",
           "capabilities",
@@ -7365,6 +7432,10 @@
           "external_asset_id": {
             "type": "string",
             "description": "The provider asset: a phone number id, a Page id, an Instagram account id."
+          },
+          "facebook_page_id": {
+            "type": ["string", "null"],
+            "description": "Linked Facebook Page ID for an Instagram connection using Facebook Login; null for other channels or an unconfigured legacy connection."
           },
           "status": {
             "$ref": "#/components/schemas/ChannelReadiness"
@@ -7525,8 +7596,13 @@
       "ChannelSettings": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Per-connection configuration for the channels CONVO hosts itself. Meaningless for a provider channel, where identity, callers and rate limits belong to the provider.",
+        "description": "Per-connection configuration. facebookPageId is required for Instagram Facebook Login; other fields configure self-hosted channels.",
         "properties": {
+          "facebookPageId": {
+            "type": "string",
+            "pattern": "^[0-9]{1,32}$",
+            "description": "Page linked to the Instagram professional account. The active Page token must prove this relationship."
+          },
           "origins": {
             "type": "array",
             "maxItems": 20,
@@ -7619,6 +7695,14 @@
             "maxLength": 128,
             "description": "The provider-facing Meta App ID shown in Meta Business. It must already be registered in the server installation; the browser never receives the App Secret."
           }
+        }
+      },
+      "InstagramLinkedPageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["facebookPageId"],
+        "properties": {
+          "facebookPageId": { "type": "string", "pattern": "^[0-9]{1,32}$" }
         }
       },
       "CreateInvitationRequest": {
@@ -9428,6 +9512,10 @@
             "type": "string",
             "example": "15559998888"
           },
+          "contactDisplayName": {
+            "type": ["string", "null"],
+            "description": "Current contact name if available; otherwise the client may show the channel identity."
+          },
           "teamId": {
             "type": [
               "string",
@@ -10471,6 +10559,15 @@
           "request_id": {
             "type": "string"
           }
+        }
+      },
+      "MarkUnreadResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "object", "additionalProperties": false, "required": ["unread"], "properties": { "unread": { "type": "boolean", "const": true } } },
+          "request_id": { "type": "string" }
         }
       },
       "AssignConversationRequest": {

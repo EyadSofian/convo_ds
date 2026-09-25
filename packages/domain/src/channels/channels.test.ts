@@ -167,7 +167,7 @@ describe('capability matrices', () => {
   });
 
   it('sends Instagram to its own host', () => {
-    expect(CAPABILITY_MATRICES.instagram.host).toBe('graph.instagram.com');
+    expect(CAPABILITY_MATRICES.instagram.host).toBe('graph.facebook.com');
     expect(CAPABILITY_MATRICES.whatsapp.host).toBe('graph.facebook.com');
   });
 

@@ -273,3 +273,16 @@ export async function markConversationRead(
     }
   });
 }
+
+export async function markConversationUnread(context: LiveContext): Promise<boolean> {
+  const id = context.live.openConversationId;
+  if (id === null || context.live.openConversation.status !== 'ready') return false;
+  return forTenant(context, false, async (tenantId) => {
+    const result = await context.live.conversationsApi.markUnread(tenantId, id);
+    if (!result.ok) { context.live.error = result.error; context.refresh(); return false; }
+    await refreshInboxLists(context);
+    pushToast(context.state, t(context, 'عُلّمت المحادثة كغير مقروءة.', 'Marked unread.'));
+    context.refresh();
+    return true;
+  });
+}

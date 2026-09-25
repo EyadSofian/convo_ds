@@ -67,6 +67,8 @@ export const NO_ANALYTICS_FILTERS: AnalyticsFilters = { from: '', to: '', agentI
 export interface AppState {
   lang: Lang;
   theme: Theme;
+  /** A newer immutable web bundle is available; never reload an unsent draft automatically. */
+  updateAvailable: boolean;
   route: Route;
   openMenu: string | null;
   dialog: DialogState | null;
@@ -157,6 +159,7 @@ export function createState(
   return {
     lang: 'ar',
     theme: 'light',
+    updateAvailable: false,
     route: DEFAULT_ROUTE,
     openMenu: null,
     dialog: null,

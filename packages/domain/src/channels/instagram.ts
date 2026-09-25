@@ -19,16 +19,16 @@ import { ADAPTER_PORT_VERSION } from './port.js';
  * A separate adapter configuration from Messenger, not a flag on it (CH-IG-01,
  * CH-IG-02). The differences are not cosmetic:
  *
- * - its own host, `graph.instagram.com`, declared in its capability matrix;
+ * - Facebook Login through its linked Page, with a Page access token and
+ *   `graph.facebook.com`, declared in its capability matrix;
  * - conversations are **customer-initiated**, so a cold DM is refused with a
  *   typed reason rather than queued to fail (CH-IG-03);
  * - no template concept at all, so a WhatsApp template cannot be smuggled in;
  * - reactions are a first-class inbound event here and are not one on
  *   Messenger.
  *
- * The Facebook Login path for Instagram is a *third* configuration with its own
- * scopes and evidence; it is not implemented, and pretending this adapter
- * covers it would be exactly the conflation ADR-0009 forbids.
+ * The Instagram Login path on `graph.instagram.com` is not implemented. It
+ * cannot be substituted for this Page-bound Facebook Login configuration.
  */
 export class InstagramAdapter implements ChannelAdapter {
   readonly kind: ChannelKind = 'instagram';

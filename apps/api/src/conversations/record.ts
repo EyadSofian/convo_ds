@@ -67,6 +67,7 @@ export interface RawConversation {
 export interface ConversationDetail extends ConversationRow {
   readonly inboxLabel: string;
   readonly channel: string;
+  readonly contactDisplayName?: string | null;
   readonly participantMembershipIds: readonly string[];
   readonly serviceWindow?: WhatsAppServiceWindow;
 }
@@ -147,10 +148,11 @@ export async function readDetail(
   sql: SqlExecutor,
   conversationId: string,
 ): Promise<ConversationDetail | null> {
-  const rows = await sql.query<RawConversation & { display_name: string; kind: string }>(
-    `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind
+  const rows = await sql.query<RawConversation & { display_name: string; kind: string; contact_display_name: string | null }>(
+    `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, contact.display_name AS contact_display_name
        FROM conversations c
        JOIN channel_connections n ON n.id = c.connection_id
+       LEFT JOIN contacts contact ON contact.id=c.contact_id AND contact.deleted_at IS NULL
       WHERE c.id = $1`,
     [conversationId],
   );
@@ -162,6 +164,7 @@ export async function readDetail(
     ...rowOf(row),
     inboxLabel: row.display_name,
     channel: row.kind,
+    contactDisplayName: row.contact_display_name ?? null,
     participantMembershipIds: await participantIds(sql, conversationId),
   };
 }

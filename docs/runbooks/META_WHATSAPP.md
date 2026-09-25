@@ -27,7 +27,7 @@ not be reported as passing until a real send has been made and evidenced.
 | Inbound text, media, reactions, identity change | yes (normalization, already fixture-tested) |
 | Delivery and read receipts | yes, folded onto the message by provider id |
 | Messenger outbound text | yes — Page-scoped Graph `/{page-id}/messages` |
-| Instagram outbound text | yes — professional-account Graph `/{ig-account-id}/messages` |
+| Instagram outbound text | yes — Facebook Login with linked Page token, Graph `/{page-id}/messages` |
 | Messenger / Instagram media | **no** — explicit `attachment_not_supported`; never silently downgraded |
 
 Messenger and Instagram share the app registration and webhook signature
@@ -87,8 +87,10 @@ projection so the composer can become writable without a browser refresh.
    its owned WABA is available). Record the public App ID; do not put secrets
    in tickets, source, browser settings or chat.
 2. Obtain the **App Secret** and a scoped, long-lived token for the exact
-   asset: a Page token with `pages_messaging` for Messenger; a token permitted
-   to send Instagram messages for the linked professional account; and, if
+   asset: a Page token with `pages_messaging` for Messenger; a Page token with
+   `instagram_basic` and `instagram_manage_messages` for the linked Instagram
+   professional account (plus the Page read/manage permissions needed for
+   discovery and webhook setup); and, if
    applicable, a System User token with `whatsapp_business_messaging`.
 3. Register the Meta application as an installation-level `channel_apps` row
    using the approved database/migration-admin procedure. Its `secret_ref`
@@ -104,9 +106,11 @@ projection so the composer can become writable without a browser refresh.
 6. Set `CONVO_CREDENTIAL_KEYS=v1:<base64 32 bytes>`. Without it the credential
    service refuses to seal the access token and the connection cannot be saved.
 7. Create the channel connection in the product: Messenger uses its **Page ID**;
-   Instagram uses its **Instagram professional account ID**; WhatsApp uses its
-   **Phone Number ID**. Select the registered public App ID and supply that
-   channel's access token. It
+   Instagram uses its **Instagram professional account ID plus the linked
+   Facebook Page ID**; WhatsApp uses its **Phone Number ID**. Select the
+   registered public App ID and supply that channel's access token. For
+   Instagram Facebook Login, the token must belong to the linked Page, not an
+   Instagram Login token. It
    is sealed with AES-256-GCM, bound to tenant + connection + purpose, and is
    opened only inside the dispatch transaction.
 8. Point the Meta webhook at
@@ -114,10 +118,19 @@ projection so the composer can become writable without a browser refresh.
    verify token the app was configured with.
 9. Run the connection test. It reads the asset back from Graph, so it fails
    with `asset_mismatch` when a token is valid but belongs to a different Page,
-   Instagram account or phone number — the most common misconfiguration.
+   linked Instagram account or phone number — the most common
+   misconfiguration. Existing Instagram connections without a Page ID show
+   `instagram_page_required`; use **Verify & save** to bind the correct Page
+   only after its stored credential passes Page + Instagram identity checks.
 10. Subscribe only the fields required for the connected products. Run one
     controlled inbound and one controlled agent reply per channel, then record
     the provider message ID and the delivery/read status where Meta exposes it.
+
+The Channels tile says **Send unverified** while the first outbound evidence is
+missing, even if inbound transport is healthy. The underlying `healthy`
+readiness remains eligible for a *first* controlled send; requiring prior
+outbound evidence at dispatch would deadlock verification. A queued or rejected
+message is not outbound proof.
 
 ## Outcome classification
 

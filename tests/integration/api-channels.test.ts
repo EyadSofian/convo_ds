@@ -3,7 +3,7 @@ import argon2 from 'argon2';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import type { Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
@@ -41,7 +41,7 @@ import {
  * this test configures, which is exactly what the provider would do — that
  * makes the verification real. The *transport* is not configured, so every send
  * and every connection test refuses with `provider_not_connected`, which is the
- * honest state of this build until authorized Meta assets exist.
+ * honest state of this isolated test harness without provider transport.
  */
 
 const BOOTSTRAP_TOKEN = 'channels-bootstrap-token-value-00000001';
@@ -314,7 +314,7 @@ describe('channel connections', () => {
     const byKind = new Map(entries.map((entry) => [entry.kind, entry.capabilities]));
     // The three differences that matter most, asserted through the API rather
     // than only in the domain unit tests.
-    expect(byKind.get('instagram')?.['host']).toBe('graph.instagram.com');
+    expect(byKind.get('instagram')?.['host']).toBe('graph.facebook.com');
     expect(byKind.get('whatsapp')?.['host']).toBe('graph.facebook.com');
     expect(byKind.get('whatsapp')?.['templates']).toBe(true);
     expect(byKind.get('messenger')?.['templates']).toBe(false);
@@ -470,6 +470,39 @@ describe('channel connections', () => {
     const second = await connect(api, owner, 'phone-contested-1');
     expect(second.statusCode).toBe(409);
     expect(second.json()).toMatchObject({ error: { code: 'asset_already_connected' } });
+  });
+
+  it('keeps 100 distinct Meta assets separate without claiming provider readiness', async () => {
+    const kinds = ['whatsapp', 'messenger', 'instagram'] as const;
+    const ids = new Set<string>();
+    for (let index = 0; index < 100; index += 1) {
+      const kind = kinds[index % kinds.length] as (typeof kinds)[number];
+      const response = await send(api, owner, 'POST', '/channels', {
+        kind,
+        externalAssetId: `synthetic-asset-${String(index)}`,
+        displayName: `Synthetic ${kind} ${String(index)}`,
+        accessToken: `synthetic-test-token-${String(index).padStart(3, '0')}`,
+        appId: api.appId,
+        ...(kind === 'instagram' ? { settings: { facebookPageId: String(100000000000000 + index) } } : {}),
+      });
+      expect(response.statusCode, `asset ${String(index)}`).toBe(201);
+      const connection = (response.json() as { data: { id: string; status: string } }).data;
+      expect(connection.status).toBe('authorization_needed');
+      ids.add(connection.id);
+    }
+
+    const listed = await send(api, owner, 'GET', '/channels');
+    expect(listed.statusCode).toBe(200);
+    const synthetic = (listed.json() as {
+      data: { id: string; kind: string; external_asset_id: string; status: string }[];
+    }).data.filter((connection) => connection.external_asset_id.startsWith('synthetic-asset-'));
+    expect(ids.size).toBe(100);
+    expect(synthetic).toHaveLength(100);
+    expect(new Set(synthetic.map((connection) => connection.external_asset_id)).size).toBe(100);
+    expect(synthetic.every((connection) => connection.status === 'authorization_needed')).toBe(true);
+    for (const kind of kinds) {
+      expect(synthetic.some((connection) => connection.kind === kind)).toBe(true);
+    }
   });
 
   it('reports a connection test honestly when no provider transport is configured', async () => {
@@ -1104,13 +1137,17 @@ describe('with a stubbed provider transport', () => {
   let api: Harness;
   let owner: Browser;
   let answer: ConnectionCheck;
+  let checkedInstagramPageId: string | null | undefined;
   let templatesAnswer: TemplateFetchResult = { ok: true, templates: [] };
 
   beforeAll(async () => {
     api = await createHarness({
       channelTransport: {
         name: 'test-stub',
-        validateConnection: () => Promise.resolve(answer),
+        validateConnection: (kind, _credential, _assetIdentity, facebookPageId) => {
+          if (kind === 'instagram') checkedInstagramPageId = facebookPageId;
+          return Promise.resolve(answer);
+        },
         fetchTemplates: () => Promise.resolve(templatesAnswer),
         send: () =>
           Promise.resolve({
@@ -1144,6 +1181,56 @@ describe('with a stubbed provider transport', () => {
       'first_inbound',
       'first_outbound',
     ]);
+  });
+
+  it('binds an existing Instagram connection only after verifying the linked Page', async () => {
+    const created = await send(api, owner, 'POST', '/channels', {
+      kind: 'instagram', externalAssetId: '17841470000000001', displayName: 'Test Instagram',
+      accessToken: 'EAAGtestaccesstoken0001', appId: api.appId,
+      settings: { facebookPageId: '483612900000001' },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const id = (created.json() as { data: { id: string } }).data.id;
+
+    answer = { ok: false, assetIdentity: null, code: 'asset_mismatch', message: 'Wrong Page.' };
+    const rejected = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: '483612900000002' });
+    expect(rejected.statusCode).toBe(422);
+    expect(checkedInstagramPageId).toBe('483612900000002');
+    const unchanged = await send(api, owner, 'GET', '/channels');
+    const before = (unchanged.json() as { data: Array<{ id: string; facebook_page_id: string }> }).data.find((item) => item.id === id);
+    expect(before?.facebook_page_id).toBe('483612900000001');
+
+    answer = { ok: false, assetIdentity: null, code: null, message: null };
+    const unnamedRefusal = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: '483612900000002' });
+    expect(unnamedRefusal.statusCode).toBe(422);
+
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `UPDATE channel_credentials SET status='revoked', revoked_at=now() WHERE connection_id=$1 AND status='active'`, [id],
+    ));
+    const noCredential = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: '483612900000002' });
+    expect(noCredential.statusCode).toBe(422);
+    const rotated = await send(api, owner, 'POST', `/channels/${id}/credential`, { accessToken: 'EAAGtestaccesstoken0002' });
+    expect(rotated.statusCode).toBe(200);
+
+    answer = { ok: true, assetIdentity: '17841470000000001', code: null, message: null };
+    const verified = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: '483612900000003' });
+    expect(verified.statusCode, verified.body).toBe(201);
+    expect(checkedInstagramPageId).toBe('483612900000003');
+    expect((verified.json() as { data: { facebook_page_id: string } }).data.facebook_page_id).toBe('483612900000003');
+
+    const malformed = await send(api, owner, 'POST', `/channels/${id}/instagram-page`, { facebookPageId: 'not-an-id' });
+    expect(malformed.statusCode).toBe(400);
+    // A pre-upgrade Instagram row can have inbound evidence but no Page-bound
+    // outbound configuration. The API must not still call it healthy.
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `UPDATE channel_connections SET settings = settings - 'facebook_page_id' WHERE id = $1`, [id],
+    ));
+    const legacy = await send(api, owner, 'GET', '/channels');
+    const unbound = (legacy.json() as { data: Array<{ id: string; status: string; last_error_code: string }> }).data.find((item) => item.id === id);
+    expect(unbound).toMatchObject({ status: 'degraded', last_error_code: 'instagram_page_required' });
+    const whatsapp = await connect(api, owner, 'phone-stub-instagram-page');
+    const whatsappId = (whatsapp.json() as { data: { id: string } }).data.id;
+    expect((await send(api, owner, 'POST', `/channels/${whatsappId}/instagram-page`, { facebookPageId: '483612900000003' })).statusCode).toBe(404);
   });
 
   it('falls back to a generic code when the provider refuses without naming one', async () => {
@@ -1656,6 +1743,10 @@ describe('the outbound path', () => {
 
     const result = await dispatcher.dispatch(api.tenantId);
     expect(result.accepted).toBeGreaterThan(0);
+    // Provider URLs are scoped by the external Page/IG/phone asset ID, never
+    // by CONVO's internal channel_connections UUID.
+    expect(sent.at(-1)?.assetIdentity).toBe(PHONE_ID);
+    expect(sent.at(-1)?.assetIdentity).not.toBe(connectionId);
 
     const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
     const message = (read.json() as { data: Record<string, unknown> }).data;
@@ -2358,6 +2449,98 @@ describe('the outbound path', () => {
 
 /* ------------------------------------------------- the other four channels -- */
 
+describe('durable Meta sender profile enrichment', () => {
+  it('does not claim profiles when the configured provider has no profile capability', async () => {
+    const api = await createHarness();
+    try {
+      expect(await api.app.get(ChannelNormalizationService).drainProfiles(api.tenantId)).toBe(0);
+    } finally {
+      await api.app.close();
+    }
+  });
+
+  it('resolves a Page-scoped sender after inbound commits, then shows the name without replacing its identity', async () => {
+    const profile = vi.fn(async (): Promise<string | null> => 'Eyad Test');
+    const api = await createHarness({ channelTransport: {
+      name: 'profile-test',
+      validateConnection: async () => ({ ok: true, assetIdentity: '483612954841071', code: null, message: null }),
+      send: async () => ({ status: 'definitely_rejected', code: 'not_sent', message: 'Test only.', retryable: false }),
+      fetchPeerProfile: profile,
+    } });
+    try {
+      const owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+      const connected = await send(api, owner, 'POST', '/channels', {
+        kind: 'messenger', externalAssetId: '483612954841071', displayName: 'I BOTS test Page',
+        accessToken: 'synthetic-page-token-for-profile-test', appId: api.appId,
+      });
+      expect(connected.statusCode).toBe(201);
+      const connectionId = (connected.json() as { data: { id: string } }).data.id;
+      const delivered = await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
+        sender: { id: '4528904674043162' }, recipient: { id: '483612954841071' },
+        timestamp: 1789000000000, message: { mid: 'mid.profile.1', text: 'Controlled message' },
+      }] }] });
+      expect(delivered.statusCode).toBe(200);
+      const normalizer = api.app.get(ChannelNormalizationService);
+      await normalizer.drain(api.tenantId);
+      expect(await normalizer.pendingProfileTenants()).toContain(api.tenantId);
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(1);
+      expect(profile).toHaveBeenCalledWith('messenger', 'synthetic-page-token-for-profile-test', '4528904674043162');
+      const rows = await withTenant(api.pool, api.tenantId, (client) => client.query<{
+        display_name: string; external_id: string;
+      }>(`SELECT c.display_name, i.external_id FROM contacts c
+           JOIN contact_identities i ON i.contact_id=c.id
+          WHERE i.scope_id=$1 AND i.external_id='4528904674043162'`, [connectionId]));
+      expect(rows.rows).toEqual([{ display_name: 'Eyad Test', external_id: '4528904674043162' }]);
+      expect(await normalizer.pendingProfileTenants()).not.toContain(api.tenantId);
+
+      // Profile lookups are optional enrichment. A transient Meta failure must
+      // not remove the already-ingested message, and the due row can retry.
+      profile.mockResolvedValueOnce(null);
+      await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
+        sender: { id: '4528904674043163' }, recipient: { id: '483612954841071' },
+        timestamp: 1789000001000, message: { mid: 'mid.profile.2', text: 'Still delivered' },
+      }] }] });
+      await normalizer.drain(api.tenantId);
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(0);
+      const waiting = await withTenant(api.pool, api.tenantId, (client) => client.query<{ attempts: number }>(
+        `SELECT attempts FROM contact_profile_queue q JOIN contact_identities i ON i.contact_id=q.contact_id
+          WHERE i.external_id='4528904674043163'`,
+      ));
+      expect(waiting.rows[0]?.attempts).toBe(1);
+      await withTenant(api.pool, api.tenantId, (client) => client.query(
+        'UPDATE contact_profile_queue SET next_attempt_at=now() WHERE tenant_id=$1', [api.tenantId],
+      ));
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(1);
+
+      // A manually corrected contact name wins over a later provider result.
+      await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
+        sender: { id: '4528904674043164' }, recipient: { id: '483612954841071' },
+        timestamp: 1789000002000, message: { mid: 'mid.profile.3', text: 'Manual name' },
+      }] }] });
+      await normalizer.drain(api.tenantId);
+      await withTenant(api.pool, api.tenantId, (client) => client.query(
+        `UPDATE contacts SET display_name='Operator correction'
+          WHERE id=(SELECT contact_id FROM contact_identities WHERE external_id='4528904674043164')`,
+      ));
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(0);
+      const corrected = await withTenant(api.pool, api.tenantId, (client) => client.query<{ display_name: string }>(
+        `SELECT display_name FROM contacts WHERE id=(SELECT contact_id FROM contact_identities WHERE external_id='4528904674043164')`,
+      ));
+      expect(corrected.rows[0]?.display_name).toBe('Operator correction');
+
+      profile.mockRejectedValueOnce(new Error('Provider credential detail must remain private'));
+      await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
+        sender: { id: '4528904674043165' }, recipient: { id: '483612954841071' },
+        timestamp: 1789000003000, message: { mid: 'mid.profile.4', text: 'Provider temporarily unavailable' },
+      }] }] });
+      await normalizer.drain(api.tenantId);
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(0);
+    } finally {
+      await api.app.close();
+    }
+  }, 180_000);
+});
+
 describe('the channels beyond WhatsApp', () => {
   let api: Harness;
   let owner: Browser;
@@ -2394,7 +2577,9 @@ describe('the channels beyond WhatsApp', () => {
       ...(kind === 'whatsapp' || kind === 'messenger' || kind === 'instagram'
         ? { appId: api.appId }
         : {}),
-      ...(settings === undefined ? {} : { settings }),
+      ...(kind === 'instagram'
+        ? { settings: { facebookPageId: '123456789012345', ...settings } }
+        : settings === undefined ? {} : { settings }),
     });
     expect(response.statusCode, JSON.stringify(response.json())).toBe(201);
     return (response.json() as { data: { id: string } }).data.id;
@@ -2472,7 +2657,7 @@ describe('the channels beyond WhatsApp', () => {
               sender: { id: 'igsid-1' },
               recipient: { id: IG_ID },
               timestamp: 1789000000000,
-              message: { mid: 'mid.ig.1', text: 'رسالة إنستغرام' },
+              message: { mid: 'mid.ig.1', text: 'رسالة إنستغرام 😀' },
             },
           ],
         },
@@ -2481,11 +2666,12 @@ describe('the channels beyond WhatsApp', () => {
     expect(response.statusCode).toBe(200);
     await normalizer.drain(api.tenantId);
     const rows = await withTenant(api.pool, api.tenantId, (client) =>
-      client.query<{ connection_id: string }>(
-        `SELECT connection_id::text FROM inbound_events WHERE provider_message_id = 'mid.ig.1'`,
+      client.query<{ connection_id: string; text_body: string }>(
+        `SELECT connection_id::text, text_body FROM inbound_events WHERE provider_message_id = 'mid.ig.1'`,
       ),
     );
     expect(rows.rows[0]?.connection_id).toBe(connectionId);
+    expect(rows.rows[0]?.text_body).toBe('رسالة إنستغرام 😀');
   });
 
   it('acknowledges a verified Meta delivery no adapter claims', async () => {

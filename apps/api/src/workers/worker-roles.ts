@@ -89,6 +89,9 @@ async function inboundTick(context: WorkerContext): Promise<WorkerTick> {
     // never see its delivery ticks arrive.
     handled += await dispatcher.reconcileReceipts(tenantId);
   }
+  for (const tenantId of await normalizer.pendingProfileTenants()) {
+    handled += await normalizer.drainProfiles(tenantId, Math.min(context.concurrency * 2, 10));
+  }
   return { handled };
 }
 

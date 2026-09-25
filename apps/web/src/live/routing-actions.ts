@@ -2,7 +2,7 @@ import type { ApiError } from '../api/client.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { refreshInboxLists } from './inbox-lists.js';
-import { failed, forTenant, fromResult, LOADING, ready } from './store.js';
+import { failed, forTenant, fromResult, IDLE, LOADING, ready } from './store.js';
 
 /**
  * Moving a conversation between people, from the browser.
@@ -196,6 +196,38 @@ export async function assignConversation(
       ? t(context, 'رُفع الإسناد.', 'Taken off every desk.')
       : t(context, 'أُسندت المحادثة.', 'Assigned.'),
   );
+}
+
+/** Return only one's own assignment to the shared queue. */
+export async function releaseOwnConversation(context: LiveContext): Promise<boolean> {
+  const open = context.live.openConversation;
+  if (open.status !== 'ready') return false;
+  return mutate(context, `routing:${open.value.id}`,
+    (tenantId) => context.live.conversationsApi.releaseOwn(tenantId, open.value.id, open.value.version),
+    async () => {
+      // An own-only Agent may lose conversation.read the instant the release
+      // commits. Never leave its timeline, contact, notes or drafts on screen.
+      context.live.openConversationId = null;
+      context.live.openConversation = IDLE;
+      context.live.timeline = IDLE;
+      context.live.timelineCursor = null;
+      context.live.openContact = IDLE;
+      context.live.notes = IDLE;
+      context.live.episodes = IDLE;
+      context.live.handoffs = IDLE;
+      context.live.collaborators = IDLE;
+      context.live.assignees = IDLE;
+      context.live.composer = '';
+      context.live.noteDraft = '';
+      context.live.editingNoteId = null;
+      context.live.noteEdit = '';
+      context.live.routingPanel = null;
+      context.live.lifecyclePanel = null;
+      context.state.route = { ...context.state.route, conversationId: null };
+      context.state.inboxQueue = 'unassigned';
+      await refreshInboxLists(context);
+    },
+    t(context, 'عادت المحادثة إلى غير المسندة.', 'Returned to Unassigned.'));
 }
 
 /** Offers the conversation to a named colleague. */

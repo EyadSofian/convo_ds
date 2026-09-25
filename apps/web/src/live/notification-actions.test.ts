@@ -12,7 +12,7 @@ const TARGET = '55555555-5555-4555-8555-555555555555';
 const ERROR = { code: 'network', message: 'unavailable', requestId: null, status: null, details: [] };
 const record = (id: string, readAt: string | null = null): Notification => ({
   id, kind: 'new_message', targetType: 'conversation', targetId: TARGET,
-  createdAt: '2026-09-09T09:29:00.000Z', readAt,
+  createdAt: '2026-09-09T09:29:00.000Z', readAt, senderName: null, messagePreview: null,
 });
 const page = (data: readonly Notification[], nextCursor: string | null = null) =>
   ({ ok: true as const, data: { data, nextCursor, hasMore: nextCursor !== null } });
@@ -76,27 +76,33 @@ describe('durable notification browser actions', () => {
     expect(context.live.notificationNextCursor).toBeNull();
   });
 
-  it('shows read failures and refuses to navigate on a failed mark-read', async () => {
+  it('opens the target but never clears a notification for an inaccessible conversation', async () => {
     const { context, api } = setup();
     context.live.notifications = ready([record('notice')], context.now());
-    api.markRead.mockResolvedValue({ ok: false, error: ERROR });
+    const read = vi.fn().mockResolvedValue({ ok: false, error: ERROR });
+    Object.assign(context.live, { conversationsApi: { read } as unknown as ConversationsApi });
     await runNotificationAction(context, 'notification-open', 'notice');
-    expect(context.state.route.screen).toBe('channels');
-    expect(context.live.error).toEqual(ERROR);
+    expect(context.state.route.screen).toBe('inbox');
+    expect(context.live.openConversation.status).toBe('error');
+    expect(api.markRead).not.toHaveBeenCalled();
     api.unreadCount.mockResolvedValue({ ok: false, error: ERROR });
     await refreshNotificationCount(context);
     expect(context.live.notificationUnreadCount.status).toBe('error');
   });
 
-  it('navigates to the exact conversation only after server acknowledgement, preserving language', async () => {
+  it('navigates to the exact conversation on a phone-sized drawer, preserving language', async () => {
     const { context, api } = setup();
     context.state.lang = 'en';
+    context.state.listOpen = true;
+    const read = vi.fn().mockResolvedValue({ ok: false, error: ERROR });
+    Object.assign(context.live, { conversationsApi: { read } as unknown as ConversationsApi });
     context.live.notifications = ready([record('notice')], context.now());
     await runNotificationAction(context, 'notification-open', 'notice');
-    expect(api.markRead).toHaveBeenCalledWith(TENANT, 'notice');
+    expect(read).toHaveBeenCalledWith(TENANT, TARGET);
     expect(context.state.route).toMatchObject({ screen: 'inbox', conversationId: TARGET, params: { lang: 'en' } });
+    expect(context.state.listOpen).toBe(false);
     expect(context.state.openMenu).toBeNull();
-    expect(api.unreadCount).toHaveBeenCalledWith(TENANT);
+    expect(api.markRead).not.toHaveBeenCalled();
   });
 
   it('marks every loaded page read and reloads server state, but preserves errors', async () => {
@@ -291,6 +297,18 @@ describe('durable notification browser actions', () => {
     expect(context.state.route).toMatchObject({ screen: 'inbox', conversationId: TARGET });
     expect(api.markRead).not.toHaveBeenCalled();
     expect(runNotificationAction(context, 'unrelated-action', '')).toBeNull();
+  });
+
+  it('keeps an unread notification and reports the error when mark-read fails', async () => {
+    const { context, api } = setup();
+    context.live.notifications = ready([
+      { ...record('campaign'), targetType: 'campaign', kind: 'campaign' },
+    ], context.now());
+    api.markRead.mockResolvedValueOnce({ ok: false, error: ERROR });
+    await runNotificationAction(context, 'notification-open', 'campaign');
+    expect(api.markRead).toHaveBeenCalledWith(TENANT, 'campaign');
+    expect(context.live.error).toEqual(ERROR);
+    expect(api.unreadCount).not.toHaveBeenCalled();
   });
 
   it('reports unsupported, unconfigured and failed Web Push registration safely', async () => {

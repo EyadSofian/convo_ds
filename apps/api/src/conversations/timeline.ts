@@ -22,7 +22,7 @@ import type { CursorBinding } from '../pagination.js';
 
 export interface TimelineMessage {
   readonly id: string;
-  readonly direction: 'in' | 'out';
+  readonly direction: 'in' | 'out' | 'reaction';
   readonly at: string;
   readonly content_type: string | null;
   readonly text: string | null;
@@ -37,11 +37,13 @@ export interface TimelineMessage {
   readonly template_name: string | null;
   readonly template_language: string | null;
   readonly template_preview: string | null;
+  /** Instagram message reaction, never treated as a new customer message. */
+  readonly reaction_action: string | null;
 }
 
 interface TimelineRow {
   readonly id: string;
-  readonly direction: 'in' | 'out';
+  readonly direction: 'in' | 'out' | 'reaction';
   readonly at: Date;
   readonly content_type: string | null;
   readonly text_body: string | null;
@@ -54,6 +56,7 @@ interface TimelineRow {
   readonly template_name: string | null;
   readonly template_language: string | null;
   readonly template_preview: string | null;
+  readonly reaction_action: string | null;
 }
 
 export interface TimelinePage {
@@ -108,7 +111,8 @@ export async function readTimeline(
               NULL::text AS author_membership_id,
               NULL::text AS command_state, NULL::text AS delivery_state,
               NULL::text AS delivery_anomaly, e.provider_message_id,
-              NULL::text AS template_name, NULL::text AS template_language, NULL::text AS template_preview
+              NULL::text AS template_name, NULL::text AS template_language, NULL::text AS template_preview,
+              NULL::text AS reaction_action
         FROM inbound_events e
         WHERE e.connection_id = $2 AND e.peer_identity = $3 AND e.kind = 'message'
           AND (e.conversation_id=$1 OR (e.conversation_id IS NULL
@@ -120,12 +124,32 @@ export async function readTimeline(
               m.author_membership::text,
               m.command_state, m.delivery_state,
               m.delivery_anomaly, m.provider_message_id,
-              m.template_name,m.template_language,m.template_preview
+              m.template_name,m.template_language,m.template_preview,
+              NULL::text AS reaction_action
          FROM outbound_messages m
         WHERE m.connection_id = $2 AND m.peer_identity = $3
           AND (m.conversation_id=$1 OR (m.conversation_id IS NULL
             AND m.created_at >= (SELECT c.created_at FROM conversations c WHERE c.id=$1)
             AND m.created_at < COALESCE((SELECT c.archived_at FROM conversations c WHERE c.id=$1), 'infinity'::timestamptz)))
+       UNION ALL
+       SELECT r.id::text, 'reaction', r.occurred_at,
+              r.content_type, r.text_body, r.attachments,
+              NULL::text, NULL::text, NULL::text, NULL::text,
+              r.provider_message_id,
+              NULL::text, NULL::text, NULL::text,
+              r.detail->>'action'
+         FROM inbound_events r
+        WHERE r.connection_id=$2 AND r.peer_identity=$3 AND r.kind='reaction'
+          AND EXISTS (
+            SELECT 1 FROM outbound_messages target
+             WHERE target.tenant_id=r.tenant_id
+               AND target.connection_id=r.connection_id
+               AND target.peer_identity=r.peer_identity
+               AND target.provider_message_id=r.provider_message_id
+               AND (target.conversation_id=$1 OR (target.conversation_id IS NULL
+                 AND target.created_at >= (SELECT c.created_at FROM conversations c WHERE c.id=$1)
+                 AND target.created_at < COALESCE((SELECT c.archived_at FROM conversations c WHERE c.id=$1), 'infinity'::timestamptz)))
+          )
      )
      SELECT * FROM merged
       WHERE $4::timestamptz IS NULL OR (at, id) < ($4::timestamptz, $5::text)
@@ -158,5 +182,6 @@ function messageOf(row: TimelineRow): TimelineMessage {
     template_name: row.template_name,
     template_language: row.template_language,
     template_preview: row.template_preview,
+    reaction_action: row.reaction_action,
   };
 }

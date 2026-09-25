@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
+import type { Principal } from '@convo/domain';
 import type { AuthorizationService } from '../authorization/authorization.service.js';
 import type { RealtimeService } from '../realtime/realtime.service.js';
 import { NotificationService } from './notification.service.js';
@@ -9,10 +10,12 @@ const MEMBER = '22222222-2222-4222-8222-222222222222';
 const ID = '33333333-3333-4333-8333-333333333333';
 const session = {} as AuthenticatedSession;
 
-function harness(rows: Record<string, unknown>[][] = []) {
+const principal: Principal = { membershipId: MEMBER, membershipStatus: 'active', tenantStatus: 'active',
+  grants: { 'conversation.read': 'tenant' }, scopes: [], delegationCeiling: null };
+function harness(rows: Record<string, unknown>[][] = [], viewer: Principal = principal) {
   const query = vi.fn().mockImplementation(async () => ({ rows: rows.shift() ?? [] }));
   const authorization = { withPrincipal: async (_session: unknown, _tenant: string,
-    action: (scope: unknown) => Promise<unknown>) => action({ sql: { query }, principal: { membershipId: MEMBER } }),
+    action: (scope: unknown) => Promise<unknown>) => action({ sql: { query }, principal: viewer }),
   } as unknown as AuthorizationService;
   const realtime = { emitNotification: vi.fn() } as unknown as RealtimeService;
   return { service: new NotificationService(authorization, realtime), query, realtime };
@@ -33,17 +36,53 @@ describe('durable notification service', () => {
   });
 
   it('paginates by the opaque timestamp/id pair and maps durable read state', async () => {
-    const row = { id: ID, kind: 'assignment', target_type: 'conversation', target_id: ID,
-      created_at: new Date('2026-01-02T00:00:00Z'), read_at: null };
+    const row = { id: ID, kind: 'assignment', target_type: 'automation', target_id: ID,
+      created_at: new Date('2026-01-02T00:00:00Z'), read_at: null, dedupe_key: 'test' };
     const { service, query } = harness([[row, { ...row, id: MEMBER }], [row], [{ count: '2' }]]);
     const first = await service.list(session, TENANT, undefined, '1');
-    expect(first.items).toEqual([{ id: ID, kind: 'assignment', targetType: 'conversation', targetId: ID,
-      createdAt: '2026-01-02T00:00:00.000Z', readAt: null }]);
+    expect(first.items).toEqual([{ id: ID, kind: 'assignment', targetType: 'automation', targetId: ID,
+      createdAt: '2026-01-02T00:00:00.000Z', readAt: null, senderName: null, messagePreview: null }]);
     expect(first.nextCursor).not.toBeNull();
     const second = await service.list(session, TENANT, first.nextCursor!, '1');
     expect(second.nextCursor).toBeNull();
     expect(query.mock.calls[1]?.[1]).toEqual([MEMBER, '2026-01-02T00:00:00.000Z', ID, 2]);
     expect(await service.unreadCount(session, TENANT)).toBe(2);
+  });
+
+  it('returns the exact inbound text and sender only while conversation.read still permits it', async () => {
+    const row = { id: ID, kind: 'new_message', target_type: 'conversation', target_id: ID,
+      created_at: new Date('2026-01-02T00:00:00Z'), read_at: null, dedupe_key: `inbound:${MEMBER}` };
+    const detail = { id: ID, connection_id: TENANT, peer_identity: 'opaque-peer', team_id: null,
+      assignee_membership_id: MEMBER, status: 'open', priority: 'normal', version: 1,
+      waiting_since: null, contact_id: TENANT, pending_reason: null, snoozed_until: null,
+      snooze_timezone: null, resolution: null, resolved_at: null,
+      last_activity_at: new Date('2026-01-02T00:00:00Z'), owner_state: 'human_active', owner_version: 1,
+      display_name: 'Instagram', contact_display_name: 'Eyad', kind: 'instagram' };
+    const visible = harness([[row], [detail], [], [{ text_body: 'Hello from test account' }]]);
+    expect((await visible.service.list(session, TENANT, undefined, undefined)).items[0]).toMatchObject({
+      senderName: 'Eyad', messagePreview: 'Hello from test account',
+    });
+    expect(visible.query.mock.calls.at(-1)?.[1]).toEqual([MEMBER, ID]);
+
+    const revoked = harness([[row], [detail], []], { ...principal, grants: {} });
+    expect((await revoked.service.list(session, TENANT, undefined, undefined)).items[0]).toMatchObject({
+      senderName: null, messagePreview: null,
+    });
+    expect(revoked.query).toHaveBeenCalledTimes(3);
+
+    const invalidPrincipal = harness([[row], [detail], []], { ...principal, grants: null as never });
+    await expect(invalidPrincipal.service.list(session, TENANT, undefined, undefined)).rejects.toThrow();
+
+    const removed = harness([[row], []]);
+    expect((await removed.service.list(session, TENANT, undefined, undefined)).items[0]).toMatchObject({
+      senderName: null, messagePreview: null,
+    });
+    const noEvent = harness([[{ ...row, dedupe_key: 'assignment:unrelated' }], [{ ...detail, contact_display_name: null }], []]);
+    expect((await noEvent.service.list(session, TENANT, undefined, undefined)).items[0]).toMatchObject({
+      senderName: null, messagePreview: null,
+    });
+    const emptyText = harness([[row], [detail], [], [{ text_body: null }]]);
+    expect((await emptyText.service.list(session, TENANT, undefined, undefined)).items[0]?.messagePreview).toBeNull();
   });
 
   it('uses the bounded default page size and zero for an empty unread result', async () => {

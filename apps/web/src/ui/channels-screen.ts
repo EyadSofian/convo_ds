@@ -9,13 +9,13 @@ import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, relativeTime } from '../format.js';
 import { icon } from '../icons.js';
-import { channelTestIdentityField, channelTestLabelField, channelTokenField } from '../live/dispatch.js';
+import { channelPageField, channelTestIdentityField, channelTestLabelField, channelTokenField } from '../live/dispatch.js';
 import { rowsOf } from '../live/store.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { channelTile } from './brand.js';
 import { brandMark } from './channel-mark.js';
-import { CHANNEL_NAMES, EVIDENCE, phrase, READINESS, t } from './copy.js';
+import { CHANNEL_NAMES, EVIDENCE, ERROR_CODES, phrase, READINESS, t } from './copy.js';
 import type { Phrase } from './copy.js';
 import {
   badge,
@@ -112,7 +112,7 @@ export function catalogueItem(kind: string): CatalogueItem | undefined {
   return CATALOGUE.find((item) => item.kind === kind);
 }
 
-export type IntegrationStatus = 'connected' | 'connecting' | 'attention' | 'permission_expired' | 'disconnected' | 'not_connected' | 'unavailable';
+export type IntegrationStatus = 'connected' | 'send_unverified' | 'connecting' | 'attention' | 'permission_expired' | 'disconnected' | 'not_connected' | 'unavailable';
 
 export interface IntegrationSummary {
   readonly status: IntegrationStatus;
@@ -121,6 +121,11 @@ export interface IntegrationSummary {
   readonly lastVerified: string | null;
   /** Names are provider-supplied operator labels, never credentials or ids. */
   readonly assetNames: readonly string[];
+}
+
+/** Inbound health alone must not be presented as a proven two-way send. */
+function outboundUnverified(connection: ChannelConnection): boolean {
+  return connection.evidence.some((item) => item.kind === 'first_outbound' && !item.satisfied);
 }
 
 /**
@@ -140,6 +145,7 @@ export function summarize(kind: string, implemented: boolean, connections: reado
     .at(-1) ?? null;
   const permissionExpired = active.some((connection) => connection.last_error_code === 'credential_rejected');
   const connecting = active.some((connection) => connection.status === 'authorization_needed' || connection.status === 'webhook_pending');
+  const sendUnverified = active.some((connection) => connection.status === 'healthy' && outboundUnverified(connection));
   const status: IntegrationStatus = !implemented
     ? 'unavailable'
     : permissionExpired
@@ -148,6 +154,8 @@ export function summarize(kind: string, implemented: boolean, connections: reado
         ? 'attention'
         : connecting
           ? 'connecting'
+          : sendUnverified
+            ? 'send_unverified'
           : active.length > 0
             ? 'connected'
             : ofKind.length > 0
@@ -158,6 +166,7 @@ export function summarize(kind: string, implemented: boolean, connections: reado
 
 const STATUS_VIEW: Readonly<Record<IntegrationStatus, { readonly label: Phrase; readonly tone: Tone }>> = {
   connected: { label: { ar: 'متصلة', en: 'Connected' }, tone: 'success' },
+  send_unverified: { label: { ar: 'الإرسال غير مُتحقَّق منه', en: 'Send unverified' }, tone: 'warning' },
   connecting: { label: { ar: 'جارٍ الربط', en: 'Connecting' }, tone: 'accent' },
   attention: { label: { ar: 'تحتاج إلى متابعة', en: 'Needs attention' }, tone: 'warning' },
   permission_expired: { label: { ar: 'انتهت الصلاحية', en: 'Permission expired' }, tone: 'danger' },
@@ -212,7 +221,7 @@ function integrationCard(
 ): HTMLElement {
   const summary = summarize(item.kind, entry?.implemented === true, connections);
   const view = STATUS_VIEW[summary.status];
-  const attention = summary.active.find((connection) => connection.status !== 'healthy');
+  const attention = summary.active.find((connection) => connection.status !== 'healthy' || outboundUnverified(connection));
   return h('article', { class: `integration integration--${summary.status}`, 'data-channel-kind': item.kind, 'aria-labelledby': `integration-${item.kind}` }, [
     h('header', { class: 'integration__head' }, [
       channelTile(item.kind, 'lg'),
@@ -272,7 +281,7 @@ function primaryAction(
   // Another account can be added whatever state the first one is in: one
   // number waiting for verification is no reason to block a second.
   const another = button({ label: t(state, 'إضافة', 'Add'), icon: 'plus', act: 'dialog', arg: `connect-channel:${item.kind}`, small: true, variant: 'ghost', title: t(state, `ربط حساب ${name} آخر`, `Connect another ${name} account`) });
-  if (status === 'attention' || status === 'connecting' || status === 'permission_expired') {
+  if (status === 'attention' || status === 'connecting' || status === 'permission_expired' || status === 'send_unverified') {
     return h('div', { class: 'integration__buttons' }, [
       button({ label: t(state, 'إكمال الإعداد', 'Complete setup'), icon: 'arrowOut', act: 'channel-manage', arg: `${item.kind}:${(attention as ChannelConnection).id}`, small: true, variant: 'primary', title: t(state, `إكمال إعداد ${name}`, `Complete ${name} setup`) }),
       another,
@@ -349,7 +358,10 @@ function connectionRow(state: AppState, live: LiveState, connection: ChannelConn
         ]),
       ]),
       h('div', { class: 'connection__status' }, [
-        badge(gone ? phrase(state, READINESS, 'disconnected') : phrase(state, READINESS, connection.status), gone ? 'neutral' : (READINESS_TONE[connection.status] ?? 'neutral'), { dot: true }),
+        badge(gone ? phrase(state, READINESS, 'disconnected') : outboundUnverified(connection) && connection.status === 'healthy'
+          ? t(state, 'الإرسال غير مُتحقَّق منه', 'Send unverified')
+          : phrase(state, READINESS, connection.status), gone ? 'neutral' : outboundUnverified(connection) && connection.status === 'healthy'
+            ? 'warning' : (READINESS_TONE[connection.status] ?? 'neutral'), { dot: true }),
         h('span', { class: 'connection__evidence' }, [
           t(state, `${String(satisfied)} من ${String(connection.evidence.length)} أدلة`, `${String(satisfied)} of ${String(connection.evidence.length)} checks`),
         ]),
@@ -393,7 +405,9 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
           : h('p', { class: 'connection__error', role: 'status' }, [
               icon('alert', 14),
               t(state, 'آخر خطأ: ', 'Last error: '),
-              isolated(connection.last_error_code, true),
+              h('span', { class: 'connection__error-code' }, [isolated(connection.last_error_code, true)]),
+              ' · ',
+              phrase(state, ERROR_CODES, connection.last_error_code),
             ]),
       ]),
       h('section', { class: 'connection__block', 'aria-labelledby': `${id}-facts` }, [
@@ -403,6 +417,8 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
           h('dd', {}, [isolated(connection.external_asset_id, true)]),
           connection.provider_app_id === null ? null : h('dt', {}, [t(state, 'تطبيق Meta', 'Meta app')]),
           connection.provider_app_id === null ? null : h('dd', {}, [isolated(connection.provider_app_id, true)]),
+          connection.kind === 'instagram' ? h('dt', {}, [t(state, 'صفحة فيسبوك المرتبطة', 'Linked Facebook Page')]) : null,
+          connection.kind === 'instagram' ? h('dd', {}, [connection.facebook_page_id ?? t(state, 'غير محددة', 'Not configured')]) : null,
           h('dt', {}, [t(state, 'بيانات الاعتماد', 'Credential')]),
           h('dd', {}, [connection.credential_held ? t(state, 'محفوظة مشفّرة', 'Stored encrypted') : t(state, 'غير محفوظة', 'Not stored')]),
           h('dt', {}, [t(state, 'نافذة الرد', 'Reply window')]),
@@ -416,6 +432,16 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
       ? h('p', { class: 'field__hint' }, [t(state, 'هذا الاتصال مفصول. سجله محفوظ، ويمكن ربط الأصل من جديد.', 'This connection is disconnected. Its history is kept and the asset can be connected again.')])
       : h('div', { class: 'connection__manage' }, [
           h('div', { class: 'connection__actions' }, [
+            connection.kind === 'whatsapp'
+              ? button({
+                  label: t(state, 'مزامنة قوالب واتساب', 'Sync WhatsApp templates'),
+                  icon: 'refresh',
+                  act: 'live-sync-channel-templates',
+                  arg: connection.id,
+                  small: true,
+                  busy: live.busy === `sync-channel-templates:${connection.id}`,
+                })
+              : null,
             button({
               label: t(state, 'التحقق من الاتصال', 'Verify connection'),
               icon: 'shield',
@@ -458,6 +484,17 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
               disabled: token === '',
             }),
           ]),
+          connection.kind === 'instagram' ? h('form', { class: 'inline-form', 'data-submit': 'live-instagram-page', 'data-arg': connection.id }, [
+            h('label', { class: 'field' }, [
+              h('span', { class: 'field__label' }, [t(state, 'صفحة فيسبوك المرتبطة بحساب إنستجرام', 'Facebook Page linked to Instagram')]),
+              textInput(channelPageField(connection.id), state.dialogForm[channelPageField(connection.id)] ?? connection.facebook_page_id ?? '', '', { inputmode: 'numeric', required: true }),
+            ]),
+            button({
+              label: t(state, 'تحقق واحفظ', 'Verify & save'),
+              act: 'live-instagram-page', arg: connection.id, small: true,
+              busy: live.busy === `instagram-page:${connection.id}`,
+            }),
+          ]) : null,
           testRecipients(state, live, connection),
         ]),
   ]);

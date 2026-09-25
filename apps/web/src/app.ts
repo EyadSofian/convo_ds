@@ -58,6 +58,7 @@ import { renderTeams } from './ui/teams-screen';
 import { renderSettings } from './ui/settings-screen';
 import { renderShell, renderToasts } from './ui/shell';
 import { trackViewport } from './viewport';
+import { newerBundleAvailable } from './app-version';
 
 function renderScreen(state: AppState): HTMLElement {
   if (state.route.screen === 'contacts') return renderContacts(state);
@@ -311,6 +312,7 @@ export interface AppHandle {
   readonly state: AppState;
   render(): void;
   dispatch(name: string, arg?: string): void;
+  checkForUpdate(): Promise<void>;
   destroy(): void;
 }
 
@@ -343,6 +345,9 @@ export interface MountOptions {
    * Injected so a test can hide and show the tab without a browser.
    */
   readonly page?: PageLifecycle | undefined;
+  /** The immutable web-bundle check; injected to keep lifecycle tests deterministic. */
+  readonly checkForUpdate?: (() => Promise<boolean>) | undefined;
+  readonly reloadForUpdate?: (() => void) | undefined;
 }
 
 export type PageEvent = 'visibilitychange' | 'pageshow' | 'online' | 'offline' | 'beforeunload';
@@ -414,7 +419,7 @@ export function boot(
   // by an on-screen keyboard, so the composer is never hidden behind it.
   const view = document_.defaultView as Window;
   trackViewport(document_.documentElement, view.visualViewport);
-  return mount({
+  const app = mount({
     root,
     host,
     fetch: (input, init) => globalThis.fetch(input, init),
@@ -422,7 +427,21 @@ export function boot(
     preferences: browserStore(host),
     prefersDark: () => host.matchMedia?.('(prefers-color-scheme: dark)').matches === true,
     page: browserPageLifecycle(view),
+    checkForUpdate: newerBundleAvailable.bind(null, document_, globalThis.fetch.bind(globalThis)),
+    reloadForUpdate: view.location.reload.bind(view.location),
   });
+  // An installed PWA can remain open for hours. Detect new hashed assets while
+  // foregrounded, but leave the operator's draft intact until they choose Update.
+  const updatePoll = view.setInterval(() => {
+    if (document_.visibilityState !== 'hidden') void app.checkForUpdate();
+  }, 180_000);
+  return {
+    ...app,
+    destroy: () => {
+      view.clearInterval(updatePoll);
+      app.destroy();
+    },
+  };
 }
 
 /** `setTimeout`, cancellable. The default scheduler outside tests. */
@@ -485,8 +504,24 @@ export function mount(options: MountOptions): AppHandle {
   let cancelResume: Cancel | null = null;
   let resumeAttempts = 0;
   let destroyed = false;
+  let checkingUpdate = false;
   const page = options.page;
   state.offline = page !== undefined && !page.online();
+
+  const checkForUpdate = async (): Promise<void> => {
+    if (destroyed || checkingUpdate || state.updateAvailable || options.checkForUpdate === undefined || state.offline) return;
+    checkingUpdate = true;
+    try {
+      if (await options.checkForUpdate() && !destroyed) {
+        state.updateAvailable = true;
+        refresh();
+      }
+    } catch {
+      // A version probe is advisory; losing the network must not interrupt work.
+    } finally {
+      checkingUpdate = false;
+    }
+  };
 
   const syncUrl = (): void => {
     const next: Route = {
@@ -771,7 +806,10 @@ export function mount(options: MountOptions): AppHandle {
    */
   const onVisibility = (): void => {
     // Registered only when a lifecycle was supplied.
-    if ((page as PageLifecycle).visible()) resumeLive(false);
+    if ((page as PageLifecycle).visible()) {
+      resumeLive(false);
+      void checkForUpdate();
+    }
   };
 
   /**
@@ -789,6 +827,7 @@ export function mount(options: MountOptions): AppHandle {
   /** A page restored from the back/forward cache was frozen, whatever its stream says. */
   const onPageShow = (event: Event): void => {
     if ((event as PageTransitionEvent).persisted) resumeLive(true);
+    void checkForUpdate();
   };
 
   const dispatch = (name: string, arg = ''): void => {
@@ -841,6 +880,10 @@ export function mount(options: MountOptions): AppHandle {
     if (act === 'live-change-password') syncCredentialFields(root.querySelector('[data-submit="live-change-password"]'));
     if (act === 'skip-to-content') {
       root.ownerDocument.getElementById('main')?.focus();
+      return;
+    }
+    if (act === 'app-update') {
+      options.reloadForUpdate?.();
       return;
     }
     // A submit button's form already dispatches on `submit`.
@@ -945,6 +988,19 @@ export function mount(options: MountOptions): AppHandle {
   const onKeyDown = (event: Event): void => {
     const keyboard = event as KeyboardEvent;
     const target = keyboard.target;
+
+    // Enter sends a reply; Shift+Enter keeps the deliberate multi-line path.
+    // Ignore composition so choosing an Arabic/Asian IME candidate never sends.
+    if (keyboard.key === 'Enter' && !keyboard.shiftKey && !keyboard.isComposing &&
+        target instanceof HTMLTextAreaElement && target.classList.contains('composer__input') &&
+        !target.classList.contains('composer__input--note')) {
+      keyboard.preventDefault();
+      if (target.value.trim() !== '' && state.live.busy !== 'send-reply') {
+        state.live.composer = target.value;
+        dispatch('live-inbox-send');
+      }
+      return;
+    }
 
     if (
       target instanceof HTMLElement &&
@@ -1101,6 +1157,7 @@ export function mount(options: MountOptions): AppHandle {
     state,
     render,
     dispatch,
+    checkForUpdate,
     destroy: () => {
       destroyed = true;
       stopRealtime(liveContext);

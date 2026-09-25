@@ -419,6 +419,34 @@ describe('assigning a conversation', () => {
     expect(text(root.querySelector('.routing__assignee') as HTMLElement)).toContain('لا أحد بعد');
   });
 
+  it('lets an agent release only their own assignment through the dedicated action', async () => {
+    const api = routingApi('agent').on(
+      `POST /tenants/${TENANT}/conversations/${CONVERSATION}/release`,
+      { status: 200, body: { data: conversation({ assigneeMembershipId: null, version: 5 }) } },
+    );
+    const { root, app } = await open(api);
+    expect(root.querySelector('[data-act="live-routing-open"][data-arg="assign"]')).toBeNull();
+    click(root, control('live-routing-release-own'));
+    await settle();
+    expect(api.bodyOf(`POST /tenants/${TENANT}/conversations/${CONVERSATION}/release`)).toEqual({ version: 4 });
+    expect(app.state.inboxQueue).toBe('unassigned');
+    expect(app.state.route.conversationId).toBeNull();
+    expect(root.querySelector('.routing__assignee')).toBeNull();
+    expect(root.querySelector('[data-act="live-routing-release-own"]')).toBeNull();
+  });
+
+  it('marks only the operator’s conversation unread and refreshes the queue', async () => {
+    const api = routingApi('agent').on(
+      `POST /tenants/${TENANT}/conversations/${CONVERSATION}/unread`,
+      { status: 200, body: { data: { unread: true } } },
+    );
+    const { root } = await open(api);
+    click(root, control('live-inbox-mark-unread'));
+    await settle();
+    expect(api.countOf(`POST /tenants/${TENANT}/conversations/${CONVERSATION}/unread`)).toBe(1);
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations?queue=mine`)).toBeGreaterThan(1);
+  });
+
   it('says who lost the race, with the id to quote', async () => {
     const api = routingApi().on(
       `POST /tenants/${TENANT}/conversations/${CONVERSATION}/assignments`,

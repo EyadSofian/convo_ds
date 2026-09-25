@@ -11,6 +11,7 @@ const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 const fail = <T>(): ApiResult<T> => ({ ok: false, error: ERROR });
 const CONNECTION: ChannelConnection = {
   id: 'channel-1', kind: 'whatsapp', provider: 'meta', display_name: 'Courses', external_asset_id: 'phone-1',
+  facebook_page_id: null,
   provider_app_id: 'app-1', status: 'healthy', capabilities: {
     kind: 'whatsapp', version: 'v21.0', host: 'graph.facebook.com', inboundEvents: [], outboundTypes: ['text','template'],
     attachmentTypes: [], textLimit: { characters: 4096, bytes: 4096 }, windowHours: 24,
@@ -31,6 +32,7 @@ function setup() {
     connections: vi.fn().mockResolvedValue(ok([CONNECTION])),
     catalogue: vi.fn().mockResolvedValue(ok([])),
     testRecipients: vi.fn().mockResolvedValue(ok([RECIPIENT])),
+    syncWhatsAppTemplates: vi.fn().mockResolvedValue(ok({ connection_id: 'channel-1', imported: 3, disabled: 1, synced_at: NOW.toISOString() })),
     authorizeTestRecipient: vi.fn().mockResolvedValue(ok(RECIPIENT)),
     revokeTestRecipient: vi.fn().mockResolvedValue(ok(undefined)),
   } as unknown as ChannelsApi;
@@ -101,5 +103,23 @@ describe('channel test recipients', () => {
     expect(app.state.dialogForm).toEqual({});
     expect(await LIVE_ACTIONS['live-revoke-test-recipient']?.(app.context, ':')).toBe(false);
     expect(await LIVE_ACTIONS['live-revoke-test-recipient']?.(app.context, 'channel-1:recipient-1')).toBe(true);
+  });
+});
+
+describe('WhatsApp template synchronization from Channels', () => {
+  it('runs the server sync for the selected connection and reports committed counts', async () => {
+    const app = setup();
+    expect(await LIVE_ACTIONS['live-sync-channel-templates']?.(app.context, 'channel-1')).toBe(true);
+    expect(app.channels.syncWhatsAppTemplates).toHaveBeenCalledWith('tenant-1', 'channel-1');
+    expect(app.state.toasts.at(-1)?.text).toContain('3 added, 1 disabled');
+    expect(app.state.live.busy).toBeNull();
+  });
+
+  it('does not claim synchronization succeeded when Meta rejects the request', async () => {
+    const app = setup();
+    vi.mocked(app.channels.syncWhatsAppTemplates).mockResolvedValueOnce(fail());
+    expect(await LIVE_ACTIONS['live-sync-channel-templates']?.(app.context, 'channel-1')).toBe(false);
+    expect(app.state.live.error).toEqual(ERROR);
+    expect(app.state.toasts).toHaveLength(0);
   });
 });

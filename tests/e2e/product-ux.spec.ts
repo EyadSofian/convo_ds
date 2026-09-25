@@ -3,6 +3,32 @@ import { PASSWORD } from './support/api';
 import { openInbox, openScreen } from './support/workspace';
 
 test.describe('focused product UX repairs', () => {
+  test('emoji messages, Instagram reactions, and the compact account header work on a phone', async ({ page }) => {
+    await openInbox(page);
+    let outbound: Record<string, unknown> | null = null;
+    await page.route('**/api/v1/tenants/*/conversations/*/messages', async (route) => {
+      if (route.request().method() === 'POST') {
+        outbound = route.request().postDataJSON() as Record<string, unknown>;
+        await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ data: { id: 'emoji-out', command_state: 'queued' } }) });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [
+        { id: 'emoji-in', direction: 'in', at: '2026-09-09T09:15:00Z', content_type: 'text', text: 'أهلًا 😀', attachments: [], author_membership_id: null, command_state: null, delivery_state: null, delivery_anomaly: null, provider_message_id: 'mid.in' },
+        { id: 'emoji-reaction', direction: 'reaction', at: '2026-09-09T09:16:00Z', content_type: 'reaction', text: '❤️', reaction_action: 'react', attachments: [], author_membership_id: null, command_state: null, delivery_state: null, delivery_anomaly: null, provider_message_id: 'mid.out' },
+      ], page: { next_cursor: null, has_more: false } }) });
+    });
+    await page.reload();
+    await expect(page.locator('.msg--in .msg__bubble')).toContainText('أهلًا 😀');
+    await expect(page.locator('.msg--reaction')).toContainText('تفاعل العميل ❤️');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('.lang-toggle')).toContainText('EN');
+    await expect(page.locator('.user-button .avatar')).toContainText('H');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.locator('.composer__input').fill('❤️😀');
+    await page.locator('.composer__input').press('Enter');
+    await expect.poll(() => outbound).toMatchObject({ messageType: 'text', text: '❤️😀' });
+  });
+
   test('WhatsApp template picker previews parameters and submits a catalog-backed send', async ({ page }) => {
     let payload: Record<string, unknown> | undefined;
     page.on('request', (request) => {

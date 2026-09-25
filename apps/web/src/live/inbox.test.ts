@@ -521,6 +521,21 @@ describe('reading and replying', () => {
     expect((root.querySelector('.composer__input') as HTMLTextAreaElement).value).toBe('');
   });
 
+  it('sends an emoji-only reply as Unicode text, once, without disabling Send', async () => {
+    const api = claimedApi().on(`POST /tenants/${TENANT}/conversations/${CONVERSATION}/messages`, {
+      status: 202,
+      body: { data: { id: 'ob-emoji', command_state: 'queued' } },
+    });
+    const { root } = await open(api, `#/inbox/${CONVERSATION}`);
+    type(root, '.composer__input', '❤️😀');
+    expect((root.querySelector('[data-act="live-inbox-send"]') as HTMLButtonElement).disabled).toBe(false);
+    click(root, '[data-act="live-inbox-send"]');
+    await settle();
+    const sent = api.calls.filter((call) => call.method === 'POST' && call.path.endsWith('/messages'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.body).toMatchObject({ messageType: 'text', text: '❤️😀' });
+  });
+
   it('keeps what was typed when the send is refused', async () => {
     const api = claimedApi().on(`POST /tenants/${TENANT}/conversations/${CONVERSATION}/messages`, {
       status: 422,

@@ -112,6 +112,15 @@ function assigneeLine(
             disabled: busy,
           })
         : null,
+      !ability.mayAssign && ability.mayAsk && conversation.assigneeMembershipId === currentMembership(live)?.id
+        ? button({
+            label: t(state, 'ترك المحادثة', 'Unclaim'),
+            act: 'live-routing-release-own',
+            small: true,
+            variant: 'ghost',
+            disabled: busy,
+          })
+        : null,
       ability.mayAssign
         ? button({
             label: t(state, 'الأولوية', 'Priority'),
