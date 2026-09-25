@@ -6,6 +6,7 @@ import { icon } from '../icons';
 import type { AppState } from '../state';
 import { channelMark } from './channel-mark';
 import { describeError, t } from './copy';
+import { toneOf } from '../format';
 
 /**
  * Shared presentational atoms. Every screen is built from these, so the product
@@ -128,6 +129,21 @@ export function badge(label: string, tone: Tone = 'neutral', options: BadgeOptio
   ]);
 }
 
+/** The colours a section's icon chip may wear. Each is a pair of tokens. */
+export type SectionTone = 'blue' | 'cyan' | 'green' | 'violet' | 'amber' | 'pink';
+
+/**
+ * A card section's heading: a small colour-coded icon chip, then the title. The
+ * chip lets an operator find "consent" or "assignment" in a long side panel by
+ * colour before reading a word.
+ */
+export function sectionTitle(name: IconName, tone: SectionTone, title: string, id: string): HTMLElement {
+  return h('h3', { class: 'panel-section__title', id }, [
+    h('span', { class: `section-chip section-chip--${tone}`, 'aria-hidden': 'true' }, [icon(name, 14)]),
+    h('span', { class: 'panel-section__text' }, [title]),
+  ]);
+}
+
 export function countBadge(value: number, label: string): HTMLElement {
   return h('span', { class: 'count', 'aria-label': label }, [String(value)]);
 }
@@ -135,14 +151,20 @@ export function countBadge(value: number, label: string): HTMLElement {
 export interface AvatarOptions {
   /** Empty for somebody the caller may not identify, such as a masked queue card. */
   readonly initials: string;
-  readonly size?: 'sm' | 'md' | 'lg' | undefined;
+  readonly size?: 'sm' | 'md' | 'lg' | 'xl' | undefined;
   /** The channel kind, shown as a small provider-coloured mark. */
   readonly channel?: string | undefined;
+  /**
+   * What the colour is derived from — a name or an id. Without it the avatar
+   * stays neutral, which is right for somebody the caller may not identify.
+   */
+  readonly seed?: string | undefined;
 }
 
 export function avatar(options: AvatarOptions): HTMLElement {
   const size = options.size ?? 'md';
-  return h('span', { class: `avatar avatar--${size}`, 'aria-hidden': 'true' }, [
+  const tone = options.seed === undefined ? '' : ` avatar--tone-${String(toneOf(options.seed))}`;
+  return h('span', { class: `avatar avatar--${size}${tone}`, 'aria-hidden': 'true' }, [
     options.initials === '' ? icon('user', 16) : options.initials,
     options.channel === undefined
       ? null

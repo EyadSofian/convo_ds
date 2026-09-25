@@ -96,7 +96,8 @@ export async function createContact(context: LiveContext, input: { readonly disp
     }
     live.selectedContactId = result.data.id;
     live.selectedContact = ready(result.data, context.now());
-    context.state.dialogForm = { ...context.state.dialogForm, contactCreateName: '', contactCreateConnection: '', contactCreateExternalId: '' };
+    // The tool closes on success so the operator lands on the new profile.
+    context.state.dialogForm = { ...context.state.dialogForm, contactsTool: '', contactCreateName: '', contactCreateConnection: '', contactCreateExternalId: '' };
     pushToast(context.state, t(context,
       'أُضيفت جهة الاتصال. لإضافتها لجمهور حملة، استخدم اسمها في فلتر الجمهور وسجّل موافقة التسويق عند توفرها.',
       'Contact added. To include it in a campaign audience, use its name in the audience filter and record marketing consent when available.'));
@@ -122,7 +123,7 @@ export async function importContacts(context: LiveContext): Promise<boolean> {
       context.refresh();
       return false;
     }
-    context.state.dialogForm = { ...context.state.dialogForm, contactImportCsv: '', contactImportFileName: '', contactImportError: '' };
+    context.state.dialogForm = { ...context.state.dialogForm, contactsTool: '', contactImportCsv: '', contactImportFileName: '', contactImportError: '' };
     pushToast(context.state, t(context,
       `تم استيراد ${String(result.data.created)} جهة اتصال. لم تُسجّل موافقات تسويقية.`,
       `Imported ${String(result.data.created)} contacts. No marketing consent was recorded.`));

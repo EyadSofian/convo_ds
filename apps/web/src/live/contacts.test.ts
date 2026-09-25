@@ -215,7 +215,7 @@ describe('the contacts directory', () => {
     app.state.live.connections = { status: 'ready', loadedAt: NOW.getTime(), value: [{
       id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null,
     }] as never };
-    app.state.dialogForm = { contactImportCsv: 'display_name,external_id\nSara,wa-1' };
+    app.state.dialogForm = { contactsTool: 'import', contactImportCsv: 'display_name,external_id\nSara,wa-1' };
     app.state.live.busy = 'contacts:import';
     app.render();
     expect(root.querySelector('[data-act="live-contacts-export"]')).toBeNull();
@@ -228,6 +228,15 @@ describe('the contacts directory', () => {
     expect(root.querySelector('[data-act="live-contacts-export"]')).not.toBeNull();
     expect(root.querySelector('[data-act="live-contacts-import"]')).toBeNull();
     expect(root.querySelector('input[data-act="live-contact-import-file"]')).toBeNull();
+    expect(root.querySelector('[data-act="live-contacts-tool"]')).toBeNull();
+  });
+
+  it('never draws a tool the operator may not use, even when one is requested', async () => {
+    const { app, root } = await open(contactsApi(['contact.read', 'contact.export']));
+    app.state.dialogForm = { contactsTool: 'create' };
+    app.render();
+    expect(root.querySelector('#contacts-tool-create')).toBeNull();
+    expect(root.querySelector('[data-act="live-contact-create"]')).toBeNull();
   });
 
   it('safely declines contact actions when input or tenant context is absent', async () => {
@@ -312,9 +321,11 @@ describe('the contacts directory', () => {
       .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null }] } })
       .on(`POST /tenants/${TENANT}/contacts`, { status: 201, body: { data: created } });
     const { root } = await open(api);
+    // The form is a tool the operator opens; opening it fetches the channels.
     expect(root.querySelector('[data-act="live-contact-create"]')).toBeNull();
-    click(root, '[data-act="live-contact-connections"]');
+    click(root, '[data-act="live-contacts-tool"][data-arg="create"]');
     await settle();
+    expect(api.countOf(`GET /tenants/${TENANT}/channels`)).toBe(1);
     choose(root, '[data-form="contactCreateConnection"]', 'cn-1');
     type(root, '[data-form="contactCreateName"]', 'New customer');
     type(root, '[data-form="contactCreateExternalId"]', '201000000000');
@@ -324,6 +335,8 @@ describe('the contacts directory', () => {
       displayName: 'New customer', connectionId: 'cn-1', externalId: '201000000000',
     });
     expect(root.querySelector('.contact[data-contact="contact-new"]')).not.toBeNull();
+    // The tool closes on success, so the operator lands on the new profile.
+    expect(root.querySelector('#contacts-tool-create')).toBeNull();
     expect(text(root)).toContain('سجّل موافقة التسويق');
     expect(root.querySelector('[data-act="live-contact-merge"]')).toBeNull();
   });
@@ -333,7 +346,7 @@ describe('the contacts directory', () => {
       .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null }] } })
       .on(`POST /tenants/${TENANT}/contacts`, { status: 409, body: { error: { code: 'contact_identity_exists', message: 'This channel identity already exists.' } } });
     const { root } = await open(api);
-    click(root, '[data-act="live-contact-connections"]');
+    click(root, '[data-act="live-contacts-tool"][data-arg="create"]');
     await settle();
     choose(root, '[data-form="contactCreateConnection"]', 'cn-1');
     type(root, '[data-form="contactCreateName"]', 'Sara');
@@ -348,7 +361,7 @@ describe('the contacts directory', () => {
       .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null }] } })
       .on(`POST /tenants/${TENANT}/contacts/import`, { status: 201, body: { data: { created: 2 } } });
     const { root } = await open(api);
-    click(root, '[data-act="live-contact-connections"]');
+    click(root, '[data-act="live-contacts-tool"][data-arg="import"]');
     await settle();
     choose(root, '[data-form="contactImportConnection"]', 'cn-1');
     const input = root.querySelector('input[data-act="live-contact-import-file"]') as HTMLInputElement;
@@ -363,11 +376,12 @@ describe('the contacts directory', () => {
       rows: [{ displayName: 'Sara', externalId: '201' }, { displayName: 'Mona', externalId: '202' }],
     });
     expect(text(root)).toContain('لم تُسجّل موافقات تسويقية');
+    expect(root.querySelector('#contacts-tool-import')).toBeNull();
   });
 
   it('shows a bounded size error and a malformed CSV preview without submitting', async () => {
-    const { app, root } = await open(contactsApi());
-    click(root, '[data-act="live-contact-connections"]');
+    const { app, root } = await open(contactsApi().on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null }] } }));
+    click(root, '[data-act="live-contacts-tool"][data-arg="import"]');
     await settle();
     const input = root.querySelector('input[data-act="live-contact-import-file"]') as HTMLInputElement;
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
@@ -385,7 +399,7 @@ describe('the contacts directory', () => {
       .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null }] } })
       .on(`POST /tenants/${TENANT}/contacts/import`, { status: 409, body: { error: { code: 'contact_import_conflicts', message: 'Duplicate identity.' } } });
     const { root } = await open(api);
-    click(root, '[data-act="live-contact-connections"]');
+    click(root, '[data-act="live-contacts-tool"][data-arg="import"]');
     await settle();
     choose(root, '[data-form="contactImportConnection"]', 'cn-1');
     const input = root.querySelector('input[data-act="live-contact-import-file"]') as HTMLInputElement;
@@ -422,6 +436,84 @@ describe('the contacts directory', () => {
     click(failed.root, '[data-act="live-contacts-export"]');
     await settle();
     expect(text(failed.root)).toContain('Export unavailable.');
+  });
+
+  it('opens one tool at a time, reuses loaded channels and closes on request', async () => {
+    const api = contactsApi().on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null }] } });
+    const { app, root } = await open(api);
+    click(root, '[data-act="live-contacts-tool"][data-arg="import"]');
+    await settle();
+    expect(root.querySelector('#contacts-tool-import')).not.toBeNull();
+    expect(root.querySelector('[data-act="live-contacts-tool"][data-arg=""][aria-expanded="true"]')).not.toBeNull();
+    // Switching tools keeps the channels already fetched.
+    click(root, '[data-act="live-contacts-tool"][data-arg="create"]');
+    await settle();
+    expect(root.querySelector('#contacts-tool-create')).not.toBeNull();
+    expect(root.querySelector('#contacts-tool-import')).toBeNull();
+    expect(api.countOf(`GET /tenants/${TENANT}/channels`)).toBe(1);
+    // The close control and anything unknown both put the tool away.
+    click(root, '#contacts-tool-create [data-act="live-contacts-tool"][data-arg=""]');
+    await settle();
+    expect(root.querySelector('#contacts-tool-create')).toBeNull();
+    app.dispatch('live-contacts-tool', 'sideways');
+    await settle();
+    expect(app.state.dialogForm['contactsTool']).toBe('');
+    expect(root.querySelector('.contact-tool')).toBeNull();
+  });
+
+  it('offers a retry when the channels could not be loaded for a tool', async () => {
+    let fail = true;
+    const api = contactsApi().on(`GET /tenants/${TENANT}/channels`, () => (fail
+      ? { status: 503, body: { error: { code: 'unavailable', message: 'Down.' } } }
+      : { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null }] } }));
+    const { root } = await open(api);
+    click(root, '[data-act="live-contacts-tool"][data-arg="import"]');
+    await settle();
+    expect(root.querySelector('#contacts-tool-import [data-act="live-contact-connections"]')).not.toBeNull();
+    // Reopening a tool after a failure asks again rather than showing a dead form.
+    click(root, '[data-act="live-contacts-tool"][data-arg="create"]');
+    await settle();
+    expect(api.countOf(`GET /tenants/${TENANT}/channels`)).toBe(2);
+    expect(root.querySelector('#contacts-tool-create [data-act="live-contact-connections"]')).not.toBeNull();
+    fail = false;
+    click(root, '#contacts-tool-create [data-act="live-contact-connections"]');
+    await settle();
+    expect(root.querySelector('[data-act="live-contact-create"]')).not.toBeNull();
+  });
+
+  it('sums up the loaded list in the hero, and shows a dash until it has one', async () => {
+    const label = { id: 'l-1', name: 'VIP', color: '#6558d9', state: 'active', version: 1 };
+    const api = contactsApi().on(`GET /tenants/${TENANT}/contacts`, {
+      status: 200,
+      body: {
+        data: [
+          contact({ labels: [label] }),
+          contact({ id: 'ct-2', displayName: 'Mona Khalil', identities: [
+            { id: 'ci-8', kind: 'instagram', scopeId: 'cn-2', externalId: 'mona', validFrom: NOW.toISOString(), validTo: null },
+            { id: 'ci-9', kind: 'whatsapp', scopeId: 'cn-1', externalId: '1555', validFrom: NOW.toISOString(), validTo: null },
+          ] }),
+          contact({ id: 'ct-3', displayName: 'Old number', identities: [
+            { id: 'ci-7', kind: 'messenger', scopeId: 'cn-3', externalId: 'x', validFrom: '2025-01-01T00:00:00.000Z', validTo: '2026-01-01T00:00:00.000Z' },
+          ] }),
+        ],
+      },
+    });
+    const { app, root } = await open(api);
+    const values = [...root.querySelectorAll('.contacts-stat__value')].map((node) => node.textContent);
+    // Three rows; two reachable; WhatsApp and Instagram live; one labelled.
+    expect(values).toEqual(['3', '2', '2', '1']);
+    app.state.live.contacts = { status: 'loading' } as never;
+    app.render();
+    expect([...root.querySelectorAll('.contacts-stat__value')].map((node) => node.textContent)).toEqual(['—', '—', '—', '—']);
+  });
+
+  it('offers a two-line CSV template, header then example', async () => {
+    const { root } = await open(contactsApi().on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Support WhatsApp', disconnected_at: null }] } }));
+    click(root, '[data-act="live-contacts-tool"][data-arg="import"]');
+    await settle();
+    const link = root.querySelector('.contact-transfer__template') as HTMLAnchorElement;
+    const body = decodeURIComponent(link.getAttribute('href')?.split(',').slice(1).join(',') ?? '');
+    expect(body.split('\r\n')).toEqual(['display_name,external_id', 'Example Customer,201000000000', '']);
   });
 
   it('searches by name, through the server', async () => {
@@ -881,6 +973,33 @@ describe('consent', () => {
     });
     expect(app.state.toasts.at(-1)?.text).toContain('سُجّل الانسحاب');
     expect(text(root)).toContain('انسحاب');
+  });
+
+  it('sums the profile in four facts, with consent in its order of authority', async () => {
+    const granted = {
+      channel: 'whatsapp', purpose: 'marketing', state: 'granted', source: 'agent_recorded',
+      recordedAt: NOW.toISOString(), actorMembershipId: MEMBERSHIP,
+    };
+    const api = contactsApi().on(`GET /tenants/${TENANT}/contacts/${CONTACT}`, {
+      status: 200,
+      body: { data: contact({ consent: [granted] }) },
+    });
+    const { app, root } = await open(api);
+    click(root, '.contactrow');
+    await settle();
+    const facts = (): string[] => [...root.querySelectorAll('.contact__fact')].map((node) => `${node.className}|${node.textContent ?? ''}`);
+    expect(facts()[0]).toContain('وسائل سارية1');
+    expect(facts()[1]).toContain('contact__fact--success');
+    expect(facts()[1]).toContain('موافقة مسجلة');
+    expect(facts()[3]).toContain('2026');
+    // No marketing record at all is "not recorded", never a silent grant.
+    app.state.live.selectedContact = { status: 'ready', loadedAt: NOW.getTime(), value: contact({ consent: [] }) } as never;
+    app.render();
+    expect(facts()[1]).toContain('contact__fact--warning');
+    // An opt-out outranks the grant it sits beside.
+    app.state.live.selectedContact = { status: 'ready', loadedAt: NOW.getTime(), value: contact({ consent: [granted], suppressed: ['whatsapp'] }) } as never;
+    app.render();
+    expect(facts()[1]).toContain('contact__fact--danger');
   });
 
   it('shows a suppression above the consent it overrides', async () => {

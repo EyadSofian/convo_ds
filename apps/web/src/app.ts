@@ -59,6 +59,8 @@ import { renderSettings } from './ui/settings-screen';
 import { renderShell, renderToasts } from './ui/shell';
 import { trackViewport } from './viewport';
 import { newerBundleAvailable } from './app-version';
+import type { MotionMemory } from './motion';
+import { applyMotion, motionKeys } from './motion';
 
 function renderScreen(state: AppState): HTMLElement {
   if (state.route.screen === 'contacts') return renderContacts(state);
@@ -499,6 +501,7 @@ export function mount(options: MountOptions): AppHandle {
   /** Whether the first render has happened. */
   let drawn = false;
   let overlay: string | null = null;
+  const motion: MotionMemory = new Map();
   let returnFocus: FocusSnapshot | null = null;
   let cancelPoll: Cancel | null = null;
   let cancelResume: Cancel | null = null;
@@ -557,6 +560,12 @@ export function mount(options: MountOptions): AppHandle {
     // render rebuilds the same layer, and replaying its entrance there would
     // make a menu twitch each time a realtime event arrived.
     root.setAttribute('data-motion', nextOverlay !== null && nextOverlay !== overlay ? 'enter' : 'settled');
+    // Page and record transitions: see motion.ts for why these are timed
+    // across renders instead of replayed by each one.
+    const keys = motionKeys(state);
+    applyMotion(root, motion, 'view', keys.view, state.clock.getTime());
+    applyMotion(root, motion, 'detail', keys.detail, state.clock.getTime());
+    applyMotion(root, motion, 'tool', keys.tool, state.clock.getTime());
     replace(root, [renderApp(state)]);
     growComposer(root);
     restoreScroll(root, scroll);

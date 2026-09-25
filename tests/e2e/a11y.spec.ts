@@ -6,6 +6,7 @@ import { CUSTOM_ROLE, installApi } from './support/api';
 import {
   freezeClock,
   MATRIX,
+  motionSettled,
   openInbox,
   openScreen,
   openSignedOut,
@@ -40,6 +41,8 @@ interface AxeViolation {
 
 /** Runs axe against the whole page and returns violations at WCAG 2.1 AA. */
 async function audit(page: Page): Promise<readonly AxeViolation[]> {
+  // Contrast is judged on the settled screen, not on a frame mid-fade.
+  await motionSettled(page);
   await page.evaluate(AXE_SOURCE);
   return page.evaluate(async () => {
     const runner = (window as unknown as { axe: { run: (c: unknown, o: unknown) => Promise<{ violations: AxeViolation[] }> } }).axe;

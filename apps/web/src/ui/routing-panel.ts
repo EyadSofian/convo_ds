@@ -6,7 +6,7 @@ import type { RoutingAbility } from '../live/ability.js';
 import { currentMembership } from '../live/ability.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
-import { badge, button, emptyState, errorState, isolated, selectControl, skeleton } from './parts.js';
+import { badge, button, emptyState, errorState, isolated, sectionTitle, selectControl, skeleton } from './parts.js';
 import type { Tone } from './parts.js';
 
 /**
@@ -66,7 +66,7 @@ export function routingSection(
     return null;
   }
   return h('section', { class: 'routing panel-section', 'aria-labelledby': 'routing-heading' }, [
-    h('h3', { class: 'panel-section__title', id: 'routing-heading' }, [t(state, 'الإسناد', 'Assignment')]),
+    sectionTitle('assign', 'blue', t(state, 'الإسناد', 'Assignment'), 'routing-heading'),
     assigneeLine(state, live, conversation, ability),
     pendingOffer(state, live, conversation),
     routingForm(state, live, conversation, ability),

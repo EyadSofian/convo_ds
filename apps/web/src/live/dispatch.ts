@@ -1054,6 +1054,21 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   }),
 
   'live-contact-connections': async (context) => loadContactConnections(context),
+
+  /**
+   * Opens one of the directory's tools — adding a contact or importing a CSV —
+   * or closes it with an empty argument. Both forms pick a connected channel,
+   * so opening one fetches the channels at once instead of asking the operator
+   * to press "Load channels" before the form is usable.
+   */
+  'live-contacts-tool': async (context, arg) => {
+    const tool = arg === 'create' || arg === 'import' ? arg : '';
+    context.state.dialogForm = { ...context.state.dialogForm, contactsTool: tool };
+    context.refresh();
+    const status = context.live.connections.status;
+    if (tool === '' || (status !== 'idle' && status !== 'error')) return true;
+    return loadContactConnections(context);
+  },
   'live-contacts-import': async (context) => importContacts(context),
   'live-contacts-export': async (context) => exportContacts(context),
 

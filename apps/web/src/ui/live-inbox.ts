@@ -634,7 +634,7 @@ function conversationRow(state: AppState, live: LiveState, conversation: Convers
       'aria-current': open ? 'true' : 'false',
     },
     [
-      avatar({ initials: initials(conversation.contactDisplayName || conversation.peerIdentity), channel: conversation.channel }),
+      avatar({ initials: initials(conversation.contactDisplayName || conversation.peerIdentity), channel: conversation.channel, seed: conversation.contactDisplayName || conversation.peerIdentity }),
       h('span', { class: 'convrow__main' }, [
         h('span', { class: 'convrow__line' }, [
           h('span', { class: 'convrow__name' }, [isolated(conversation.contactDisplayName || conversation.peerIdentity)]),
@@ -716,7 +716,7 @@ function threadHeader(state: AppState, live: LiveState, conversation: Conversati
   const customerName = conversation.contactDisplayName || (live.openContact.status === 'ready' ? live.openContact.value.displayName : null) || conversation.peerIdentity;
   return h('header', { class: 'thread__header' }, [
     listToggle(state),
-    avatar({ initials: initials(customerName), channel: conversation.channel }),
+    avatar({ initials: initials(customerName), channel: conversation.channel, seed: customerName }),
     h('div', { class: 'thread__names' }, [
       h('h2', { class: 'thread__name' }, [isolated(customerName)]),
       h('p', { class: 'thread__sub' }, [

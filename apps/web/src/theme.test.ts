@@ -62,12 +62,15 @@ describe('palettes read from styles/tokens.css', () => {
     expect(dark).toEqual(light);
   });
 
-  it('uses the DS Omnichannel blue, lime, navy and neutral ground in both themes', () => {
+  it('uses the DS Omnichannel blue, lime, navy and a tinted ground in both themes', () => {
     const light = paletteFromCss(TOKENS_CSS, 'light');
     const dark = paletteFromCss(TOKENS_CSS, 'dark');
-    expect(light['canvas']).toBe('#f5f7fb');
+    // The ground is tinted blue so white cards stand off it; a white ground
+    // under white cards was the flat, glaring page this palette replaces.
+    expect(light['canvas']).toBe('#e8eef8');
+    expect(light['canvas']).not.toBe(light['surface-1']);
     expect(light['surface-1']).toBe('#ffffff');
-    expect(light['text']).toBe('#10213f');
+    expect(light['text']).toBe('#0a1630');
     expect(light['accent']).toBe('#004fef');
     expect(light['brand-highlight']).toBe('#ddff57');
     expect(light['nav-bg']).toBe('#071a3a');
@@ -202,15 +205,17 @@ describe('the token layer', () => {
     expect(TOKENS_CSS).toContain('--text-sm: 14px;');
   });
 
-  it('names one self-hosted Arabic-first family', () => {
-    expect(TOKENS_CSS).toContain("--font-sans: 'IBM Plex Sans Arabic'");
+  it('pairs self-hosted Inter for Latin with Readex Pro for Arabic', () => {
+    expect(TOKENS_CSS).toContain("--font-sans: 'Inter', 'Readex Pro'");
     const declarations = TOKENS_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
-    for (const dropped of ['Readex Pro', 'Alexandria', 'Manrope', 'Inter']) {
+    for (const dropped of ['IBM Plex', 'Alexandria', 'Manrope']) {
       expect(declarations).not.toContain(dropped);
     }
     const base = read('./styles/base.css');
     expect(base).not.toMatch(/url\(['"]?https?:/);
-    expect(base.match(/@font-face/g)?.length).toBe(9);
+    expect(base.match(/@font-face/g)?.length).toBe(3);
+    expect(base).toContain("font-family: 'Readex Pro';");
+    expect(base).toContain("url('/fonts/inter-latin-wght.woff2')");
   });
 
   it('keeps the cascade-layer order in one place', () => {

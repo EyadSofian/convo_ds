@@ -1,5 +1,5 @@
 import { h } from '../dom.js';
-import { initials, relativeTime } from '../format.js';
+import { initials, relativeTime, toneOf } from '../format.js';
 import type { IconName } from '../icons.js';
 import { icon } from '../icons.js';
 import { activeMembership, allowedScreens } from '../live/ability.js';
@@ -275,7 +275,7 @@ function renderHeader(state: AppState): HTMLElement {
             'aria-label': t(state, `حسابك: ${email}`, `Your account: ${email}`),
           },
           [
-            h('span', { class: 'avatar avatar--sm', 'aria-hidden': 'true' }, [initials(email.split('@')[0] as string).toLocaleUpperCase()]),
+            h('span', { class: `avatar avatar--sm avatar--tone-${String(toneOf(email))}`, 'aria-hidden': 'true' }, [initials(email.split('@')[0] as string)]),
             icon('chevronDown', 14),
           ],
         ),
