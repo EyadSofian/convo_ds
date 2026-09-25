@@ -1,8 +1,23 @@
 import { expect, test } from '@playwright/test';
-import { PASSWORD } from './support/api';
-import { openInbox, openScreen } from './support/workspace';
+import { CONVERSATION, installApi, PASSWORD } from './support/api';
+import { freezeClock, openInbox, openScreen } from './support/workspace';
 
 test.describe('focused product UX repairs', () => {
+  test('phone notification drawer shows sender and attachment context without leaking lock-screen content', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await freezeClock(page);
+    await installApi(page, { notifications: [{
+      id: 'notice-image', kind: 'new_message', targetType: 'conversation', targetId: CONVERSATION,
+      createdAt: '2026-09-09T09:28:00Z', readAt: null, senderName: 'Controlled Sender', messagePreview: null,
+    }] });
+    await page.goto(`/#/inbox/${CONVERSATION}`);
+    await expect(page.locator('.notification-bell__badge')).toHaveText('1');
+    await page.locator('.notification-bell').click();
+    await expect(page.locator('.notification-row__sender')).toHaveText('Controlled Sender');
+    await expect(page.locator('.notification-row__preview')).toHaveText('صورة أو مرفق');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
   test('emoji messages, Instagram reactions, and the compact account header work on a phone', async ({ page }) => {
     await openInbox(page);
     let outbound: Record<string, unknown> | null = null;
