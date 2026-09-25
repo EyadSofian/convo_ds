@@ -328,6 +328,26 @@ describe('Inbox list controls', () => {
     expect(root.querySelectorAll('.msg--reaction')[1]?.textContent).toContain('أزال العميل تفاعله');
   });
 
+  it('shows a Messenger Like image and never loads an arbitrary attachment URL', () => {
+    const app = state();
+    app.live.openConversationId = 'conversation-1';
+    app.live.openConversation = { status: 'ready', loadedAt: 1, value: {
+      id: 'conversation-1', contactId: null, connectionId: 'connection-1', peerIdentity: 'visitor',
+      inboxLabel: 'Messenger', channel: 'messenger', teamId: null, assigneeMembershipId: 'member-1',
+      status: 'open', priority: 'normal', version: 2, labels: [], customFields: [],
+    } as never };
+    app.live.timeline = ready([
+      { id: 'like', direction: 'in', text: null, attachments: [{ type: 'image', providerId: 'https://scontent.xx.fbcdn.net/like.png' }], at: NOW.toISOString() },
+      { id: 'unsafe', direction: 'in', text: null, attachments: [{ type: 'image', providerId: 'https://fbcdn.net.attacker.example/steal' }], at: NOW.toISOString() },
+    ] as never, 1);
+    const root = renderInbox(app);
+    const image = root.querySelector<HTMLImageElement>('[data-message="like"] img');
+    expect(image?.getAttribute('src')).toBe('https://scontent.xx.fbcdn.net/like.png');
+    expect(image?.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(root.querySelector('[data-message="unsafe"] img')).toBeNull();
+    expect(root.querySelector('[data-message="unsafe"]')?.textContent).toContain('Customer attachment');
+  });
+
   it('keeps free-form reply available in an open window but hides template controls in the supervisor lens', () => {
     const app = state();
     app.live.openConversationId = 'conversation-1';

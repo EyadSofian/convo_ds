@@ -579,6 +579,15 @@
     text-align: start;
   }
 
+  .msg__attachment-image {
+    display: block;
+    max-inline-size: min(176px, 100%);
+    max-block-size: 176px;
+    block-size: auto;
+    object-fit: contain;
+    border-radius: var(--radius-md);
+  }
+
   .msg--out .msg__bubble {
     border-color: var(--bubble-out-edge);
     border-end-start-radius: var(--radius-xl);

@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike } from './api/client';
 import type { AppHandle, Cancel, MountOptions } from './app';
-import { boot, browserEventSource, browserScheduler, EXPORT_POLL_MS, mount, renderApp, workspaceOpen } from './app';
+import { boot, browserEventSource, browserPageLifecycle, browserScheduler, EXPORT_POLL_MS, mount, renderApp, workspaceOpen } from './app';
 import type { PreferenceStore } from './preferences';
 import { LANG_KEY, NAV_KEY, THEME_KEY } from './preferences';
 import type { RouterHost } from './router';
@@ -203,6 +203,19 @@ describe('installed app updates', () => {
     await settle();
     await expect(app.checkForUpdate()).resolves.toBeUndefined();
     expect(app.state.updateAvailable).toBe(false);
+  });
+
+  it('checks for a new bundle when a standalone app regains focus', async () => {
+    const checkForUpdate = vi.fn(async () => false);
+    const { app } = start('#/inbox', signedIn(), { page: browserPageLifecycle(window), checkForUpdate });
+    await settle();
+    window.dispatchEvent(new window.Event('focus'));
+    await settle();
+    expect(checkForUpdate).toHaveBeenCalledTimes(1);
+    app.destroy();
+    handle = null;
+    window.dispatchEvent(new window.Event('focus'));
+    expect(checkForUpdate).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1263,6 +1276,7 @@ describe('boot', () => {
       window.dispatchEvent(new window.Event('offline'));
       expect(handle.state.offline).toBe(true);
       document.dispatchEvent(new window.Event('visibilitychange'));
+      window.dispatchEvent(new window.Event('focus'));
       window.dispatchEvent(new window.Event('online'));
       expect(handle.state.offline).toBe(false);
       handle.destroy();

@@ -818,14 +818,46 @@ function messageBubble(state: AppState, message: TimelineMessage): HTMLElement {
       h('time', { datetime: message.at, class: 'msg__reaction-time' }, [clockTime(message.at, state.lang)]),
     ]);
   }
+  const imageUrl = trustedMetaImage(message.attachments);
+  const body = message.template_preview ?? message.text;
   return h('article', { class: message.direction === 'out' ? 'msg msg--out' : 'msg msg--in', 'data-message': message.id }, [
     message.template_name === undefined || message.template_name === null ? null : h('div', { class: 'msg__template-label' }, [t(state, `قالب واتساب · ${message.template_name}`, `WhatsApp template · ${message.template_name}`)]),
-    h('div', { class: 'msg__bubble' }, [message.template_preview ?? message.text ?? '']),
+    h('div', { class: 'msg__bubble' }, [
+      body,
+      imageUrl === null ? null : h('img', {
+        class: 'msg__attachment-image', src: imageUrl,
+        alt: t(state, 'صورة أرسلها العميل', 'Image sent by customer'),
+        loading: 'lazy', referrerpolicy: 'no-referrer',
+      }),
+      body === null && imageUrl === null && Array.isArray(message.attachments) && message.attachments.length > 0
+        ? t(state, 'مرفق من العميل', 'Customer attachment') : null,
+    ]),
     h('div', { class: 'msg__meta' }, [
       h('time', { datetime: message.at }, [clockTime(message.at, state.lang)]),
       ...deliveryNote(state, message),
     ]),
   ]);
+}
+
+/** Provider URLs are untrusted input. Only Meta's HTTPS image CDN may load in the Inbox. */
+function trustedMetaImage(attachments: unknown): string | null {
+  if (!Array.isArray(attachments)) return null;
+  for (const attachment of attachments) {
+    if (typeof attachment !== 'object' || attachment === null || Array.isArray(attachment)) continue;
+    const value = attachment as Record<string, unknown>;
+    if (value['type'] !== 'image' && value['type'] !== 'sticker') continue;
+    if (typeof value['providerId'] !== 'string' || value['providerId'].length > 8192) continue;
+    try {
+      const url = new URL(value['providerId']);
+      if (url.protocol === 'https:' && url.username === '' && url.password === '' && url.port === '' &&
+        (url.hostname.endsWith('.fbcdn.net') || url.hostname.endsWith('.cdninstagram.com'))) {
+        return url.href;
+      }
+    } catch {
+      // A malformed provider URL is still recorded, but never loaded by the browser.
+    }
+  }
+  return null;
 }
 
 /**
