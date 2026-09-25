@@ -60,6 +60,8 @@ describe('ContactController bulk contact tools', () => {
     const request = { headers: { cookie: 'session=cookie' }, id: 'request-3' } as unknown as FastifyRequest;
     await expect(controller.import(tenantId, { connectionId, rows: Array.from({ length: 501 }, () => ({ displayName: 'Sara', externalId: '201' })) }, 'csrf', request))
       .rejects.toMatchObject({ status: 400, code: 'validation_failed' });
+    await expect(controller.import(tenantId, { connectionId, rows: [{ displayName: '', externalId: '201' }] }, 'csrf', request))
+      .rejects.toMatchObject({ status: 400, code: 'validation_failed' });
     expect(contacts.importBatch).not.toHaveBeenCalled();
   });
 });
