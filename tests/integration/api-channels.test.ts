@@ -1588,7 +1588,45 @@ describe('the outbound path', () => {
   let answer: SendOutcome;
   let sent: SendCommand[];
   let delay: number;
+  type TransportGate = {
+    started: Promise<void>;
+    signalStarted: () => void;
+    waiting: Promise<void>;
+    release: () => void;
+  };
+  let pendingTransportGate: TransportGate | null = null;
   let templateCatalogue: readonly ProviderTemplate[] = [];
+
+  function pauseNextTransportCall(): TransportGate {
+    let signalStarted!: () => void;
+    let release!: () => void;
+    const gate: TransportGate = {
+      started: new Promise<void>((resolve) => { signalStarted = resolve; }),
+      signalStarted: () => signalStarted(),
+      waiting: new Promise<void>((resolve) => { release = resolve; }),
+      release: () => release(),
+    };
+    pendingTransportGate = gate;
+    return gate;
+  }
+
+  async function dispatchWhileTransportPaused<T>(
+    tenantId: string,
+    inspect: () => Promise<T>,
+  ): Promise<{ result: Awaited<ReturnType<ChannelDispatcherService['dispatch']>>; value: T }> {
+    const gate = pauseNextTransportCall();
+    const dispatching = dispatcher.dispatch(tenantId);
+    try {
+      await gate.started;
+      const value = await inspect();
+      gate.release();
+      const result = await dispatching;
+      return { result, value };
+    } finally {
+      gate.release();
+      await dispatching;
+    }
+  }
 
   const accepted = (id: string): SendOutcome => ({
     status: 'accepted',
@@ -1608,6 +1646,12 @@ describe('the outbound path', () => {
         fetchTemplates: () => Promise.resolve({ ok: true as const, templates: templateCatalogue }),
         send: async (_kind, _credential, command) => {
           sent.push(command);
+          const gate = pendingTransportGate;
+          if (gate !== null) {
+            pendingTransportGate = null;
+            gate.signalStarted();
+            await gate.waiting;
+          }
           if (delay > 0) {
             await new Promise((resolve) => setTimeout(resolve, delay));
           }
@@ -1771,20 +1815,16 @@ describe('the outbound path', () => {
     const response = await queue({ text: 'قيد الإرسال', peerIdentity: to });
     const id = (response.json() as { data: { id: string } }).data.id;
     answer = accepted('wamid.inflight');
-    delay = 250;
-
-    const dispatching = dispatcher.dispatch(api.tenantId);
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    const midflight = await withTenant(api.pool, api.tenantId, (client) =>
-      client.query<{ outcome: string | null }>(
-        'SELECT outcome FROM outbound_attempts WHERE message_id = $1',
-        [id],
+    const { value: midflight } = await dispatchWhileTransportPaused(api.tenantId, () =>
+      withTenant(api.pool, api.tenantId, (client) =>
+        client.query<{ outcome: string | null }>(
+          'SELECT outcome FROM outbound_attempts WHERE message_id = $1',
+          [id],
+        ),
       ),
     );
     expect(midflight.rows).toHaveLength(1);
     expect(midflight.rows[0]?.outcome).toBeNull();
-    await dispatching;
-    delay = 0;
   });
 
   it('never resends an unknown outcome, and leaves it visible', async () => {
@@ -2231,18 +2271,13 @@ describe('the outbound path', () => {
     const response = await queue({ text: 'أثناء الطيران', peerIdentity: to });
     const id = (response.json() as { data: { id: string } }).data.id;
     answer = accepted(`wamid.midflight-${to}`);
-    delay = 250;
-
-    const dispatching = dispatcher.dispatch(api.tenantId);
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
-    const attempts = (read.json() as { data: { attempts: { completed_at: string | null }[] } }).data
-      .attempts;
+    const { value: read } = await dispatchWhileTransportPaused(api.tenantId, () =>
+      send(api, owner, 'GET', `/outbound-messages/${id}`),
+    );
+    const attempts = (read.json() as { data: { attempts: { completed_at: string | null }[] } }).data.attempts;
     expect(attempts).toHaveLength(1);
     // Started, not finished — visible as exactly that rather than as nothing.
     expect(attempts[0]?.completed_at).toBeNull();
-    await dispatching;
-    delay = 0;
   });
 
   it('falls back to the build’s matrix when a connection stored none', async () => {
@@ -2292,14 +2327,8 @@ describe('the outbound path', () => {
     const response = await queue({ text: 'مسبوق', peerIdentity: to });
     const id = (response.json() as { data: { id: string } }).data.id;
     answer = accepted(`wamid.stale-${to}`);
-    delay = 400;
-
-    const slow = dispatcher.dispatch(api.tenantId);
-    await new Promise((resolve) => setTimeout(resolve, 120));
     // A newer owner moves the command on while the first is still in flight.
-    await takeOver(id);
-    const result = await slow;
-    delay = 0;
+    const { result } = await dispatchWhileTransportPaused(api.tenantId, () => takeOver(id));
 
     expect(result.stale).toBe(1);
     expect(result.accepted).toBe(0);
@@ -2322,13 +2351,7 @@ describe('the outbound path', () => {
     const response = await queue({ text: 'مجهول ومسبوق', peerIdentity: to });
     const id = (response.json() as { data: { id: string } }).data.id;
     answer = { status: 'outcome_unknown', code: 'ETIMEDOUT', message: 'The answer never came.' };
-    delay = 400;
-
-    const slow = dispatcher.dispatch(api.tenantId);
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    await takeOver(id);
-    const result = await slow;
-    delay = 0;
+    const { result } = await dispatchWhileTransportPaused(api.tenantId, () => takeOver(id));
 
     expect(result.stale).toBe(1);
     // `outcome_unknown` is terminal, and terminal states are still fenced: it is
@@ -2362,13 +2385,7 @@ describe('the outbound path', () => {
       message: 'No.',
       retryable: false,
     };
-    delay = 400;
-
-    const slow = dispatcher.dispatch(api.tenantId);
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    await takeOver(id);
-    const result = await slow;
-    delay = 0;
+    const { result } = await dispatchWhileTransportPaused(api.tenantId, () => takeOver(id));
 
     expect(result.stale).toBe(1);
     expect(result.rejected).toBe(0);
@@ -2388,13 +2405,7 @@ describe('the outbound path', () => {
       message: 'Try later.',
       retryable: true,
     };
-    delay = 400;
-
-    const slow = dispatcher.dispatch(api.tenantId);
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    await takeOver(id);
-    const result = await slow;
-    delay = 0;
+    const { result } = await dispatchWhileTransportPaused(api.tenantId, () => takeOver(id));
 
     expect(result.stale).toBe(1);
     expect(result.retried).toBe(0);
