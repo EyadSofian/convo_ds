@@ -16,6 +16,8 @@ describe('previewContactCsv', () => {
     expect(previewContactCsv('name,external_id\nSara,201')).toMatchObject({ ok: false });
     expect(previewContactCsv('display_name,external_id\nSara,201\nMona,201')).toMatchObject({ ok: false, message: expect.stringContaining('repeats') });
     expect(previewContactCsv('display_name,external_id\n"unterminated,201')).toMatchObject({ ok: false });
+    expect(previewContactCsv('display_name,external_id\nSa"ra,201')).toMatchObject({ ok: false });
+    expect(previewContactCsv('display_name,external_id\n"Sara"x,201')).toMatchObject({ ok: false });
     expect(previewContactCsv(`display_name,external_id\n${Array.from({ length: 501 }, (_, index) => `N${index},id-${index}`).join('\n')}`)).toMatchObject({ ok: false, message: expect.stringContaining('500') });
     expect(previewContactCsv('x'.repeat(1_000_001))).toMatchObject({ ok: false, message: expect.stringContaining('1 MB') });
   });

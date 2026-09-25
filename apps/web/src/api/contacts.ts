@@ -80,7 +80,9 @@ export function previewContactCsv(source: string): ContactCsvPreview {
   const rows: ContactImportRow[] = [];
   for (let index = 0; index < data.length; index += 1) {
     const row = data[index]!;
-    const displayName = row[0]?.trim() ?? '';
+    // csvRecords always starts each record with a first cell; a missing second
+    // cell is allowed through parsing and rejected by the shape check below.
+    const displayName = row[0]!.trim();
     const externalId = row[1]?.trim() ?? '';
     if (row.length !== 2 || displayName.length < 1 || displayName.length > 200 || externalId.length < 1 || externalId.length > 256) {
       return { ok: false, message: `Row ${index + 2} must contain a name (1–200 characters) and channel ID (1–256 characters).` };
