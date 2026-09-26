@@ -101,10 +101,11 @@ async function setup(): Promise<Harness> {
          VALUES ($1,$2,'whatsapp',$3,$4)`,
         [tenantId, contact.rows[0]!.id, connection.rows[0]!.id, `20100000000${index}`],
       );
-      if (consent) await sql.query(
+      // Broadcasts reach everyone who has not said no: the second student withdrew.
+      await sql.query(
         `INSERT INTO consents (tenant_id,contact_id,channel,purpose,state,source)
-         VALUES ($1,$2,'whatsapp','marketing','granted','web_form')`,
-        [tenantId, contact.rows[0]!.id],
+         VALUES ($1,$2,'whatsapp','marketing',$3,'web_form')`,
+        [tenantId, contact.rows[0]!.id, consent ? 'granted' : 'withdrawn'],
       );
     }
     return { ownerMembershipId: owner.rows[0]!.id, connectionId: connection.rows[0]!.id };
@@ -313,8 +314,9 @@ describe('campaign API', () => {
           `INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id) VALUES ($1,$2,'whatsapp',$3,$4)`,
           [api.tenantId, contactId, connectionId, `20199900000${index}`],
         );
-        if (index === 0) await sql.query(
-          `INSERT INTO consents (tenant_id,contact_id,channel,purpose,state,source) VALUES ($1,$2,'whatsapp','marketing','granted','web_form')`,
+        // Nothing recorded for the first: reachable. The second withdrew.
+        if (index === 1) await sql.query(
+          `INSERT INTO consents (tenant_id,contact_id,channel,purpose,state,source) VALUES ($1,$2,'whatsapp','marketing','withdrawn','customer_message')`,
           [api.tenantId, contactId],
         );
         const conversation = await sql.query<{ id: string }>(
@@ -541,7 +543,7 @@ describe('campaign API', () => {
       return { recipient: recipient.rows[0], budget: budget.rows[0] };
     });
     expect(after).toEqual({
-      recipient: { state: 'skipped', reason: 'marketing_consent_missing' },
+      recipient: { state: 'skipped', reason: 'marketing_consent_withdrawn' },
       budget: { state: 'released', reserved: '0.000000' },
     });
     // Keep the shared harness eligible for the independent scheduling cases
@@ -573,7 +575,7 @@ describe('campaign API', () => {
     expect(value.milestones.accepted).toBeGreaterThanOrEqual(value.milestones.delivered);
     expect(value.milestones.delivered).toBeGreaterThanOrEqual(value.milestones.read);
     expect(value.audience.denominator).toBe(value.audience.eligible + value.audience.excluded);
-    expect(value.errors).toContainEqual({ code: 'marketing_consent_missing', count: 1 });
+    expect(value.errors).toContainEqual({ code: 'marketing_consent_withdrawn', count: 1 });
     expect(value.costs.find((row) => row.currency === 'USD')).toMatchObject({
       estimated_amount_minor: expect.any(String), committed_amount_minor: expect.any(String), reconciled_amount_minor: expect.any(String),
     });

@@ -214,16 +214,18 @@
     border: 0;
   }
 
+  /* A ring on a faint track. Every infinite loop is started at the document
+     timeline's origin (loops.ts), so a spinner rebuilt by a render carries on
+     at the same angle instead of stuttering back. */
   .spinner {
     display: inline-block;
+    box-sizing: border-box;
     inline-size: var(--icon-sm);
     block-size: var(--icon-sm);
     border-radius: var(--radius-full);
-    border: 2px solid currentColor;
-    border-inline-end-color: transparent;
-    animation: convo-spin 0.8s linear infinite;
-    /* Phase-locked to the app clock (app.ts), so a re-render never restarts it. */
-    animation-delay: var(--loop-phase, 0ms);
+    border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+    border-block-start-color: currentColor;
+    animation: convo-spin 0.7s linear infinite;
     flex: none;
   }
 

@@ -6,7 +6,7 @@ import type { FetchLike } from '../api/client.js';
 import type { AppHandle } from '../app.js';
 import { mount } from '../app.js';
 import type { LiveContext } from './actions.js';
-import { createContact, importContacts, loadContactConnections } from './contact-actions.js';
+import { addContactIdentity, createContact, importContacts, loadContactConnections } from './contact-actions.js';
 import type { RouterHost } from '../router.js';
 import type { EventSourceLike } from './realtime.js';
 import { createState } from '../state.js';
@@ -257,6 +257,25 @@ describe('the contacts directory', () => {
     expect(await importContacts(context)).toBe(false);
   });
 
+  it('adds a channel from a profile opened without the contacts list', async () => {
+    const state = createState(NOW);
+    state.live.session = { status: 'signed_in', email: 'a@b.c', memberships: [], tenantId: TENANT };
+    const added = contact();
+    Object.defineProperty(state.live, 'contactsApi', { value: { addIdentity: vi.fn().mockResolvedValue({ ok: true, data: added }) } });
+    const context = {
+      state, live: state.live, refresh: () => undefined, now: () => NOW.getTime(), newKey: () => 'key',
+      endSession: () => undefined, switchWorkspace: () => undefined,
+    } as LiveContext;
+    expect(await addContactIdentity(context, CONTACT, 'cn-2', 'psid-1')).toBe(true);
+    expect(state.live.contacts.status).toBe('idle');
+    expect(state.live.selectedContact).toMatchObject({ status: 'ready', value: added });
+    // With the list loaded, only that contact's row changes.
+    const other = { ...added, id: 'someone-else' };
+    state.live.contacts = { status: 'ready', value: [other, { ...added, identities: [] }], loadedAt: 1 } as unknown as typeof state.live.contacts;
+    expect(await addContactIdentity(context, CONTACT, 'cn-2', 'psid-1')).toBe(true);
+    expect(state.live.contacts).toMatchObject({ status: 'ready', value: [other, added] });
+  });
+
   it('shows at most two of a contact’s labels on its row', async () => {
     const label = (id: string, name: string): Record<string, unknown> => ({ id, name, color: '#6558d9', state: 'active', version: 1 });
     const api = contactsApi().on(`GET /tenants/${TENANT}/contacts`, {
@@ -454,6 +473,43 @@ describe('the contacts directory', () => {
       expect(app.state.toasts.at(-1)?.text).toContain('البيانات والتصنيفات (قديم.)');
     });
 
+    it('adds a customer with no channel, or fills a WhatsApp id from the phone', async () => {
+      const created = contact({ id: 'contact-bare', displayName: 'Walk-in', identities: [], version: 1 });
+      const api = withCatalogue(contactsApi(MANAGER))
+        .on(`POST /tenants/${TENANT}/contacts`, { status: 201, body: { data: created } })
+        .on(`PATCH /tenants/${TENANT}/contacts/contact-bare/metadata`, { status: 200, body: { data: { version: 2, metadata: { labels: [], customFields: [] } } } })
+        .on(`GET /tenants/${TENANT}/contacts/contact-bare`, { status: 200, body: { data: created } });
+      const { root, app } = await open(api);
+      click(root, '[data-act="live-contact-new"]');
+      await settle();
+      // No channel chosen: no id field, and nothing but the name is asked for.
+      expect(root.querySelector('#contact-new-external')).toBeNull();
+      type(root, '[data-form="contactCreateName"]', 'Walk-in');
+      click(root, '.dialog [data-act="live-contact-create"]');
+      await settle();
+      const posts = (): unknown[] => api.calls.filter((call) => call.method === 'POST' && call.path === `/tenants/${TENANT}/contacts`).map((call) => call.body);
+      expect(posts()).toEqual([{ displayName: 'Walk-in' }]);
+      // WhatsApp with an empty id takes the phone typed below it, digits only.
+      click(root, '[data-act="live-contact-new"]');
+      await settle();
+      choose(root, '[data-form="contactCreateConnection"]', 'cn-1');
+      expect(text(root.querySelector('.contact-new') as HTMLElement)).toContain('ليُستخدم رقم الهاتف');
+      type(root, '[data-form="contactCreateName"]', 'Hala');
+      type(root, '[data-form="newContact_phone"]', '+20 111 222 3344');
+      click(root, '.dialog [data-act="live-contact-create"]');
+      await settle();
+      expect(posts().at(-1)).toEqual({ displayName: 'Hala', connectionId: 'cn-1', externalId: '201112223344' });
+      // Another channel needs its own id.
+      click(root, '[data-act="live-contact-new"]');
+      await settle();
+      choose(root, '[data-form="contactCreateConnection"]', 'cn-2');
+      type(root, '[data-form="contactCreateName"]', 'Page fan');
+      click(root, '.dialog [data-act="live-contact-create"]');
+      await settle();
+      expect(app.state.formErrors['contactCreateExternalId']).toContain('اترك القناة فارغة');
+      expect(posts()).toHaveLength(2);
+    });
+
     it('checks the card before sending anything', async () => {
       const api = withCatalogue(contactsApi(MANAGER));
       const { root, app } = await open(api);
@@ -461,8 +517,9 @@ describe('the contacts directory', () => {
       await settle();
       click(root, '.dialog [data-act="live-contact-create"]');
       await settle();
-      expect(Object.keys(app.state.formErrors).sort()).toEqual(['contactCreateConnection', 'contactCreateExternalId', 'contactCreateName']);
-      expect(root.querySelectorAll('.dialog .field__error').length).toBe(3);
+      // Only the name is required: the channel is optional.
+      expect(Object.keys(app.state.formErrors).sort()).toEqual(['contactCreateName']);
+      expect(root.querySelectorAll('.dialog .field__error').length).toBe(1);
       await fill(root);
       type(root, '[data-form="newContact_email"]', 'hala@');
       type(root, '[data-form="newContactField_f-mobile"]', '0100');
@@ -487,9 +544,9 @@ describe('the contacts directory', () => {
       click(agent.root, '[data-act="live-contact-new"]');
       await settle();
       const dialog = agent.root.querySelector('.dialog') as HTMLElement;
-      // No channel yet: said plainly, and nothing can be created.
+      // No channel yet: said plainly, and the customer can still be added.
       expect(text(dialog.querySelector('.contact-new__empty') as HTMLElement)).toContain('لا توجد قناة متصلة');
-      expect((dialog.querySelector('[data-act="live-contact-create"]') as HTMLButtonElement).disabled).toBe(true);
+      expect((dialog.querySelector('[data-act="live-contact-create"]') as HTMLButtonElement).disabled).toBe(false);
       // Only the details the catalogue has; no labels to pick; no consent to record.
       expect(dialog.querySelector('[data-form="newContact_email"]')).not.toBeNull();
       expect(dialog.querySelector('[data-form="newContact_company"]')).toBeNull();
@@ -650,7 +707,6 @@ describe('the contacts directory', () => {
     await settle();
     expect(api.countOf(`GET /tenants/${TENANT}/channels`)).toBe(3);
     expect(text(root.querySelector('.contact-new__empty') as HTMLElement)).toContain('Down.');
-    expect((root.querySelector('.dialog [data-act="live-contact-create"]') as HTMLButtonElement).disabled).toBe(true);
     click(root, '.dialog [data-act="close-dialog"]');
     fail = false;
     click(root, '[data-act="live-contacts-tool"][data-arg="import"]');
@@ -1198,6 +1254,48 @@ describe('consent', () => {
     expect(text(root)).toContain('انسحاب');
   });
 
+  it('attaches one more channel from the profile', async () => {
+    const withTwo = contact({ identities: [...(contact()['identities'] as unknown[]), { id: 'ci-2', kind: 'messenger', scopeId: 'cn-2', externalId: 'psid-1', validFrom: NOW.toISOString(), validTo: null }] });
+    const api = contactsApi()
+      .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-2', kind: 'messenger', display_name: 'Page', disconnected_at: null }] } })
+      .on(`POST /tenants/${TENANT}/contacts/${CONTACT}/identities`, { status: 201, body: { data: withTwo } });
+    const { app, root } = await open(api);
+    click(root, '.contactrow');
+    await settle();
+    // The channels are read on demand, then offered.
+    click(root, '.contact__channels [data-act="live-contact-connections"]');
+    await settle();
+    expect(root.querySelector('.contact__add-channel')).not.toBeNull();
+    click(root, '[data-act="live-contact-identity-add"]');
+    await settle();
+    expect(app.state.toasts.at(-1)).toMatchObject({ tone: 'danger' });
+    choose(root, `[data-form="contactIdentityConnection_${CONTACT}"]`, 'cn-2');
+    type(root, `[data-form="contactIdentityExternal_${CONTACT}"]`, 'psid-1');
+    click(root, '[data-act="live-contact-identity-add"]');
+    await settle();
+    expect(api.calls.find((call) => call.path.endsWith('/identities'))?.body).toEqual({ connectionId: 'cn-2', externalId: 'psid-1' });
+    expect(root.querySelectorAll('.contact__identity')).toHaveLength(2);
+    expect(app.state.toasts.at(-1)?.text).toBe('أُضيفت القناة إلى جهة الاتصال.');
+    // A refusal is said, and the profile is left as it was.
+    api.on(`POST /tenants/${TENANT}/contacts/${CONTACT}/identities`, { status: 409, body: { error: { code: 'contact_identity_exists', message: 'Taken.' } } });
+    choose(root, `[data-form="contactIdentityConnection_${CONTACT}"]`, 'cn-2');
+    type(root, `[data-form="contactIdentityExternal_${CONTACT}"]`, 'psid-1');
+    click(root, '[data-act="live-contact-identity-add"]');
+    await settle();
+    expect(app.state.toasts.at(-1)).toMatchObject({ text: 'Taken.', tone: 'danger' });
+    // No channel to add, or no key to add one with.
+    app.state.live.connections = { status: 'ready', loadedAt: 1, value: [] };
+    app.render();
+    expect(text(root.querySelector('.contact__channels') as HTMLElement)).toContain('لا توجد قناة متصلة لإضافتها');
+  });
+
+  it('offers no channel form to somebody who cannot edit contacts', async () => {
+    const { root } = await open(contactsApi(['contact.read']));
+    click(root, '.contactrow');
+    await settle();
+    expect(root.querySelector('.contact__channels [data-act="live-contact-connections"]')).toBeNull();
+  });
+
   it('sums the profile in four facts, with consent in its order of authority', async () => {
     const granted = {
       channel: 'whatsapp', purpose: 'marketing', state: 'granted', source: 'agent_recorded',
@@ -1213,12 +1311,17 @@ describe('consent', () => {
     const facts = (): string[] => [...root.querySelectorAll('.contact__fact')].map((node) => `${node.className}|${node.textContent ?? ''}`);
     expect(facts()[0]).toContain('وسائل سارية1');
     expect(facts()[1]).toContain('contact__fact--success');
-    expect(facts()[1]).toContain('موافقة مسجلة');
+    expect(facts()[1]).toContain('يستلم');
     expect(facts()[3]).toContain('2026');
-    // No marketing record at all is "not recorded", never a silent grant.
+    // Broadcasts reach everyone who has not said no: nothing recorded still receives.
     app.state.live.selectedContact = { status: 'ready', loadedAt: NOW.getTime(), value: contact({ consent: [] }) } as never;
     app.render();
+    expect(facts()[1]).toContain('contact__fact--success');
+    // A withdrawal stops them.
+    app.state.live.selectedContact = { status: 'ready', loadedAt: NOW.getTime(), value: contact({ consent: [{ ...granted, state: 'withdrawn' }] }) } as never;
+    app.render();
     expect(facts()[1]).toContain('contact__fact--warning');
+    expect(facts()[1]).toContain('سحب موافقته');
     // An opt-out outranks the grant it sits beside.
     app.state.live.selectedContact = { status: 'ready', loadedAt: NOW.getTime(), value: contact({ consent: [granted], suppressed: ['whatsapp'] }) } as never;
     app.render();

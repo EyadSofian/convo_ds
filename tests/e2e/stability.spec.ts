@@ -67,7 +67,7 @@ test.describe('a Refresh in flight', () => {
     });
   }
 
-  test('a busy button with a label and no icon keeps its size and place', async ({ page }) => {
+  test('a busy button with a label and no icon keeps its label and its height', async ({ page }) => {
     await openScreen(page, 'people');
     await page.locator('.pagebar [data-arg="invite"]').click();
     await page.locator('#invite-email').fill('tarek@digital-school.example');
@@ -77,9 +77,12 @@ test.describe('a Refresh in flight', () => {
     const release = await hold(page, '**/api/v1/tenants/*/invitations');
     await submit.click();
     await expect(submit).toHaveAttribute('aria-busy', 'true');
-    // The label keeps the width; the spinner is drawn over it, not beside it.
-    await expect(submit.locator('.btn__stack .spinner')).toBeVisible();
-    expect(await box(submit)).toEqual(before);
+    // The spinner is drawn beside the label, which stays readable.
+    await expect(submit.locator('.btn__busy .spinner')).toBeVisible();
+    await expect(submit.locator('.btn__label')).toBeVisible();
+    const busy = await box(submit);
+    expect(busy.height).toBe(before.height);
+    expect(busy.y).toBe(before.y);
     release();
   });
 });

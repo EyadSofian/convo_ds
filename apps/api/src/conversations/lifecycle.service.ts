@@ -184,6 +184,70 @@ export class LifecycleService {
   }
 
   /**
+   * Works through a selection of archived conversations: brings them back into
+   * the inbox, or removes them from the workspace.
+   *
+   * Restoring needs `conversation.close` on each conversation — the same key
+   * that archived it — and puts it back as resolved, as it was when archived.
+   * It is refused while the customer already has a live conversation on that
+   * channel: there is one live thread per customer and channel.
+   *
+   * Removing needs `retention.manage`, held by Owner and Admin. The row, its
+   * messages and its audit stay as evidence; the conversation simply no longer
+   * appears anywhere. Each conversation is answered on its own, so one refusal
+   * does not hold up the rest.
+   */
+  async archived(
+    session: AuthenticatedSession,
+    tenantId: string,
+    action: 'restore' | 'delete',
+    conversationIds: readonly string[],
+  ): Promise<{ readonly done: readonly string[]; readonly refused: readonly { readonly id: string; readonly code: string }[] }> {
+    for (const id of conversationIds) this.authorization.assertTenantId(id);
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      if (action === 'delete') await this.authorization.requirePermission(sql, session, 'retention.manage');
+      const done: string[] = [];
+      const refused: { id: string; code: string }[] = [];
+      for (const id of conversationIds) {
+        const detail = await readDetail(sql, id);
+        const code = detail === null ? 'resource_not_found'
+          : action === 'restore' && !authorize(principal, 'conversation.close', resourceOf(detail)).allowed ? 'permission_denied'
+            : detail.status !== 'archived' ? 'conversation_not_archived'
+              : null;
+        if (code !== null) {
+          refused.push({ id, code });
+          continue;
+        }
+        if (action === 'delete') {
+          await sql.query(
+            `UPDATE conversations SET deleted_at = now(), deleted_by_membership_id = $2, version = version + 1
+              WHERE id = $1 AND status = 'archived' AND deleted_at IS NULL`,
+            [id, principal.membershipId],
+          );
+          done.push(id);
+          continue;
+        }
+        const live = await sql.query(
+          `SELECT 1 FROM conversations WHERE connection_id = $1 AND peer_identity = $2 AND status <> 'archived' LIMIT 1`,
+          [detail!.connectionId, detail!.peerIdentity],
+        );
+        if (live.rows.length > 0) {
+          refused.push({ id, code: 'active_conversation_exists' });
+          continue;
+        }
+        await sql.query(
+          `UPDATE conversations SET status = 'resolved', archived_at = NULL, last_activity_at = now(), version = version + 1
+            WHERE id = $1 AND status = 'archived'`,
+          [id],
+        );
+        await recordParticipation(sql, tenantId, id, principal.membershipId);
+        done.push(id);
+      }
+      return { done, refused };
+    });
+  }
+
+  /**
    * Applies a customer's message to the lifecycle, inside the inbound
    * transaction.
    *

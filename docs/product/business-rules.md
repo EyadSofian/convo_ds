@@ -16,7 +16,7 @@ Any change to a rule in this file requires an ADR plus updated tests. A frontend
 | **Scope** | Which objects a granted action may touch (Tenant / Scoped / Own) | Role |
 | **Channel connection** | An external provider asset we are authorized to use (a WhatsApp phone, a Facebook Page, an Instagram professional account) | Inbox |
 | **Inbox** | The internal team work queue that a connection feeds | Channel connection |
-| **Contact** | A person in a tenant, stable internal ID, phone nullable | External identity |
+| **Contact** | A person in a tenant, stable internal ID, phone nullable; may exist with no channel yet — one is attached when they message in or when somebody adds it | External identity |
 | **External identity** | `(provider, scope_type, scope_id, external_id, validity interval)` | Contact |
 | **Conversation** | One support thread in one inbox for one contact identity | Contact history |
 | **Message** | One customer-visible item | Private note |
@@ -80,6 +80,8 @@ States: `open`, `pending`, `snoozed`, `resolved`, plus archived history.
 | New inbound after archival | archived | new open thread | Preserve link to history; never mutate an archived thread |
 | Duplicate event / receipt / typing / private note | any | unchanged | These never reopen a conversation |
 | Campaign outbound with no active thread | none/resolved | unchanged | Record outbound contact activity only; the customer's reply is what opens/reopens support |
+| Brought back from the archive (`conversation.close`) | archived | resolved | Refused while the customer has a newer live thread on the same channel; the thread returns to the inbox as resolved |
+| Deleted from the archive (`retention.manage`) | archived | archived, deleted | Hidden from the inbox, the archive and search; the row and its audit record are kept |
 
 Additional rules:
 

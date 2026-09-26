@@ -899,7 +899,6 @@
   .status-pill--stale .status-pill__dot {
     box-shadow: none;
     animation: convo-pulse 1.2s ease-in-out infinite;
-    animation-delay: var(--loop-phase, 0ms);
   }
 
   .status-pill--offline,

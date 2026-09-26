@@ -43,6 +43,10 @@ The same bindings drive an automation's `send_whatsapp_template` step, so a temp
 
 A reusable audience stores a validated dynamic condition document. Preview and approval show the definition and an estimated count. At execution time the worker re-evaluates the current eligible population, applies current consent and suppression, then writes an immutable audience snapshot and recipient rows. Later customer edits do not mutate an execution already started.
 
+A broadcast reaches everybody in the audience except those who have opted out. A contact is excluded when it is deleted, its identity on the number is inactive, it is suppressed, or its latest marketing consent on WhatsApp is `withdrawn` (reason `no_consent` in the preview, `marketing_consent_withdrawn` on the recipient row). A contact with no consent record is sent to. Meta still requires the business to hold its own opt-in for marketing templates, so an operator imports contacts they have permission to message and records a withdrawal the moment somebody asks to stop.
+
+The broadcast wizard opens without a WhatsApp number too. It lists every connected channel, lets the operator pick among several WhatsApp numbers, and reads — or syncs from Meta — the approved templates of the number picked.
+
 ## Delivery evidence
 
 For every recipient the system keeps eligibility/exclusion reason, rendered variables, outbound command, attempts, provider IDs, command state, delivery state, timestamps, error category and retry relationship. `outcome_unknown` is terminal for automatic retry.

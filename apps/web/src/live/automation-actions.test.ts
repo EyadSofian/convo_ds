@@ -3,7 +3,7 @@ import type { ApiError, ApiResult, PagedData } from '../api/client.js';
 import type { Automation, AutomationRun, AutomationTemplate, AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { addAutomationStep, createBlankAutomation, deleteAutomationDraft, loadAutomationPage, loadAutomationRunsPage, loadAutomationsScreen, removeAutomationStep, saveAutomation, scheduleOf, setAutomationQuery, setAutomationRunsQuery, transitionAutomation, useAutomationTemplate } from './automation-actions.js';
+import { addAutomationStep, createBlankAutomation, deleteAutomationDraft, loadAutomationPage, loadAutomationRunsPage, loadAutomationsScreen, removeAutomationStep, saveAndActivateAutomation, saveAutomation, scheduleOf, setAutomationQuery, setAutomationRunsQuery, transitionAutomation, useAutomationTemplate } from './automation-actions.js';
 
 const WORKFLOW = { version: 1 as const, trigger: { type: 'manual', config: {} }, target: { type: 'matching_conditions', config: {} }, steps: [{ id: 'step_1', type: 'create_internal_notification', config: {} }], safety: { approvalRequired: true, duplicateWindowSeconds: 1 } };
 const AUTOMATION: Automation = { id:'a-1',name:'Welcome',description:null,templateKey:null,state:'draft',workflow:WORKFLOW,timezone:'UTC',nextRunAt:null,lastRunAt:null,version:1 };
@@ -343,7 +343,9 @@ describe('the remaining form and copy paths', () => {
     const s = setup();
     s.state.lang = 'ar';
     expect(await createBlankAutomation(s.context, 'تدفق جديد')).toBe(true);
-    expect(s.state.toasts.at(-1)?.text).toContain('تم إنشاء الأتمتة');
+    expect(s.state.toasts.at(-1)?.text).toContain('احفظها كمسودة أو فعّلها');
+    expect(await createBlankAutomation(s.context, '')).toBe(true);
+    expect(vi.mocked(s.api.create).mock.calls.at(-1)?.[1]).toMatchObject({ name: 'أتمتة جديدة · -KEY' });
   });
 
   it('takes the description from the form when the operator typed one', async () => {
@@ -386,5 +388,52 @@ describe('the remaining form and copy paths', () => {
   it('defaults a weekly schedule to Monday when the form names no days', () => {
     expect(scheduleOf({ automationScheduleKind: 'weekly' }, undefined, 0))
       .toEqual({ kind: 'weekly', time: '09:00', daysOfWeek: [1] });
+  });
+});
+
+describe('saving and turning an automation on in one go', () => {
+  it('keeps the builder open with the reason when a draft save is refused', async () => {
+    const s = setup({ ok: false, error: ERROR });
+    expect(await saveAutomation(s.context, 'a-1')).toBe(false);
+    expect(s.state.live.error).toBe(ERROR);
+    expect(s.state.live.busy).toBeNull();
+  });
+
+  it('saves what the builder shows, activates it and returns to the list', async () => {
+    const s = setup();
+    vi.mocked(s.api.update).mockResolvedValueOnce(ok({ ...AUTOMATION, version: 2 }));
+    vi.mocked(s.api.transition).mockResolvedValueOnce(ok({ ...AUTOMATION, state: 'active', version: 3 }));
+    s.state.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1' } };
+    expect(await saveAndActivateAutomation(s.context, 'a-1')).toBe(true);
+    expect(s.api.transition).toHaveBeenCalledWith('t', expect.objectContaining({ version: 2 }), 'activate');
+    expect(s.state.route.params).toEqual({ view: 'mine' });
+    expect(s.state.toasts.at(-1)?.text).toBe('“Welcome” is on.');
+    expect(s.state.live.busy).toBeNull();
+    expect(await saveAndActivateAutomation(s.context, 'missing')).toBe(false);
+  });
+
+  it('resumes a paused one, in Arabic too', async () => {
+    const s = setup();
+    s.state.lang = 'ar';
+    s.state.live.automations = { status: 'ready', value: [{ ...AUTOMATION, state: 'paused' }], loadedAt: 1 };
+    vi.mocked(s.api.transition).mockResolvedValueOnce(ok({ ...AUTOMATION, state: 'active' }));
+    expect(await saveAndActivateAutomation(s.context, 'a-1')).toBe(true);
+    expect(vi.mocked(s.api.transition).mock.calls[0]?.[2]).toBe('resume');
+    expect(s.state.toasts.at(-1)?.text).toBe('«Welcome» تعمل الآن.');
+  });
+
+  it('keeps the saved draft open in the builder when activation is refused, and stops when saving is', async () => {
+    const s = setup();
+    s.state.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1' } };
+    vi.mocked(s.api.update).mockResolvedValueOnce(ok({ ...AUTOMATION, version: 2 }));
+    vi.mocked(s.api.transition).mockResolvedValueOnce({ ok: false, error: ERROR });
+    expect(await saveAndActivateAutomation(s.context, 'a-1')).toBe(false);
+    expect(s.state.live.error).toBe(ERROR);
+    expect(s.state.route.params['edit']).toBe('a-1');
+    expect(s.state.live.automations).toMatchObject({ value: [{ version: 2 }] });
+    const refused = setup({ ok: false, error: ERROR });
+    expect(await saveAndActivateAutomation(refused.context, 'a-1')).toBe(false);
+    expect(refused.api.transition).not.toHaveBeenCalled();
+    expect(refused.state.live.error).toBe(ERROR);
   });
 });

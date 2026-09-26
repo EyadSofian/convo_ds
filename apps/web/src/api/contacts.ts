@@ -119,8 +119,13 @@ export class ContactsApi {
     return this.client.get<Contact>(`/tenants/${tenantId}/contacts/${contactId}`);
   }
 
-  create(tenantId: string, input: { readonly displayName: string; readonly connectionId: string; readonly externalId: string }): Promise<ApiResult<Contact>> {
+  /** A contact, on a channel identity when one is given. */
+  create(tenantId: string, input: { readonly displayName: string; readonly connectionId?: string; readonly externalId?: string }): Promise<ApiResult<Contact>> {
     return this.client.post<Contact>(`/tenants/${tenantId}/contacts`, { body: input });
+  }
+
+  addIdentity(tenantId: string, contactId: string, input: { readonly connectionId: string; readonly externalId: string }): Promise<ApiResult<Contact>> {
+    return this.client.post<Contact>(`/tenants/${tenantId}/contacts/${contactId}/identities`, { body: input });
   }
 
   import(tenantId: string, input: { readonly connectionId: string; readonly rows: readonly ContactImportRow[] }): Promise<ApiResult<{ readonly created: number }>> {

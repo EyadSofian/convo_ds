@@ -17,8 +17,7 @@ export async function loadAutomationsScreen(context: LiveContext): Promise<void>
     await loadAutomationPage(context, true);
     if (context.state.route.params['edit'] !== undefined) {
       // The step editors pick labels and fields from the company's catalogue.
-      // A saved-audience target picks from the saved audiences.
-      await Promise.all([loadWhatsAppTemplates(context), context.live.labels.status === 'idle' ? loadMetadataCatalog(context) : null, loadAudiences(context)]);
+      await loadBuilderCatalogues(context);
     }
     return;
   }
@@ -38,6 +37,14 @@ async function loadAutomationTemplates(context: LiveContext): Promise<void> {
     context.live.error = result.ok ? null : result.error;
     context.refresh();
   });
+}
+
+/**
+ * What the builder's editors pick from: approved templates, labels and fields,
+ * and — for a saved-audience target — the saved audiences.
+ */
+async function loadBuilderCatalogues(context: LiveContext): Promise<void> {
+  await Promise.all([loadWhatsAppTemplates(context), context.live.labels.status === 'idle' ? loadMetadataCatalog(context) : null, loadAudiences(context)]);
 }
 
 async function loadWhatsAppTemplates(context: LiveContext): Promise<void> {
@@ -131,30 +138,93 @@ export async function useAutomationTemplate(context: LiveContext, key: string): 
     context.state.focusTarget = '[data-automation-builder] input[name="automationName"]';
     pushToast(context.state, copy(context, 'أُنشئت المسودة. جارٍ فتح المحرر.', 'Draft created. Opening editor.'));
     context.refresh();
+    await loadBuilderCatalogues(context);
     return true;
   });
 }
 
-export async function createBlankAutomation(context: LiveContext, name: string): Promise<boolean> {
+/**
+ * Starts a new automation and opens it in the builder straight away. It is
+ * kept as a draft only so the builder has something to edit; the operator
+ * decides there whether to save it as a draft or turn it on.
+ */
+export async function createBlankAutomation(context: LiveContext, typedName: string): Promise<boolean> {
+  const name = typedName.trim() || `${copy(context, 'أتمتة جديدة', 'New automation')} · ${context.newKey().slice(-4).toUpperCase()}`;
   const input: AutomationInput = {
     name,
     description: null,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     workflow: {
       version: 1,
-      trigger: { type: 'manual', config: {} },
-      target: { type: 'matching_conditions', config: {} },
-      // A step the executor can run, left for the operator to point at a label.
-      steps: [{ id: 'step_1', type: 'add_label', config: {} }],
+      // The common case: at a time, send an approved template to a saved audience.
+      trigger: { type: 'schedule', config: {} },
+      target: { type: 'dynamic_audience', config: {} },
+      steps: [{ id: 'step_1', type: 'send_whatsapp_template', config: {} }],
+      schedule: { kind: 'daily', time: '09:00' },
       safety: { approvalRequired: true, duplicateWindowSeconds: 86400 },
     },
   };
-  return mutate(context, 'automation-create', (tenantId) => context.live.automationsApi.create(tenantId, input), copy(context, 'تم إنشاء الأتمتة كمسودة.', 'Automation created as a draft.'));
+  context.live.busy = 'automation-create';
+  context.live.error = null;
+  context.refresh();
+  return forTenant(context, false, async (tenantId) => {
+    const result = await context.live.automationsApi.create(tenantId, input);
+    context.live.busy = null;
+    if (!result.ok) {
+      context.live.error = result.error;
+      context.refresh();
+      return false;
+    }
+    insertAutomation(context, result.data);
+    context.state.dialogForm = {};
+    context.state.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: result.data.id } };
+    context.state.focusTarget = '[data-automation-builder] input[name="automationName"]';
+    pushToast(context.state, copy(context, 'جهّز الأتمتة، ثم احفظها كمسودة أو فعّلها.', 'Set it up, then save it as a draft or turn it on.'));
+    context.refresh();
+    await loadBuilderCatalogues(context);
+    return true;
+  });
 }
 
 export async function saveAutomation(context: LiveContext, automationId: string): Promise<boolean> {
   const automation = rowsOf(context.live.automations).find((entry) => entry.id === automationId);
   if (automation === undefined) return false;
+  const input = automationInput(context, automation);
+  return mutate(context, `automation-save:${automationId}`, (tenantId) => context.live.automationsApi.update(tenantId, automationId, automation.version, input), copy(context, 'حُفظت المسودة.', 'Draft saved.'));
+}
+
+/**
+ * Saves what the builder shows and turns the automation on. The server checks
+ * every step first; a refusal says what is missing and leaves the saved draft
+ * open in the builder to finish.
+ */
+export async function saveAndActivateAutomation(context: LiveContext, automationId: string): Promise<boolean> {
+  const automation = rowsOf(context.live.automations).find((entry) => entry.id === automationId);
+  if (automation === undefined) return false;
+  const input = automationInput(context, automation);
+  context.live.busy = `automation-activate:${automationId}`;
+  context.live.error = null;
+  context.refresh();
+  return forTenant(context, false, async (tenantId) => {
+    const saved = await context.live.automationsApi.update(tenantId, automationId, automation.version, input);
+    const turnedOn = saved.ok ? await context.live.automationsApi.transition(tenantId, saved.data, automation.state === 'paused' ? 'resume' : 'activate') : saved;
+    context.live.busy = null;
+    if (saved.ok) insertAutomation(context, saved.data);
+    if (!turnedOn.ok) {
+      context.live.error = turnedOn.error;
+      context.refresh();
+      return false;
+    }
+    insertAutomation(context, turnedOn.data);
+    context.state.route = { screen: 'automations', conversationId: null, params: { view: 'mine' } };
+    pushToast(context.state, copy(context, `«${turnedOn.data.name}» تعمل الآن.`, `“${turnedOn.data.name}” is on.`));
+    context.refresh();
+    return true;
+  });
+}
+
+/** What the builder shows, as the definition the server stores. */
+function automationInput(context: LiveContext, automation: Automation): AutomationInput {
   const form = context.state.dialogForm;
   const steps = stepsFromForm(context, automation);
   const triggerType = form['automationTrigger'] || automation.workflow.trigger.type;
@@ -165,7 +235,7 @@ export async function saveAutomation(context: LiveContext, automationId: string)
   const schedule = triggerType === 'schedule'
     ? scheduleOf(form, automation.workflow.schedule, context.now())
     : automation.workflow.schedule;
-  const input: AutomationInput = {
+  return {
     name: form['automationName']?.trim() || automation.name,
     description: form['automationDescription']?.trim() || automation.description,
     timezone: form['automationTimezone'] || automation.timezone,
@@ -182,7 +252,6 @@ export async function saveAutomation(context: LiveContext, automationId: string)
       ...(schedule === undefined ? {} : { schedule }),
     },
   };
-  return mutate(context, `automation-save:${automationId}`, (tenantId) => context.live.automationsApi.update(tenantId, automationId, automation.version, input), copy(context, 'حُفظت المسودة.', 'Draft saved.'));
 }
 
 /**

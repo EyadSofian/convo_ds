@@ -340,7 +340,7 @@ function audienceSummary(state: AppState, campaign: Campaign): HTMLElement {
       h('div', {}, [h('dt', {}, [t(state, 'مؤهلون', 'Eligible')]), h('dd', {}, [formatNumber(audience.eligible, state.lang)])]),
       h('div', {}, [h('dt', {}, [t(state, 'مستبعدون', 'Excluded')]), h('dd', {}, [formatNumber(audience.excluded, state.lang)])]),
     ]),
-    h('p', { class: 'validation__body' }, [t(state, 'المستبعدون: انسحاب أو لا توجد موافقة تسويقية.', 'Excluded: opted out or no marketing consent.')]),
+    h('p', { class: 'validation__body' }, [t(state, 'المستبعدون: من ألغى الاشتراك أو سحب موافقته.', 'Excluded: opted out or withdrew consent.')]),
   ]);
 }
 

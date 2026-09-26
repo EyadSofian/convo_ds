@@ -137,7 +137,7 @@ export async function readConversation(
   conversationId: string,
 ): Promise<ConversationRow | null> {
   const rows = await sql.query<RawConversation>(
-    `SELECT ${SELECT_COLUMNS} FROM conversations WHERE id = $1`,
+    `SELECT ${SELECT_COLUMNS} FROM conversations WHERE id = $1 AND deleted_at IS NULL`,
     [conversationId],
   );
   const row = rows.rows[0];
@@ -153,7 +153,7 @@ export async function readDetail(
        FROM conversations c
        JOIN channel_connections n ON n.id = c.connection_id
        LEFT JOIN contacts contact ON contact.id=c.contact_id AND contact.deleted_at IS NULL
-      WHERE c.id = $1`,
+      WHERE c.id = $1 AND c.deleted_at IS NULL`,
     [conversationId],
   );
   const row = rows.rows[0];

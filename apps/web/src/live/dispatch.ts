@@ -1,8 +1,9 @@
 import type { TransitionCommand } from '../api/conversations.js';
 import type { ScopeRef } from '../api/people.js';
-import { NO_ANALYTICS_FILTERS } from '../state.js';
+import { NO_ANALYTICS_FILTERS, pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import {
+  addContactIdentity,
   createContact,
   exportContacts,
   importContacts,
@@ -49,9 +50,10 @@ import { createAndAssignLabel, createField, createLabel, retireLabel, setEntityL
 import { rowsOf } from './store.js';
 import { hasPermission } from './ability.js';
 import { idList } from './audience.js';
-import { newContactFields } from './contact-profile.js';
+import { derivedChannelId, newContactFields, standardFieldKey } from './contact-profile.js';
 import { chooseAudienceSource, openAudienceDialog, openCampaignEditor, previewCampaignAudience, retireAudience, saveCampaignAudience, showCampaignView } from './audience-actions.js';
-import { goToBroadcastStep, submitBroadcast } from './broadcast.js';
+import { manageArchived, tickArchived } from './archived-actions.js';
+import { goToBroadcastStep, jumpToBroadcastStep, submitBroadcast, syncBroadcastTemplates } from './broadcast.js';
 import { setSimpleFilter } from './inbox-query.js';
 import { INBOX_FILTER_CATALOGUE, INBOX_SORTS, type InboxFilter, type InboxSort } from '@convo/domain';
 import { applySavedView, retireSavedView, saveCurrentInboxView } from './saved-view-actions.js';
@@ -73,6 +75,7 @@ import {
 import {
   addAutomationStep,
   createBlankAutomation,
+  saveAndActivateAutomation,
   deleteAutomationDraft,
   loadAutomationPage,
   loadAutomationRunsPage,
@@ -582,14 +585,9 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
 
   'live-automations-reload': async (context) => manualRefresh(context, 'live-automations-reload', () => loadAutomationsScreen(context)),
   'live-automation-use': async (context, arg) => useAutomationTemplate(context, arg),
-  'live-automation-create': async (context) => {
-    const name = context.state.dialogForm['automationBlankName']?.trim() ?? '';
-    if (name === '') return false;
-    const created = await createBlankAutomation(context, name);
-    if (created) context.state.dialogForm = {};
-    return created;
-  },
+  'live-automation-create': async (context) => createBlankAutomation(context, context.state.dialogForm['automationBlankName'] ?? ''),
   'live-automation-save': async (context, arg) => saveAutomation(context, arg),
+  'live-automation-save-activate': async (context, arg) => saveAndActivateAutomation(context, arg),
   'live-automation-add-step': async (context, arg) => addAutomationStep(context, arg),
   'live-automation-remove-step': async (context, arg) => removeAutomationStep(context, arg),
   'live-automation-transition': async (context, arg) => transitionAutomation(context, arg),
@@ -611,6 +609,8 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-automation-runs-load-more': async (context) => loadAutomationRunsPage(context, false),
 
   'live-broadcast-step': async (context, arg) => goToBroadcastStep(context, arg),
+  'live-broadcast-jump': async (context, arg) => jumpToBroadcastStep(context, arg),
+  'live-broadcast-sync': async (context, arg) => syncBroadcastTemplates(context, arg),
   'live-broadcast-submit': async (context, arg) => submitBroadcast(context, arg),
   'live-campaign-view': async (context, arg) => showCampaignView(context, arg),
   'live-audience-new': async (context) => openAudienceDialog(context),
@@ -825,8 +825,16 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     };
     context.live.selectedSavedViewId = null;
     context.state.inboxQueue = 'mine';
+    // A selection belongs to the archive it was made in.
+    context.live.archivedSelection = [];
     return loadInboxScreen(context);
   },
+
+  'live-archived-tick': async (context, arg) => {
+    tickArchived(context, arg);
+  },
+  'live-archived-restore': async (context) => manageArchived(context, 'restore'),
+  'live-archived-delete': async (context) => manageArchived(context, 'delete'),
 
   'live-inbox-sort': async (context, arg) => {
     if (!(INBOX_SORTS as readonly string[]).includes(arg)) return false;
@@ -1027,20 +1035,34 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     const connectionId = form(context, 'contactCreateConnection');
     const connection = rowsOf(live.connections).find((entry) => entry.id === connectionId && entry.disconnected_at === null);
     const profile = newContactFields(state.dialogForm, rowsOf(live.customFields), hasPermission(live, 'catalog.manage'), state.lang);
+    // The channel is optional. Chosen, it needs the customer's id there — which
+    // for WhatsApp is the phone number, so a typed phone fills it in.
+    const externalId = connection === undefined ? '' : form(context, 'contactCreateExternalId') || derivedChannelId(connection.kind, form(context, standardFieldKey('phone')));
     const errors = {
       ...(form(context, 'contactCreateName') === '' ? { contactCreateName: text(context, 'أدخل اسم العميل.', 'Enter the customer’s name.') } : {}),
-      ...(connection === undefined ? { contactCreateConnection: text(context, 'اختر قناة متصلة.', 'Choose a connected channel.') } : {}),
-      ...(form(context, 'contactCreateExternalId') === '' ? { contactCreateExternalId: text(context, 'أدخل معرّف العميل على القناة.', 'Enter the customer’s ID on the channel.') } : {}),
+      ...(connectionId !== '' && connection === undefined ? { contactCreateConnection: text(context, 'هذه القناة لم تعد متصلة.', 'That channel is no longer connected.') } : {}),
+      ...(connection !== undefined && externalId === '' ? { contactCreateExternalId: text(context, 'أدخل معرّف العميل على هذه القناة، أو اترك القناة فارغة.', 'Enter the customer’s ID on this channel, or leave the channel empty.') } : {}),
       ...profile.errors,
     };
     if (invalid(context, errors)) return false;
     return createContact(context, {
       displayName: form(context, 'contactCreateName'),
-      connectionId,
-      externalId: form(context, 'contactCreateExternalId'),
+      connectionId: connection === undefined ? '' : connectionId,
+      externalId,
       fields: profile.fields,
       labelIds: idList(state.dialogForm['newContactLabels'] ?? ''),
     });
+  },
+
+  'live-contact-identity-add': async (context, arg) => {
+    const connectionId = form(context, `contactIdentityConnection_${arg}`);
+    const externalId = form(context, `contactIdentityExternal_${arg}`);
+    if (connectionId === '' || externalId === '') {
+      pushToast(context.state, text(context, 'اختر القناة واكتب معرّف العميل عليها.', 'Choose the channel and type the customer’s ID on it.'), 'danger');
+      context.refresh();
+      return false;
+    }
+    return addContactIdentity(context, arg, connectionId, externalId);
   },
 
   'live-contact-connections': async (context) => loadContactConnections(context),

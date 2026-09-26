@@ -8,7 +8,7 @@ import type { ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { broadcastStep, broadcastTemplate, goToBroadcastStep, scheduledInstant, stepProblems, submitBroadcast } from './broadcast.js';
+import { broadcastStep, broadcastTemplate, goToBroadcastStep, jumpToBroadcastStep, scheduledInstant, stepProblems, submitBroadcast, syncBroadcastTemplates } from './broadcast.js';
 import { LIVE_ACTIONS } from './dispatch.js';
 
 const NOW = new Date('2026-09-26T09:00:00.000Z');
@@ -245,5 +245,31 @@ describe('sending', () => {
       expect(await submitBroadcast(late.context, 'now')).toBe(false);
       expect(late.state.dialog).toEqual({ kind: 'campaign-edit', arg: 'c-1' });
     }
+  });
+});
+
+describe('looking around and refreshing templates', () => {
+  it('jumps to any step without checking it, but not past the last', async () => {
+    const { state, context } = setup();
+    state.formErrors = { campaignName: 'x' };
+    expect(await LIVE_ACTIONS['live-broadcast-jump']?.(context, '3')).toBe(true);
+    expect(broadcastStep(state)).toBe(3);
+    expect(state.formErrors).toEqual({});
+    expect(jumpToBroadcastStep(context, '4')).toBe(false);
+    expect(jumpToBroadcastStep(context, 'x')).toBe(false);
+  });
+
+  it('syncs a number’s templates and reads the new list, and keeps the old one when refused', async () => {
+    const { state, context } = setup(['channel.manage']);
+    const channels = state.live.channels as unknown as Record<string, unknown>;
+    channels['syncWhatsAppTemplates'] = vi.fn().mockResolvedValueOnce(ok({ connection_id: 'cn-1', imported: 2, disabled: 0, synced_at: NOW.toISOString() })).mockResolvedValueOnce(fail());
+    channels['catalogue'] = vi.fn().mockResolvedValue(ok([]));
+    const automations = { whatsappTemplates: vi.fn().mockResolvedValue(ok([TEMPLATE, { ...TEMPLATE, id: 'wa-2' }])) };
+    Object.defineProperty(state.live, 'automationsApi', { value: automations });
+    expect(await LIVE_ACTIONS['live-broadcast-sync']?.(context, 'cn-1')).toBe(true);
+    expect(state.live.whatsappTemplates).toMatchObject({ status: 'ready', value: [{ id: 'wa-1' }, { id: 'wa-2' }] });
+    expect(await syncBroadcastTemplates(context, 'cn-1')).toBe(false);
+    expect(automations.whatsappTemplates).toHaveBeenCalledTimes(1);
+    expect(state.live.error).toEqual(ERROR);
   });
 });

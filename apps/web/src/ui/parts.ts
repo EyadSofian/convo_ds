@@ -64,11 +64,8 @@ export function button(options: ButtonOptions): HTMLButtonElement {
   const size = options.small === true ? 14 : 16;
   return h('button', attrs, [
     options.icon === undefined ? null : iconSlot(options.icon, size, busy),
-    options.label === undefined
-      ? null
-      : busy && options.icon === undefined
-        ? h('span', { class: 'btn__stack' }, [h('span', { class: 'btn__label' }, [options.label]), spinner()])
-        : h('span', { class: 'btn__label' }, [options.label]),
+    busy && options.icon === undefined ? h('span', { class: 'btn__busy', 'aria-hidden': 'true' }, [spinner()]) : null,
+    options.label === undefined ? null : h('span', { class: 'btn__label' }, [options.label]),
   ]);
 }
 
@@ -106,7 +103,7 @@ export function spinner(): HTMLElement {
  * The icon's own box, fixed at the icon's size, so progress takes the icon's
  * place without moving the label or resizing the button. Refresh keeps its
  * arrows steady; any other icon gives way to a spinner in the same box.
- * A label-only button keeps its label's width and draws the spinner over it.
+ * A label-only button shows the spinner before its label.
  */
 function iconSlot(name: IconName, size: number, busy: boolean): HTMLElement {
   const refreshing = busy && name === 'refresh';

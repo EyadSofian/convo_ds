@@ -15,7 +15,8 @@ import { avatar, button, isolated, sectionTitle, selectControl, textInput } from
  *
  * Five places the people can come from, one narrowing by name, and a count
  * the operator can ask for before creating anything. Campaigns only ever reach
- * contacts with a live identity on the channel, marketing consent and no
+ * contacts with a live identity on the channel who have not opted out or
+ * withdrawn consent
  * opt-out, and the block says so up front rather than after a freeze comes
  * back smaller than expected.
  */
@@ -38,8 +39,8 @@ export function audienceSection(state: AppState): HTMLElement {
     h('div', { class: 'audience__head' }, [
       sectionTitle('users', 'blue', standalone ? t(state, 'من في هذا الجمهور؟', 'Who is in it?') : t(state, 'من سيستلم الحملة؟', 'Who receives it?'), 'campaign-audience-title'),
       h('p', { class: 'field__hint' }, [t(state,
-        'تصل الحملة فقط لمن لديه هوية سارية على القناة وموافقة تسويقية مسجلة ولم يلغِ الاشتراك.',
-        'Only contacts with a live identity on the channel, recorded marketing consent and no opt-out receive it.')]),
+        'تصل لكل من لديه هوية سارية على القناة، ما عدا من ألغى الاشتراك أو سحب موافقته.',
+        'Everyone with a live identity on the channel receives it, except those who opted out or withdrew consent.')]),
     ]),
     h('div', { class: 'audience__sources', role: 'radiogroup', 'aria-label': t(state, 'مصدر الجمهور', 'Audience source') }, sources.map((source) => {
       const copy = SOURCES[source];
@@ -223,7 +224,7 @@ function previewResult(state: AppState, value: AudiencePreview): HTMLElement {
     ]),
     h('dl', { class: 'audience-result__facts' }, [
       h('div', {}, [h('dt', {}, [t(state, 'المطابقون', 'Matched')]), h('dd', {}, [n(value.total)])]),
-      h('div', {}, [h('dt', {}, [t(state, 'بلا موافقة تسويقية', 'No marketing consent')]), h('dd', {}, [n(value.reasons.no_consent)])]),
+      h('div', {}, [h('dt', {}, [t(state, 'سحبوا موافقتهم', 'Withdrew consent')]), h('dd', {}, [n(value.reasons.no_consent)])]),
       h('div', {}, [h('dt', {}, [t(state, 'ألغوا الاشتراك', 'Opted out')]), h('dd', {}, [n(value.reasons.suppressed)])]),
       h('div', {}, [h('dt', {}, [t(state, 'هوية منتهية', 'Inactive identity')]), h('dd', {}, [n(value.reasons.identity_inactive)])]),
     ]),

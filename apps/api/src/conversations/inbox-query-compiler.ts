@@ -32,7 +32,8 @@ export function compileInboxQuery(
     filter.key === 'status' && (filter.value === 'archived' ||
       (Array.isArray(filter.value) && filter.value.includes('archived'))),
   );
-  const clauses = [requestsArchived ? 'TRUE' : "c.status <> 'archived'", readableScope(principal, add)];
+  // A removed conversation appears nowhere, archive included.
+  const clauses = ['c.deleted_at IS NULL', requestsArchived ? 'TRUE' : "c.status <> 'archived'", readableScope(principal, add)];
   if (query.queue === 'mine') clauses.push(`c.assignee_membership_id = ${add(principal.membershipId)}::uuid`);
   for (const filter of query.filters) clauses.push(predicate(filter, customFields, add));
   if (query.search !== null) clauses.push(searchPredicate(query.search, add));

@@ -4,7 +4,8 @@ import { h } from '../dom.js';
 import { clockTime, dayLabel, initials, relativeTime } from '../format.js';
 import { icon } from '../icons.js';
 import { INBOX_FILTER_CATALOGUE, type InboxFilter, type InboxFilterDefinition } from '@convo/domain';
-import { routingAbility } from '../live/ability.js';
+import { hasPermission, routingAbility } from '../live/ability.js';
+import { toggled } from '../live/audience.js';
 import { activeFilterCount } from '../live/inbox-query.js';
 import { isDenial, rowsOf } from '../live/store.js';
 import type { LiveState, Resource } from '../live/store.js';
@@ -546,12 +547,51 @@ function mineList(state: AppState, live: LiveState): Child {
       body: t(state, 'استلم محادثة من «غير مسندة» لتبدأ.', 'Claim one from Unassigned to start.'),
     },
     (rows) => h('div', { class: 'convlist', role: 'list' }, [
-      ...rows.map((conversation) => conversationRow(state, live, conversation)),
+      ...(archivedView(live) ? archivedRows(state, live, rows) : rows.map((conversation) => conversationRow(state, live, conversation))),
       live.inboxNextCursor === null ? null : h('div', { class: 'inbox-more' }, [
         button({ label: t(state, 'تحميل المزيد', 'Load more'), act: 'live-inbox-load-more', variant: 'ghost', small: true, busy: live.busy === 'inbox-load-more' }),
       ]),
     ]),
   );
+}
+
+function archivedView(live: LiveState): boolean {
+  return live.inboxQuery.filters.some((filter) => filter.key === 'status' && filter.value === 'archived');
+}
+
+/**
+ * The archive, worked through in bulk: each row can be ticked, all of them at
+ * once, and the ticked ones brought back into the inbox — or deleted, by
+ * those who hold the retention key.
+ */
+function archivedRows(state: AppState, live: LiveState, rows: readonly Conversation[]): readonly Child[] {
+  const chosen = live.archivedSelection.filter((id) => rows.some((row) => row.id === id));
+  const all = chosen.length === rows.length;
+  const tick = (checked: boolean | 'mixed', arg: string, label: string): HTMLElement => h('button', {
+    type: 'button',
+    class: 'archived__tick',
+    role: 'checkbox',
+    'aria-checked': String(checked),
+    'aria-label': label,
+    'data-act': 'live-archived-tick',
+    'data-arg': arg,
+  }, [checked === true ? icon('check', 12) : checked === 'mixed' ? h('span', { class: 'archived__dash' }) : null]);
+  return [
+    h('div', { class: 'archived__bar', role: 'toolbar', 'aria-label': t(state, 'المحادثات المؤرشفة', 'Archived conversations') }, [
+      tick(all ? true : chosen.length === 0 ? false : 'mixed', all ? '' : rows.map((row) => row.id).join(','), t(state, 'تحديد الكل', 'Select all')),
+      h('span', { class: 'archived__count' }, [chosen.length === 0
+        ? t(state, 'حدّد محادثات', 'Select conversations')
+        : t(state, `${String(chosen.length)} محددة`, `${String(chosen.length)} selected`)]),
+      button({ label: t(state, 'إرجاع للصندوق', 'Back to inbox'), icon: 'restore', act: 'live-archived-restore', small: true, disabled: chosen.length === 0, busy: live.busy === 'archived-restore' }),
+      hasPermission(live, 'retention.manage')
+        ? button({ label: t(state, 'حذف', 'Delete'), icon: 'trash', act: 'dialog', arg: 'archived-delete', small: true, variant: 'danger', disabled: chosen.length === 0 })
+        : null,
+    ]),
+    ...rows.map((conversation) => h('div', { class: 'archived__row' }, [
+      tick(chosen.includes(conversation.id), toggled(chosen, conversation.id), t(state, 'تحديد المحادثة', 'Select conversation')),
+      conversationRow(state, live, conversation),
+    ])),
+  ];
 }
 
 function listBody<T>(

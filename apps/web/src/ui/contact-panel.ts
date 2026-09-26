@@ -4,13 +4,15 @@ import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, formatNumber, initials, relativeTime } from '../format.js';
 import { contactNameField } from '../live/dispatch.js';
+import { hasPermission } from '../live/ability.js';
+import { rowsOf } from '../live/store.js';
 import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { CHANNEL_NAMES, phrase, t } from './copy.js';
 import type { Phrase } from './copy.js';
 import { metadataSection } from './metadata-section.js';
 import { channelMark } from './channel-mark.js';
-import { avatar, badge, button, emptyState, errorState, isolated, sectionTitle, skeleton } from './parts.js';
+import { avatar, badge, button, emptyState, errorState, isolated, sectionTitle, selectControl, skeleton } from './parts.js';
 import type { Tone } from './parts.js';
 
 /**
@@ -156,6 +158,7 @@ export function contactBody(state: AppState, contact: Contact, live: LiveState, 
         contact.identities.length === 0
           ? h('p', { class: 'field__hint' }, [t(state, 'لا توجد هويات مسجلة.', 'No identities recorded.')])
           : h('ul', { class: 'contact__identities' }, contact.identities.map((identity) => identityRow(state, identity))),
+        hasPermission(live, 'contact.edit') ? addChannel(state, live, contact) : null,
       ]),
 
       consentSection(state, contact, live, where),
@@ -173,17 +176,51 @@ export function contactBody(state: AppState, contact: Contact, live: LiveState, 
  */
 function profileFacts(state: AppState, contact: Contact, reachable: number): HTMLElement {
   const marketing = contact.consent.find((record) => record.purpose === 'marketing');
+  // Broadcasts reach everyone who has not said no.
   const [consentLabel, consentTone]: readonly [string, Tone] = contact.suppressed.length > 0
-    ? [t(state, 'انسحب', 'Opted out'), 'danger']
-    : marketing?.state === 'granted'
-      ? [t(state, 'موافقة مسجلة', 'Granted'), 'success']
-      : [t(state, 'غير مسجلة', 'Not recorded'), 'warning'];
+    ? [t(state, 'ألغى الاشتراك', 'Opted out'), 'danger']
+    : marketing?.state === 'withdrawn'
+      ? [t(state, 'سحب موافقته', 'Withdrew'), 'warning']
+      : [t(state, 'يستلم', 'Receives'), 'success'];
   const since = dateFormat(state.lang, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(contact.createdAt));
   return h('dl', { class: 'contact__facts' }, [
     fact('blue', t(state, 'وسائل سارية', 'Live channels'), formatNumber(reachable, state.lang)),
-    fact(consentTone, t(state, 'موافقة التسويق', 'Marketing consent'), consentLabel),
+    fact(consentTone, t(state, 'البث', 'Broadcasts'), consentLabel),
     fact('violet', t(state, 'التصنيفات', 'Labels'), formatNumber(contact.labels.length, state.lang)),
     fact('neutral', t(state, 'عميل منذ', 'Customer since'), since),
+  ]);
+}
+
+/** Attaching one more channel: until the channels are read, a way to read them. */
+function addChannel(state: AppState, live: LiveState, contact: Contact): HTMLElement {
+  const connections = rowsOf(live.connections).filter((connection) => connection.disconnected_at === null);
+  if (connections.length === 0) {
+    return live.connections.status === 'ready'
+      ? h('p', { class: 'field__hint' }, [t(state, 'لا توجد قناة متصلة لإضافتها.', 'No connected channel to add.')])
+      : button({ label: t(state, 'إضافة قناة', 'Add a channel'), icon: 'plus', act: 'live-contact-connections', small: true, variant: 'ghost', busy: live.connections.status === 'loading' });
+  }
+  const connectionKey = `contactIdentityConnection_${contact.id}`;
+  const externalKey = `contactIdentityExternal_${contact.id}`;
+  return h('div', { class: 'contact__add-channel' }, [
+    selectControl({
+      form: connectionKey,
+      value: state.dialogForm[connectionKey] ?? '',
+      ariaLabel: t(state, 'القناة', 'Channel'),
+      options: [
+        { value: '', label: t(state, 'أضف قناة…', 'Add a channel…') },
+        ...connections.map((connection) => ({ value: connection.id, label: `${phrase(state, CHANNEL_NAMES, connection.kind)} · ${connection.display_name}` })),
+      ],
+    }),
+    h('input', {
+      class: 'input',
+      dir: 'ltr',
+      value: state.dialogForm[externalKey] ?? '',
+      placeholder: t(state, 'معرّف العميل عليها', 'Their ID on it'),
+      'aria-label': t(state, 'معرّف العميل على القناة', 'Customer channel ID'),
+      'data-act': 'form',
+      'data-form': externalKey,
+    }),
+    button({ label: t(state, 'إضافة', 'Add'), act: 'live-contact-identity-add', arg: contact.id, small: true, busy: live.busy === `contact-identity:${contact.id}` }),
   ]);
 }
 
@@ -235,7 +272,7 @@ function consentSection(state: AppState, contact: Contact, live: LiveState, wher
       return h('div', { class: `consent__purpose consent__purpose--${latest ?? 'none'}` }, [
         h('div', { class: 'consent__purpose-text' }, [
           h('strong', {}, [purpose === 'marketing' ? t(state, 'رسائل تسويقية', 'Marketing messages') : t(state, 'رسائل الخدمة', 'Service messages')]),
-          h('span', {}, [purpose === 'marketing' ? t(state, 'مطلوبة لاستلام الحملات', 'Required to receive campaigns') : t(state, 'الردود والتحديثات', 'Replies and updates')]),
+          h('span', {}, [purpose === 'marketing' ? t(state, 'الانسحاب يوقف البث إليه', 'A withdrawal stops broadcasts to them') : t(state, 'الردود والتحديثات', 'Replies and updates')]),
         ]),
         latest === undefined
           ? badge(t(state, 'غير مسجلة', 'Not recorded'), 'neutral')

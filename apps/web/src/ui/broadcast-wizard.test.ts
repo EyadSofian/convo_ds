@@ -29,7 +29,9 @@ function number(id: string, status: ChannelConnection['status'] = 'healthy'): Ch
   return { id, kind: 'whatsapp', display_name: `Line ${id}`, external_asset_id: `phone-${id}`, status, disconnected_at: null } as ChannelConnection;
 }
 
-function wizard(permissions: readonly string[] = ALL, lang: 'ar' | 'en' = 'en'): AppState {
+const ALL_WITH_CHANNELS = [...ALL, 'channel.manage'];
+
+function wizard(permissions: readonly string[] = ALL_WITH_CHANNELS, lang: 'ar' | 'en' = 'en'): AppState {
   const state = createState(NOW);
   state.lang = lang;
   state.live.session = {
@@ -52,10 +54,23 @@ describe('before the wizard can start', () => {
     state.live.campaigns = { status: 'ready', loadedAt: 1, value: [] };
     expect(text(render(state))).toContain('no longer exists');
     state.dialog = { kind: 'campaign', arg: '' };
-    state.live.connections = { status: 'ready', loadedAt: 1, value: [] };
+    // With no WhatsApp number the wizard still opens, lists every inbox, and says why none can be chosen.
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [
+      { id: 'ig-1', kind: 'instagram', display_name: 'School Instagram', external_asset_id: 'ig', status: 'healthy', disconnected_at: null } as ChannelConnection,
+      { id: 'gone', kind: 'whatsapp', display_name: 'Old line', external_asset_id: 'x', status: 'healthy', disconnected_at: '2026-09-01T00:00:00.000Z' } as ChannelConnection,
+    ] };
     const none = render(state);
-    expect(text(none)).toContain('Connect a WhatsApp number first');
-    expect(none.querySelector('.empty [data-act="nav"]')?.getAttribute('data-arg')).toBe('channels');
+    expect(text(none.querySelector('.notice'))).toContain('No WhatsApp number is connected yet');
+    expect(none.querySelector('.notice [data-act="nav"]')?.getAttribute('data-arg')).toBe('channels');
+    const inboxes = [...none.querySelectorAll('.broadcast__number')] as HTMLButtonElement[];
+    expect(inboxes.map((inbox) => [text(inbox.querySelector('strong')), inbox.disabled])).toEqual([['School Instagram', true]]);
+    expect(text(inboxes[0]?.querySelector('.broadcast__number-state'))).toBe('No broadcasts');
+    // Any step can be looked at, and the message step asks for a number first.
+    expect(none.querySelector('.broadcast__step-button')?.getAttribute('data-act')).toBe('live-broadcast-jump');
+    state.dialogForm = { broadcastStep: '1' };
+    const message = render(state);
+    expect(text(message)).toContain('Choose a WhatsApp number first');
+    expect(message.querySelector('.empty [data-act="live-broadcast-jump"]')?.getAttribute('data-arg')).toBe('0');
   });
 });
 
@@ -87,7 +102,13 @@ describe('the steps', () => {
     state.live.whatsappTemplates = { status: 'error', error: { code: 'x', message: 'Templates down', requestId: 'r', status: 500, details: [] } };
     expect(text(render(state))).toContain('Templates down');
     state.live.whatsappTemplates = { status: 'ready', loadedAt: 1, value: [{ ...TEMPLATE, connectionId: 'elsewhere' }] };
-    expect(text(render(state))).toContain('No approved templates on this number');
+    const empty = render(state);
+    expect(text(empty)).toContain('No approved templates on this number');
+    // A manager can read the number's templates from Meta again, right here.
+    expect(empty.querySelector('[data-act="live-broadcast-sync"]')?.getAttribute('data-arg')).toBe('cn-1');
+    state.live.busy = 'sync-channel-templates:cn-1';
+    expect(render(state).querySelector('[data-act="live-broadcast-sync"]')?.getAttribute('aria-busy')).toBe('true');
+    state.live.busy = null;
     state.live.whatsappTemplates = { status: 'ready', loadedAt: 1, value: [TEMPLATE] };
     state.dialogForm = { broadcastStep: '1', campaignTemplate: 'wa-1' };
     state.formErrors = { campaignTemplate: 'Give every variable a value.' };
@@ -97,10 +118,7 @@ describe('the steps', () => {
     expect(text(root.querySelector('.broadcast__panel > .notice'))).toBe('Give every variable a value.');
     expect(root.querySelector('.tpl-var--missing')).not.toBeNull();
     expect(root.querySelector('.dialog__footer [data-act="live-broadcast-step"]')?.getAttribute('data-arg')).toBe('0');
-    // A number whose details are not loaded still previews under a plain name.
-    state.dialogForm = { broadcastStep: '1', campaignConnection: 'cn-9', campaignTemplate: 'wa-1' };
-    state.live.whatsappTemplates = { status: 'ready', loadedAt: 1, value: [{ ...TEMPLATE, connectionId: 'cn-9' }] };
-    expect(text(render(state).querySelector('.wa-phone__name'))).toBe('WhatsApp');
+    expect(text(root.querySelector('.broadcast__panel-head'))).toContain('Approved templates on Line cn-1');
   });
 
   it('edits a saved broadcast from what it holds', () => {
@@ -191,6 +209,8 @@ describe('the last step', () => {
     expect(text(root.querySelector('.broadcast__finish [data-arg="now"]'))).toBe('إرسال للاعتماد');
     expect(review(state)[3]).toBe('المتغيراتالنص {{1}}: الرقم، النص {{2}}: حقل');
     expect(review(state)[5]).toBe('الموعدالآن');
+    state.dialogForm = { broadcastStep: '1', campaignTemplate: 'wa-1' };
+    expect(render(state).querySelector('[data-act="live-broadcast-sync"]')).toBeNull();
     state.dialogForm = { broadcastStep: '9' };
     expect(render(state).querySelector('.broadcast__step.is-current .broadcast__step-button')?.getAttribute('data-arg')).toBe('0');
   });

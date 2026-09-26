@@ -30,6 +30,7 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'campaign-schedule') return campaignSchedule(state, dialog.arg);
   if (dialog.kind === 'campaign' || dialog.kind === 'campaign-edit') return broadcastWizard(state, dialog.kind, dialog.arg);
   if (dialog.kind === 'audience-new') return audienceDialog(state);
+  if (dialog.kind === 'archived-delete') return archivedDelete(state);
   if (dialog.kind === 'contact-create') return contactCreateDialog(state);
   if (dialog.kind === 'invite') return invite(state);
   if (dialog.kind === 'change-password') return changePasswordDialog(state);
@@ -651,6 +652,24 @@ function campaignSchedule(state: AppState, campaignId: string): HTMLElement {
         variant: 'primary',
         busy: live.busy === `campaign-launch:${campaign.id}`,
       }),
+    ],
+  );
+}
+
+/** Deleting archived conversations is confirmed, and says what it keeps. */
+function archivedDelete(state: AppState): HTMLElement {
+  const count = state.live.archivedSelection.length;
+  return dialogShell(
+    state,
+    t(state, 'حذف المحادثات المؤرشفة', 'Delete archived conversations'),
+    [
+      notice('warning', 'alert', t(state,
+        `ستُحذف ${String(count)} محادثة من الصندوق والأرشيف والبحث. لا يمكن إرجاعها من الشاشة، ويبقى سجلها محفوظًا للتدقيق.`,
+        `${String(count)} conversation(s) will be removed from the inbox, the archive and search. They cannot be brought back from here; their record is kept for audit.`)),
+    ],
+    [
+      closeButton(state),
+      button({ label: t(state, 'حذف', 'Delete'), icon: 'trash', act: 'live-archived-delete', variant: 'danger', busy: state.live.busy === 'archived-delete', disabled: count === 0 }),
     ],
   );
 }

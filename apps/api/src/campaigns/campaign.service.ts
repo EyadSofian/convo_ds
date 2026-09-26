@@ -776,13 +776,16 @@ export class CampaignService {
 
 /**
  * One eligibility per candidate, in order of authority: a deleted contact or a
- * closed identity cannot be reached at all, an opt-out outranks any consent,
- * and only a latest marketing consent of `granted` makes a contact eligible.
+ * closed identity cannot be reached at all, an opt-out outranks everything,
+ * and a contact whose latest marketing consent is a withdrawal is left out.
+ * Everyone else on the channel is reached: the workspace broadcasts to its
+ * contacts unless they said no (an opt-out model; `no_consent` counts those
+ * who withdrew).
  */
 const ELIGIBILITY = `CASE WHEN c.deleted_at IS NOT NULL THEN 'contact_deleted'
             WHEN i.valid_to IS NOT NULL THEN 'identity_inactive'
             WHEN s.id IS NOT NULL THEN 'suppressed'
-            WHEN consent.state IS DISTINCT FROM 'granted' THEN 'no_consent'
+            WHEN consent.state = 'withdrawn' THEN 'no_consent'
             ELSE 'eligible' END`;
 
 /**

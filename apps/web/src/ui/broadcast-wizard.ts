@@ -11,7 +11,8 @@ import { bindingsFromForm, templateDefinition } from '../live/template-binding.j
 import { rowsOf } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { audienceSection } from './campaign-audience.js';
-import { t } from './copy.js';
+import { channelMark } from './channel-mark.js';
+import { CHANNEL_NAMES, phrase, t } from './copy.js';
 import { button, dialogShell, emptyState, inlineError, isolated, notice, textInput } from './parts.js';
 import { templateComposer } from './template-composer.js';
 
@@ -37,17 +38,9 @@ export function broadcastWizard(state: AppState, kind: string, campaignId: strin
   if (kind === 'campaign-edit' && campaign === undefined) {
     return dialogShell(state, title, [notice('warning', 'alert', t(state, 'لم تعد الحملة موجودة. حدّث القائمة.', 'The campaign no longer exists. Refresh the list.'))], [closeButton(state)]);
   }
+  // The wizard opens whatever is connected, so every step can be seen; the
+  // inboxes that cannot broadcast say why.
   const numbers = whatsappNumbers(state, campaign?.connection_id);
-  if (numbers.length === 0) {
-    return dialogShell(state, title, [
-      emptyState({
-        icon: 'plug',
-        title: t(state, 'اربط رقم واتساب أولًا', 'Connect a WhatsApp number first'),
-        body: t(state, 'البث يُرسل من رقم واتساب للأعمال بقوالب معتمدة من Meta. اربط رقمك وزامن قوالبه ثم عُد هنا.', 'Broadcasts go out from a WhatsApp Business number using templates Meta approved. Connect yours, sync its templates, then come back.'),
-        action: { label: t(state, 'ربط واتساب', 'Connect WhatsApp'), act: 'nav', arg: 'channels', primary: true },
-      }),
-    ], [closeButton(state)], { size: 'lg' });
-  }
   const step = broadcastStep(state);
   const busy = live.busy === 'broadcast-submit';
   return dialogShell(state, title, [
@@ -95,7 +88,8 @@ function stepper(state: AppState, current: number): HTMLElement {
         type: 'button',
         class: 'broadcast__step-button',
         'aria-current': index === current ? 'step' : undefined,
-        'data-act': 'live-broadcast-step',
+        // The tabs move freely, to look around; Next and sending check the steps.
+        'data-act': 'live-broadcast-jump',
         'data-arg': String(index),
       }, [
         h('span', { class: 'broadcast__step-mark', 'aria-hidden': 'true' }, [index < current ? icon('check', 14) : icon(name === 'settings' ? 'settings' : name === 'template' ? 'template' : name === 'users' ? 'users' : 'send', 14)]),
@@ -111,8 +105,9 @@ function fieldError(state: AppState, key: string): HTMLElement | null {
 
 function setupStep(state: AppState, campaign: Campaign | undefined, numbers: ReturnType<typeof whatsappNumbers>): HTMLElement {
   const form = state.dialogForm;
-  // The wizard opens only with a number to offer.
-  const chosen = form['campaignConnection'] ?? campaign?.connection_id ?? numbers[0]!.id;
+  const chosen = form['campaignConnection'] ?? campaign?.connection_id ?? numbers[0]?.id ?? '';
+  // Every inbox is listed; a broadcast goes from a WhatsApp number, so only those can be chosen.
+  const others = rowsOf(state.live.connections).filter((connection) => connection.disconnected_at === null && !numbers.includes(connection));
   return h('section', { class: 'broadcast__panel', 'aria-label': t(state, 'الإعداد', 'Setup') }, [
     h('div', { class: 'field' }, [
       h('label', { class: 'field__label', for: 'campaign-name' }, [t(state, 'اسم البث', 'Broadcast name')]),
@@ -121,9 +116,15 @@ function setupStep(state: AppState, campaign: Campaign | undefined, numbers: Ret
       fieldError(state, 'campaignName'),
     ]),
     h('div', { class: 'field' }, [
-      h('span', { class: 'field__label', id: 'campaign-number-label' }, [t(state, 'يُرسل من رقم', 'Send from')]),
-      h('div', { class: 'broadcast__numbers', role: 'radiogroup', 'aria-labelledby': 'campaign-number-label' }, numbers.map((connection) =>
-        h('button', {
+      h('span', { class: 'field__label', id: 'campaign-number-label' }, [t(state, 'يُرسل من صندوق', 'Send from inbox')]),
+      numbers.length === 0
+        ? notice('warning', 'plug', h('span', {}, [
+            t(state, 'لا يوجد رقم واتساب متصل بعد. البث يُرسل من رقم واتساب للأعمال بقوالب معتمدة من Meta. ', 'No WhatsApp number is connected yet. Broadcasts go out from a WhatsApp Business number using templates Meta approved. '),
+            h('button', { type: 'button', class: 'link-button', 'data-act': 'nav', 'data-arg': 'channels' }, [t(state, 'ربط واتساب', 'Connect WhatsApp')]),
+          ]))
+        : null,
+      h('div', { class: 'broadcast__numbers', role: 'radiogroup', 'aria-labelledby': 'campaign-number-label' }, [
+        ...numbers.map((connection) => h('button', {
           type: 'button',
           class: 'broadcast__number',
           role: 'radio',
@@ -131,7 +132,7 @@ function setupStep(state: AppState, campaign: Campaign | undefined, numbers: Ret
           'data-act': 'form-toggle',
           'data-arg': `campaignConnection:${connection.id}`,
         }, [
-          h('span', { class: 'broadcast__number-icon', 'aria-hidden': 'true' }, [icon('chat', 16)]),
+          h('span', { class: 'broadcast__number-icon', 'aria-hidden': 'true' }, [channelMark(connection.kind, 18)]),
           h('span', { class: 'broadcast__number-text' }, [
             h('strong', {}, [connection.display_name]),
             h('span', {}, [isolated(connection.external_asset_id, true)]),
@@ -139,11 +140,27 @@ function setupStep(state: AppState, campaign: Campaign | undefined, numbers: Ret
           connection.status === 'healthy'
             ? h('span', { class: 'broadcast__number-state is-ready' }, [t(state, 'جاهز', 'Ready')])
             : h('span', { class: 'broadcast__number-state' }, [t(state, 'غير مكتمل الإعداد', 'Setup incomplete')]),
-        ]))),
+        ])),
+        ...others.map((connection) => h('button', {
+          type: 'button',
+          class: 'broadcast__number',
+          role: 'radio',
+          'aria-checked': 'false',
+          disabled: true,
+          title: t(state, 'البث من واتساب فقط', 'Broadcasts go out from WhatsApp only'),
+        }, [
+          h('span', { class: 'broadcast__number-icon', 'aria-hidden': 'true' }, [channelMark(connection.kind, 18)]),
+          h('span', { class: 'broadcast__number-text' }, [
+            h('strong', {}, [connection.display_name]),
+            h('span', {}, [phrase(state, CHANNEL_NAMES, connection.kind)]),
+          ]),
+          h('span', { class: 'broadcast__number-state is-off' }, [t(state, 'لا يدعم البث', 'No broadcasts')]),
+        ])),
+      ]),
       fieldError(state, 'campaignConnection'),
     ]),
     notice('info', 'shield', t(state,
-      'واتساب يسمح ببدء المحادثة مع العملاء بالقوالب المعتمدة فقط، ولمن وافق على استقبال رسائلك التسويقية.',
+      'واتساب يسمح ببدء المحادثة مع العملاء بالقوالب المعتمدة فقط، ولمن وافق على استقبال رسائلك.',
       'WhatsApp lets a business start a conversation only with an approved template, and only with people who agreed to hear from it.')),
   ]);
 }
@@ -153,22 +170,39 @@ function messageStep(state: AppState, campaign: Campaign | undefined): HTMLEleme
   const templates = rowsOf(state.live.whatsappTemplates).filter((template) => template.connectionId === connectionId);
   const connection = rowsOf(state.live.connections).find((entry) => entry.id === connectionId);
   const templatesState = state.live.whatsappTemplates;
+  if (connection === undefined) {
+    return h('section', { class: 'broadcast__panel' }, [emptyState({
+      icon: 'template',
+      title: t(state, 'اختر رقم واتساب أولًا', 'Choose a WhatsApp number first'),
+      body: t(state, 'القوالب المعتمدة تخص كل رقم، فتظهر هنا بعد اختيار الرقم في خطوة الإعداد.', 'Approved templates belong to a number, so they appear here once one is chosen in Setup.'),
+      action: { label: t(state, 'إلى الإعداد', 'Back to Setup'), act: 'live-broadcast-jump', arg: '0' },
+    })]);
+  }
+  const sync = hasPermission(state.live, 'channel.manage')
+    ? button({ label: t(state, 'مزامنة قوالب هذا الرقم', 'Sync this number’s templates'), icon: 'refresh', act: 'live-broadcast-sync', arg: connection.id, small: true, busy: state.live.busy === `sync-channel-templates:${connection.id}` })
+    : null;
   if (templatesState.status !== 'ready') {
     return h('section', { class: 'broadcast__panel' }, [h('p', { class: 'field__hint', role: 'status' }, [templatesState.status === 'error'
       ? templatesState.error.message
       : t(state, 'جارٍ تحميل القوالب المعتمدة…', 'Loading approved templates…')])]);
   }
   if (templates.length === 0) {
-    return h('section', { class: 'broadcast__panel' }, [emptyState({
-      icon: 'template',
-      title: t(state, 'لا توجد قوالب معتمدة لهذا الرقم', 'No approved templates on this number'),
-      body: t(state, 'أنشئ القالب في WhatsApp Manager وانتظر اعتماده، ثم زامن القوالب من صفحة القنوات.', 'Create the template in WhatsApp Manager and wait for approval, then sync templates from the Channels screen.'),
-      action: { label: t(state, 'صفحة القنوات', 'Open Channels'), act: 'nav', arg: 'channels' },
-    })]);
+    return h('section', { class: 'broadcast__panel' }, [
+      emptyState({
+        icon: 'template',
+        title: t(state, 'لا توجد قوالب معتمدة لهذا الرقم', 'No approved templates on this number'),
+        body: t(state, 'أنشئ القالب في WhatsApp Manager وانتظر اعتماده، ثم زامن قوالب الرقم.', 'Create the template in WhatsApp Manager and wait for approval, then sync the number’s templates.'),
+      }),
+      sync,
+    ]);
   }
   const { template, stored } = broadcastTemplate(state, campaign);
   const problem = state.formErrors['campaignTemplate'];
   return h('section', { class: 'broadcast__panel', 'aria-label': t(state, 'الرسالة', 'Message') }, [
+    h('div', { class: 'broadcast__panel-head' }, [
+      h('p', {}, [t(state, `القوالب المعتمدة على ${connection.display_name}`, `Approved templates on ${connection.display_name}`)]),
+      sync,
+    ]),
     problem === undefined ? null : notice('danger', 'alert', problem),
     templateComposer(state, {
       prefix: BROADCAST_PREFIX,
@@ -177,7 +211,7 @@ function messageStep(state: AppState, campaign: Campaign | undefined): HTMLEleme
       selectedId: template,
       stored,
       sample: { name: t(state, 'منى', 'Mona'), phone: '+20 100 000 0000' },
-      sender: connection?.display_name ?? 'WhatsApp',
+      sender: connection.display_name,
       showMissing: problem !== undefined,
     }),
   ]);
@@ -238,8 +272,8 @@ function sendStep(state: AppState, campaign: Campaign | undefined): HTMLElement 
       : null,
     fieldError(state, 'campaignAudience'),
     notice('info', 'shield', t(state,
-      'يصل البث فقط لمن لديه موافقة تسويقية مسجّلة ولم يلغِ الاشتراك. سجّل الموافقة من ملف العميل.',
-      'The broadcast reaches only contacts with recorded marketing consent who have not opted out. Record consent on the contact’s profile.')),
+      'يصل البث لكل عملاء الرقم ما عدا من ألغى الاشتراك أو سحب موافقته. واتساب يشترط أن يكونوا قد وافقوا على مراسلتك.',
+      'The broadcast reaches everyone on the number except those who opted out or withdrew consent. WhatsApp expects them to have agreed to hear from you.')),
   ]);
 }
 
