@@ -1,133 +1,436 @@
 # DS Omnichannel
 
-منصة DS Omnichannel لإدارة المحادثات والقنوات والحملات للشركات، من مصدر واحد وبنمطَي تشغيل:
+DS Omnichannel is a customer-conversation platform for support, sales and admissions teams. It brings WhatsApp, Facebook Messenger, Instagram, website chat and your own systems into one shared inbox. Around the inbox it adds contacts, WhatsApp broadcasts, automations and analytics.
 
-- **SaaS متعدد الشركات** (`CONVO_DEPLOYMENT_MODE=saas`)
-- **Self-hosted لشركة واحدة** (`CONVO_DEPLOYMENT_MODE=self_hosted_single`)
+The interface is available in Arabic and English, with full right-to-left support and light and dark themes. The server enforces every permission, so the browser never receives data that the signed-in person may not see.
 
-نفس الـschema وعقود الـAPI والصلاحيات في النمطين. قيد الشركة الواحدة يُفرض داخل PostgreSQL، وليس بافتراض في الواجهة أو الخدمة.
+This document is for the team that installs and runs DS Omnichannel on its own infrastructure.
 
-## الحالة الحالية
+---
 
-اكتملت مراجعة التسليم النهائية في [`docs/final/PRODUCT_COMPLETION_AUDIT.md`](docs/final/PRODUCT_COMPLETION_AUDIT.md)، ومصفوفة الصدق الخاصة بكل تكامل في [`docs/final/INTEGRATION_MATRIX.md`](docs/final/INTEGRATION_MATRIX.md)، وحزمة التشغيل المستقلة عن GitHub وRailway في [`docs/final/SOURCE_HANDOVER.md`](docs/final/SOURCE_HANDOVER.md). تظل Meta وResend ووجهة التنبيه بوابات تفعيل خارجية؛ نجاح الاختبارات الداخلية لا يُسجَّل كنجاح حي لأي مزوّد.
+## Contents
 
-أُنجزت مراجعة المنتج مقابل ملف متطلبات Digital School بندًا بندًا في [`docs/PRODUCT_AUDIT.md`](docs/PRODUCT_AUDIT.md)، مع فصل ما يحتاج إعداد العميل في [`docs/CLIENT_CONFIGURATION_GAPS.md`](docs/CLIENT_CONFIGURATION_GAPS.md). أضيف عقد شروط موحّد ومحكوم يمكن أن تستخدمه الشرائح والتوجيه والوسوم والأتمتة، وواجهات API فعلية للعروض المحفوظة الخاصة/الفِرَقية/المشتركة وللشرائح الديناميكية القابلة لإعادة الاستخدام. الشرائح تُخزَّن الآن كتعريفات قابلة للإصدار؛ ربطها بتنفيذ الحملة وإنتاج لقطة جمهور ثابتة وقت الإرسال ما زال ضمن الشريحة التالية.
+- [Features](#features)
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [The database: what is automatic](#the-database-what-is-automatic)
+- [Configuration](#configuration)
+- [Deploy with Docker Compose](#deploy-with-docker-compose)
+- [Deploy without Docker](#deploy-without-docker)
+- [First run: create the company and its owner](#first-run-create-the-company-and-its-owner)
+- [Connecting channels](#connecting-channels)
+- [Email and notifications](#email-and-notifications)
+- [Health checks and logs](#health-checks-and-logs)
+- [Upgrading](#upgrading)
+- [Backups and recovery](#backups-and-recovery)
+- [Local development](#local-development)
+- [Quality gates](#quality-gates)
+- [Documentation](#documentation)
+- [Security notes](#security-notes)
 
-كتالوج الحقول المخصّصة يدعم الآن `EMAIL` و`PHONE` إلى جانب الأنواع السابقة، مع تطبيع البريد والتحقق من رقم E.164 في النطاق وقاعدة البيانات. حُذف خادم الديمو المضمّن نهائيًا؛ بناء الويب لا يملك مسارًا يفتح بيانات وهمية، وكل مساحة العمل تبقى خلف جلسة الخادم. كما طُبّقت هوية Digital School الرسمية: الشعار المورّد، IBM Plex، وألوان Berlitz Blue وDigital Yellow وPowder وCharcoal الموثقة في [`docs/BRAND_IMPLEMENTATION.md`](docs/BRAND_IMPLEMENTATION.md).
+---
 
-اكتملت **Milestone A** و**Milestone B**: أساس workspace وقاعدة البيانات وRLS، وضع التنصيب وbootstrap لمرة واحدة، تطبيق NestJS/Fastify على `/api/v1` مع OpenAPI ثابت وidempotency ذرّي، تسجيل الدخول والجلسات وCSRF ومنع الإساءة، استعادة كلمة المرور بلا كشف وجود الحساب، الدعوات بقبول أحادي الاستخدام، مصفوفة الأدوار السبعة ومحرك تقاطع النطاقات، سطح تعديلات الأفراد والأدوار والفرق ونقل الملكية، وشاشة **الأفراد والأدوار** في `apps/web` موصولة بالخادم فعليًا.
+## Features
 
-اكتملت كذلك **الشريحة الأولى من Milestone C**: أساس القنوات ومسار الوارد كاملًا — ربط أصل لدى المزوّد، استقبال webhook موقَّع، التحقق من التوقيع على البايتات الخام نفسها، تحديد الشركة من الأصل المتحقَّق منه لا من المتصل، تدوين الحدث الخام قبل الرد، ثم اشتقاق حدث وارد مُطبَّع. اعتمادات القنوات مخزَّنة بتشفير AES-256-GCM مربوط بالشركة والاتصال والغرض، وشاشة **القنوات** موصولة بالخادم فعليًا.
+**Inbox**
+- One queue for every channel, with unassigned and "mine" views, saved views and server-side filtering and search.
+- Claim, assign, hand off and collaborate on conversations.
+- Priorities, snooze with time zones, and resolve and reopen with reporting episodes.
+- Private notes, labels and custom fields.
+- An archive whose conversations can be brought back to the inbox in bulk, or deleted by administrators.
+- Live updates over server-sent events, and optional browser push notifications.
 
-**لا يوجد أي محاكي مزوّد.** النقل الافتراضي يرفض كل إرسال وكل اختبار اتصال بسبب `provider_not_connected`، وهذه هي الحقيقة إلى أن تتوفر أصول Meta مُصرَّح بها.
+**Contacts**
+- Contact profiles with identities per channel and custom fields.
+- CSV import and export.
+- Consent history, where an opt-out always wins.
+- A contact can be added with no channel yet. A channel is attached automatically when the customer writes in, or by hand from the profile.
 
-اكتمل كذلك **المسار الصادر**: أمر إرسال يُكتب مع صف outbox في معاملة واحدة ويُردّ عليه بـ202 (لا 200)، وإعادة تقييم الإذن لحظة الإرسال لا لحظة الكتابة، وصف محاولة يُثبَّت **قبل** نداء الشبكة، ونتيجة ثلاثية القيم لا يُعاد إرسال المجهول منها أبدًا. حالة الأمر وحالة التسليم عمودان منفصلان يُطويان باستقلال، فإيصال «مقروء» يسبق «سُلّم» لا يُلغى بل تُسجَّل المفارقة.
+**Channels**
+- WhatsApp Business (Cloud API), Messenger and Instagram through a Meta app.
+- A website chat channel for a widget on your own site.
+- A signed **Custom API channel** that connects your own CRM, backend or bot.
 
-اكتملت كذلك **القنوات الأربع الباقية**: ماسنجر وإنستغرام ومحادثة الموقع وواجهة قناة مخصّصة مُصدَّرة الإصدار. ما تتشاركه قنوات Meta الثلاث هو السلك لا القاعدة: توقيع واحد وهيكل مغلَّف واحد، بينما تبقى النافذة والقوالب والحدود ومفردات الأحداث خاصة بكل قناة — والاختبارات تُثبت الاختلاف لا التشابه. أما قنواتنا نحن فلا مزوّد لها، فالتنصيب يوقّع تسليماته بمفتاح أصدره هو: HMAC على `<الطابع الزمني>.<الجسم الخام>` مع الطابع داخل المادة الموقَّعة، بجانب قائمة أصول مسموحة تُطابَق تمامًا وحد معدّل لكل اتصال.
+**Broadcasts**
+- WhatsApp broadcasts built on approved Meta templates, with variables bound to contact fields.
+- Reusable audiences, approval and scheduling.
+- Delivery evidence for every recipient.
+- Everyone in the audience is reached except people who opted out.
 
-واكتمل **باقي Milestone C**: ثمانية أدوار تشغيل من نفس البناء (`CONVO_PROCESS_ROLE`) — أدوار HTTP تستمع، وخمسة عمّال يعملون في حلقة ولا يحجزون منفذًا، وعامل التكامل **يفشل مغلقًا** إن لم يتوفر وسيط دائم بدل أن يتحوّل صامتًا إلى طابور في الذاكرة. وناقل outbox بتأكيدات نشر وإعادات محدودة وحجْر للرسائل السامّة وإعادة تشغيل مُدقَّقة. ومجدول عادل يخدم الردود التفاعلية أولًا ويوزّع الجولة خانة خانة، فلا تُجوّع شركة صاخبة غيرها، ويُظهر «المطلوب» بجانب «المُنجَز». وتسييج `dispatch_version` يُقارَن الآن عند كل كتابة نتيجة: عامل متأخر لا يُعيد الحالة إلى الوراء، لكن دليله عن المزوّد يُحفَظ موسومًا `stale_dispatch`.
+**Automations**
+- Event- and schedule-driven workflows: send a template, add a label, set a field, wait.
+- A visual builder and a run log.
 
-وأخيرًا **الزمن الحقيقي**: سجل أحداث مُلحَق فقط لكل شركة، مرقَّم بلا فجوات وبترتيب الإيداع، يُكتب في نفس معاملة الأثر الذي يصفه. كل حدث يُصرَّح به من جديد عند الخروج بنفس محرك الصلاحيات الذي تستخدمه الواجهات — فمن يملك معاينة فقط يستلم **بطاقة طابور** مبنية حقلًا حقلًا على الخادم، لا محادثة أُخفيت حقولها في المتصفح؛ ومن سُحب منه صندوق وارد يتوقف بثّه عند أول استطلاع لا عند الدخول التالي. المؤشر يحمل موضعه **وبصمة الصلاحية التي صدر بها**، فتغيّر الصلاحيات يُجيب `reset_required` بدل استئناف خاطئ بصمت.
+**Analytics**
+- Campaign, operations, agent, team, response-time, resolution, assignment and channel reports.
+- Rings, donuts, bar and column charts, alongside the full tables.
+- Export any report as CSV, or every report as one Excel workbook.
+- Print any report or save it as a PDF.
 
-يوجد ناقل HTTP فعلي لـWhatsApp Cloud API فقط، لكنه يبقى معطّلًا حتى تُضاف أصول Meta مصرّح بها ويُجتاز الاختبار الحي. أما Messenger وInstagram فمساراهما الواردان موجودان، ولا يُدّعى وجود إرسال حي لهما. ولا وسيط رسائل مُهيَّأ: المنفذ حقيقي ومُختبَر، والافتراضي يُجيب `broker_not_configured` بحالة «غير معروف» لا «مرفوض»، فينمو الـoutbox ظاهرًا بدل أن تُفقد الأحداث.
+**Administration**
+- Users, invitations, roles with fine-grained permissions, and teams.
+- Sessions, audit trails and an ownership transfer flow.
 
-واكتملت **الشريحة الأولى من Milestone D**: صندوق الوارد الحقيقي. الشاشة التجريبية القديمة حُذفت لا عُطِّلت، ومعها مبدّل «حالة العرض» الذي كان يزيّف التحميل والفراغ والانقطاع والمنع. صندوق الوارد الآن يقرأ من الخادم وحده: طابور غير المسندة، ومحادثات هذا الموظّف، وسجل محادثة واحدة، والبثّ الحي. من يملك «معاينة» فقط يرى **بطاقة طابور** لأن البطاقة هي كل ما أرسله الخادم — لا يوجد مقتطف في الحمولة كي «يُخفيه» المتصفح. والاستلام يحمل النسخة التي رآها الموظّف فعلًا، فإن سبقه زميل قيل له ذلك بوضوح لا كخطأ. والرد يُوجَّه إلى **المحادثة**: المستلم يأتي من السجل، وأي `peerIdentity` في الجسم يُتجاهل.
+---
 
-في الزمن الحقيقي: الحدث يقول **ماذا تغيّر**، ثم يُعاد القراءة من الواجهة المالكة للبيانات — فالترقيع من حمولة الحدث كان سيضع بطاقة مكان سجل. وإعادة الاتصال تُترك لـ`EventSource` نفسه بأرضية `retry:` التي يرسلها الخادم، ولا يُغلق العميل البثّ إلا حين تكون العودة بلا معنى (سحب الصلاحية). وانقطاع البثّ يُقال على الشاشة، لأن صندوقًا متوقفًا وصندوقًا هادئًا يبدوان سواء.
+## Architecture
 
-واكتملت **الشريحة الثانية من Milestone D**: جهات الاتصال والهوية والموافقة. جهة الاتصال تنشأ لأن أحدهم راسلنا — لا يوجد `createContact` ولا استيراد ولا نموذج يحوّل رقمًا مكتوبًا إلى شخص. والهوية **مرتبطة بنطاقها**: المفتاح `(القناة، الاتصال، المعرّف الخارجي)`، فالرقم نفسه على اتصالين هويتان، والشخص نفسه يراسل صفحتين هويتان، والمطابقة تامّة بلا أي مسار تخمين — لا اسم مشابه ولا اسم مستخدم مطابق ولا رقم يختلف بمقدّمة الدولة وحدها.
+```mermaid
+flowchart LR
+  browser([Browser]) -->|HTTPS| proxy[Your TLS proxy]
+  proxy --> web[web<br/>app + /api proxy]
+  web -->|/api/v1| api[api]
+  meta([Meta / your systems]) -->|signed webhooks| proxy
+  api --> pg[(PostgreSQL)]
+  workers[workers<br/>inbound · interactive · campaign<br/>report · automation · integration] --> pg
+  workers -->|send| providers([Meta · email · push])
+  dbjob[database<br/>one-shot migrate] --> pg
+```
 
-وتبديل الهوية **يُغلق فترة ويفتح أخرى** ولا يستبدل عمودًا: فهرس فريد جزئي يسمح بصف سارٍ واحد لكل معرّف مع تاريخ غير محدود خلفه. الحالة الحاسمة رقم أُعيد تعيينه لشخص آخر: الرسائل التي أُرسلت إليه قبل ذلك تخصّ من كان يحمله حينها، فالهوية المنتهية تُعرض «منتهية» ولا تُخفى.
+The repository is a pnpm monorepo:
 
-والموافقة **دليل لا مفتاح**: دور التشغيل يملك `SELECT, INSERT` على `consents` ولا شيء غيرهما تحت FORCE RLS، والاختبارات تُثبت رفض التعديل والحذف معًا. ورفضان جزء من العقد: **422 `import_is_not_consent`** لأن صفًا في جدول ليس موافقة أحد على مراسلته، و**409 `suppression_outranks_consent`** لأن الانسحاب يعلو أي موافقة ورفعه يحتاج مسار موافقة صريحة جديدة غير مبني بعد. والانسحاب ليس عمودًا على جهة الاتصال، بل يبقى في `channel_suppressions` مفتاحه الهوية، ويُشتق عبر الهويات **السارية** وحدها.
+| Path | What it is |
+| --- | --- |
+| `apps/api` | NestJS on Fastify. The REST API under `/api/v1` and every background worker. |
+| `apps/web` | The web application (TypeScript, no framework). `apps/web/server.mjs` serves it and proxies `/api` to the API. |
+| `packages/database` | SQL migrations and the `bootstrap` / `migrate` command. |
+| `packages/domain` | Business rules shared by the API and the web app. |
+| `deploy/` | The container entry point and a Docker Compose example. |
+| `docs/` | Architecture, API contract, runbooks and decisions. |
 
-واكتملت **الشريحة الثالثة من Milestone D**: دورة حياة المحادثة والملاحظات وحالة القراءة. جدول §18.1 مكتوب **بيانات** لا سلسلة `if`، تقرّره دالة واحدة — فالمُحفِّز الذي لا يغيّر شيئًا صفٌّ صريح (الإيصال ومؤشّر الكتابة والملاحظة الداخلية لا تُعيد فتح شيء)، والرفض **قيمة** تتحوّل إلى 409 باسم الرفض نفسه فيقرأها المشغّل بلغته، والآثار الجانبية يسمّيها الصفّ فلا ينساها نداء واحد. والمحفّزات **أسباب** لا أوامر: `customer_inbound` واقعة وصلت، والجدول يقرّر معناها من موضع المحادثة.
+One container image runs every part of the system. Two variables choose what a container does:
 
-والتأجيل يخزّن **اللحظة والمنطقة الزمنية** معًا لأنهما جوابان لسؤالين: اللحظة موعد إطلاق المهمة، والمنطقة ما **قصده** المشغّل — ونظام يحفظ اللحظة وحدها لا يستطيع إعادة اشتقاق «صباح الغد» بعد تغيّر التوقيت الصيفي. والمنطقة تُتحقَّق من قاعدة IANA الخاصة بزمن التشغيل عند الباب، فتفشل أمام من اختارها لا في عامل بعد ساعات. ومهمة الإيقاظ صفّ دائم مسيَّج بـ`wake_version`: إعادة التأجيل ترفع الرقم فلا تُطابِق المهمةُ السابقة شيئًا، وتحديث الكانس مشروط بالنسخة **وبالحالة** فتصبح المهمة المتأخرة لاغية تُحذف بدل أن تُطلق مبكرًا. والمتصفّح يرسل **لحظة** لا مدّة، لأن المدّة كانت ستُحسب على ساعة الخادم بينما اختارها المشغّل على ساعته.
+| Service | `CONVO_SERVICE_KIND` | `CONVO_PROCESS_ROLE` | Exposure | Purpose |
+| --- | --- | --- | --- | --- |
+| web | `web` | — | **public** | Serves the app and proxies `/api` to the API. The only service your users reach. |
+| database | `database` | — | none, runs once | Creates the database and roles if missing, then applies new migrations and exits. |
+| api | `api` (default) | `api` | private | The HTTP API, webhooks and the live event stream. |
+| worker-inbound | `api` | `worker-inbound` | private | Turns inbound provider events into conversations and messages. |
+| worker-interactive | `api` | `worker-interactive` | private | Delivers agents' replies and other interactive sends. |
+| worker-campaign | `api` | `worker-campaign` | private | Plans and sends broadcasts. |
+| worker-report | `api` | `worker-report` | private | Produces report exports. |
+| worker-automation | `api` | `worker-automation` | private | Runs scheduled and event-driven automations. |
+| worker-integration | `api` | `worker-integration` | private | Sends email and push notifications, and relays events to a broker if one is configured. |
 
-وإعادة الفتح تبدأ **حلقة تقارير جديدة**: إعادة استخدام الأولى كانت ستبدأ ساعة المشكلة الثانية من أول رسالة في المشكلة الأولى فتُكذِّب كل تقرير زمن حلّ. و`first_response_at` يُكتب داخل **نفس معاملة أمر الرد** ويُدمج بـ`coalesce` فالردّ الأول هو الأول ولا يزحزحه ردّ ثانٍ. والهوية محجوزة حتى **الأرشفة** لا حتى الإغلاق، وهو ما يجعل الفهرس الفريد جزئيًا: الخيط المؤرشف يحتفظ بسجلّه بينما رسالة العميل التالية تفتح خيطًا خاصًا بها.
+Workers open no public port. Each serves `/live` and `/ready` on its own port for health checks.
 
-والملاحظة ليست رسالة أبدًا: محرّر مستقل ومسوّدة مستقلة وجدول مستقل وصفّ لاغٍ صريح في جدول دورة الحياة. وحذفها يُبقي الصفّ ونسبته ويُسقط النصّ وحده، لأن خيطًا يفقد ملاحظة داخلية بصمت لا يمكن إعادة بنائه. وتعديلها أو حذفها لكاتبها وحده، و**403 لا 404** لأن القارئ يملك قراءتها. أما «غير مقروء» فمُشتق لا معدود: صفّ لكل شخص يُقارَن بآخر نشاط، فلا عدّاد يصونه أحد ولا يرى موظّف حالة زميله — وليس إيصالًا: لا يصل العميل منه شيء ولا تتحرّك به المحادثة.
+---
 
-والضابط المعروض على الشاشة هو ضابط يقبله الخادم: نسخة المتصفّح من جدول §18.1 **يُعيد اختبارُ وحدةٍ توليدَها** من `applyTrigger` في النطاق ويفشل عند أي انحراف، فزرٌّ يُرفض دائمًا لا يمكن أن يُشحن أصلًا.
+## Requirements
 
-واكتملت **الشريحة الأولى من Milestone E**: توجيه العمل بين الأشخاص. الإسناد المباشر، رفع الإسناد، تغيير الأولوية، إضافة المتعاونين وإنهاء دعوتهم، وطلب تسليم لزميل كلها مسارات API حقيقية وواجهة فعلية داخل صندوق الوارد. الطلب المعلّق لا ينقل المحادثة؛ الموظف الحالي يظل مسؤولًا حتى يقبل الزميل المسمّى، ويمكنه الرفض، وينتهي الطلب من صف دائم يستهلكه `worker-inbound` لا من مؤقت في المتصفح. كل كتابة متنازع عليها تحمل نسخة المحادثة التي رآها المشغّل، وكل هدف يعاد فحص صلاحيته داخل المعاملة، وكل انتقال يذهب إلى سجل تدقيق ملحق فقط.
+- **PostgreSQL 17**, either self-managed or a managed service. You supply an empty server and one administrator login. The installer creates everything else.
+- **Docker 24+ with Compose v2** (recommended), **or Node.js 22** with **pnpm 9.12** (`corepack enable`).
+- **A domain and TLS certificate**, and a reverse proxy in front of the `web` service (Caddy, Nginx, Traefik or a cloud load balancer). Sign-in cookies are marked secure, so users must reach the app over HTTPS.
+- **Optional:**
+  - an SMTP mailbox or a Resend account, for invitations and password recovery;
+  - a Meta app with WhatsApp Business, Messenger or Instagram access.
 
-الإسناد الذاتي والمباشر وقبول التسليم يضبطون `owner_state = human_active` ويرفعون `owner_version`، ومسار الإرسال يحفظ النسخة المسموح بها ويعيد فحصها قبل الاتصال الخارجي. صلاحيات أزرار التوجيه تأتي من مفاتيح الصلاحية الفعلية التي يعيدها الخادم، لذلك يعمل الدور المخصّص حسب منحِه بدل اسمه، بينما يظل النطاق قرار الخادم. حدثا `conversation.handoff` و`conversation.routing` يصلان للمتصفح ويؤديان إلى إعادة قراءة المصدر المالك للبيانات.
+A small installation runs comfortably on 2 vCPUs and 4 GB of RAM, with PostgreSQL alongside.
 
-واكتملت **الشريحة الثانية من Milestone E**: الوسوم وكتالوج الحقول المخصّصة. الوسم لا يُمحى من التاريخ بل يُحال للتقاعد، وتعيينه وإزالته فترات منسوبة لمن فعلها. الحقول أنواع فعلية — نص ورقم وبوليان وتاريخ واختيار مفرد أو متعدد — ويُرفض تغيير هوية الحقل أو نوعه بعد الاستخدام حتى لا تُعاد قراءة البيانات القديمة بمعنى جديد. كل كتابة تحمل نسخة السجل التي رآها الموظف وتذهب إلى سجل تدقيق، والبحث يحتفظ بالقيمة العربية الأصلية بجانب تمثيل منفصل للبحث. صندوق الوارد وجهات الاتصال يعرضان هذه البيانات ويعدّلانها ويصفّيان القوائم بها من الخادم.
+---
 
-وشاشة القنوات جاهزة لاستلام بيانات الربط لاحقًا: نوع القناة، **Meta App ID** المهيّأ على الخادم، ثم **Phone Number ID / Page ID / Instagram Account ID** حسب النوع. محادثة الموقع والقناة المخصّصة لا تعرضان خانة Meta. الأسرار لا تُعاد إلى المتصفح، وإدخال رقم App غير مهيّأ يُرفض بوضوح بدل إنشاء اتصال كاذب.
+## The database: what is automatic
 
-لا يوجد بعد دمج هويتين ولا معاينة دمج، ولا استيراد جهات اتصال ولا شرائح ولا SLA. الحملات والتحليلات أصبحتا موصولتين بالخادم، وتصدير تقرير الحملات يعمل كمهمة مستقلة تُنتج CSV آمنًا بصلاحية تنزيل محدودة. وعميل Meta الحي يحتاج بيانات التطبيق والتوكن التي سيقدّمها مالك الحساب لاحقًا. الدليل التفصيلي والمهمة التالية في [`docs/execution/current-task.md`](docs/execution/current-task.md).
+**You do not create tables, columns or indexes by hand.** Every part of the database is created and upgraded by the application:
 
-وأُعيد تصميم **واجهة التشغيل** بالكامل: مساحة العمل كلها خلف بوابة جلسة — لا يُرسم تنقل ولا اسم شركة ولا صندوق وارد قبل أن يجيب `GET /auth/session`، وأي 401 لاحق يغلق مساحة العمل ويعيد صفحة الدخول، وحُذف مبدّل «اعرض كـ» فالأدوار والصلاحيات تأتي من الخادم وحده. نظام تصميم جديد بثيمين (داكن رصاصي/كحلي وفاتح دافئ) كل أزواج تباينه مختبرة، وخط IBM Plex Sans Arabic مستضاف ذاتيًا، وأرقام غربية. شاشة القنوات كتالوج من ست تكاملات بحالة صادقة لكل منها؛ **تيليجرام غير منفّذ** ويظهر «غير متاح حاليًا». والتحليلات تُصفّى بالفترة والقناة والحملة من الخادم، مع مسار تسليم ومقام معلن واتجاه يومي. والإعدادات لم تعد بيانات عرض: الجلسات النشطة وإنهاؤها من الخادم، وما لا واجهة حفظ له يُعرض «غير متاح في هذا الإصدار».
+1. **`bootstrap`** connects with the PostgreSQL administrator login from your configuration. It creates two roles if they do not exist:
+   - a **migration role**, which owns the schema;
+   - a **runtime role**, which the application uses. It has only the rights it needs and cannot bypass row-level security.
 
-## التشغيل المحلي
+   It then creates the application database if it is missing.
+2. **`migrate`** applies every file in `packages/database/migrations/` that has not been applied yet, in order. It creates every table, index, constraint and row-level security policy. Each applied file is recorded with a checksum in `schema_migrations`. A lock ensures that two starts never migrate at the same time.
 
-المتطلبات: Node 22، pnpm 9.12، وعنقود PostgreSQL يمكن الوصول إليه. انسخ `.env.example` إلى `.env`، ضع كلمات مرور فعلية، وأنشئ السرّين المستقلين بأداة آمنة مثل `openssl rand -hex 32`.
+Both steps run in the `database` service (or with `pnpm db:bootstrap && pnpm db:migrate`). They are safe to run on every deployment: files already applied are skipped. A migration file that was changed after it was applied is refused, because migrations are forward-only.
+
+What the application stores as **data** is created from the interface, never from the schema:
+- custom contact fields and labels (**Contacts → Labels & custom fields**);
+- teams, roles, channels, audiences and automations.
+
+Adding a custom field in the app does not change the database schema.
+
+---
+
+## Configuration
+
+All configuration is read from environment variables. Copy `.env.example` to `.env` and fill it in. Keep `.env` out of version control and out of the image.
+
+Generate each secret separately:
 
 ```bash
+openssl rand -hex 32                     # CONVO_AUTH_HASH_SECRET, CONVO_BOOTSTRAP_TOKEN, CONVO_IDEMPOTENCY_HASH_SECRET
+echo "v1:$(openssl rand -base64 32)"      # CONVO_CREDENTIAL_KEYS
+openssl rand -base64 24                  # each database password
+```
+
+### Required
+
+| Variable | Example | Notes |
+| --- | --- | --- |
+| `CONVO_DEPLOYMENT_MODE` | `self_hosted_single` | `self_hosted_single` for one company, or `saas` for many. |
+| `CONVO_INSTALLATION_NAME` | `DS Omnichannel` | Shown in the product and in emails. |
+| `CONVO_PUBLIC_BASE_URL` | `https://inbox.example.com` | The public origin users open. Every link in every email is built from it. |
+| `CONVO_DEFAULT_LOCALE` / `CONVO_SUPPORTED_LOCALES` | `ar` / `ar,en` | Interface languages. |
+| `CONVO_AUTH_HASH_SECRET` | 64 hex characters | Keys session and token hashing. |
+| `CONVO_BOOTSTRAP_TOKEN` | 64 hex characters | Needed once, to create the first company and owner. |
+| `CONVO_IDEMPOTENCY_HASH_SECRET` | 64 hex characters | Keys the duplicate-request protection. |
+| `CONVO_PG_HOST`, `CONVO_PG_PORT`, `CONVO_PG_DATABASE` | `postgres`, `5432`, `convo` | Where PostgreSQL is. |
+| `CONVO_PG_SUPERUSER`, `CONVO_PG_SUPERPASSWORD` | `postgres`, … | Used **only** by the `database` step. |
+| `CONVO_PG_MIGRATION_ROLE`, `CONVO_PG_MIGRATION_PASSWORD` | `convo_migration`, … | Created by `bootstrap`. |
+| `CONVO_PG_RUNTIME_ROLE`, `CONVO_PG_RUNTIME_PASSWORD` | `convo_app`, … | Created by `bootstrap`; used by the API and workers. |
+| `CONVO_TRUSTED_PROXY_HOPS` | `2` | Proxies in front of the API: your TLS proxy, then the `web` service. Use `1` if nothing sits in front of `web`. Getting this wrong puts every user in one login rate-limit bucket. |
+
+### Per service
+
+| Service | Variables |
+| --- | --- |
+| web | `CONVO_SERVICE_KIND=web`, `CONVO_API_ORIGIN=http://<api host>:3000`, `PORT` (default `4173`) |
+| database | `CONVO_SERVICE_KIND=database` |
+| api | `CONVO_PROCESS_ROLE=api`, `CONVO_API_HOST=0.0.0.0`, `CONVO_API_PORT=3000` |
+| each worker | `CONVO_PROCESS_ROLE=<role>`, optionally `CONVO_WORKER_CONCURRENCY` (default `4`) |
+
+### Optional features
+
+| Variable | Purpose |
+| --- | --- |
+| `CONVO_CREDENTIAL_KEYS` | `v1:<base64 32 bytes>`. Encrypts channel credentials. Required before connecting any channel. Keep old keys in the comma-separated list when you rotate. |
+| `CONVO_CHANNEL_TRANSPORT` | `none` (default; every send is refused visibly) or `meta` to send through Meta. |
+| `CONVO_CHANNEL_SECRET_<REF>` | A Meta app secret. `<REF>` matches the secret reference saved with the channel app. |
+| `CONVO_EMAIL_PROVIDER` and the related email variables | See [Email and notifications](#email-and-notifications). Only `worker-integration` needs them. |
+| `CONVO_WEB_PUSH_PUBLIC_KEY`, `CONVO_WEB_PUSH_PRIVATE_KEY`, `CONVO_WEB_PUSH_SUBJECT` | Browser push notifications (VAPID). The public key goes to the API. All three go to `worker-integration`. |
+| `CONVO_BROKER_URL` | A durable message broker for the integration relay. Leave it unset if you do not run one. |
+| `CONVO_MFA_ENABLED` | `true` by default. |
+| `CONVO_EMAIL_LOCALE` | `en` (default) or `ar`, for invitation and recovery emails. |
+| `CONVO_LOG_LEVEL` | `info` (default) or `debug`. |
+
+The process validates its configuration at start. If something is missing or malformed, it exits with a JSON log line naming the variable.
+
+---
+
+## Deploy with Docker Compose
+
+[`deploy/docker-compose.example.yml`](deploy/docker-compose.example.yml) runs PostgreSQL, the migration step, the API, the web app and all six workers on one server.
+
+```bash
+git clone <your repository> convo && cd convo
+cp .env.example .env              # fill in every value (see Configuration)
+docker compose --env-file .env -f deploy/docker-compose.example.yml up -d --build
+docker compose --env-file .env -f deploy/docker-compose.example.yml ps
+```
+
+- The web app listens on port **8080**. Point your TLS reverse proxy at it.
+- Minimal Caddy configuration:
+
+  ```
+  inbox.example.com {
+    reverse_proxy 127.0.0.1:8080
+  }
+  ```
+
+- The `database` service runs on every `up` and exits once migrations are applied. The API and workers start only after it succeeds.
+- To use a managed PostgreSQL instead:
+  - remove the `postgres` service;
+  - set `CONVO_PG_HOST` and `CONVO_PG_PORT` in `.env`;
+  - delete the `CONVO_PG_HOST` and `CONVO_PG_PORT` overrides in `x-app-env`.
+
+The same image can run on Kubernetes, ECS, Railway or any container platform. Create one service per row of the [service table](#architecture). Only `web` should be public.
+
+---
+
+## Deploy without Docker
+
+```bash
+corepack enable && corepack prepare pnpm@9.12.0 --activate
 pnpm install --frozen-lockfile
 pnpm build
+
 set -a; source .env; set +a
-pnpm db:bootstrap
-pnpm db:migrate
-pnpm start:api
+pnpm db:bootstrap && pnpm db:migrate                         # every deployment, before starting anything
+
+CONVO_PROCESS_ROLE=api node apps/api/dist/main.js
+CONVO_SERVICE_KIND=web PORT=8080 CONVO_API_ORIGIN=http://127.0.0.1:3000 node apps/web/server.mjs
+CONVO_PROCESS_ROLE=worker-inbound CONVO_API_PORT=3101 node apps/api/dist/main.js
+CONVO_PROCESS_ROLE=worker-interactive CONVO_API_PORT=3102 node apps/api/dist/main.js
+CONVO_PROCESS_ROLE=worker-campaign CONVO_API_PORT=3103 node apps/api/dist/main.js
+CONVO_PROCESS_ROLE=worker-report CONVO_API_PORT=3104 node apps/api/dist/main.js
+CONVO_PROCESS_ROLE=worker-automation CONVO_API_PORT=3105 node apps/api/dist/main.js
+CONVO_PROCESS_ROLE=worker-integration CONVO_API_PORT=3106 node apps/api/dist/main.js
 ```
 
-بعد الإقلاع:
+- Run each command under a process manager (systemd, pm2, supervisord) that restarts it on failure.
+- Set `NODE_ENV=production`.
+- Workers on the same host need distinct `CONVO_API_PORT` values, because that is the port of their health probe.
 
-- `GET /api/v1/instance` عام ويرجع وصف التنصيب المنقّى.
-- `POST /api/v1/instance/bootstrap` يتطلب `X-Bootstrap-Token` و`Idempotency-Key` وينشئ أول شركة وOwner مرة واحدة.
-- مسارات `/api/v1/auth/*` تنفذ login/logout والجلسة الحالية وقائمة الجلسات وإلغاءها، مع cookies محصنة وCSRF.
-- `GET /api/v1/me/memberships` و`GET /api/v1/tenants/{tenantId}/permissions` يطبقان العضوية النشطة وفحص `role.manage` داخل RLS.
-- العقد المنفّذ موجود في [`docs/api/openapi.v1.json`](docs/api/openapi.v1.json).
+---
 
-التشغيل المحمول من حزمة المصدر موثّق في [`docs/final/SOURCE_HANDOVER.md`](docs/final/SOURCE_HANDOVER.md). نشر Railway الفعلي، وتوزيع خدمة الويب والـAPI والعمّال وقاعدة البيانات، موثّق في [`docs/runbooks/RAILWAY_PRODUCTION.md`](docs/runbooks/RAILWAY_PRODUCTION.md).
+## First run: create the company and its owner
 
-### الواجهة
+A new installation has no users. Create the company and its first **Owner** once, using the bootstrap token from your configuration:
 
 ```bash
-pnpm --filter @convo/web dev
+curl -X POST https://inbox.example.com/api/v1/instance/bootstrap \
+  -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Token: $CONVO_BOOTSTRAP_TOKEN" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{
+        "companyName": "Digital School",
+        "companySlug": "digital-school",
+        "ownerEmail": "owner@example.com",
+        "ownerPassword": "a long passphrase of 12+ characters"
+      }'
 ```
 
-المتصفح يطلب `/api/v1/...` كمسار على نفس الأصل، في التطوير وفي النشر معًا. خادم التطوير في [`apps/web/vite.config.ts`](apps/web/vite.config.ts) يمرّر `/api` إلى `http://127.0.0.1:3000`، و`CONVO_API_ORIGIN` يغيّر الوجهة لمن يشغّل الـAPI في مكان آخر. لا يوجد عنوان أساسي ثانٍ موجود محليًا فقط — وهو مصدر أخطاء CORS والكوكيز التي لا تظهر إلا بعد النشر.
+- `GET /api/v1/instance` shows whether bootstrap is still required.
+- A second bootstrap is refused.
+- After this call:
+  1. Sign in at `https://inbox.example.com` with the owner account.
+  2. Invite the rest of the team from **Users**.
+  3. Connect your channels from **Channels**.
 
-الواجهة كلها تحتاج خادمًا يعمل وجلسة حقيقية؛ بدون خادم تعرض صفحة «تعذّر الاتصال بالخادم» مع إعادة المحاولة، وبدون جلسة تعرض صفحة الدخول وحدها.
+---
 
-## بوابات التحقق
+## Connecting channels
+
+All channels are connected from **Channels** in the app. Each needs `CONVO_CREDENTIAL_KEYS` to be set first.
+
+- **WhatsApp, Messenger and Instagram.** Follow [`docs/runbooks/META_WHATSAPP.md`](docs/runbooks/META_WHATSAPP.md).
+  1. Create or reuse a Meta app.
+  2. Put its app secret in `CONVO_CHANNEL_SECRET_<REF>`.
+  3. Set `CONVO_CHANNEL_TRANSPORT=meta`.
+  4. Connect the number, page or account in the app.
+  5. Point Meta's webhook at `https://<your domain>/api/v1/webhooks/meta/<app connection id>`.
+- **Website chat.** Create the channel, then have your site's server post visitors' messages to the address shown on the channel, signed with its key.
+- **Custom API channel.** Connect your own system with signed HTTP in both directions. The protocol is in [`docs/CUSTOM_CHANNEL.md`](docs/CUSTOM_CHANNEL.md).
+
+WhatsApp broadcasts use templates approved in your WhatsApp Business account. Sync them from the broadcast wizard.
+
+---
+
+## Email and notifications
+
+Email carries invitations and password-recovery links. Only `worker-integration` sends it. Configure that service with **one** of:
+
+```bash
+# SMTP (any provider; port 465 uses implicit TLS)
+CONVO_EMAIL_PROVIDER=smtp
+CONVO_EMAIL_FROM="Digital School <no-reply@example.com>"
+CONVO_SMTP_HOST=smtp.example.com
+CONVO_SMTP_PORT=465
+CONVO_SMTP_SECURE=true
+CONVO_SMTP_USERNAME=no-reply@example.com
+CONVO_SMTP_PASSWORD=...
+
+# or Resend
+CONVO_EMAIL_PROVIDER=resend
+CONVO_EMAIL_FROM="Digital School <no-reply@example.com>"
+CONVO_RESEND_API_KEY=...
+```
+
+- With no provider, email is **disabled**: nothing is sent, and the app says so.
+- `logging` is for development only and is refused in production.
+- Verify the sender domain (SPF and DKIM) with your provider before going live.
+- The full procedure is in [`docs/runbooks/EMAIL_DELIVERY.md`](docs/runbooks/EMAIL_DELIVERY.md).
+
+**Browser push.** Generate a VAPID pair with `npx web-push generate-vapid-keys`.
+- Give the public key to the API.
+- Give all three push variables to `worker-integration`.
+
+---
+
+## Health checks and logs
+
+| Service | Liveness | Readiness |
+| --- | --- | --- |
+| web | `GET /healthz` | `GET /healthz` |
+| api | `GET /live` | `GET /ready` (checks PostgreSQL) |
+| workers | `GET /live` on their `CONVO_API_PORT` | `GET /ready` after the first completed cycle |
+
+- Use `/live` for restart policies. `/ready` depends on the database, so restarting on it would restart everything during a database blip.
+- Every process writes structured JSON lines to stdout, one event per line. Ship them to your log platform.
+- Alerting guidance is in [`docs/runbooks/ALERTING.md`](docs/runbooks/ALERTING.md).
+
+---
+
+## Upgrading
+
+1. **Back up the database** and make sure the backup can be restored.
+2. Deploy the new version to the `database` step first and wait for it to exit successfully. It applies any new migrations automatically.
+3. Deploy the same version to `api`, then to every worker, then to `web`.
+4. Check `/healthz` and `/ready`, then sign in and send a test message.
+
+Migrations are forward-only. To undo a release, restore the backup taken in step 1 and redeploy the previous version.
+
+---
+
+## Backups and recovery
+
+Your PostgreSQL database holds all application state. Back it up daily at minimum, for example:
+
+```bash
+pg_dump --format=custom --file=convo-$(date +%F).dump "postgresql://postgres:***@db-host:5432/convo"
+```
+
+- Keep copies off the server.
+- Test a restore into a separate database regularly.
+- Managed PostgreSQL services usually offer point-in-time recovery; turn it on.
+- The full procedure is in [`docs/runbooks/DATABASE_RECOVERY.md`](docs/runbooks/DATABASE_RECOVERY.md).
+
+---
+
+## Local development
+
+```bash
+corepack enable && pnpm install
+cp .env.example .env                    # point it at a local PostgreSQL
+set -a; source .env; set +a
+pnpm build && pnpm db:bootstrap && pnpm db:migrate
+pnpm start:api                          # API on http://127.0.0.1:3000
+pnpm start:web                          # Vite dev server; proxies /api to the API
+```
+
+The web app always calls `/api/v1` on its own origin. In development, Vite proxies it to `CONVO_API_ORIGIN`, which defaults to `http://127.0.0.1:3000`.
+
+---
+
+## Quality gates
 
 ```bash
 pnpm lint
 pnpm typecheck
 pnpm build
-pnpm test:unit
-pnpm test:integration
-pnpm test:coverage
-pnpm test:contracts
-pnpm test:security
-pnpm test:e2e
+pnpm test:unit             # unit tests
+pnpm test:integration      # API against a real, embedded PostgreSQL (no Docker needed)
+pnpm test:coverage         # unit + integration + property, 100% line/branch/function coverage enforced
+pnpm test:contracts        # API contract against docs/api/openapi.v1.json
+pnpm test:security         # tenant isolation, authorization, signatures, dependency audit
+pnpm exec playwright install chromium
+pnpm test:e2e              # browser tests at 1440 and 1366
 pnpm test:a11y
 pnpm test:visual
-pnpm test:recovery
-pnpm test:load:target
-pnpm test:mutation
 ```
 
-اختبارات integration وcoverage وrecovery وload تشغّل PostgreSQL 17.4 مؤقتًا داخل العملية ولا تحتاج Docker. آخر تحقق من نسخة نظيفة (2026-09-19): `test:unit` **1851**؛ `test:integration` **581**؛ `test:property` 5؛ `test:security` **378** مع تدقيق نظيف؛ `test:coverage` 131 ملفًا و**2437 اختبارًا** بتغطية **100%** للسطور والعبارات والدوال والفروع؛ `test:e2e` **296**؛ `test:a11y` **43**؛ و`test:visual` **38**. كما اجتاز `test:contracts` و`test:progress`. آخر بوابات recovery/load/mutation المسجلة موثقة في [`docs/audit/PRODUCTION_READINESS_REPORT.md`](docs/audit/PRODUCTION_READINESS_REPORT.md)؛ لا يُعاد تأريخ نتيجتها من دون تشغيل جديد.
+---
 
-`test:security` يشغّل مجموعات العزل والتفويض والتحقق من التوقيع، ثم `pnpm audit --audit-level high --prod` — وهو نظيف حاليًا. تم أيضًا تنفيذ `pg_dump`/`pg_restore` حقيقي على Railway staging والتحقق من 32 migration، وتفعيل PITR والنسخ اليومية والأسبوعية في production مع نقطة استعادة مسماة. واختبار staging الحقيقي سجّل صفر أخطاء؛ التفاصيل في [`docs/audit/LOAD_TEST_REPORT.md`](docs/audit/LOAD_TEST_REPORT.md).
+## Documentation
 
-## المراجع الملزمة
+| Topic | Where |
+| --- | --- |
+| API contract (OpenAPI 3) | [`docs/api/openapi.v1.json`](docs/api/openapi.v1.json) |
+| Architecture and decisions | [`docs/architecture.md`](docs/architecture.md), [`docs/adr/`](docs/adr/) |
+| Business rules and permissions | [`docs/product/business-rules.md`](docs/product/business-rules.md) |
+| Broadcasts | [`docs/CAMPAIGN_ENGINE.md`](docs/CAMPAIGN_ENGINE.md) |
+| Automations | [`docs/AUTOMATION_ENGINE.md`](docs/AUTOMATION_ENGINE.md) |
+| Custom API channel | [`docs/CUSTOM_CHANNEL.md`](docs/CUSTOM_CHANNEL.md) |
+| Runbooks: Meta, email, recovery, alerting, incidents | [`docs/runbooks/`](docs/runbooks/) |
+| Portable handover checklist | [`docs/final/SOURCE_HANDOVER.md`](docs/final/SOURCE_HANDOVER.md) |
 
-| الملف | الدور |
-|---|---|
-| `research/convo-2026-09-07/implementation-v2/MASTER-PROMPT.md` | المواصفة الملزمة |
-| `research/convo-2026-09-07/implementation-v2/PHASE-PROMPTS.md` | ترتيب التنفيذ P0–P9 |
-| `docs/requirements/traceability.md` | سجل المتطلبات وحالات التنفيذ والاختبار والتحقق الحي والنشر |
-| `docs/execution/current-task.md` | آخر مهمة، الأدلة، العوائق، والمهمة التالية |
-| `docs/architecture.md` و`docs/adr/` | المعمارية والقرارات |
-| `docs/testing/strategy.md` | بوابات الاختبار وقواعد الأدلة |
+---
 
-نجاح build لا يعني أن المنتج اكتمل، واختبار simulator لا يُسجّل كتحقق حي من مزوّد.
+## Security notes
+
+- **Secrets.** Keep them in your platform's secret store or in environment variables, never in the repository or the image. Rotate `CONVO_BOOTSTRAP_TOKEN` after the first run.
+- **Database access.**
+  - The runtime database role cannot bypass row-level security, so one company's data is isolated inside PostgreSQL itself.
+  - Give the PostgreSQL administrator password only to the `database` step.
+- **Channel credentials.** They are encrypted with AES-256-GCM under `CONVO_CREDENTIAL_KEYS` and are never returned to the browser.
+- **Webhooks.** Every inbound webhook is signature-verified on the raw request body before it is stored.
+- **Exposure.** Expose only the `web` service. The API, workers and PostgreSQL belong on a private network.

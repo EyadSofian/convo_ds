@@ -362,6 +362,231 @@
     gap: var(--space-2);
   }
 
+  /* ------------------------------------------------------------ analytics --
+     The report switcher and the export menu share one row; every report
+     opens on its headline figures as cards, then charts, then the tables.
+     -------------------------------------------------------------------- */
+
+  .report-top {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-3);
+  }
+
+  .report-top .report-nav {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+  }
+
+  .analytics-export {
+    flex: none;
+    margin-block-end: var(--space-3);
+  }
+
+  .analytics-export__menu {
+    inset-inline-end: 0;
+    inset-inline-start: auto;
+    min-inline-size: 290px;
+  }
+
+  .analytics-export__item {
+    align-items: flex-start;
+    block-size: auto;
+    padding-block: var(--space-2);
+  }
+
+  .analytics-export__text {
+    display: grid;
+    gap: var(--space-half);
+    text-align: start;
+  }
+
+  .analytics-export__hint {
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-regular);
+    white-space: normal;
+  }
+
+  .page--analytics .kpis {
+    gap: var(--space-3);
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .page--analytics .kpis .kpi--stat,
+  .page--analytics .kpis--7 .kpi--stat {
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-1);
+    box-shadow: var(--shadow-card);
+  }
+
+  .page--analytics .report-grid {
+    align-items: stretch;
+  }
+
+  .report-stack {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .page--analytics .report-grid > .panel {
+    block-size: 100%;
+  }
+
+  .report-hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(200px, 1fr) minmax(0, 3fr);
+    align-items: center;
+    gap: var(--space-6);
+    padding: var(--space-6);
+    border-radius: var(--radius-xl);
+    background: var(--grad-hero);
+    box-shadow: var(--shadow-hero);
+    color: var(--on-accent);
+    overflow: hidden;
+  }
+
+  .report-hero__lead {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .report-hero__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--brand-highlight);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+  }
+
+  .report-hero__figure {
+    font-size: calc(var(--text-2xl) * 1.75);
+    font-weight: var(--weight-bold);
+    line-height: 1.1;
+  }
+
+  .report-hero__caption {
+    color: var(--nav-text);
+    font-size: var(--text-xs);
+  }
+
+  .report-hero__gauges {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+
+  .report-hero .ring__track {
+    stroke: var(--glass-on-dark-strong);
+  }
+
+  .report-hero .gauge__value,
+  .report-hero .gauge__label {
+    color: var(--on-accent);
+  }
+
+  .report-hero .gauge__detail {
+    color: var(--nav-text);
+  }
+
+  @container screen (max-width: 960px) {
+    .report-hero {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @container screen (max-width: 600px) {
+    .report-hero__gauges {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .report-top {
+      flex-wrap: wrap;
+    }
+  }
+
+  /* Rows of one split bar each: a label and total over the bar. */
+  .stackrows {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .stackrows__row {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .stackrows__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    font-size: var(--text-xs);
+  }
+
+  .stackrows__label {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    min-inline-size: 0;
+    color: var(--text-secondary);
+    font-weight: var(--weight-medium);
+  }
+
+  .stackrows__value {
+    color: var(--text);
+    font-weight: var(--weight-semibold);
+    white-space: nowrap;
+  }
+
+  .stackrows__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+  }
+
+  .stackrows__facts strong {
+    color: var(--text);
+  }
+
+  .groupbars {
+    display: grid;
+    gap: var(--space-5);
+    margin-block-start: var(--space-3);
+  }
+
+  .groupbars__row {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .groupbars__label,
+  .channel-name {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: var(--weight-semibold);
+  }
+
+  .groupbars .hbars {
+    gap: var(--space-2);
+  }
+
+  .panel .chart-key + .stackrows,
+  .panel .stackrows + .chart-key {
+    margin-block-start: var(--space-3);
+  }
+
   .freshness {
     display: flex;
     align-items: center;
@@ -407,7 +632,32 @@
   }
 
   .funnel__stage .progress {
-    block-size: 10px;
+    block-size: 12px;
+  }
+
+  .funnel__stage .progress__fill {
+    background: linear-gradient(90deg, var(--viz-deep), var(--viz));
+  }
+
+  .funnel__head {
+    align-items: center;
+  }
+
+  .funnel__step {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    inline-size: 22px;
+    block-size: 22px;
+    border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--viz) 16%, transparent);
+    color: var(--viz-deep);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-bold);
+  }
+
+  .funnel__label {
+    flex: 1 1 auto;
   }
 
   .funnel__track--empty {
@@ -449,8 +699,9 @@
   }
 
   .chart-legend__item--line::before {
-    block-size: 2px;
-    background: var(--accent);
+    block-size: 3px;
+    border-radius: var(--radius-full);
+    background: var(--violet);
   }
 
   .chart-figure {
@@ -468,17 +719,32 @@
     fill: var(--chart-bar);
   }
 
+  .chart__seg {
+    fill: var(--viz);
+  }
+
+  .chart__grid {
+    stroke: var(--border-subtle);
+    stroke-width: 1;
+    stroke-dasharray: 3 4;
+  }
+
   .chart__line {
     fill: none;
-    stroke: var(--accent);
-    stroke-width: 2;
+    stroke: var(--violet);
+    stroke-width: 2.5;
     stroke-linejoin: round;
+    stroke-linecap: round;
   }
 
   .chart__point {
     fill: var(--surface-1);
-    stroke: var(--accent);
+    stroke: var(--violet);
     stroke-width: 2;
+  }
+
+  .chart__tick--rate {
+    fill: var(--violet);
   }
 
   .chart__axis {
@@ -3570,6 +3836,62 @@
 
     .broadcast__review-row {
       grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}
+
+@layer screens {
+  /* ---------------------------------------------------------------- print --
+     Analytics printed or saved as a PDF: the report alone, full length, in
+     its colours, with no navigation, header, filters or menus, and no card
+     split across a page.
+     -------------------------------------------------------------------- */
+
+  @media print {
+    html,
+    body,
+    .app-root,
+    .app,
+    .app__main,
+    .app__screen,
+    .page {
+      display: block;
+      block-size: auto;
+      max-block-size: none;
+      overflow: visible;
+      background: var(--surface-1);
+    }
+
+    * {
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+    }
+
+    .nav,
+    .nav-scrim,
+    .header,
+    .bottom-nav,
+    .skip-link,
+    .toasts,
+    .report-nav,
+    .analytics-export,
+    .filterbar,
+    .export,
+    .visually-hidden-table {
+      display: none;
+    }
+
+    .page--analytics .panel,
+    .page--analytics .kpi--stat,
+    .report-hero,
+    .donut,
+    .gauge {
+      break-inside: avoid;
+    }
+
+    .page--analytics .panel,
+    .page--analytics .kpi--stat {
+      box-shadow: none;
     }
   }
 }

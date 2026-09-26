@@ -97,6 +97,18 @@ describe('the automation actions the DOM can name', () => {
     await expect(handler?.(context(), 'a-1:activate')).resolves.toBe(false);
   });
 
+  it('exports analytics through the table, and closes the menu before printing', async () => {
+    const ctx = context();
+    // No workspace: the export declines rather than making an empty file.
+    await expect(LIVE_ACTIONS['live-analytics-export']?.(ctx, 'csv')).resolves.toBe(false);
+    const print = vi.fn();
+    vi.stubGlobal('print', print);
+    await expect(LIVE_ACTIONS['live-analytics-print']?.(ctx, '')).resolves.toBe(true);
+    expect(ctx.refresh).toHaveBeenCalled();
+    expect(print).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
+
   it('assigns a role to nobody while no workspace is selected', async () => {
     const ctx = context();
     ctx.state.dialogForm = { assignPicked: 'm-1' };

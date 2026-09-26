@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 import { CONNECTION, installApi, MEMBERSHIP } from './support/api';
 import {
@@ -556,6 +557,33 @@ test.describe('Analytics', () => {
     await expect(page.locator('.chart-figure svg')).toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('.chart-figure figcaption')).not.toBeEmpty();
     await expect(page.locator('.visually-hidden-table tbody tr')).toHaveCount(5);
+  });
+
+  test('downloads every report as one Excel workbook, and the open one as a CSV', async ({ page }) => {
+    await openScreen(page, 'analytics');
+    await page.locator('[data-act="menu"][data-arg="analytics-export"]').click();
+    const [workbook] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('[data-act="live-analytics-export"][data-arg="xlsx"]').click(),
+    ]);
+    expect(workbook.suggestedFilename()).toMatch(/^convo-analytics-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    const bytes = await readFile(await workbook.path());
+    // A ZIP archive, as every .xlsx is.
+    expect(bytes.subarray(0, 4).toString('hex')).toBe('504b0304');
+    expect(bytes.toString('latin1')).toContain('xl/worksheets/sheet1.xml');
+    await expect(page.locator('.analytics-export__menu')).toHaveCount(0);
+
+    await page.locator('[data-act="analytics-view"][data-arg="overview"]').click();
+    await expect(page.locator('[data-operations-report-ready]')).toBeVisible();
+    await page.locator('[data-act="menu"][data-arg="analytics-export"]').click();
+    const [sheet] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('[data-act="live-analytics-export"][data-arg="csv"]').click(),
+    ]);
+    expect(sheet.suggestedFilename()).toMatch(/^convo-analytics-overview-\d{4}-\d{2}-\d{2}\.csv$/);
+    const text = (await readFile(await sheet.path())).toString('utf8');
+    expect(text.startsWith('\ufeff')).toBe(true);
+    expect(text).toContain('Ahmed Fouad');
   });
 
   test('follows an export from queued to a download, and says when the link has expired', async ({ page }) => {

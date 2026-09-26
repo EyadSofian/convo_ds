@@ -52,6 +52,7 @@ import { hasPermission } from './ability.js';
 import { idList } from './audience.js';
 import { derivedChannelId, newContactFields, standardFieldKey } from './contact-profile.js';
 import { chooseAudienceSource, openAudienceDialog, openCampaignEditor, previewCampaignAudience, retireAudience, saveCampaignAudience, showCampaignView } from './audience-actions.js';
+import { exportAnalytics, printAnalytics } from './analytics-export.js';
 import { manageArchived, tickArchived } from './archived-actions.js';
 import { goToBroadcastStep, jumpToBroadcastStep, submitBroadcast, syncBroadcastTemplates } from './broadcast.js';
 import { setSimpleFilter } from './inbox-query.js';
@@ -707,6 +708,12 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-report-reload': async (context) => manualRefresh(context, 'live-report-reload', () => loadAnalyticsReport(context)),
   'live-assignments-more': async (context) => loadAssignmentReport(context, true),
   'live-report-export': async (context) => createCampaignReportExport(context),
+  'live-analytics-export': async (context, arg) => exportAnalytics(context, arg),
+  'live-analytics-print': async (context) => {
+    // The menu closes before the page is handed to the printer.
+    context.refresh();
+    return printAnalytics(globalThis as { print?: () => void });
+  },
   'live-report-export-refresh': async (context) => refreshCampaignReportExport(context),
 
   /* ----------------------------------------------------------------- inbox -- */

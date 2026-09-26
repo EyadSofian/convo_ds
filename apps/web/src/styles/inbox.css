@@ -148,6 +148,24 @@
     border-color: var(--focus-ring);
   }
 
+  /* The archive is a place, not an action: a quiet pill that turns into a
+     tinted, outlined chip while the list shows it. */
+  .inbox-archive-toggle.btn {
+    margin-inline-start: auto;
+    border-color: var(--border);
+    border-radius: var(--radius-full);
+    background: var(--surface-1);
+    box-shadow: none;
+    color: var(--text-secondary);
+  }
+
+  .inbox-archive-toggle.btn[aria-pressed='true'] {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: var(--weight-semibold);
+  }
+
   .inbox-search {
     display: flex;
     flex: 1 1 auto;
