@@ -86,7 +86,7 @@ export function renderBroadcasts(state: AppState): HTMLElement {
     t(state, 'أنشئ الحملات واعتمدها وتابع نتيجة كل مستلم.', 'Create, approve and follow every recipient of your campaigns.'),
     [
       refreshButton(state, 'live-campaigns-reload', live.campaigns.status === 'loading'),
-      can.draft ? button({ label: t(state, 'حملة جديدة', 'New campaign'), icon: 'plus', act: 'dialog', arg: 'campaign', variant: 'primary', small: true }) : null,
+      can.draft ? button({ label: t(state, 'حملة جديدة', 'New campaign'), icon: 'plus', act: 'live-campaign-editor', arg: '', variant: 'primary', small: true }) : null,
     ],
   ), body(state, live, can));
 }
@@ -107,7 +107,7 @@ function body(state: AppState, live: LiveState, can: Abilities): readonly Child[
         body: can.draft
           ? t(state, 'أنشئ مسودة، ثبّت جمهورها، ثم اعتمدها وأطلقها.', 'Create a draft, freeze its audience, then approve and launch it.')
           : t(state, 'لم تُنشأ أي حملة في مساحة العمل.', 'No campaign has been created in this workspace.'),
-        action: can.draft ? { label: t(state, 'حملة جديدة', 'New campaign'), act: 'dialog', arg: 'campaign', primary: true } : undefined,
+        action: can.draft ? { label: t(state, 'حملة جديدة', 'New campaign'), act: 'live-campaign-editor', arg: '', primary: true } : undefined,
       }),
     ])];
   }
@@ -281,7 +281,7 @@ function actions(
     primary.push(button({ label: t(state, 'إعادة الفاشل فقط', 'Retry failed only'), icon: 'refresh', act: 'live-campaign-retry', arg: campaign.id, small: true, busy: live.busy === `campaign-retry:${campaign.id}` }));
   }
   if (can.draft && editable) {
-    secondary.push(button({ label: t(state, 'تعديل', 'Edit'), icon: 'edit', act: 'dialog', arg: `campaign-edit:${campaign.id}`, small: true, variant: 'ghost' }));
+    secondary.push(button({ label: t(state, 'تعديل', 'Edit'), icon: 'edit', act: 'live-campaign-editor', arg: campaign.id, small: true, variant: 'ghost' }));
     secondary.push(button({ label: t(state, 'إرسال تجريبي', 'Test send'), icon: 'flask', act: 'dialog', arg: `campaign-test-send:${campaign.id}`, small: true, variant: 'ghost' }));
   }
   if (can.draft) {

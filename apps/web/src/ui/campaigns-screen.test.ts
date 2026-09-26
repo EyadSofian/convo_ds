@@ -69,13 +69,13 @@ describe('the list', () => {
     state.live.campaigns = { status: 'ready', loadedAt: 1, value: [] };
     const empty = renderBroadcasts(state);
     expect(empty.textContent).toContain('No campaigns yet');
-    expect(empty.querySelector('.empty [data-arg="campaign"]')).not.toBeNull();
+    expect(empty.querySelector('.empty [data-act="live-campaign-editor"]')).not.toBeNull();
   });
 
   it('does not offer a new campaign without the draft key', () => {
     const state = screen([], ['campaign.read']);
     const root = renderBroadcasts(state);
-    expect(root.querySelector('[data-arg="campaign"]')).toBeNull();
+    expect(root.querySelector('[data-act="live-campaign-editor"]')).toBeNull();
     expect(root.textContent).toContain('No campaign has been created');
   });
 
@@ -108,12 +108,12 @@ describe('the list', () => {
 
 describe('the lifecycle offered for each state', () => {
   it('drafts: freeze, edit, test and clone', () => {
-    expect(actions(screen([campaign()]))).toEqual(['live-campaign-validate', 'campaign-edit', 'campaign-test-send', 'live-campaign-clone']);
+    expect(actions(screen([campaign()]))).toEqual(['live-campaign-validate', 'live-campaign-editor', 'campaign-test-send', 'live-campaign-clone']);
   });
 
   it('ready but unapproved: approve; approved: launch now or schedule', () => {
-    expect(actions(screen([campaign({ state: 'ready' })]))).toEqual(['live-campaign-approve', 'campaign-edit', 'campaign-test-send', 'live-campaign-clone']);
-    expect(actions(screen([campaign({ state: 'ready', approved: true })]))).toEqual(['live-campaign-launch', 'campaign-schedule', 'campaign-edit', 'campaign-test-send', 'live-campaign-clone']);
+    expect(actions(screen([campaign({ state: 'ready' })]))).toEqual(['live-campaign-approve', 'live-campaign-editor', 'campaign-test-send', 'live-campaign-clone']);
+    expect(actions(screen([campaign({ state: 'ready', approved: true })]))).toEqual(['live-campaign-launch', 'campaign-schedule', 'live-campaign-editor', 'campaign-test-send', 'live-campaign-clone']);
   });
 
   it('sending: pause and cancel; paused: resume and cancel; scheduled: cancel', () => {

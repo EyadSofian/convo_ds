@@ -12,7 +12,22 @@ import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG } from '../tokens.js';
 import { campaignCommandContent } from './campaign-dispatch.js';
-import type { CampaignDraftInput, CampaignTestSendInput, CampaignUpdateInput, TestRecipientInput } from './campaign-request.js';
+import type { AudiencePreviewInput, CampaignDraftInput, CampaignTestSendInput, CampaignUpdateInput, TestRecipientInput } from './campaign-request.js';
+
+/** What a campaign on one channel would reach, before anything is frozen. */
+export interface AudiencePreview {
+  readonly total: number;
+  readonly eligible: number;
+  readonly excluded: number;
+  /** Why the excluded are excluded; one reason each, in order of authority. */
+  readonly reasons: {
+    readonly suppressed: number;
+    readonly no_consent: number;
+    readonly identity_inactive: number;
+  };
+  /** Up to five eligible display names, so the operator can sanity-check the list. */
+  readonly sample: readonly string[];
+}
 
 export interface CampaignView {
   readonly id: string;
@@ -144,6 +159,39 @@ export class CampaignService {
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(IdempotencyService) private readonly idempotency: IdempotencyService,
   ) {}
+
+  /**
+   * The audience a filter would freeze, counted but not frozen: the same
+   * candidates and the same eligibility rules as `validate`, with nothing
+   * written, so an operator can shape the audience before creating a draft.
+   */
+  previewAudience(session: AuthenticatedSession, tenantId: string, input: AudiencePreviewInput): Promise<AudiencePreview> {
+    return this.authorization.authorized(session, tenantId, 'campaign.draft', async ({ sql }) => {
+      await requireConnection(sql, input.connectionId, false);
+      const filter = input.audienceFilter;
+      const rows = await sql.query<AudiencePreview>(
+        `WITH candidates AS MATERIALIZED (
+           SELECT c.display_name, ${ELIGIBILITY} AS eligibility
+           ${audienceScope({ connection: '$1', search: '$2', labels: '$3', conversationLabels: '$4', contacts: '$5' })}
+         )
+         SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE eligibility='eligible')::int AS eligible,
+                count(*) FILTER (WHERE eligibility<>'eligible')::int AS excluded,
+                jsonb_build_object(
+                  'suppressed', count(*) FILTER (WHERE eligibility='suppressed'),
+                  'no_consent', count(*) FILTER (WHERE eligibility='no_consent'),
+                  'identity_inactive', count(*) FILTER (WHERE eligibility IN ('identity_inactive','contact_deleted'))
+                ) AS reasons,
+                coalesce((SELECT jsonb_agg(name) FROM (
+                  SELECT display_name AS name FROM candidates WHERE eligibility='eligible' ORDER BY lower(display_name) LIMIT 5
+                ) sample), '[]'::jsonb) AS sample
+           FROM candidates`,
+        [input.connectionId, normalizeSearchText(filter.search ?? ''), filter.labelIds ?? [],
+          filter.conversationLabelIds ?? [], filter.contactIds ?? []],
+      );
+      return requireRow(rows.rows, 'audience preview returned no row');
+    });
+  }
 
   list(session: AuthenticatedSession, tenantId: string): Promise<readonly CampaignView[]> {
     return this.authorization.authorized(session, tenantId, 'campaign.read', async ({ sql }) =>
@@ -719,6 +767,52 @@ export class CampaignService {
   }
 }
 
+/**
+ * One eligibility per candidate, in order of authority: a deleted contact or a
+ * closed identity cannot be reached at all, an opt-out outranks any consent,
+ * and only a latest marketing consent of `granted` makes a contact eligible.
+ */
+const ELIGIBILITY = `CASE WHEN c.deleted_at IS NOT NULL THEN 'contact_deleted'
+            WHEN i.valid_to IS NOT NULL THEN 'identity_inactive'
+            WHEN s.id IS NOT NULL THEN 'suppressed'
+            WHEN consent.state IS DISTINCT FROM 'granted' THEN 'no_consent'
+            ELSE 'eligible' END`;
+
+/**
+ * The contacts a campaign on one channel addresses: every contact with an
+ * identity on the connection, narrowed by the filter. Shared by the freeze and
+ * the preview so the two can never count different people. The arguments are
+ * the positional parameters that carry each value.
+ */
+function audienceScope(p: {
+  readonly connection: string;
+  readonly search: string;
+  readonly labels: string;
+  readonly conversationLabels: string;
+  readonly contacts: string;
+}): string {
+  return `FROM contacts c JOIN contact_identities i ON i.contact_id=c.id AND i.scope_id=${p.connection}
+     LEFT JOIN channel_suppressions s ON s.kind=i.kind AND s.peer_identity=i.external_id
+     LEFT JOIN LATERAL (
+       SELECT state FROM consents x WHERE x.contact_id=c.id AND x.channel=i.kind AND x.purpose='marketing'
+       ORDER BY recorded_at DESC,id DESC LIMIT 1
+     ) consent ON true
+     WHERE (${p.search}::text='' OR c.search_name LIKE '%' || ${p.search} || '%')
+       AND (cardinality(${p.labels}::uuid[])=0 OR NOT EXISTS (
+         SELECT 1 FROM unnest(${p.labels}::uuid[]) wanted(label_id)
+          WHERE NOT EXISTS (SELECT 1 FROM contact_labels cl WHERE cl.contact_id=c.id
+            AND cl.label_id=wanted.label_id AND cl.removed_at IS NULL)))
+       AND (cardinality(${p.conversationLabels}::uuid[])=0 OR EXISTS (
+         SELECT 1 FROM conversations v JOIN conversation_labels vl ON vl.conversation_id=v.id AND vl.removed_at IS NULL
+          WHERE v.contact_id=c.id AND vl.label_id=ANY(${p.conversationLabels}::uuid[])))
+       AND (cardinality(${p.contacts}::uuid[])=0 OR c.id=ANY(${p.contacts}::uuid[]))`;
+}
+
+/** A stored list, already validated as UUIDs when the revision was written. */
+function uuidList(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value as readonly string[] : [];
+}
+
 async function freezeAudience(
   sql: SqlExecutor,
   tenantId: string,
@@ -727,31 +821,16 @@ async function freezeAudience(
   connectionId: string,
   filter: Readonly<Record<string, unknown>>,
 ): Promise<{ readonly id: string; readonly counts: { readonly total: number; readonly eligible: number; readonly excluded: number } }> {
-  const labelIds = Array.isArray(filter['labelIds']) ? filter['labelIds'] : [];
   const search = typeof filter['search'] === 'string' ? normalizeSearchText(filter['search']) : '';
   const frozen = await sql.query<{ id: string; counts: { total: number; eligible: number; excluded: number } }>(
     `WITH candidates AS MATERIALIZED (
        SELECT c.id AS contact_id,i.id AS identity_id,
-       CASE WHEN c.deleted_at IS NOT NULL THEN 'contact_deleted'
-            WHEN i.valid_to IS NOT NULL THEN 'identity_inactive'
-            WHEN s.id IS NOT NULL THEN 'suppressed'
-            WHEN consent.state IS DISTINCT FROM 'granted' THEN 'no_consent'
-            ELSE 'eligible' END AS eligibility,
+       ${ELIGIBILITY} AS eligibility,
        jsonb_build_object('consent',coalesce(consent.state,'missing'),'suppressed',s.id IS NOT NULL) AS reason,
        (SELECT coalesce(jsonb_object_agg(variable.key,to_jsonb(c.display_name)),'{}'::jsonb)
           FROM jsonb_each_text((SELECT variables FROM campaign_revisions WHERE id=$5)) variable
          WHERE variable.value='display_name') AS rendered_variables
-     FROM contacts c JOIN contact_identities i ON i.contact_id=c.id AND i.scope_id=$3
-     LEFT JOIN channel_suppressions s ON s.kind=i.kind AND s.peer_identity=i.external_id
-     LEFT JOIN LATERAL (
-       SELECT state FROM consents x WHERE x.contact_id=c.id AND x.channel=i.kind AND x.purpose='marketing'
-       ORDER BY recorded_at DESC,id DESC LIMIT 1
-     ) consent ON true
-     WHERE ($6::text='' OR c.search_name LIKE '%' || $6 || '%')
-       AND (cardinality($7::uuid[])=0 OR NOT EXISTS (
-         SELECT 1 FROM unnest($7::uuid[]) wanted(label_id)
-          WHERE NOT EXISTS (SELECT 1 FROM contact_labels cl WHERE cl.contact_id=c.id
-            AND cl.label_id=wanted.label_id AND cl.removed_at IS NULL)))
+     ${audienceScope({ connection: '$3', search: '$6', labels: '$7', conversationLabels: '$8', contacts: '$9' })}
      ), totals AS (
        SELECT count(*)::int AS total,
               count(*) FILTER (WHERE eligibility='eligible')::int AS eligible,
@@ -767,7 +846,8 @@ async function freezeAudience(
          FROM candidates c CROSS JOIN snapshot RETURNING id
      )
      SELECT snapshot.id::text,snapshot.counts FROM snapshot`,
-    [tenantId, JSON.stringify(filter), connectionId, campaignId, revisionId, search, labelIds],
+    [tenantId, JSON.stringify(filter), connectionId, campaignId, revisionId, search,
+      uuidList(filter['labelIds']), uuidList(filter['conversationLabelIds']), uuidList(filter['contactIds'])],
   );
   return requireRow(frozen.rows, 'audience freeze returned no row');
 }

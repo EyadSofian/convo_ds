@@ -163,8 +163,12 @@
     block-size: 100%;
   }
 
+  /* The arrows turn while the list is read again, on the shared loop clock,
+     and settle upright the moment it lands. */
   .btn__icon--refreshing > svg {
-    opacity: 0.65;
+    animation: convo-spin 1s linear infinite;
+    animation-delay: var(--loop-phase, 0ms);
+    color: var(--accent-text);
   }
 
   /* A label-only button: the label keeps its place, invisible, under the spinner. */
@@ -710,6 +714,7 @@
     background: linear-gradient(100deg, var(--skeleton) 30%, var(--skeleton-shine) 50%, var(--skeleton) 70%) var(--skeleton);
     background-size: 220% 100%;
     animation: convo-shimmer 1.5s ease-in-out infinite;
+    animation-delay: var(--loop-phase, 0ms);
   }
 
   .skeleton__block--wide {

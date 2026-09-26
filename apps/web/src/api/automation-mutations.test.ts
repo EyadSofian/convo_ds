@@ -54,6 +54,17 @@ describe('web API mutation/query boundaries', () => {
     expect(f.del).toHaveBeenCalledWith('/tenants/tenant/saved-views/view-1', { body: { version: 3 } });
   });
 
+  it('reads and saves reusable campaign audiences, and counts an audience without freezing it', async () => {
+    const f = fake();
+    const views = new SavedViewsApi(f.client);
+    await views.audiences('tenant');
+    await views.createAudience('tenant', { name: 'VIPs', description: null, conditions: input.conditions });
+    expect(f.get).toHaveBeenCalledWith('/tenants/tenant/audiences');
+    expect(f.post).toHaveBeenCalledWith('/tenants/tenant/audiences', { body: { name: 'VIPs', description: null, conditions: input.conditions } });
+    await new CampaignsApi(f.client).previewAudience('tenant', 'channel-1', { search: 'Mo' });
+    expect(f.post).toHaveBeenLastCalledWith('/tenants/tenant/campaigns/audience-preview', { body: { connectionId: 'channel-1', audienceFilter: { search: 'Mo' } } });
+  });
+
   it('omits empty report filters and appends all supported operational filters', async () => {
     const f = fake();
     const api = new CampaignsApi(f.client);

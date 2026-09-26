@@ -66,11 +66,9 @@ export function renderContacts(state: AppState): HTMLElement {
   ]);
 }
 
-type ContactsTool = 'create' | 'import';
-
-function currentTool(state: AppState): ContactsTool | null {
-  const tool = state.dialogForm['contactsTool'];
-  return tool === 'create' || tool === 'import' ? tool : null;
+/** Importing is the one tool that opens inline; adding a contact is a dialog. */
+function importOpen(state: AppState): boolean {
+  return state.dialogForm['contactsTool'] === 'import';
 }
 
 /**
@@ -82,7 +80,6 @@ function currentTool(state: AppState): ContactsTool | null {
 function contactsHero(state: AppState, live: LiveState): HTMLElement {
   const mayCreate = hasPermission(live, 'contact.edit');
   const mayExport = hasPermission(live, 'contact.export');
-  const tool = currentTool(state);
   const rows = live.contacts.status === 'ready' ? live.contacts.value : null;
   const reachable = rows?.filter((contact) => contact.identities.some((identity) => identity.validTo === null)).length;
   const channels = rows === null ? undefined : new Set(rows.flatMap((contact) => contact.identities.filter((identity) => identity.validTo === null).map((identity) => identity.kind))).size;
@@ -99,8 +96,8 @@ function contactsHero(state: AppState, live: LiveState): HTMLElement {
       h('div', { class: 'contacts-hero__actions' }, [
         refreshButton(state, 'live-contacts-reload', live.contacts.status === 'loading', false, 'contacts-hero__ghost'),
         mayExport ? button({ label: t(state, 'تصدير CSV', 'Export CSV'), icon: 'download', act: 'live-contacts-export', small: true, busy: live.busy === 'contacts:export', extraClass: 'contacts-hero__ghost' }) : null,
-        mayCreate ? toolButton(state, 'import', tool) : null,
-        mayCreate ? toolButton(state, 'create', tool) : null,
+        mayCreate ? importButton(state) : null,
+        mayCreate ? button({ label: t(state, 'إضافة جهة اتصال', 'Add contact'), icon: 'userPlus', act: 'live-contact-new', small: true, extraClass: 'contacts-hero__primary' }) : null,
       ]),
     ]),
     h('dl', { class: 'contacts-hero__stats' }, [
@@ -120,58 +117,32 @@ function stat(state: AppState, name: IconName, label: string, value: number | un
   ]);
 }
 
-function toolButton(state: AppState, which: ContactsTool, open: ContactsTool | null): HTMLButtonElement {
-  const pressed = open === which;
+function importButton(state: AppState): HTMLButtonElement {
+  const open = importOpen(state);
   return button({
-    label: which === 'create' ? t(state, 'إضافة جهة اتصال', 'Add contact') : t(state, 'استيراد CSV', 'Import CSV'),
-    icon: which === 'create' ? 'userPlus' : 'arrowIn',
+    label: t(state, 'استيراد CSV', 'Import CSV'),
+    icon: 'arrowIn',
     act: 'live-contacts-tool',
-    arg: pressed ? '' : which,
+    arg: open ? '' : 'import',
     small: true,
-    expanded: pressed,
-    controls: `contacts-tool-${which}`,
-    extraClass: which === 'create' ? 'contacts-hero__primary' : 'contacts-hero__ghost',
+    expanded: open,
+    controls: 'contacts-tool-import',
+    extraClass: 'contacts-hero__ghost',
   });
 }
 
 function openTool(state: AppState, live: LiveState): HTMLElement | null {
-  const tool = currentTool(state);
-  if (tool === null || !hasPermission(live, 'contact.edit')) return null;
-  return tool === 'create' ? createContactForm(state, live) : importPanel(state, live);
+  return importOpen(state) && hasPermission(live, 'contact.edit') ? importPanel(state, live) : null;
 }
 
-function toolHead(state: AppState, which: ContactsTool, title: string, hint: string): HTMLElement {
+function toolHead(state: AppState, title: string, hint: string): HTMLElement {
   return h('div', { class: 'contact-tool__head' }, [
-    h('span', { class: `contact-tool__icon contact-tool__icon--${which}`, 'aria-hidden': 'true' }, [icon(which === 'create' ? 'userPlus' : 'arrowIn', 18)]),
+    h('span', { class: 'contact-tool__icon contact-tool__icon--import', 'aria-hidden': 'true' }, [icon('arrowIn', 18)]),
     h('div', { class: 'contact-tool__titles' }, [
-      h('h2', { class: 'panel__title', id: `contacts-tool-${which}-title` }, [title]),
+      h('h2', { class: 'panel__title', id: 'contacts-tool-import-title' }, [title]),
       h('p', { class: 'field__hint' }, [hint]),
     ]),
     button({ icon: 'close', act: 'live-contacts-tool', arg: '', variant: 'ghost', small: true, title: t(state, 'إغلاق', 'Close') }),
-  ]);
-}
-
-function createContactForm(state: AppState, live: LiveState): HTMLElement {
-  const connections = rowsOf(live.connections).filter((connection) => connection.disconnected_at === null);
-  return h('form', { class: 'panel contact-tool contact-create', id: 'contacts-tool-create', 'data-submit': 'live-contact-create', 'aria-labelledby': 'contacts-tool-create-title' }, [
-    toolHead(
-      state,
-      'create',
-      t(state, 'إضافة جهة اتصال', 'Add a contact'),
-      t(state, 'اربط السجل بهوية قناة محددة. الإضافة لا تسجّل موافقة تسويقية.', 'Attach the record to a specific channel identity. Creating a contact does not record marketing consent.'),
-    ),
-    h('div', { class: 'contact-create__fields' }, [
-      field(t(state, 'اسم العميل', 'Customer name'), textInput('contactCreateName', state.dialogForm['contactCreateName'] ?? '', t(state, 'الاسم المعروض', 'Display name'))),
-      field(t(state, 'القناة', 'Channel'), selectControl({ act: 'form', form: 'contactCreateConnection', value: state.dialogForm['contactCreateConnection'] ?? '', options: [
-        { value: '', label: t(state, 'اختر قناة متصلة', 'Choose a connected channel') },
-        ...connections.map((connection) => ({ value: connection.id, label: `${phrase(state, CHANNEL_NAMES, connection.kind)} · ${connection.display_name}` })),
-      ] })),
-      field(t(state, 'معرّف العميل على القناة', 'Customer channel ID'), h('input', { class: 'input', type: 'text', dir: 'ltr', value: state.dialogForm['contactCreateExternalId'] ?? '', placeholder: t(state, 'رقم أو معرّف القناة', 'Channel phone or provider ID'), 'data-act': 'form', 'data-form': 'contactCreateExternalId' })),
-      live.connections.status === 'idle' || live.connections.status === 'error' || live.connections.status === 'loading'
-        ? button({ label: t(state, 'تحميل القنوات', 'Load channels'), act: 'live-contact-connections', variant: 'ghost', busy: live.connections.status === 'loading' })
-        : button({ label: t(state, 'إنشاء جهة الاتصال', 'Create contact'), icon: 'check', act: 'live-contact-create', variant: 'primary', disabled: connections.length === 0 || live.busy !== null }),
-    ]),
-    connections.length === 0 ? h('p', { class: 'contact-create__notice', role: 'status' }, [t(state, 'لا توجد قناة متاحة لإنشاء هوية عليها. اربط قناة أولاً.', 'No channel is available for an identity. Connect a channel first.')]) : null,
   ]);
 }
 
@@ -182,7 +153,6 @@ function importPanel(state: AppState, live: LiveState): HTMLElement {
   return h('section', { class: 'panel contact-tool contact-transfer', id: 'contacts-tool-import', 'aria-labelledby': 'contacts-tool-import-title' }, [
     toolHead(
       state,
-      'import',
       t(state, 'استيراد جهات الاتصال', 'Import contacts'),
       t(state, 'الاستيراد ينشئ هويات على قناة واحدة ولا يضيف موافقة تسويقية تلقائيًا.', 'Imports attach identities to one channel and never add marketing consent automatically.'),
     ),

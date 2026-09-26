@@ -245,15 +245,39 @@ export interface CreateCampaignInput {
   readonly connectionId: string;
   readonly content: Readonly<Record<string, unknown>>;
   readonly variables: Readonly<Record<string, unknown>>;
-  readonly audienceFilter: Readonly<Record<string, unknown>>;
+  readonly audienceFilter: AudienceFilter;
   readonly timezone: string;
   readonly expiresAt?: string | null;
   readonly budgetAmountMinor: number;
   readonly budgetCurrency: string;
 }
 
+/**
+ * Who a campaign is addressed to, within the contacts on its channel. Every
+ * list narrows; an absent list does not. `labelIds` requires every contact
+ * label; `conversationLabelIds` matches any conversation carrying any of them.
+ */
+export interface AudienceFilter {
+  readonly search?: string;
+  readonly labelIds?: readonly string[];
+  readonly conversationLabelIds?: readonly string[];
+  readonly contactIds?: readonly string[];
+}
+
+/** The server's count of a filter, before anything is frozen. */
+export interface AudiencePreview {
+  readonly total: number;
+  readonly eligible: number;
+  readonly excluded: number;
+  readonly reasons: { readonly suppressed: number; readonly no_consent: number; readonly identity_inactive: number };
+  readonly sample: readonly string[];
+}
+
 export class CampaignsApi {
   constructor(private readonly client: ApiClient) {}
+  previewAudience(tenantId: string, connectionId: string, audienceFilter: AudienceFilter): Promise<ApiResult<AudiencePreview>> {
+    return this.client.post(`/tenants/${tenantId}/campaigns/audience-preview`, { body: { connectionId, audienceFilter } });
+  }
   list(tenantId: string): Promise<ApiResult<readonly Campaign[]>> {
     return this.client.get(`/tenants/${tenantId}/campaigns`);
   }

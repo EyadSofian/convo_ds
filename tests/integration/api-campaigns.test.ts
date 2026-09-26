@@ -287,6 +287,80 @@ describe('campaign API', () => {
     expect(validation.json()).toMatchObject({ data: { audience: { total: 1, eligible: 1, excluded: 0 } } });
   });
 
+  it('previews and freezes audiences narrowed by conversation labels and hand-picked contacts', async () => {
+    // Its own channel and people, so the conversations here stay invisible to
+    // the dispatch tests that share this company.
+    const seeded = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const connection = await sql.query<{ id: string }>(
+        `INSERT INTO channel_connections
+           (tenant_id,kind,external_asset_id,display_name,status,asset_verified_at,credential_verified_at,
+            webhook_subscribed_at,first_inbound_at,first_outbound_at)
+         VALUES ($1,'whatsapp','phone-audience','WhatsApp Audience','healthy',now(),now(),now(),now(),now()) RETURNING id::text`,
+        [api.tenantId],
+      );
+      const connectionId = connection.rows[0]!.id;
+      const label = await sql.query<{ id: string }>(`INSERT INTO labels (tenant_id,name,color) VALUES ($1,'Asked about fees','#654321') RETURNING id::text`, [api.tenantId]);
+      const other = await sql.query<{ id: string }>(`INSERT INTO labels (tenant_id,name,color) VALUES ($1,'Unused','#111111') RETURNING id::text`, [api.tenantId]);
+      const ids: string[] = [];
+      for (const [index, name] of ['Amal Fee', 'Basma Fee'].entries()) {
+        const contact = await sql.query<{ id: string }>(
+          `INSERT INTO contacts (tenant_id,display_name,search_name) VALUES ($1,$2,$3) RETURNING id::text`,
+          [api.tenantId, name, name.toLowerCase()],
+        );
+        const contactId = contact.rows[0]!.id;
+        ids.push(contactId);
+        await sql.query(
+          `INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id) VALUES ($1,$2,'whatsapp',$3,$4)`,
+          [api.tenantId, contactId, connectionId, `20199900000${index}`],
+        );
+        if (index === 0) await sql.query(
+          `INSERT INTO consents (tenant_id,contact_id,channel,purpose,state,source) VALUES ($1,$2,'whatsapp','marketing','granted','web_form')`,
+          [api.tenantId, contactId],
+        );
+        const conversation = await sql.query<{ id: string }>(
+          `INSERT INTO conversations (tenant_id,connection_id,peer_identity,contact_id) VALUES ($1,$2,$3,$4) RETURNING id::text`,
+          [api.tenantId, connectionId, `20199900000${index}`, contactId],
+        );
+        await sql.query(
+          `INSERT INTO conversation_labels (tenant_id,conversation_id,label_id,assigned_by_membership_id,removed_at)
+           VALUES ($1,$2,$3,$4,$5)`,
+          // The second label was removed again: history, not a current label.
+          [api.tenantId, conversation.rows[0]!.id, label.rows[0]!.id, api.ownerMembershipId, index === 1 ? new Date() : null],
+        );
+      }
+      return { connectionId, first: ids[0]!, second: ids[1]!, label: label.rows[0]!.id, other: other.rows[0]!.id };
+    });
+    const preview = async (audienceFilter?: Record<string, unknown>) => {
+      const response = await send(api, 'POST', '/campaigns/audience-preview', {
+        connectionId: seeded.connectionId, ...(audienceFilter === undefined ? {} : { audienceFilter }),
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      return (response.json() as { data: Record<string, unknown> }).data;
+    };
+
+    expect(await preview()).toEqual({
+      total: 2, eligible: 1, excluded: 1, reasons: { no_consent: 1, suppressed: 0, identity_inactive: 0 }, sample: ['Amal Fee'],
+    });
+    expect(await preview({ conversationLabelIds: [seeded.label] })).toMatchObject({ total: 1, eligible: 1, sample: ['Amal Fee'] });
+    expect(await preview({ conversationLabelIds: [seeded.other] })).toMatchObject({ total: 0, eligible: 0, sample: [] });
+    expect(await preview({ contactIds: [seeded.second] })).toMatchObject({ total: 1, eligible: 0, excluded: 1 });
+    expect(await preview({ search: 'fee', contactIds: [seeded.first, seeded.second] })).toMatchObject({ total: 2 });
+    expect(await preview({ labelIds: [seeded.other] })).toMatchObject({ total: 0 });
+
+    const refused = await send(api, 'POST', '/campaigns/audience-preview', { connectionId: seeded.connectionId, audienceFilter: { tags: [] } });
+    expect(refused.statusCode).toBe(400);
+    const unknownChannel = await send(api, 'POST', '/campaigns/audience-preview', { connectionId: randomUUID() });
+    expect(unknownChannel.statusCode).toBe(404);
+
+    const picked = await send(api, 'POST', '/campaigns', draft(api, {
+      name: 'Picked and labelled', connectionId: seeded.connectionId,
+      audienceFilter: { conversationLabelIds: [seeded.label], contactIds: [seeded.first, seeded.second] },
+    }), 'create-picked-audience');
+    expect(picked.statusCode, picked.body).toBe(201);
+    const frozen = await send(api, 'POST', `/campaigns/${dataOf(picked).id}/validate`);
+    expect(frozen.json()).toMatchObject({ data: { audience: { total: 1, eligible: 1, excluded: 0 } } });
+  });
+
   it('detects idempotency-key reuse and hides an unknown campaign', async () => {
     expect((await send(api, 'POST', '/campaigns', draft(api, { name: 'Original key body' }), 'same-create-key')).statusCode).toBe(201);
     const conflict = await send(api, 'POST', '/campaigns', draft(api, { name: 'Different key body' }), 'same-create-key');

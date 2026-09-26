@@ -8,7 +8,7 @@ export interface CampaignDraftInput {
   readonly connectionId: string;
   readonly content: Readonly<Record<string, unknown>>;
   readonly variables: Readonly<Record<string, unknown>>;
-  readonly audienceFilter: Readonly<Record<string, unknown>>;
+  readonly audienceFilter: AudienceFilterInput;
   readonly timezone: string;
   readonly expiresAt: string | null;
   readonly budgetAmountMinor: number;
@@ -29,6 +29,68 @@ export interface CampaignTestSendInput {
   readonly expectedVersion: number;
 }
 
+/**
+ * Who a campaign is addressed to, within the contacts that hold an identity on
+ * its channel. Every list narrows; an absent or empty list does not.
+ *
+ * - `search`: the display name contains this text.
+ * - `labelIds`: the contact carries **every** one of these contact labels.
+ * - `conversationLabelIds`: at least one of the contact's conversations
+ *   carries **any** of these labels — "people from conversations labelled X".
+ * - `contactIds`: the contact is one of these, hand-picked.
+ */
+export interface AudienceFilterInput {
+  readonly search?: string;
+  readonly labelIds?: readonly string[];
+  readonly conversationLabelIds?: readonly string[];
+  readonly contactIds?: readonly string[];
+}
+
+export interface AudiencePreviewInput {
+  readonly connectionId: string;
+  readonly audienceFilter: AudienceFilterInput;
+}
+
+const AUDIENCE_LISTS: Readonly<Record<'labelIds' | 'conversationLabelIds' | 'contactIds', number>> = {
+  labelIds: 20,
+  conversationLabelIds: 20,
+  contactIds: 1000,
+};
+const AUDIENCE_KEYS = new Set(['search', ...Object.keys(AUDIENCE_LISTS)]);
+
+/**
+ * The audience filter, normalised, or `undefined` when it is malformed. An
+ * unknown key is refused rather than ignored: a misspelt narrowing that was
+ * silently dropped would send to more people than the operator chose.
+ */
+export function parseAudienceFilter(input: unknown): AudienceFilterInput | undefined {
+  const filter = recordOrNull(input);
+  if (filter === null || Object.keys(filter).some((key) => !AUDIENCE_KEYS.has(key))) return undefined;
+  const normalised: { search?: string; labelIds?: readonly string[]; conversationLabelIds?: readonly string[]; contactIds?: readonly string[] } = {};
+  const search = filter['search'];
+  if (search !== undefined) {
+    if (typeof search !== 'string' || search.trim().length > 120) return undefined;
+    if (search.trim() !== '') normalised.search = search.trim();
+  }
+  for (const [key, limit] of Object.entries(AUDIENCE_LISTS) as [keyof typeof AUDIENCE_LISTS, number][]) {
+    const list = filter[key];
+    if (list === undefined) continue;
+    if (!Array.isArray(list) || list.length > limit || !list.every((id) => typeof id === 'string' && UUID.test(id))) return undefined;
+    if (list.length > 0) normalised[key] = [...new Set(list as readonly string[])];
+  }
+  return normalised;
+}
+
+export function parseAudiencePreview(body: unknown): AudiencePreviewInput {
+  const value = record(body);
+  const connectionId = value['connectionId'];
+  const audienceFilter = value['audienceFilter'] === undefined ? {} : parseAudienceFilter(value['audienceFilter']);
+  if (typeof connectionId !== 'string' || !UUID.test(connectionId) || audienceFilter === undefined) {
+    throw invalid('Choose a channel and a valid audience filter.');
+  }
+  return { connectionId, audienceFilter };
+}
+
 export interface CampaignExportInput {
   readonly format: 'csv';
   readonly campaignId: string | null;
@@ -42,14 +104,14 @@ export function parseCampaignDraft(body: unknown): CampaignDraftInput {
   const connectionId = value['connectionId'];
   const content = recordOrNull(value['content']);
   const variables = value['variables'] === undefined ? {} : recordOrNull(value['variables']);
-  const audienceFilter = value['audienceFilter'] === undefined ? {} : recordOrNull(value['audienceFilter']);
+  const audienceFilter = value['audienceFilter'] === undefined ? {} : parseAudienceFilter(value['audienceFilter']);
   const timezone = value['timezone'] === undefined ? 'UTC' : text(value['timezone'], 80);
   const expiresAt = optionalInstant(value['expiresAt']);
   const amount = value['budgetAmountMinor'] === undefined ? 0 : value['budgetAmountMinor'];
   const currency = value['budgetCurrency'] === undefined ? 'USD' : value['budgetCurrency'];
   if (name === null || objective === null && value['objective'] !== undefined && value['objective'] !== null ||
       typeof connectionId !== 'string' || !UUID.test(connectionId) || content === null || Object.keys(content).length === 0 ||
-      variables === null || !validVariables(variables) || audienceFilter === null || timezone === null || expiresAt === undefined ||
+      variables === null || !validVariables(variables) || audienceFilter === undefined || timezone === null || expiresAt === undefined ||
       typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0 ||
       typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
     throw invalid('The campaign draft is not valid.');

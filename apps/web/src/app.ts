@@ -61,6 +61,7 @@ import { trackViewport } from './viewport';
 import { newerBundleAvailable } from './app-version';
 import type { MotionMemory } from './motion';
 import { applyMotion, motionKeys } from './motion';
+import { nextHeaderHidden } from './header-autohide';
 
 function renderScreen(state: AppState): HTMLElement {
   if (state.route.screen === 'contacts') return renderContacts(state);
@@ -502,6 +503,9 @@ export function mount(options: MountOptions): AppHandle {
   let drawn = false;
   let overlay: string | null = null;
   const motion: MotionMemory = new Map();
+  /** The header is tucked away while a page scrolls down; see header-autohide.ts. */
+  let headerHidden = false;
+  let screenScrollTop = 0;
   let returnFocus: FocusSnapshot | null = null;
   let cancelPoll: Cancel | null = null;
   let cancelResume: Cancel | null = null;
@@ -563,12 +567,25 @@ export function mount(options: MountOptions): AppHandle {
     // Page and record transitions: see motion.ts for why these are timed
     // across renders instead of replayed by each one.
     const keys = motionKeys(state);
+    const viewChanged = motion.get('view')?.key !== keys.view;
     applyMotion(root, motion, 'view', keys.view, state.clock.getTime());
     applyMotion(root, motion, 'detail', keys.detail, state.clock.getTime());
     applyMotion(root, motion, 'tool', keys.tool, state.clock.getTime());
+    // Every infinite loop — spinner, shimmer, pulse — runs on one shared clock
+    // (84 s is a multiple of each period), so a spinner rebuilt by a render
+    // carries on at the same angle instead of snapping back to zero.
+    root.style.setProperty('--loop-phase', `-${String(state.clock.getTime() % 84_000)}ms`);
     replace(root, [renderApp(state)]);
     growComposer(root);
     restoreScroll(root, scroll);
+    if (viewChanged) {
+      // A new page or tab opens at its top, with the header showing: the scroll
+      // position of the page it replaced means nothing here.
+      headerHidden = false;
+      screenScrollTop = 0;
+      for (const region of root.querySelectorAll('[data-scroll="screen"]')) region.scrollTop = 0;
+    }
+    root.querySelector('.app')?.setAttribute('data-header', headerHidden ? 'hidden' : 'shown');
 
     if (nextOverlay !== overlay) {
       const opened = nextOverlay !== null;
@@ -1164,6 +1181,24 @@ export function mount(options: MountOptions): AppHandle {
     refresh();
   };
 
+  const setHeaderHidden = (hidden: boolean): void => {
+    headerHidden = hidden;
+    root.querySelector('.app')?.setAttribute('data-header', hidden ? 'hidden' : 'shown');
+  };
+  const onScroll = (event: Event): void => {
+    const target = event.target as HTMLElement;
+    if (target.getAttribute('data-scroll') !== 'screen' || state.openMenu !== null) return;
+    const next = nextHeaderHidden(headerHidden, screenScrollTop, target.scrollTop);
+    screenScrollTop = target.scrollTop;
+    if (next !== headerHidden) setHeaderHidden(next);
+  };
+  // Tabbing into a tucked-away header brings it back into view.
+  const onFocusIn = (event: Event): void => {
+    if (headerHidden && (event.target as Element).closest('.header') !== null) setHeaderHidden(false);
+  };
+
+  root.addEventListener('scroll', onScroll, true);
+  root.addEventListener('focusin', onFocusIn);
   root.addEventListener('click', onClick);
   root.addEventListener('submit', onSubmit);
   root.addEventListener('input', onInput);
@@ -1200,6 +1235,8 @@ export function mount(options: MountOptions): AppHandle {
       page?.removeEventListener('pageshow', onPageShow);
       page?.removeEventListener('focus', onFocus);
       page?.removeEventListener('beforeunload', onBeforeUnload);
+      root.removeEventListener('scroll', onScroll, true);
+      root.removeEventListener('focusin', onFocusIn);
       root.removeEventListener('click', onClick);
       root.removeEventListener('submit', onSubmit);
       root.removeEventListener('input', onInput);

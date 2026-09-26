@@ -17,7 +17,7 @@ import type {
 import { INBOX_QUERY_DEFAULT, type InboxQuery } from '@convo/domain';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
-import type { AssignmentReportRow, Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport, ResponseReport, ResolutionReport, TeamReportRow } from '../api/campaigns.js';
+import type { AssignmentReportRow, AudiencePreview, Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport, ResponseReport, ResolutionReport, TeamReportRow } from '../api/campaigns.js';
 import { disconnectedCampaignsApi } from '../api/campaigns.js';
 import {
   DEFAULT_AUTOMATION_LIST_QUERY,
@@ -33,7 +33,7 @@ import {
 import { disconnectedAutomationsApi } from '../api/automations.js';
 import { disconnectedMetadataApi } from '../api/people.js';
 import { disconnectedSavedViewsApi } from '../api/people.js';
-import type { SavedView, SavedViewsApi } from '../api/saved-views.js';
+import type { SavedAudience, SavedView, SavedViewsApi } from '../api/saved-views.js';
 import type { RealtimeSubscription } from './realtime.js';
 import type { Notification, NotificationsApi } from '../api/notifications.js';
 import type {
@@ -273,6 +273,14 @@ export interface LiveState {
   /** Views loaded from the guarded API; never browser-local query presets. */
   savedViews: Resource<readonly SavedView[]>;
   selectedSavedViewId: string | null;
+  /** Reusable campaign audiences. */
+  audiences: Resource<readonly SavedAudience[]>;
+  /**
+   * The last audience count, and the channel and filter it counted. The editor
+   * compares the key with what is on screen, so a count is never shown for a
+   * filter it did not describe.
+   */
+  audiencePreview: { readonly key: string; readonly result: Resource<AudiencePreview> } | null;
   contactFilters: { labelId: string; fieldId: string; fieldValue: string };
   busy: string | null;
   /**
@@ -395,6 +403,8 @@ export function createLiveState(
     inboxNextCursor: null,
     savedViews: IDLE,
     selectedSavedViewId: null,
+    audiences: IDLE,
+    audiencePreview: null,
     contactFilters: { labelId: '', fieldId: '', fieldValue: '' },
     conversationsApi: conversations,
     contactsApi: contacts,

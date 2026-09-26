@@ -34,6 +34,13 @@ describe('initials', () => {
     expect(initials('eyad')).toBe('E');
     expect(initials('   ')).toBe('؟');
   });
+
+  it('draws no initials for a name that is a phone number or handle', () => {
+    expect(initials('201004445566')).toBe('');
+    expect(initials('+20 100 444')).toBe('');
+    expect(initials('٠١٢٣٤')).toBe('');
+    expect(initials('@sara')).toBe('');
+  });
 });
 
 describe('toneOf', () => {

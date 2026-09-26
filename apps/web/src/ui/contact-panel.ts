@@ -228,13 +228,27 @@ function consentSection(state: AppState, contact: Contact, live: LiveState, wher
   const busy = live.busy === `consent:${contact.id}`;
   return h('section', { class: 'panel-section contact__card contact__consent', 'aria-labelledby': `consent-${where}` }, [
     sectionTitle('shield', 'green', t(state, 'الموافقة', 'Consent'), `consent-${where}`),
+    // One row per purpose, marketing first: it is the one a campaign needs,
+    // and a service consent never lets a campaign through.
+    h('div', { class: 'consent__purposes' }, (['marketing', 'service'] as const).map((purpose) => {
+      const latest = contact.consent.find((record) => record.purpose === purpose)?.state;
+      return h('div', { class: `consent__purpose consent__purpose--${latest ?? 'none'}` }, [
+        h('div', { class: 'consent__purpose-text' }, [
+          h('strong', {}, [purpose === 'marketing' ? t(state, 'رسائل تسويقية', 'Marketing messages') : t(state, 'رسائل الخدمة', 'Service messages')]),
+          h('span', {}, [purpose === 'marketing' ? t(state, 'مطلوبة لاستلام الحملات', 'Required to receive campaigns') : t(state, 'الردود والتحديثات', 'Replies and updates')]),
+        ]),
+        latest === undefined
+          ? badge(t(state, 'غير مسجلة', 'Not recorded'), 'neutral')
+          : badge(latest === 'granted' ? t(state, 'موافقة', 'Granted') : t(state, 'انسحاب', 'Withdrawn'), latest === 'granted' ? 'success' : 'warning', { dot: true }),
+        h('div', { class: 'consent__actions' }, [
+          button({ label: t(state, 'تسجيل موافقة', 'Record consent'), act: `live-consent-${where}`, arg: `${contact.id}:${purpose}:granted`, small: true, variant: latest === 'granted' ? 'default' : 'primary', disabled: busy }),
+          button({ label: t(state, 'تسجيل انسحاب', 'Record withdrawal'), act: `live-consent-${where}`, arg: `${contact.id}:${purpose}:withdrawn`, small: true, variant: 'ghost', disabled: busy }),
+        ]),
+      ]);
+    })),
     contact.consent.length === 0
       ? h('p', { class: 'field__hint' }, [t(state, 'لا يوجد سجل موافقة.', 'No consent recorded.')])
-      : h('ul', { class: 'consent__list' }, contact.consent.map((record) => consentRow(state, record))),
-    h('div', { class: 'consent__actions' }, [
-      button({ label: t(state, 'تسجيل موافقة', 'Record consent'), act: `live-consent-${where}`, arg: `${contact.id}:granted`, small: true, disabled: busy }),
-      button({ label: t(state, 'تسجيل انسحاب', 'Record withdrawal'), act: `live-consent-${where}`, arg: `${contact.id}:withdrawn`, small: true, variant: 'ghost', disabled: busy }),
-    ]),
+      : h('ul', { class: 'consent__list', 'aria-label': t(state, 'سجل الموافقات', 'Consent history') }, contact.consent.map((record) => consentRow(state, record))),
     h('p', { class: 'field__hint' }, [
       t(state, 'كل تسجيل يُضاف إلى السجل ولا يمحو ما قبله.', 'Each record is added to the history; nothing earlier is erased.'),
     ]),

@@ -6,6 +6,8 @@ import { catalogueItem } from './channels-screen';
 import { t } from './copy';
 import { button, dialogShell, field, inlineError, LITERAL_INPUT, notice, selectControl, textInput } from './parts';
 import { channelTile } from './brand';
+import { audienceSection } from './campaign-audience';
+import { contactCreateDialog } from './contact-create-dialog';
 import { renderAdminDialog } from './admin-dialogs';
 
 function closeButton(state: AppState): HTMLElement {
@@ -26,6 +28,7 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'campaign-test-send') return campaignTestSend(state, dialog.arg);
   if (dialog.kind === 'campaign-schedule') return campaignSchedule(state, dialog.arg);
   if (dialog.kind === 'campaign' || dialog.kind === 'campaign-edit') return campaignEditor(state, dialog.kind, dialog.arg);
+  if (dialog.kind === 'contact-create') return contactCreateDialog(state);
   if (dialog.kind === 'invite') return invite(state);
   if (dialog.kind === 'change-password') return changePasswordDialog(state);
   if (dialog.kind === 'ownership-offer') return ownershipOffer(state, dialog.arg);
@@ -346,6 +349,23 @@ function connectChannel(state: AppState, kind: string): HTMLElement {
           h('p', { class: 'field__hint' }, [t(state, 'استخدم رمز وصول الصفحة نفسها. يتحقق الخادم من ربط الصفحة بحساب إنستجرام.', 'Use the matching Page access token. The server verifies that this Page links to the Instagram account.')]),
           fieldError(state, 'channelPage'),
         ]) : null,
+        item.meta ? null : h('div', { class: 'field field--wide' }, [
+          h('label', { class: 'field__label', for: 'channel-origins' }, [t(state, 'المصادر المسموح لها بالإرسال', 'Allowed sending origins')]),
+          h('textarea', {
+            id: 'channel-origins',
+            class: 'input textarea',
+            rows: '2',
+            dir: 'ltr',
+            ...LITERAL_INPUT,
+            placeholder: 'https://school.example',
+            'data-act': 'form',
+            'data-form': 'channelOrigins',
+          }, [form['channelOrigins'] ?? '']),
+          h('p', { class: 'field__hint' }, [t(state,
+            'مصدر واحد في كل سطر، مثل https://school.example. أي تسليم من مصدر آخر يُرفض، لذا بدونه لا تصل أي رسالة.',
+            'One per line, e.g. https://school.example. Deliveries from anywhere else are refused, so without one no message arrives.')]),
+          fieldError(state, 'channelOrigins'),
+        ]),
         h('div', { class: 'field' }, [
           h('label', { class: 'field__label', for: 'channel-name' }, [t(state, 'اسم العرض', 'Display name')]),
           textInput('channelName', form['channelName'] ?? '', t(state, 'مثال: خط التسجيل', 'e.g. Admissions line'), { id: 'channel-name', required: true }),
@@ -630,7 +650,6 @@ function campaignEditor(state: AppState, kind: string, campaignId: string): HTML
   );
   const form = state.dialogForm;
   const initialMessage = typeof campaign?.content['text'] === 'string' ? campaign.content['text'] : '';
-  const initialSearch = typeof campaign?.audience_filter['search'] === 'string' ? campaign.audience_filter['search'] : '';
   const busy = live.busy === 'campaign-create' || (campaign !== undefined && live.busy === `campaign-update:${campaign.id}`);
   return dialogShell(
     state,
@@ -673,10 +692,7 @@ function campaignEditor(state: AppState, kind: string, campaignId: string): HTML
           h('p', { class: 'field__hint' }, [t(state, 'استخدم {{display_name}} لإدراج اسم العميل كما هو محفوظ عند تثبيت الجمهور.', 'Use {{display_name}} to insert the name frozen with the audience.')]),
           fieldError(state, 'campaignMessage'),
         ]),
-        h('div', { class: 'field field--wide' }, [
-          h('label', { class: 'field__label', for: 'campaign-search' }, [t(state, 'تصفية الجمهور بالاسم (اختياري)', 'Audience name filter (optional)')]),
-          textInput('campaignSearch', form['campaignSearch'] ?? initialSearch, t(state, 'اتركه فارغًا لكل جهات الاتصال المؤهلة', 'Leave empty for every eligible contact'), { id: 'campaign-search' }),
-        ]),
+        audienceSection(state),
       ]),
       notice('info', 'shield', campaign === undefined
         ? t(state, 'بعد الإنشاء: ثبّت الجمهور، اعتمد النسخة، ثم أطلقها.', 'After creating: freeze the audience, approve the revision, then launch.')

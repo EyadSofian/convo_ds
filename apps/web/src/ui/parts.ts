@@ -165,7 +165,7 @@ export function avatar(options: AvatarOptions): HTMLElement {
   const size = options.size ?? 'md';
   const tone = options.seed === undefined ? '' : ` avatar--tone-${String(toneOf(options.seed))}`;
   return h('span', { class: `avatar avatar--${size}${tone}`, 'aria-hidden': 'true' }, [
-    options.initials === '' ? icon('user', 16) : options.initials,
+    options.initials === '' ? icon('user', size === 'xl' ? 28 : 16) : options.initials,
     options.channel === undefined
       ? null
       : h('span', { class: `avatar__channel channel-tile--${options.channel}` }, [channelMark(options.channel, 10)]),

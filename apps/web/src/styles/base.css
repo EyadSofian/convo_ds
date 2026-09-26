@@ -222,6 +222,8 @@
     border: 2px solid currentColor;
     border-inline-end-color: transparent;
     animation: convo-spin 0.8s linear infinite;
+    /* Phase-locked to the app clock (app.ts), so a re-render never restarts it. */
+    animation-delay: var(--loop-phase, 0ms);
     flex: none;
   }
 
