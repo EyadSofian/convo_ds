@@ -35,6 +35,21 @@ main.app__screen
           span.kpi__label
           span.kpi__value
             bdi
+      div.campaign-views
+        div.segmented
+          button.segmented__item [live-campaign-view]
+            span.segmented__count
+          button.segmented__item [live-campaign-view]
+            span.segmented__count
+          button.segmented__item [live-campaign-view]
+            span.segmented__count
+          button.segmented__item [live-campaign-view]
+            span.segmented__count
+          button.segmented__item [live-campaign-view]
+            span.segmented__count
+        button.campaign-views__audiences [live-campaign-view]
+          svg
+            path
       div.split
         section.panel.split__list
           header.panel__header
@@ -131,6 +146,9 @@ main.app__screen
               dl.attrgrid
                 dt
                 dd
+                dt
+                dd
+                  span
                 dt
                 dd
                   bdi
