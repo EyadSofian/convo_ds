@@ -4,17 +4,25 @@ import { h } from '../dom.js';
 import { dateFormat, formatNumber } from '../format.js';
 import { icon } from '../icons.js';
 import { hasPermission } from '../live/ability.js';
+import type { DelayUnit } from '../live/automation-steps.js';
+import { DELAY_UNITS, delayParts, RUNNABLE_STEPS, runnable } from '../live/automation-steps.js';
 import { rowsOf } from '../live/store.js';
 import { formatHash } from '../router.js';
 import { routeParamsWithLanguage } from '../state.js';
 import type { AppState } from '../state.js';
 import { t } from './copy.js';
-import { badge, button, emptyState, errorState, inlineError, page, panel, refreshButton, skeleton, toolbar, type Tone } from './parts.js';
+import { badge, button, emptyState, errorState, inlineError, page, panel, refreshButton, selectControl, skeleton, toolbar, type Tone } from './parts.js';
 
 const CATEGORIES = ['academic', 'sales', 'marketing', 'operations', 'custom'] as const;
 const TRIGGERS = ['manual','schedule','customer_created','customer_updated','label_added','conversation_created','conversation_assigned','conversation_closed','customer_replied','no_reply_for_duration','custom_event','student_enrolled','course_starting','session_starting','attendance_updated','course_completed'] as const;
 const TARGETS = ['single_customer','dynamic_audience','label','saved_view','course_context','matching_conditions'] as const;
-const STEPS = ['condition','delay','send_whatsapp_template','add_label','remove_label','assign_team','assign_agent','update_customer_field','create_internal_notification','webhook'] as const;
+const STEP_NAMES: Readonly<Record<string, readonly [string, string]>> = {
+  delay: ['انتظار', 'Wait'],
+  send_whatsapp_template: ['إرسال قالب واتساب', 'Send a WhatsApp template'],
+  add_label: ['إضافة تصنيف للعميل', 'Add a label to the contact'],
+  remove_label: ['إزالة تصنيف من العميل', 'Remove a label from the contact'],
+  update_customer_field: ['تحديث حقل للعميل', 'Update a contact field'],
+};
 const STATE_TONE: Readonly<Record<string, Tone>> = { draft: 'neutral', active: 'success', paused: 'warning', archived: 'neutral' };
 
 export function renderAutomations(state: AppState): HTMLElement {
@@ -155,18 +163,26 @@ function builder(state: AppState, automation: Automation): HTMLElement {
       h('div', { class: 'automation-canvas' }, [
         fieldBlock(state, 'WHEN', t(state, 'متى يبدأ هذا التدفق؟', 'What starts this workflow?'), select('automationTrigger', automation.workflow.trigger.type, TRIGGERS)),
         connector(),
-        fieldBlock(state, 'FOR', t(state, 'مَن أو ما الذي يعمل عليه؟', 'Who or what should it work on?'), select('automationTarget', automation.workflow.target.type, TARGETS)),
+        targetBlock(state, automation),
         connector(),
-        ...automation.workflow.steps.flatMap((step, index) => [
-          h('article', { class: 'workflow-block', 'data-step': step.id }, [
-            h('div', { class: 'workflow-block__index' }, [String(index + 1)]),
-            h('div', { class: 'workflow-block__body' }, [h('span', { class: 'workflow-block__kind' }, [index === 0 ? 'THEN' : 'AND THEN']), h('h3', {}, [human(step.type)]), select(`automationStep_${step.id}`, step.type, STEPS), step.type === 'send_whatsapp_template' ? whatsappStep(state,step) : null]),
-            automation.workflow.steps.length > 1 ? button({ icon: 'close', act: 'live-automation-remove-step', arg: `${automation.id}:${step.id}`, variant: 'ghost', small: true, title: t(state, 'حذف الخطوة', 'Remove step') }) : null,
-          ]),
-          connector(),
-        ]),
+        ...automation.workflow.steps.flatMap((step, index) => {
+          const type = state.dialogForm[`automationStep_${step.id}`] || step.type;
+          return [
+            h('article', { class: `workflow-block${runnable(type) ? '' : ' workflow-block--blocked'}`, 'data-step': step.id }, [
+              h('div', { class: 'workflow-block__index' }, [String(index + 1)]),
+              h('div', { class: 'workflow-block__body' }, [
+                h('span', { class: 'workflow-block__kind' }, [index === 0 ? t(state, 'ثم', 'THEN') : t(state, 'وبعدها', 'AND THEN')]),
+                h('h3', {}, [stepName(state, type)]),
+                stepSelect(state, step.id, type),
+                stepConfig(state, step, type),
+              ]),
+              automation.workflow.steps.length > 1 ? button({ icon: 'close', act: 'live-automation-remove-step', arg: `${automation.id}:${step.id}`, variant: 'ghost', small: true, title: t(state, 'حذف الخطوة', 'Remove step') }) : null,
+            ]),
+            connector(),
+          ];
+        }),
         button({ label: t(state, 'إضافة خطوة', 'Add step'), icon: 'plus', act: 'live-automation-add-step', arg: automation.id, extraClass: 'automation-add-step' }),
-        h('section', { class: 'automation-safety-card' }, [icon('shield', 20), h('div', {}, [h('h3', {}, [t(state, 'الحماية قبل التشغيل', 'Execution safety')]), h('p', {}, [t(state, 'منع التكرار فعال. التفعيل يفحص صلاحية قوالب WhatsApp والمتغيرات المطلوبة.', 'Duplicate suppression is on. Activation validates WhatsApp template approval and required variables.')])])]),
+        h('section', { class: 'automation-safety-card' }, [icon('shield', 20), h('div', {}, [h('h3', {}, [t(state, 'الحماية قبل التشغيل', 'Execution safety')]), h('p', {}, [t(state, 'منع التكرار فعال. التفعيل يتحقق من أن كل خطوة مكتملة: التصنيف أو الحقل أو القالب المعتمد ومتغيراته.', 'Duplicate suppression is on. Activation checks every step is complete: its label, field, or approved template and variables.')])])]),
       ]),
       h('aside', { class: 'automation-inspector' }, [
         h('h2', {}, [t(state, 'تفاصيل المسودة', 'Draft details')]),
@@ -186,6 +202,100 @@ function builder(state: AppState, automation: Automation): HTMLElement {
       ]),
     ]),
   ]);
+}
+
+function stepName(state: AppState, type: string): string {
+  const names = STEP_NAMES[type];
+  return names === undefined ? human(type) : t(state, names[0], names[1]);
+}
+
+/** Only kinds the executor runs are offered; one a draft already holds stays visible, marked. */
+function stepSelect(state: AppState, stepId: string, type: string): HTMLSelectElement {
+  const options = runnable(type) ? RUNNABLE_STEPS : [...RUNNABLE_STEPS, type];
+  return selectControl({
+    form: `automationStep_${stepId}`,
+    value: type,
+    ariaLabel: t(state, 'نوع الخطوة', 'Step type'),
+    options: options.map((option) => ({ value: option, label: runnable(option) ? stepName(state, option) : t(state, `${human(option)} (غير متاحة بعد)`, `${human(option)} (not available yet)`) })),
+  });
+}
+
+function stepConfig(state: AppState, step: Automation['workflow']['steps'][number], type: string): Child {
+  const own = type === step.type ? step.config : {};
+  const form = state.dialogForm;
+  if (type === 'send_whatsapp_template') return whatsappStep(state, step);
+  if (type === 'delay') {
+    const parts = delayParts(own);
+    return h('div', { class: 'workflow-config workflow-config--row' }, [
+      h('label', { class: 'field' }, [
+        h('span', { class: 'field__label' }, [t(state, 'المدة', 'How long')]),
+        h('input', { class: 'input', type: 'number', min: '1', value: form[`automationDelay_${step.id}`] ?? String(parts.amount), 'data-act': 'form', 'data-form': `automationDelay_${step.id}` }),
+      ]),
+      h('label', { class: 'field' }, [
+        h('span', { class: 'field__label' }, [t(state, 'الوحدة', 'Unit')]),
+        selectControl({
+          form: `automationDelayUnit_${step.id}`,
+          value: form[`automationDelayUnit_${step.id}`] ?? parts.unit,
+          options: (Object.keys(DELAY_UNITS) as DelayUnit[]).map((unit) => ({
+            value: unit,
+            label: unit === 'minutes' ? t(state, 'دقائق', 'Minutes') : unit === 'hours' ? t(state, 'ساعات', 'Hours') : t(state, 'أيام', 'Days'),
+          })),
+        }),
+      ]),
+    ]);
+  }
+  if (type === 'add_label' || type === 'remove_label') return labelPicker(state, `automationLabel_${step.id}`, form[`automationLabel_${step.id}`] ?? String(own['labelId'] ?? ''));
+  if (type === 'update_customer_field') {
+    const fields = rowsOf(state.live.customFields).filter((field) => field.target === 'contact' && field.state === 'active');
+    const chosen = form[`automationField_${step.id}`] ?? String(own['fieldId'] ?? '');
+    return h('div', { class: 'workflow-config workflow-config--row' }, [
+      h('label', { class: 'field' }, [
+        h('span', { class: 'field__label' }, [t(state, 'الحقل', 'Field')]),
+        selectControl({
+          form: `automationField_${step.id}`,
+          value: chosen,
+          options: [{ value: '', label: t(state, 'اختر حقلًا', 'Choose a field') }, ...fields.map((field) => ({ value: field.id, label: field.name }))],
+        }),
+      ]),
+      h('label', { class: 'field' }, [
+        h('span', { class: 'field__label' }, [t(state, 'القيمة', 'Value')]),
+        h('input', { class: 'input', value: form[`automationFieldValue_${step.id}`] ?? (own['value'] === undefined ? '' : String(own['value'])), 'data-act': 'form', 'data-form': `automationFieldValue_${step.id}` }),
+      ]),
+    ]);
+  }
+  return h('p', { class: 'workflow-block__warning' }, [icon('alert', 14), t(state,
+    'هذه الخطوة لا يمكن تشغيلها بعد، والتفعيل سيرفضها. اختر إجراءً آخر.',
+    'This step cannot run yet, and activation will refuse it. Choose another action.')]);
+}
+
+function labelPicker(state: AppState, key: string, chosen: string): HTMLElement {
+  const labels = state.live.labels;
+  const active = rowsOf(labels).filter((label) => label.state === 'active');
+  if (active.length === 0) {
+    return h('p', { class: 'workflow-block__warning' }, [icon('tag', 14), labels.status === 'ready'
+      ? t(state, 'لا توجد تصنيفات بعد. أنشئها من صفحة جهات الاتصال.', 'No labels yet. Create them on the Contacts screen.')
+      : t(state, 'جارٍ تحميل التصنيفات…', 'Loading labels…')]);
+  }
+  return h('label', { class: 'field workflow-config' }, [
+    h('span', { class: 'field__label' }, [t(state, 'التصنيف', 'Label')]),
+    selectControl({
+      form: key,
+      value: chosen,
+      options: [{ value: '', label: t(state, 'اختر تصنيفًا', 'Choose a label') }, ...active.map((label) => ({ value: label.id, label: label.name }))],
+    }),
+  ]);
+}
+
+/** Who it runs for; a label audience names its label here. */
+function targetBlock(state: AppState, automation: Automation): HTMLElement {
+  const target = state.dialogForm['automationTarget'] || automation.workflow.target.type;
+  const own = target === automation.workflow.target.type ? automation.workflow.target.config : {};
+  return h('article', { class: 'workflow-block workflow-block--root' }, [h('div', { class: 'workflow-block__body' }, [
+    h('span', { class: 'workflow-block__kind' }, [t(state, 'لمن', 'FOR')]),
+    h('h3', {}, [t(state, 'مَن أو ما الذي يعمل عليه؟', 'Who or what should it work on?')]),
+    select('automationTarget', target, TARGETS),
+    target === 'label' ? labelPicker(state, 'automationTargetLabel', state.dialogForm['automationTargetLabel'] ?? String(own['labelId'] ?? '')) : null,
+  ])]);
 }
 
 function fieldBlock(state: AppState, label: string, title: string, control: HTMLElement): HTMLElement { return h('article', { class: 'workflow-block workflow-block--root' }, [h('div', { class: 'workflow-block__body' }, [h('span', { class: 'workflow-block__kind' }, [label]), h('h3', {}, [title]), control])]); }

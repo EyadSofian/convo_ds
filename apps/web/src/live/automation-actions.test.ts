@@ -283,6 +283,49 @@ describe('saving a step that sends a WhatsApp template', () => {
   });
 });
 
+describe('saving what the builder shows', () => {
+  const inputOf = (s: ReturnType<typeof setup>) => vi.mocked(s.api.update).mock.calls.at(-1)?.[3] as unknown as { workflow: { target: unknown; steps: readonly { id: string; type: string; config: Record<string, unknown> }[] } };
+
+  it('saves configured steps and a label audience with its label', async () => {
+    const s = setup();
+    s.state.live.automations = { status: 'ready', value: [{ ...AUTOMATION, workflow: { ...WORKFLOW, target: { type: 'label', config: { labelId: 'l-1' } }, steps: [{ id: 'step_1', type: 'add_label', config: {} }] } }], loadedAt: 1 };
+    s.state.dialogForm = { automationLabel_step_1: 'l-9' };
+    expect(await saveAutomation(s.context, 'a-1')).toBe(true);
+    expect(inputOf(s).workflow.target).toEqual({ type: 'label', config: { labelId: 'l-1' } });
+    expect(inputOf(s).workflow.steps[0]).toEqual({ id: 'step_1', type: 'add_label', config: { labelId: 'l-9' } });
+    // Switching to a label audience starts it without a label until one is chosen.
+    s.state.live.automations = { status: 'ready', value: [AUTOMATION], loadedAt: 1 };
+    s.state.dialogForm = { automationTarget: 'label' };
+    await saveAutomation(s.context, 'a-1');
+    expect(inputOf(s).workflow.target).toEqual({ type: 'label', config: {} });
+    s.state.dialogForm = { automationTarget: 'label', automationTargetLabel: 'l-2' };
+    await saveAutomation(s.context, 'a-1');
+    expect(inputOf(s).workflow.target).toEqual({ type: 'label', config: { labelId: 'l-2' } });
+  });
+
+  it('keeps what is being typed when a neighbouring step is added or removed', async () => {
+    const s = setup();
+    s.state.live.automations = { status: 'ready', value: [{ ...AUTOMATION, workflow: { ...WORKFLOW, steps: [{ id: 'step_1', type: 'add_label', config: {} }, { id: 'step_2', type: 'delay', config: { seconds: 60 } }] } }], loadedAt: 1 };
+    s.state.dialogForm = { automationLabel_step_1: 'l-1' };
+    expect(await addAutomationStep(s.context, 'a-1')).toBe(true);
+    expect(inputOf(s).workflow.steps.map((step) => [step.type, step.config])).toEqual([['add_label', { labelId: 'l-1' }], ['delay', { seconds: 60 }], ['add_label', {}]]);
+    // The saved draft comes back from the server; put the two-step one back to remove from.
+    s.state.live.automations = { status: 'ready', value: [{ ...AUTOMATION, workflow: { ...WORKFLOW, steps: [{ id: 'step_1', type: 'add_label', config: {} }, { id: 'step_2', type: 'delay', config: { seconds: 60 } }] } }], loadedAt: 1 };
+    expect(await removeAutomationStep(s.context, 'a-1:step_2')).toBe(true);
+    expect(inputOf(s).workflow.steps.map((step) => step.config)).toEqual([{ labelId: 'l-1' }]);
+  });
+
+  it('reads the label and field catalogues for the step editors once', async () => {
+    const s = setup();
+    const labels = vi.fn().mockResolvedValue(ok([]));
+    Object.defineProperty(s.state.live, 'metadataApi', { value: { labels, fields: vi.fn().mockResolvedValue(ok([])) } });
+    s.state.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1' } };
+    await loadAutomationsScreen(s.context);
+    await loadAutomationsScreen(s.context);
+    expect(labels).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('which refusal reaches the operator when several resources fail', () => {
   it('reports the refusal for the resource the operator requested', async () => {
     const s = setup();
