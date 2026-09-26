@@ -53,8 +53,9 @@ place any resulting file back in the source archive.
 Use a server secret manager or injected process environment in production.
 Provider credentials are not browser configuration. Set
 `CONVO_CHANNEL_TRANSPORT=none` until an authorized Meta connection has passed
-its live gate. Production email must be `resend` with a verified sender, or be
-explicitly disabled for a core-only recovery; `logging` is non-production only.
+its live gate. Production email must be `smtp` or `resend` with a verified
+sender, or be explicitly disabled for a core-only recovery; `logging` is
+non-production only.
 
 ## Database initialization
 
@@ -67,7 +68,7 @@ pnpm db:migrate
 
 `bootstrap` establishes the least-privileged migration/runtime roles. `migrate`
 applies forward-only migrations under an advisory lock. At this release the
-expected final file is `0038_conversation_episode_actor_fk_set_null.sql`.
+expected final file is `0043_conversation_removal.sql`.
 
 ## Run without Docker
 
@@ -87,6 +88,9 @@ Workers do not need public ports. The web service proxies same-origin `/api`
 traffic to `CONVO_API_ORIGIN`.
 
 ## Run the common container image
+
+`deploy/docker-compose.example.yml` runs every role on one host; the README
+walks through it. For another platform:
 
 ```bash
 docker build --pull -t convo:<git-sha> .

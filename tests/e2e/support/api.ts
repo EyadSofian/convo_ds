@@ -121,6 +121,69 @@ function campaigns(): readonly Record<string, unknown>[] {
   ];
 }
 
+/** A busy week of support work across three agents, three channels and two teams. */
+function operationsReport(): Record<string, unknown> {
+  const agent = (membershipId: string, name: string, email: string, teams: string[], n: number): Record<string, unknown> => ({
+    membershipId, name, email, teams,
+    currentAssigned: 4 + n, currentOpen: 2 + n, currentPending: 1 + (n % 2), currentSnoozed: 1, currentUnreplied: n % 3, currentUrgent: 0, currentHigh: n % 2,
+    currentByStatus: [{ status: 'open', count: 2 + n }, { status: 'pending', count: 1 + (n % 2) }, { status: 'snoozed', count: 1 }],
+    currentByChannel: [{ channel: 'whatsapp', count: 3 + n }, { channel: 'web_chat', count: 1 }],
+    assignedInPeriod: 9 + n * 3, handledConversations: 14 + n * 6, humanMessages: 60 + n * 22, internalNotes: 4 + n,
+    firstResponses: 12 + n * 5, firstResponseAverageSeconds: 180 + n * 140, firstResponseMedianSeconds: 150 + n * 120,
+    resolutions: 10 + n * 4, resolutionAverageSeconds: 2400 + n * 900, resolutionMedianSeconds: 2100 + n * 800, reassignments: n,
+  });
+  return {
+    generatedAt: new Date(Date.UTC(2026, 8, 9, 9, 15)).toISOString(),
+    filters: { from: null, to: null, agentId: null, teamId: null, channel: null, connectionId: null, labelId: null, campaignId: null, priority: null, status: null },
+    agentOptions: [
+      { membershipId: MEMBERSHIP, name: 'Ahmed Fouad', teams: ['Admissions'] },
+      { membershipId: '55555555-5555-4555-8555-555555555501', name: 'Mona Khalil', teams: ['Support'] },
+      { membershipId: '55555555-5555-4555-8555-555555555502', name: 'Sara Nabil', teams: ['Support'] },
+    ],
+    conversations: {
+      open: 23, unassigned: 4, new: 41, resolved: 36, assignedInPeriod: 39, humanMessages: 312, internalNotes: 18, reassignments: 5,
+      backlogByStatus: [{ status: 'open', count: 13 }, { status: 'pending', count: 6 }, { status: 'snoozed', count: 4 }],
+      backlogByChannel: [{ channel: 'whatsapp', count: 15 }, { channel: 'web_chat', count: 5 }, { channel: 'instagram', count: 3 }],
+      backlogByTeam: [{ team: 'Support', count: 12 }, { team: 'Admissions', count: 7 }, { team: 'Unassigned team', count: 4 }],
+      assignmentWorkload: [{ name: 'Mona Khalil', count: 8 }, { name: 'Sara Nabil', count: 6 }, { name: 'Ahmed Fouad', count: 5 }],
+    },
+    timing: { firstResponseMeasured: 41, firstResponseAverageSeconds: 420, firstResponseMedianSeconds: 300, resolutionMeasured: 36, resolutionAverageSeconds: 3900, resolutionMedianSeconds: 3100 },
+    responseBuckets: [{ bucket: '<5m', count: 18 }, { bucket: '5–15m', count: 12 }, { bucket: '15–60m', count: 7 }, { bucket: '1–4h', count: 3 }, { bucket: '>4h', count: 1 }],
+    channels: [
+      { channel: 'whatsapp', currentActive: 15, newConversations: 27, handledConversations: 25, humanMessages: 210, firstResponses: 27, firstResponseAverageSeconds: 360, firstResponseMedianSeconds: 260, resolutions: 24, resolutionAverageSeconds: 3600, resolutionMedianSeconds: 3000 },
+      { channel: 'web_chat', currentActive: 5, newConversations: 9, handledConversations: 8, humanMessages: 70, firstResponses: 9, firstResponseAverageSeconds: 480, firstResponseMedianSeconds: 390, resolutions: 8, resolutionAverageSeconds: 4200, resolutionMedianSeconds: 3500 },
+      { channel: 'instagram', currentActive: 3, newConversations: 5, handledConversations: 4, humanMessages: 32, firstResponses: 5, firstResponseAverageSeconds: 720, firstResponseMedianSeconds: 600, resolutions: 4, resolutionAverageSeconds: 5400, resolutionMedianSeconds: 4800 },
+    ],
+    agents: [
+      agent('55555555-5555-4555-8555-555555555501', 'Mona Khalil', 'mona@digital-school.example', ['Support'], 2),
+      agent('55555555-5555-4555-8555-555555555502', 'Sara Nabil', 'sara@digital-school.example', ['Support'], 1),
+      agent(MEMBERSHIP, 'Ahmed Fouad', 'ahmed@digital-school.example', ['Admissions'], 0),
+    ],
+  };
+}
+
+function teamReport(): Record<string, unknown>[] {
+  return [
+    { teamId: '66666666-6666-4666-8666-666666666601', name: 'Support', activeAgentCount: 2, currentActive: 12, currentOpen: 7, currentPending: 3, currentSnoozed: 2, handledConversations: 26, humanMessages: 214, firstResponses: 24, firstResponseAverageSeconds: 380, firstResponseMedianSeconds: 290, resolutions: 22, resolutionAverageSeconds: 3700, resolutionMedianSeconds: 3000 },
+    { teamId: '66666666-6666-4666-8666-666666666602', name: 'Admissions', activeAgentCount: 1, currentActive: 7, currentOpen: 4, currentPending: 2, currentSnoozed: 1, handledConversations: 14, humanMessages: 98, firstResponses: 12, firstResponseAverageSeconds: 180, firstResponseMedianSeconds: 150, resolutions: 10, resolutionAverageSeconds: 2400, resolutionMedianSeconds: 2100 },
+  ];
+}
+
+function timingRows(scale: number): Record<string, unknown> {
+  return {
+    byAgent: [
+      { membershipId: MEMBERSHIP, name: 'Ahmed Fouad', measured: 12, averageSeconds: 180 * scale, medianSeconds: 150 * scale },
+      { membershipId: '55555555-5555-4555-8555-555555555502', name: 'Sara Nabil', measured: 17, averageSeconds: 320 * scale, medianSeconds: 270 * scale },
+      { membershipId: '55555555-5555-4555-8555-555555555501', name: 'Mona Khalil', measured: 22, averageSeconds: 460 * scale, medianSeconds: 390 * scale },
+    ],
+    byChannel: [
+      { channel: 'whatsapp', measured: 27, averageSeconds: 360 * scale, medianSeconds: 260 * scale },
+      { channel: 'web_chat', measured: 9, averageSeconds: 480 * scale, medianSeconds: 390 * scale },
+      { channel: 'instagram', measured: 5, averageSeconds: 720 * scale, medianSeconds: 600 * scale },
+    ],
+  };
+}
+
 function campaignReport(): Record<string, unknown> {
   const fresh = new Date(Date.UTC(2026, 8, 9, 9, 15)).toISOString();
   return {
@@ -606,7 +669,7 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     if (path.endsWith('/roles')) {
       return json(route, paged(roles()));
     }
-    if (path.endsWith('/teams')) {
+    if (path.endsWith('/teams') && !path.endsWith('/reports/teams')) {
       return json(route, paged(teams()));
     }
     if (path.endsWith('/invitations')) {
@@ -627,7 +690,16 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
       return json(route, { data: campaignReport(), request_id: 'e2e' });
     }
     if (path.endsWith('/reports/operations')) {
-      return json(route, { data: { agentOptions: [], agents: [] }, request_id: 'e2e' });
+      return json(route, { data: operationsReport(), request_id: 'e2e' });
+    }
+    if (path.endsWith('/reports/teams')) {
+      return json(route, { data: teamReport(), request_id: 'e2e' });
+    }
+    if (path.endsWith('/reports/responses')) {
+      return json(route, { data: { measured: 41, averageSeconds: 420, medianSeconds: 300, buckets: [{ bucket: '<5m', count: 18 }, { bucket: '5–15m', count: 12 }, { bucket: '15–60m', count: 7 }, { bucket: '1–4h', count: 3 }, { bucket: '>4h', count: 1 }], ...timingRows(1) }, request_id: 'e2e' });
+    }
+    if (path.endsWith('/reports/resolutions')) {
+      return json(route, { data: { resolvedEpisodes: 36, averageSeconds: 3900, medianSeconds: 3100, reopenedEpisodes: 5, ...timingRows(9) }, request_id: 'e2e' });
     }
     if (path.endsWith('/reports/assignments')) {
       const secondPage = new URL(route.request().url()).searchParams.has('cursor');

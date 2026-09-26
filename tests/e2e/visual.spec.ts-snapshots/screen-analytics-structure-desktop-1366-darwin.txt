@@ -2,16 +2,25 @@ main.app__screen
   div.page.page--analytics
     div.page__inner
       div.stack.stack--sm
-        div.report-nav
-          div.segmented
-            button.segmented__item [analytics-view]
-            button.segmented__item [analytics-view]
-            button.segmented__item [analytics-view]
-            button.segmented__item [analytics-view]
-            button.segmented__item [analytics-view]
-            button.segmented__item [analytics-view]
-            button.segmented__item [analytics-view]
-            button.segmented__item [analytics-view]
+        div.report-top
+          div.report-nav
+            div.segmented
+              button.segmented__item [analytics-view]
+              button.segmented__item [analytics-view]
+              button.segmented__item [analytics-view]
+              button.segmented__item [analytics-view]
+              button.segmented__item [analytics-view]
+              button.segmented__item [analytics-view]
+              button.segmented__item [analytics-view]
+              button.segmented__item [analytics-view]
+          div.menu-anchor.analytics-export
+            button.btn.btn--primary.btn--sm [menu]
+              span.btn__icon
+                svg
+                  path
+                  path
+                  path
+              span.btn__label
         div.filterbar
           div.filterbar__fields
             label.field.field--compact
@@ -41,7 +50,7 @@ main.app__screen
                   path
                   path
               span.btn__label
-            button.btn.btn--primary.btn--sm [live-report-export]
+            button.btn.btn--sm [live-report-export]
               span.btn__icon
                 svg
                   path
@@ -52,38 +61,120 @@ main.app__screen
         svg
           path
           circle
+      section.report-hero
+        div.report-hero__lead
+          span.report-hero__eyebrow
+            svg
+              path
+              path
+              path
+          strong.report-hero__figure
+            bdi
+          span.report-hero__caption
+        div.report-hero__gauges
+          figure.gauge
+            div.gauge__ring
+              svg.gauge__svg
+                circle.ring__track
+                circle.ring__arc.viz--cyan
+              span.gauge__value
+                bdi
+            figcaption.gauge__text
+              span.gauge__label
+              span.gauge__detail
+          figure.gauge
+            div.gauge__ring
+              svg.gauge__svg
+                circle.ring__track
+                circle.ring__arc.viz--teal
+              span.gauge__value
+                bdi
+            figcaption.gauge__text
+              span.gauge__label
+              span.gauge__detail
+          figure.gauge
+            div.gauge__ring
+              svg.gauge__svg
+                circle.ring__track
+                circle.ring__arc.viz--green
+              span.gauge__value
+                bdi
+            figcaption.gauge__text
+              span.gauge__label
+              span.gauge__detail
+          figure.gauge
+            div.gauge__ring
+              svg.gauge__svg
+                circle.ring__track
+                circle.ring__arc.viz--pink
+              span.gauge__value
+                bdi
+            figcaption.gauge__text
+              span.gauge__label
+              span.gauge__detail
       section.kpis.kpis--7
-        div.kpi
+        div.kpi.kpi--stat.viz--violet
+          span.kpi__icon
+            svg
+              path
+              circle
+              path
           span.kpi__label
           span.kpi__value
             bdi
           span.kpi__foot
-        div.kpi
+        div.kpi.kpi--stat.viz--blue
+          span.kpi__icon
+            svg
+              circle
+              circle
+              circle
           span.kpi__label
           span.kpi__value
             bdi
           span.kpi__foot
-        div.kpi
+        div.kpi.kpi--stat.viz--cyan
+          span.kpi__icon
+            svg
+              path
+              path
           span.kpi__label
           span.kpi__value
             bdi
           span.kpi__foot
-        div.kpi
+        div.kpi.kpi--stat.viz--teal
+          span.kpi__icon
+            svg
+              path
+              path
           span.kpi__label
           span.kpi__value
             bdi
           span.kpi__foot
-        div.kpi
+        div.kpi.kpi--stat.viz--green
+          span.kpi__icon
+            svg
+              path
+              circle
           span.kpi__label
           span.kpi__value
             bdi
           span.kpi__foot
-        div.kpi.kpi--danger
+        div.kpi.kpi--stat.viz--danger.kpi--danger
+          span.kpi__icon
+            svg
+              path
+              path
+              path
           span.kpi__label
           span.kpi__value
             bdi
           span.kpi__foot
-        div.kpi.kpi--unavailable
+        div.kpi.kpi--stat.viz--muted.kpi--unavailable
+          span.kpi__icon
+            svg
+              path
+              path
           span.kpi__label
           span.kpi__value
             bdi
@@ -96,40 +187,45 @@ main.app__screen
               p.panel__description
           div.panel__body
             ol.funnel
-              li.funnel__stage
+              li.funnel__stage.viz--indigo
                 div.funnel__head
+                  span.funnel__step
                   span.funnel__label
                   span.funnel__value
                     bdi
                 span.progress.progress--accent
                   span.progress__fill
                 div.funnel__foot
-              li.funnel__stage
+              li.funnel__stage.viz--cyan
                 div.funnel__head
+                  span.funnel__step
                   span.funnel__label
                   span.funnel__value
                     bdi
                 span.progress.progress--accent
                   span.progress__fill
                 div.funnel__foot
-              li.funnel__stage
+              li.funnel__stage.viz--teal
                 div.funnel__head
+                  span.funnel__step
                   span.funnel__label
                   span.funnel__value
                     bdi
                 span.progress.progress--accent
                   span.progress__fill
                 div.funnel__foot
-              li.funnel__stage
+              li.funnel__stage.viz--green
                 div.funnel__head
+                  span.funnel__step
                   span.funnel__label
                   span.funnel__value
                     bdi
                 span.progress.progress--accent
                   span.progress__fill
                 div.funnel__foot
-              li.funnel__stage.funnel__stage--unavailable
+              li.funnel__stage.funnel__stage--unavailable.viz--muted
                 div.funnel__head
+                  span.funnel__step
                   span.funnel__label
                   span.funnel__value
                 div.funnel__track.funnel__track--empty
@@ -147,19 +243,59 @@ main.app__screen
               h2.panel__title
               p.panel__description
           div.panel__body
+            ul.chart-key
+              li.chart-key__item
+                span.legend__swatch.viz--green
+              li.chart-key__item
+                span.legend__swatch.viz--teal
+              li.chart-key__item
+                span.legend__swatch.viz--cyan
+              li.chart-key__item
+                span.legend__swatch.viz--pink
+              li.chart-key__item
+                span.legend__swatch.viz--muted
             div.chart-legend
-              span.chart-legend__item.chart-legend__item--bar
               span.chart-legend__item.chart-legend__item--line
             figure.chart-figure
               svg.chart
+                line.chart__grid
+                line.chart__grid
+                line.chart__grid
+                line.chart__grid
                 line.chart__axis
                 text.chart__tick
                 text.chart__tick
-                rect.chart__bar
-                rect.chart__bar
-                rect.chart__bar
-                rect.chart__bar
-                rect.chart__bar
+                text.chart__tick.chart__tick--rate
+                g.chart__bar
+                  rect.chart__seg.viz--green
+                  rect.chart__seg.viz--teal
+                  rect.chart__seg.viz--cyan
+                  rect.chart__seg.viz--pink
+                  rect.chart__seg.viz--muted
+                g.chart__bar
+                  rect.chart__seg.viz--green
+                  rect.chart__seg.viz--teal
+                  rect.chart__seg.viz--cyan
+                  rect.chart__seg.viz--pink
+                  rect.chart__seg.viz--muted
+                g.chart__bar
+                  rect.chart__seg.viz--green
+                  rect.chart__seg.viz--teal
+                  rect.chart__seg.viz--cyan
+                  rect.chart__seg.viz--pink
+                  rect.chart__seg.viz--muted
+                g.chart__bar
+                  rect.chart__seg.viz--green
+                  rect.chart__seg.viz--teal
+                  rect.chart__seg.viz--cyan
+                  rect.chart__seg.viz--pink
+                  rect.chart__seg.viz--muted
+                g.chart__bar
+                  rect.chart__seg.viz--green
+                  rect.chart__seg.viz--teal
+                  rect.chart__seg.viz--cyan
+                  rect.chart__seg.viz--pink
+                  rect.chart__seg.viz--muted
                 polyline.chart__line
                 circle.chart__point
                 circle.chart__point
@@ -181,15 +317,14 @@ main.app__screen
                     th.num
                     th.num
                     th.num
+                    th.num
+                    th.num
                 tbody
                   tr
                     td
                     td.num
                     td.num
                     td.num
-                  tr
-                    td
-                    td.num
                     td.num
                     td.num
                   tr
@@ -197,13 +332,26 @@ main.app__screen
                     td.num
                     td.num
                     td.num
+                    td.num
+                    td.num
+                  tr
+                    td
+                    td.num
+                    td.num
+                    td.num
+                    td.num
+                    td.num
                   tr
                     td
                     td.num
                     td.num
                     td.num
+                    td.num
+                    td.num
                   tr
                     td
+                    td.num
+                    td.num
                     td.num
                     td.num
                     td.num
@@ -212,114 +360,181 @@ main.app__screen
           header.panel__header
             div.panel__titles
               h2.panel__title
-          div.panel__body.panel__body--flush
-            div.tablewrap
-              table.table.table--compact
-                thead
-                  tr
-                    th
-                    th.num
-                    th.num
-                    th.num
-                tbody
-                  tr
-                    td
-                    td.num
-                    td.num
-                    td.num
-                  tr
-                    td
-                    td.num
-                    td.num
-                      span.muted
-                    td.num
-                      span.muted
+              p.panel__description
+          div.panel__body
+            figure.donut
+              div.donut__ring
+                svg.donut__svg
+                  circle.ring__track
+                  circle.ring__arc.viz--muted
+                  circle.ring__arc.viz--indigo
+                  circle.ring__arc.viz--violet
+                  circle.ring__arc.viz--cyan
+                  circle.ring__arc.viz--teal
+                  circle.ring__arc.viz--green
+                  circle.ring__arc.viz--danger
+                  circle.ring__arc.viz--warning
+                  circle.ring__arc.viz--unknown
+                div.donut__centre
+                  span.donut__value
+                    bdi
+                  span.donut__caption
+              ul.legend
+                li.legend__item
+                  span.legend__swatch.viz--muted
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+                li.legend__item
+                  span.legend__swatch.viz--indigo
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+                li.legend__item
+                  span.legend__swatch.viz--violet
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+                li.legend__item
+                  span.legend__swatch.viz--cyan
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+                li.legend__item
+                  span.legend__swatch.viz--teal
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+                li.legend__item
+                  span.legend__swatch.viz--green
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+                li.legend__item
+                  span.legend__swatch.viz--danger
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+                li.legend__item
+                  span.legend__swatch.viz--warning
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+                li.legend__item
+                  span.legend__swatch.viz--unknown
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+        section.panel
+          header.panel__header
+            div.panel__titles
+              h2.panel__title
+          div.panel__body
+            ul.stackrows
+              li.stackrows__row
+                div.stackrows__head
+                  span.stackrows__label
+                    span.channel-name
+                      span.legend__swatch.viz--whatsapp
+                  span.stackrows__value
+                span.stackbar
+                  span.stackbar__part.viz--green
+                  span.stackbar__part.viz--teal
+                  span.stackbar__part.viz--cyan
+                div.stackrows__facts
+                  span
+                    strong
+                  span
+                    strong
+              li.stackrows__row
+                div.stackrows__head
+                  span.stackrows__label
+                    span.channel-name
+                      span.legend__swatch.viz--instagram
+                  span.stackrows__value
+                span.stackbar
+                  span.stackbar__part.viz--cyan
+                div.stackrows__facts
+                  span
+                    span.muted
+                  span
+                    span.muted
         section.panel
           header.panel__header
             div.panel__titles
               h2.panel__title
               p.panel__description
           div.panel__body
-            ul.barlist
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--danger
-                  span.progress__fill
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--danger
-                  span.progress__fill
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--danger
-                  span.progress__fill
-        section.panel
-          header.panel__header
-            div.panel__titles
-              h2.panel__title
-              p.panel__description
-          div.panel__body
-            ul.barlist
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--neutral
-                  span.progress__fill
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--neutral
-                  span.progress__fill
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--accent
-                  span.progress__fill
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--accent
-                  span.progress__fill
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--success
-                  span.progress__fill
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--success
-                  span.progress__fill
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--danger
-                  span.progress__fill
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--warning
-                  span.progress__fill
-              li.barlist__row
-                div.barlist__head
-                  span.barlist__label
-                  span.barlist__value
-                span.progress.progress--unknown
-                  span.progress__fill
+            figure.donut
+              div.donut__ring
+                svg.donut__svg
+                  circle.ring__track
+                  circle.ring__arc.viz--danger
+                  circle.ring__arc.viz--orange
+                  circle.ring__arc.viz--pink
+                div.donut__centre
+                  span.donut__value
+                    bdi
+                  span.donut__caption
+              ul.legend
+                li.legend__item
+                  span.legend__swatch.viz--danger
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+                li.legend__item
+                  span.legend__swatch.viz--orange
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+                li.legend__item
+                  span.legend__swatch.viz--pink
+                  span.legend__label
+                  span.legend__value
+                    bdi
+                    span.legend__share
+      section.panel
+        header.panel__header
+          div.panel__titles
+            h2.panel__title
+            p.panel__description
+        div.panel__body
+          ul.chart-key
+            li.chart-key__item
+              span.legend__swatch.viz--green
+            li.chart-key__item
+              span.legend__swatch.viz--teal
+            li.chart-key__item
+              span.legend__swatch.viz--cyan
+            li.chart-key__item
+              span.legend__swatch.viz--pink
+            li.chart-key__item
+              span.legend__swatch.viz--muted
+          ul.stackrows.stackrows--wide
+            li.stackrows__row
+              div.stackrows__head
+                span.stackrows__label
+                  span.table__primary
+                  span.badge.badge--accent
+                    span.badge__dot
+                span.stackrows__value
+              span.stackbar
+                span.stackbar__part.viz--green
+                span.stackbar__part.viz--teal
+                span.stackbar__part.viz--cyan
+                span.stackbar__part.viz--pink
+                span.stackbar__part.viz--muted
       section.panel
         header.panel__header
           div.panel__titles

@@ -462,7 +462,7 @@ describe('focused operational report screens', () => {
     const data = operations();
     state.live.operationalReport = { status: 'ready', loadedAt: 1, value: { ...data, agents: [{ ...data.agents[0]!, teams: [] }] } };
     state.route = { ...state.route, params: { agent: data.agents[0]!.membershipId } };
-    const detail = renderAnalytics(state).querySelector('.panel') as HTMLElement;
+    const detail = renderAnalytics(state).querySelector('.panel[aria-label="Mona Agent detail"]') as HTMLElement;
     expect(detail.textContent).toContain('mona@example.test');
     expect(detail.textContent).not.toContain('mona@example.test ·');
   });
@@ -582,7 +582,8 @@ describe('the report', () => {
   it('shows only the current states that have recipients in them', () => {
     const root = renderAnalytics(screen());
     const states = Array.from(root.querySelectorAll('.panel')).find((panel) => panel.querySelector('.panel__title')?.textContent === 'Current state') as HTMLElement;
-    expect(states.querySelectorAll('.barlist__row')).toHaveLength(9);
+    expect(states.querySelectorAll('.legend__item')).toHaveLength(9);
+    expect(states.querySelector('.donut__value')?.textContent).toBe('618');
     expect(states.textContent).not.toContain('Cancelled');
     const zero = report({ current: { denominator: 0, planned: 0, queued: 0, in_flight: 0, accepted: 0, delivered: 0, read: 0, failed: 0, skipped: 0, cancelled: 0, outcome_unknown: 0 } });
     expect(renderAnalytics(screen(zero)).textContent).toContain('There is nothing to show in this scope.');
@@ -657,5 +658,133 @@ describe('the export', () => {
     expect(renderAnalytics(state).querySelector('[role="alert"]')?.textContent).toContain('r-8');
     state.live.busy = 'campaign-report-export';
     expect((renderAnalytics(state).querySelector('[data-act="live-report-export"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('the charts', () => {
+  it('offers every way to take the analytics away from its menu', () => {
+    const state = screen();
+    expect(renderAnalytics(state).querySelector('.analytics-export__menu')).toBeNull();
+    state.openMenu = 'analytics-export';
+    const menu = renderAnalytics(state).querySelector('.analytics-export__menu') as HTMLElement;
+    expect(Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => `${item.getAttribute('data-act') ?? ''}:${item.getAttribute('data-arg') ?? ''}`)).toEqual([
+      'live-analytics-export:xlsx', 'live-analytics-export:csv', 'live-analytics-print:',
+    ]);
+    expect(menu.textContent).toContain('One workbook with a sheet for every report');
+    state.live.busy = 'analytics-export';
+    expect(renderAnalytics(state).querySelector('.analytics-export [aria-busy="true"]')).not.toBeNull();
+  });
+
+  it('opens on campaigns and draws their rates as rings', () => {
+    const root = renderAnalytics(screen());
+    expect(root.querySelector('[data-act="analytics-view"]')?.getAttribute('data-arg')).toBe('campaigns');
+    const gauges = Array.from(root.querySelectorAll('.report-hero .gauge')).map((gauge) => gauge.getAttribute('aria-label'));
+    expect(gauges).toEqual(['Sent: 81.2%', 'Delivered: 64.9%', 'Read: 30.3%', 'Failed: 3.1%']);
+    expect(root.querySelector('.report-hero__caption')?.textContent).toBe('recipients · 2 campaigns · 1 executions');
+    const compared = Array.from(root.querySelectorAll('.panel')).find((panel) => panel.querySelector('.panel__title')?.textContent === 'Campaigns compared') as HTMLElement;
+    expect(compared.querySelectorAll('.stackrows__row')).toHaveLength(1);
+    expect(renderAnalytics(screen(report({ campaigns: [] }))).textContent).not.toContain('Campaigns compared');
+    const empty = renderAnalytics(screen(report({ milestones: { denominator: 0, accepted: 0, delivered: 0, read: 0 }, current: { ...report().current, denominator: 0 } })));
+    expect(Array.from(empty.querySelectorAll('.report-hero .gauge__value')).map((value) => value.textContent)).toEqual(['—', '—', '—', '—']);
+  });
+
+  it('splits a channel that reports deliveries but not reads', () => {
+    const root = renderAnalytics(screen(report({ channels: [{ kind: 'messenger', denominator: 10, accepted: 9, delivered: 8, read: 3, delivery_receipts: true, read_receipts: false }] })));
+    const row = root.querySelector('.stackrows__row[data-channel="messenger"]') as HTMLElement;
+    expect(row.querySelector('.stackbar')?.getAttribute('aria-label')).toBe('Delivered 80% · Sent 10%');
+    expect(row.textContent).toContain('Not reported');
+  });
+
+  it('draws the overview’s workload and flow, naming a status it has no word for', () => {
+    const state = screen();
+    state.analyticsView = 'overview';
+    const base = operations();
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: {
+      ...base,
+      conversations: { ...base.conversations, backlogByStatus: [...base.conversations.backlogByStatus, { status: 'escalated', count: 1 }] },
+      timing: { ...base.timing, resolutionAverageSeconds: 7200 },
+    } };
+    const root = renderAnalytics(state);
+    const status = Array.from(root.querySelectorAll('.panel')).find((panel) => panel.querySelector('.panel__title')?.textContent === 'Open workload by status') as HTMLElement;
+    expect(status.querySelector('.legend')?.textContent).toContain('escalated');
+    expect(status.querySelector('.ring__arc.viz--muted')).not.toBeNull();
+    expect(root.textContent).toContain('2 h');
+    expect(root.querySelector('.groupbars .hbars--compact')).not.toBeNull();
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: { ...base, channels: [] } };
+    const noChannels = Array.from(renderAnalytics(state).querySelectorAll('.panel')).find((panel) => panel.querySelector('.panel__title')?.textContent === 'New, handled and resolved') as HTMLElement;
+    expect(noChannels.textContent).toContain('No channel data');
+  });
+
+  it('draws the channel view as a donut, or says nothing is active', () => {
+    const state = screen();
+    state.analyticsView = 'channels';
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
+    expect(renderAnalytics(state).querySelector('.donut')?.getAttribute('aria-label')).toBe('Active conversations by channel');
+    const idle = operations();
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: { ...idle, channels: [{ ...idle.channels[0]!, currentActive: 0 }] } };
+    expect(renderAnalytics(state).textContent).toContain('No channel has an active conversation right now.');
+  });
+
+  it('ranks agents quickest first, and sums the team at a glance', () => {
+    const state = screen();
+    state.analyticsView = 'responses';
+    state.live.responseReport = { status: 'ready', loadedAt: 1, value: {
+      measured: 3, averageSeconds: 100, medianSeconds: 90, buckets: [{ bucket: '<5m', count: 2 }, { bucket: '>60m', count: 1 }],
+      byAgent: [
+        { membershipId: 'b', name: 'Slow', measured: 1, averageSeconds: 400, medianSeconds: 400 },
+        { membershipId: null, name: 'Unattributed', measured: 1, averageSeconds: null, medianSeconds: null },
+        { membershipId: 'a', name: 'Quick', measured: 2, averageSeconds: 30, medianSeconds: 30 },
+      ],
+      byChannel: [],
+    } };
+    const fastest = Array.from(renderAnalytics(state).querySelectorAll('.panel')).find((panel) => panel.querySelector('.panel__title')?.textContent === 'Fastest to first reply') as HTMLElement;
+    expect(Array.from(fastest.querySelectorAll('.hbars__label')).map((label) => label.textContent)).toEqual(['Quick', 'Slow']);
+    expect(fastest.querySelector('.hbars__fill')?.className).toContain('viz--green');
+    expect(fastest.querySelectorAll('.hbars__fill')[1]?.className).toContain('viz--violet');
+    state.analyticsView = 'agents';
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: operations() };
+    const agents = renderAnalytics(state);
+    expect(agents.querySelector('[aria-label="Agents at a glance"]')?.textContent).toContain('Agents in scope');
+    const data = operations();
+    state.live.operationalReport = { status: 'ready', loadedAt: 1, value: { ...data, agents: [{ ...data.agents[0]!, currentByStatus: [{ status: 'waiting_on_vendor', count: 1 }] }] } };
+    state.route = { ...state.route, params: { agent: data.agents[0]!.membershipId } };
+    const detail = renderAnalytics(state).querySelector('.panel[aria-label="Mona Agent detail"]') as HTMLElement;
+    expect(detail.querySelector('.ring__arc.viz--muted')).not.toBeNull();
+  });
+
+  it('draws teams by their current work and what they handled', () => {
+    const state = screen();
+    state.analyticsView = 'teams';
+    state.live.teamReport = { status: 'ready', loadedAt: 1, value: [{
+      teamId: 't-1', name: 'Support', activeAgentCount: 2, currentActive: 5, currentOpen: 3, currentPending: 1, currentSnoozed: 1,
+      handledConversations: 4, humanMessages: 9, firstResponses: 2, firstResponseAverageSeconds: 60, firstResponseMedianSeconds: 55,
+      resolutions: 1, resolutionAverageSeconds: 400, resolutionMedianSeconds: 400,
+    }] };
+    const root = renderAnalytics(state);
+    expect(root.querySelector('.stackbar')?.getAttribute('aria-label')).toBe('Open 60% · Pending 20% · Snoozed 20%');
+    expect(root.textContent).toContain('1 resolved · 2 agents');
+  });
+
+  it('shows how ownership moved in the loaded log', () => {
+    const state = screen();
+    state.analyticsView = 'assignments';
+    state.live.assignmentReport = { status: 'ready', loadedAt: 1, value: [
+      { id: 'a', timestamp: NOW.toISOString(), conversationId: 'c', customer: null, action: 'claim', previousAssignee: null, assignedTo: { membershipId: 'm-1', displayName: 'Sara' }, actor: null },
+      { id: 'b', timestamp: NOW.toISOString(), conversationId: 'c', customer: null, action: 'claim', previousAssignee: null, assignedTo: { membershipId: 'm-1', displayName: 'Sara' }, actor: null },
+      { id: 'c', timestamp: NOW.toISOString(), conversationId: 'c', customer: null, action: 'handoff', previousAssignee: null, assignedTo: { membershipId: 'm-2', displayName: 'Noor' }, actor: null },
+    ] };
+    const root = renderAnalytics(state);
+    expect(root.querySelector('.donut__value')?.textContent).toBe('3');
+    expect(Array.from(root.querySelectorAll('.donut .legend__label')).map((label) => label.textContent)).toEqual(['Claim', 'Handoff']);
+    expect(Array.from(root.querySelectorAll('.hbars__label')).map((label) => label.textContent)).toEqual(['Sara', 'Noor']);
+  });
+
+  it('shows first-time resolutions as a donut once there are any', () => {
+    const state = screen();
+    state.analyticsView = 'resolutions';
+    state.live.resolutionReport = { status: 'ready', loadedAt: 1, value: { resolvedEpisodes: 4, averageSeconds: 30, medianSeconds: 30, reopenedEpisodes: 1, byAgent: [], byChannel: [] } };
+    expect(renderAnalytics(state).querySelector('.donut__value')?.textContent).toBe('75%');
+    state.live.resolutionReport = { status: 'ready', loadedAt: 1, value: { resolvedEpisodes: 0, averageSeconds: null, medianSeconds: null, reopenedEpisodes: 0, byAgent: [], byChannel: [] } };
+    expect(renderAnalytics(state).textContent).toContain('No resolutions yet');
   });
 });

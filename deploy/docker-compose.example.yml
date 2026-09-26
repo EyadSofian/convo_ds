@@ -1,0 +1,149 @@
+# DS Omnichannel on a single server with Docker Compose.
+#
+# Run from the repository root:
+#
+#   cp .env.example .env          # then fill in every secret (README → Configuration)
+#   docker compose --env-file .env -f deploy/docker-compose.example.yml up -d --build
+#
+# Every application service runs the same image; CONVO_SERVICE_KIND and
+# CONVO_PROCESS_ROLE decide what each container does. The `database` service
+# runs once per start: it creates the database and its roles if they are
+# missing and applies any new migrations, then exits. Nothing else starts until
+# it has succeeded, so an upgrade migrates before new code serves traffic.
+#
+# Put a TLS reverse proxy (Caddy, Nginx, Traefik, a cloud load balancer) in
+# front of the `web` service and point your domain at it. With one proxy in
+# front, set CONVO_TRUSTED_PROXY_HOPS=2 in .env (your proxy, then the web
+# service); with none, set it to 1.
+
+name: convo
+
+x-app: &app
+  build:
+    context: ..
+  image: convo:latest
+  env_file: ../.env
+  restart: unless-stopped
+
+x-app-env: &app-env
+  NODE_ENV: production
+  CONVO_PG_HOST: postgres
+  CONVO_PG_PORT: "5432"
+
+x-worker: &worker
+  <<: *app
+  depends_on:
+    database:
+      condition: service_completed_successfully
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/live').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${CONVO_PG_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${CONVO_PG_SUPERPASSWORD:?set CONVO_PG_SUPERPASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # One-shot: create roles and database if missing, then apply new migrations.
+  database:
+    <<: *app
+    restart: "no"
+    environment:
+      <<: *app-env
+      CONVO_SERVICE_KIND: database
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    environment:
+      <<: *app-env
+      CONVO_PROCESS_ROLE: api
+      CONVO_API_HOST: 0.0.0.0
+      CONVO_API_PORT: "3000"
+    depends_on:
+      database:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # The only public service: the app itself, with /api proxied to `api`.
+  web:
+    <<: *app
+    environment:
+      <<: *app-env
+      CONVO_SERVICE_KIND: web
+      CONVO_API_ORIGIN: http://api:3000
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # Normalises inbound messages from every channel into conversations.
+  worker-inbound:
+    <<: *worker
+    environment:
+      <<: *app-env
+      CONVO_PROCESS_ROLE: worker-inbound
+
+  # Sends agents' replies and other interactive messages.
+  worker-interactive:
+    <<: *worker
+    environment:
+      <<: *app-env
+      CONVO_PROCESS_ROLE: worker-interactive
+
+  # Plans and sends broadcasts.
+  worker-campaign:
+    <<: *worker
+    environment:
+      <<: *app-env
+      CONVO_PROCESS_ROLE: worker-campaign
+
+  # Builds report exports.
+  worker-report:
+    <<: *worker
+    environment:
+      <<: *app-env
+      CONVO_PROCESS_ROLE: worker-report
+
+  # Runs scheduled and event-driven automations.
+  worker-automation:
+    <<: *worker
+    environment:
+      <<: *app-env
+      CONVO_PROCESS_ROLE: worker-automation
+
+  # Sends email (invitations, password recovery) and web push notifications.
+  # Give it CONVO_EMAIL_PROVIDER and its settings in .env to turn email on.
+  worker-integration:
+    <<: *worker
+    environment:
+      <<: *app-env
+      CONVO_PROCESS_ROLE: worker-integration
+
+volumes:
+  pgdata:

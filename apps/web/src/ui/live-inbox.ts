@@ -236,10 +236,10 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
           label: t(state, 'الأرشيف', 'Archived'),
           icon: 'archive',
           act: 'live-inbox-archived-toggle',
-          pressed: live.inboxQuery.filters.some((filter) => filter.key === 'status' && filter.value === 'archived'),
-          variant: live.inboxQuery.filters.some((filter) => filter.key === 'status' && filter.value === 'archived') ? 'primary' : 'ghost',
+          pressed: archivedView(live),
           small: true,
-          title: t(state, 'عرض المحادثات المؤرشفة', 'Show archived conversations'),
+          title: archivedView(live) ? t(state, 'العودة إلى المحادثات الحالية', 'Back to current conversations') : t(state, 'عرض المحادثات المؤرشفة', 'Show archived conversations'),
+          extraClass: 'inbox-archive-toggle',
         }),
       ]),
     ]),
@@ -542,10 +542,15 @@ function mineList(state: AppState, live: LiveState): Child {
   return listBody(
     state,
     live.conversations,
-    {
-      title: t(state, 'لا توجد محادثات مسندة إليك', 'Nothing assigned to you'),
-      body: t(state, 'استلم محادثة من «غير مسندة» لتبدأ.', 'Claim one from Unassigned to start.'),
-    },
+    archivedView(live)
+      ? {
+          title: t(state, 'لا توجد محادثات مؤرشفة', 'No archived conversations'),
+          body: t(state, 'تظهر هنا المحادثات بعد أرشفتها، ويمكنك إرجاعها إلى الصندوق من هنا.', 'Conversations appear here once archived, and can be brought back to the inbox from here.'),
+        }
+      : {
+          title: t(state, 'لا توجد محادثات مسندة إليك', 'Nothing assigned to you'),
+          body: t(state, 'استلم محادثة من «غير مسندة» لتبدأ.', 'Claim one from Unassigned to start.'),
+        },
     (rows) => h('div', { class: 'convlist', role: 'list' }, [
       ...(archivedView(live) ? archivedRows(state, live, rows) : rows.map((conversation) => conversationRow(state, live, conversation))),
       live.inboxNextCursor === null ? null : h('div', { class: 'inbox-more' }, [

@@ -53,7 +53,7 @@ div.inbox
           option
           option
           option
-        button.btn.btn--ghost.btn--sm [live-inbox-archived-toggle]
+        button.btn.btn--sm.inbox-archive-toggle [live-inbox-archived-toggle]
           span.btn__icon
             svg
               rect
