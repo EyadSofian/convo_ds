@@ -38,7 +38,7 @@ const CAMPAIGN: Campaign = {
   id: 'campaign-1', name: INPUT.name, objective: null, connection_id: INPUT.connectionId,
   state: 'draft', version: 1, revision_id: 'revision-1', revision: 1,
   revision_hash: 'a'.repeat(64), approved: false, audience: null, execution: null,
-  content: INPUT.content, variables: INPUT.variables, audience_filter: INPUT.audienceFilter,
+  content: INPUT.content, variables: INPUT.variables, audience_filter: { ...INPUT.audienceFilter },
   timezone: INPUT.timezone, expires_at: null, budget_amount_minor: '0.000000', budget_currency: 'USD',
   created_at: NOW.toISOString(), updated_at: NOW.toISOString(),
 };

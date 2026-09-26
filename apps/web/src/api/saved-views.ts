@@ -23,6 +23,16 @@ export interface SavedViewInput {
   readonly conditions: ConditionDocument;
 }
 
+/** A reusable campaign audience, stored as a condition document. */
+export interface SavedAudience {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly conditions: ConditionDocument;
+  readonly state: 'active' | 'retired';
+  readonly version: number;
+}
+
 export class SavedViewsApi {
   constructor(private readonly client: ApiClient) {}
 
@@ -36,6 +46,14 @@ export class SavedViewsApi {
 
   update(tenantId: string, id: string, version: number, input: SavedViewInput): Promise<ApiResult<SavedView>> {
     return this.client.patch<SavedView>(`/tenants/${tenantId}/saved-views/${id}`, { body: { ...input, version } });
+  }
+
+  audiences(tenantId: string): Promise<ApiResult<readonly SavedAudience[]>> {
+    return this.client.get<readonly SavedAudience[]>(`/tenants/${tenantId}/audiences`);
+  }
+
+  createAudience(tenantId: string, input: { readonly name: string; readonly description: string | null; readonly conditions: ConditionDocument }): Promise<ApiResult<SavedAudience>> {
+    return this.client.post<SavedAudience>(`/tenants/${tenantId}/audiences`, { body: input });
   }
 
   retire(tenantId: string, id: string, version: number): Promise<ApiResult<undefined>> {

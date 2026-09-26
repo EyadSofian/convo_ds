@@ -1,7 +1,8 @@
 import { previewContactCsv, type Contact } from '../api/contacts.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { forTenant, fromResult, LOADING, ready, refetching } from './store.js';
+import type { NewContactField } from './contact-profile.js';
+import { forTenant, fromResult, LOADING, ready, refetching, rowsOf } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 
 /**
@@ -79,31 +80,108 @@ export async function loadContactConnections(context: LiveContext): Promise<bool
   return result.ok;
 }
 
-export async function createContact(context: LiveContext, input: { readonly displayName: string; readonly connectionId: string; readonly externalId: string }): Promise<boolean> {
+/**
+ * Opens the new-contact dialog and fetches what it offers — the connected
+ * channels an identity can be created on, and the label and field catalogues.
+ */
+export async function openNewContact(context: LiveContext): Promise<boolean> {
+  context.state.dialog = { kind: 'contact-create', arg: '' };
+  context.state.openMenu = null;
+  context.state.dialogForm = {};
+  context.state.formErrors = {};
+  context.live.error = null;
+  context.refresh();
+  const status = context.live.connections.status;
+  await Promise.all([
+    status === 'idle' || status === 'error' ? loadContactConnections(context) : null,
+    context.live.labels.status === 'idle' ? loadMetadataCatalog(context) : null,
+  ]);
+  return true;
+}
+
+export interface NewContactInput {
+  readonly displayName: string;
+  readonly connectionId: string;
+  readonly externalId: string;
+  /** Profile details; a standard field with no id is created in the catalogue first. */
+  readonly fields: readonly NewContactField[];
+  readonly labelIds: readonly string[];
+  /**
+   * Consent the operator has evidence for now, recorded as their own
+   * statement, on the channel of the identity it is about.
+   */
+  readonly consents: readonly { readonly purpose: 'marketing' | 'service'; readonly channel: string }[];
+}
+
+/**
+ * Creates a contact on one explicit channel identity, then — as separate,
+ * attributable steps — writes its profile details and labels and records any
+ * consent the operator vouched for. The contact exists once the first step
+ * succeeds; a later step that is refused is reported, not rolled back, so a
+ * rejected email never costs the operator the customer they just added.
+ */
+export async function createContact(context: LiveContext, input: NewContactInput): Promise<boolean> {
   const { live } = context;
   if (input.displayName.trim() === '' || input.connectionId === '' || input.externalId.trim() === '') return false;
   return forTenant(context, false, async (tenantId) => {
     live.busy = 'contact:create';
     live.error = null;
     context.refresh();
-    const result = await live.contactsApi.create(tenantId, { ...input, displayName: input.displayName.trim(), externalId: input.externalId.trim() });
-    live.busy = null;
+    const result = await live.contactsApi.create(tenantId, { displayName: input.displayName.trim(), connectionId: input.connectionId, externalId: input.externalId.trim() });
     if (!result.ok) {
+      live.busy = null;
       live.error = result.error;
       pushToast(context.state, result.error.message, 'danger');
       context.refresh();
       return false;
     }
+    const problems = await enrichContact(context, tenantId, result.data, input);
+    // Whatever was written after the create is read back, so the profile shows
+    // what the server stored rather than what was typed.
+    const enriched = input.fields.length + input.labelIds.length + input.consents.length > 0;
+    const reread = enriched ? await live.contactsApi.read(tenantId, result.data.id) : null;
+    live.busy = null;
     live.selectedContactId = result.data.id;
-    live.selectedContact = ready(result.data, context.now());
-    // The tool closes on success so the operator lands on the new profile.
+    live.selectedContact = ready(reread?.ok === true ? reread.data : result.data, context.now());
+    if (context.state.dialog?.kind === 'contact-create') context.state.dialog = null;
     context.state.dialogForm = { ...context.state.dialogForm, contactsTool: '', contactCreateName: '', contactCreateConnection: '', contactCreateExternalId: '' };
-    pushToast(context.state, t(context,
-      'أُضيفت جهة الاتصال. لإضافتها لجمهور حملة، استخدم اسمها في فلتر الجمهور وسجّل موافقة التسويق عند توفرها.',
-      'Contact added. To include it in a campaign audience, use its name in the audience filter and record marketing consent when available.'));
+    pushToast(context.state, problems.length === 0
+      ? t(context, 'أُضيفت جهة الاتصال.', 'Contact added.')
+      : t(context, `أُضيفت جهة الاتصال، لكن لم يُحفظ: ${problems.join('، ')}`, `Contact added, but not everything was saved: ${problems.join('; ')}`),
+    problems.length === 0 ? 'default' : 'danger');
     await loadContactsScreen(context);
     return true;
   });
+}
+
+/** Writes the profile, labels and consent of a contact just created; returns what was refused. */
+async function enrichContact(context: LiveContext, tenantId: string, contact: Contact, input: NewContactInput): Promise<readonly string[]> {
+  const { live } = context;
+  const problems: string[] = [];
+  const writes: { fieldId: string; value: unknown }[] = [];
+  for (const field of input.fields) {
+    if (field.fieldId !== null) {
+      writes.push({ fieldId: field.fieldId, value: field.value });
+      continue;
+    }
+    const created = await live.metadataApi.createField(tenantId, { target: 'contact', key: field.key, name: field.name, type: field.type, options: [] });
+    if (!created.ok) {
+      problems.push(`${field.name} (${created.error.message})`);
+      continue;
+    }
+    live.customFields = ready([...rowsOf(live.customFields), created.data], context.now());
+    writes.push({ fieldId: created.data.id, value: field.value });
+  }
+  const labelIds = input.labelIds;
+  if (writes.length > 0 || labelIds.length > 0) {
+    const patched = await live.metadataApi.contact(tenantId, contact.id, { version: contact.version, addLabels: labelIds, fields: writes });
+    if (!patched.ok) problems.push(t(context, `البيانات والتصنيفات (${patched.error.message})`, `details and labels (${patched.error.message})`));
+  }
+  for (const consent of input.consents) {
+    const recorded = await live.contactsApi.recordConsent(tenantId, contact.id, { ...consent, state: 'granted', source: 'agent_recorded', proofRef: null });
+    if (!recorded.ok) problems.push(t(context, `الموافقة (${recorded.error.message})`, `consent (${recorded.error.message})`));
+  }
+  return problems;
 }
 
 export async function importContacts(context: LiveContext): Promise<boolean> {
@@ -240,9 +318,13 @@ export async function recordConsent(
     applyContact(context, result.data);
     pushToast(
       context.state,
-      input.state === 'granted'
-        ? t(context, 'سُجّلت الموافقة.', 'Consent recorded.')
-        : t(context, 'سُجّل الانسحاب.', 'Withdrawal recorded.'),
+      input.purpose === 'marketing'
+        ? input.state === 'granted'
+          ? t(context, 'سُجّلت موافقة التسويق. يمكن أن تصله الحملات الآن.', 'Marketing consent recorded. Campaigns can now reach this contact.')
+          : t(context, 'سُجّل الانسحاب من التسويق.', 'Marketing withdrawal recorded.')
+        : input.state === 'granted'
+          ? t(context, 'سُجّلت الموافقة.', 'Consent recorded.')
+          : t(context, 'سُجّل الانسحاب.', 'Withdrawal recorded.'),
     );
     return true;
   });

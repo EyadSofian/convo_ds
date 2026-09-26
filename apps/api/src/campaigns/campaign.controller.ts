@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, Headers, Inject, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Inject, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { pageEnvelope } from '../pagination.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignExport, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseReportFilters, parseTestRecipient } from './campaign-request.js';
+import { parseAudiencePreview, parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignExport, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseReportFilters, parseTestRecipient } from './campaign-request.js';
 import { CampaignReportExportService } from './report-export.service.js';
 import { CampaignService } from './campaign.service.js';
 import { CampaignReportingService } from './reporting.service.js';
@@ -114,6 +114,19 @@ export class CampaignController {
     const session = await this.mutating(request, csrf);
     const value = await this.campaigns.create(session, tenantId, parseCampaignDraft(body), body, requireKey(key));
     await reply.status(201).send({ data: value, request_id: request.id });
+  }
+
+  /**
+   * Counts who a filter would reach on a channel without freezing anything.
+   * A `POST` because the filter is a body, not because anything changes; CSRF
+   * still applies so a third-party page cannot probe the directory.
+   */
+  @Post('tenants/:tenantId/campaigns/audience-preview')
+  @HttpCode(200)
+  async previewAudience(@Param('tenantId') tenantId: string, @Body() body: unknown,
+    @Headers('x-csrf-token') csrf: string | string[] | undefined, @Req() request: FastifyRequest) {
+    const session = await this.mutating(request, csrf);
+    return { data: await this.campaigns.previewAudience(session, tenantId, parseAudiencePreview(body)), request_id: request.id };
   }
 
   @Post('tenants/:tenantId/campaigns/:campaignId/validate')

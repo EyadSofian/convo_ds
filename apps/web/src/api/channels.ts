@@ -94,7 +94,7 @@ export interface ConnectChannelInput {
   readonly displayName: string;
   readonly accessToken: string;
   readonly providerAppId: string | null;
-  readonly settings?: { readonly facebookPageId: string };
+  readonly settings?: { readonly facebookPageId: string } | { readonly origins: readonly string[] };
 }
 
 export class ChannelsApi {

@@ -11,7 +11,7 @@ import { applyInstallationConfig } from '../../packages/domain/src/index.js';
 import type { DatabaseNames } from '../../packages/database/src/types.js';
 import { clusterCredentials,createScratchDatabase,migrateScratch,scratchRuntimePool } from '../support/scratch.js';
 const TOKEN='automation-bootstrap-token-value-0001',PASSWORD='automation owner password';
-const workflow={version:1,trigger:{type:'manual',config:{}},target:{type:'single_customer',config:{}},steps:[{id:'notify',type:'create_internal_notification',config:{}}],safety:{approvalRequired:false,duplicateWindowSeconds:60}};
+const workflow={version:1,trigger:{type:'manual',config:{}},target:{type:'single_customer',config:{}},steps:[{id:'notify',type:'delay',config:{seconds:60}}],safety:{approvalRequired:false,duplicateWindowSeconds:60}};
 interface Harness{app:NestFastifyApplication;pool:Pool;server:FastifyInstance;tenantId:string;cookie:string;csrf:string}
 async function setup():Promise<Harness>{const names:DatabaseNames=await createScratchDatabase('convo_automations');await migrateScratch(names);const pool=scratchRuntimePool(names,5);await applyInstallationConfig(asExecutor(pool),'saas');const c=clusterCredentials();const app=await createApiApplication(parseApiConfig({CONVO_DEPLOYMENT_MODE:'saas',CONVO_INSTALLATION_NAME:'Automation Test',CONVO_PUBLIC_BASE_URL:'https://automation.test',CONVO_PROCESS_ROLE:'api',CONVO_AUTH_HASH_SECRET:'automation-auth-hash-secret-value-001',CONVO_BOOTSTRAP_TOKEN:TOKEN,CONVO_IDEMPOTENCY_HASH_SECRET:'automation-idempotency-secret-001',CONVO_API_PORT:'0',CONVO_PG_HOST:c.host,CONVO_PG_PORT:String(c.port),CONVO_PG_DATABASE:names.database,CONVO_PG_RUNTIME_ROLE:names.runtimeRole,CONVO_PG_RUNTIME_PASSWORD:names.runtimePassword}),pool);const server=app.getHttpAdapter().getInstance() as unknown as FastifyInstance;const boot=await server.inject({method:'POST',url:'/api/v1/instance/bootstrap',headers:{'x-bootstrap-token':TOKEN,'idempotency-key':'auto-bootstrap'},payload:{companyName:'Digital School',companySlug:`auto-${randomUUID().slice(0,8)}`,ownerEmail:'owner@automation.test',ownerPassword:PASSWORD}});const tenantId=(boot.json() as {data:{tenantId:string}}).data.tenantId;const login=await server.inject({method:'POST',url:'/api/v1/auth/login',payload:{email:'owner@automation.test',password:PASSWORD}});const lines=Array.isArray(login.headers['set-cookie'])?login.headers['set-cookie']:[login.headers['set-cookie']??''];const cookie=lines.map(x=>x.split(';')[0]).join('; ');const csrf=cookie.split(';').map(x=>x.trim()).find(x=>x.startsWith('convo_csrf='))?.slice(11)??'';return{app,pool,server,tenantId,cookie,csrf};}
 function send(h:Harness,method:'GET'|'POST'|'PATCH'|'DELETE',path:string,payload?:Record<string,unknown>):Promise<LightMyRequestResponse>{return h.server.inject({method,url:`/api/v1/tenants/${h.tenantId}${path}`,headers:{cookie:h.cookie,'x-csrf-token':h.csrf},...(payload===undefined?{}:{payload})});}
@@ -52,6 +52,46 @@ describe('automation product API',()=>{let h:Harness;beforeAll(async()=>{h=await
  it('materializes a due schedule once and advances its durable cursor',async()=>{const scheduled={...workflow,trigger:{type:'schedule',config:{}},schedule:{kind:'one_time',at:'2030-01-01T09:00:00.000Z'}};const created=await send(h,'POST','/automations',{name:'Scheduled once',timezone:'UTC',workflow:scheduled});const a=(created.json() as {data:{id:string;version:number}}).data;const active=await send(h,'POST',`/automations/${a.id}/activate`,{version:a.version});expect(active.statusCode,active.body).toBe(200);await withTenant(h.pool,h.tenantId,async(client)=>{await client.query(`UPDATE automations SET next_run_at=now()-interval '1 minute' WHERE id=$1`,[a.id]);await client.query(`UPDATE automation_schedule_queue SET due_at=now()-interval '1 minute' WHERE automation_id=$1`,[a.id]);});const runner=h.app.get(AutomationRunnerService);expect(await runner.pendingTenants()).toContain(h.tenantId);expect(await runner.enqueueDue(h.tenantId,new Date(),10)).toBe(1);expect(await runner.enqueueDue(h.tenantId,new Date(),10)).toBe(0);});
  it('refuses activation when an approved WhatsApp template and mappings are absent',async()=>{const sendWorkflow={...workflow,steps:[{id:'send',type:'send_whatsapp_template',config:{}}]};const created=await send(h,'POST','/automations',{name:'Unsafe send',timezone:'UTC',workflow:sendWorkflow});const a=(created.json() as {data:{id:string;version:number}}).data;const refused=await send(h,'POST',`/automations/${a.id}/activate`,{version:a.version});expect(refused.statusCode).toBe(409);expect((refused.json() as {error:{code:string}}).error.code).toBe('automation_template_required');expect((await send(h,'POST',`/automations/${a.id}/dance`,{version:a.version})).statusCode).toBe(400);});
 
+ it('refuses activation until every step is executable, configured and names live resources',async()=>{
+  const label=((await send(h,'POST','/labels',{name:`Activation ${randomUUID().slice(0,8)}`,color:'#2563eb'})).json() as {data:{id:string;version:number}}).data;
+  const field=((await send(h,'POST','/custom-fields',{target:'contact',key:`level_${randomUUID().slice(0,8).replace(/-/g,'')}`,name:'Level',type:'text',options:[]})).json() as {data:{id:string}}).data;
+  const retired=((await send(h,'POST','/labels',{name:`Retired ${randomUUID().slice(0,8)}`,color:'#64748b'})).json() as {data:{id:string;version:number}}).data;
+  expect((await send(h,'DELETE',`/labels/${retired.id}`,{version:retired.version})).statusCode).toBe(200);
+  const attempt=async(changes:Record<string,unknown>)=>{
+   const created=await send(h,'POST','/automations',{name:`Activation ${randomUUID()}`,timezone:'UTC',workflow:{...workflow,...changes}});
+   expect(created.statusCode,created.body).toBe(201);
+   const a=(created.json() as {data:{id:string;version:number}}).data;
+   const result=await send(h,'POST',`/automations/${a.id}/activate`,{version:a.version});
+   return {status:result.statusCode,code:(result.json() as {error?:{code:string}}).error?.code};
+  };
+  const step=(type:string,config:Record<string,unknown>)=>({steps:[{id:'only',type,config}]});
+  for(const [changes,code] of [
+   [step('create_internal_notification',{}),'automation_action_not_supported'],
+   [step('webhook',{url:'https://example.test'}),'automation_action_not_supported'],
+   [step('delay',{}),'automation_step_incomplete'],
+   [step('delay',{seconds:1.5}),'automation_step_incomplete'],
+   [step('delay',{seconds:0}),'automation_step_incomplete'],
+   [step('delay',{seconds:31_536_001}),'automation_step_incomplete'],
+   [step('add_label',{}),'automation_step_incomplete'],
+   [step('add_label',{labelId:randomUUID()}),'automation_step_incomplete'],
+   [step('remove_label',{labelId:retired.id}),'automation_step_incomplete'],
+   [step('update_customer_field',{}),'automation_step_incomplete'],
+   [step('update_customer_field',{fieldId:field.id}),'automation_step_incomplete'],
+   [step('update_customer_field',{fieldId:randomUUID(),value:'B1'}),'automation_step_incomplete'],
+   [step('send_whatsapp_template',{templateId:''}),'automation_template_required'],
+   [{target:{type:'label',config:{}}},'automation_step_incomplete'],
+  ] as const){
+   expect(await attempt(changes),JSON.stringify(changes)).toEqual({status:409,code});
+  }
+  for(const changes of [
+   step('add_label',{labelId:label.id}),
+   step('remove_label',{labelId:label.id}),
+   step('update_customer_field',{fieldId:field.id,value:'B1'}),
+   {target:{type:'label',config:{labelId:label.id}}},
+  ]){
+   expect(await attempt(changes),JSON.stringify(changes)).toEqual({status:200,code:undefined});
+  }
+ });
  it('refuses a transition the state machine does not allow',async()=>{
   // `draft:pause` is not a transition. The refusal is a 409 rather than a
   // 404, because the automation exists and the *act* is what is wrong.

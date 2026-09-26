@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../http-error.js';
-import { parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignExport, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseReportFilters, parseTestRecipient } from './campaign-request.js';
+import { parseAudienceFilter, parseAudiencePreview, parseCampaignClone, parseCampaignControl, parseCampaignDraft, parseCampaignExport, parseCampaignLaunch, parseCampaignRetry, parseCampaignTestSend, parseCampaignUpdate, parseReportFilters, parseTestRecipient } from './campaign-request.js';
 
 const CONNECTION = '11111111-1111-4111-8111-111111111111';
 
@@ -13,7 +13,7 @@ describe('campaign request parsing', () => {
     });
     expect(parseCampaignDraft({
       name: 'A', objective: ' Enrolment ', connectionId: CONNECTION, content: { template: 'welcome' },
-      variables: { first_name: 'display_name' }, audienceFilter: { labels: ['lead'] }, timezone: 'Africa/Cairo',
+      variables: { first_name: 'display_name' }, audienceFilter: { labelIds: [CONNECTION] }, timezone: 'Africa/Cairo',
       expiresAt: '2027-01-01T00:00:00Z', budgetAmountMinor: 70000, budgetCurrency: 'EGP',
     })).toMatchObject({ objective: 'Enrolment', expiresAt: '2027-01-01T00:00:00.000Z' });
   });
@@ -27,6 +27,7 @@ describe('campaign request parsing', () => {
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, variables: { 'bad-key': 'display_name' } },
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, variables: { first_name: 'email' } },
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, audienceFilter: [] },
+    { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, audienceFilter: { labels: ['lead'] } },
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, objective: '' },
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, timezone: '' },
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, expiresAt: 'bad' },
@@ -34,6 +35,31 @@ describe('campaign request parsing', () => {
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, budgetAmountMinor: 1.5 },
     { name: 'A', connectionId: CONNECTION, content: { text: 'x' }, budgetCurrency: 'usd' },
   ])('refuses malformed drafts %#', (body) => expect(() => parseCampaignDraft(body)).toThrow(ApiHttpError));
+
+  it('normalises an audience filter: trims the name, drops empty narrowings and duplicates', () => {
+    const LABEL = '22222222-2222-4222-8222-222222222222';
+    expect(parseAudienceFilter({})).toEqual({});
+    expect(parseAudienceFilter({ search: '   ', labelIds: [], conversationLabelIds: [], contactIds: [] })).toEqual({});
+    expect(parseAudienceFilter({
+      search: ' Sara ', labelIds: [LABEL, LABEL], conversationLabelIds: [CONNECTION], contactIds: [LABEL, CONNECTION],
+    })).toEqual({ search: 'Sara', labelIds: [LABEL], conversationLabelIds: [CONNECTION], contactIds: [LABEL, CONNECTION] });
+  });
+
+  it.each([
+    null, [], 'x', { labels: [] }, { search: 7 }, { search: 'x'.repeat(121) },
+    { labelIds: 'one' }, { labelIds: ['not-a-uuid'] }, { conversationLabelIds: [1] },
+    { labelIds: Array.from({ length: 21 }, () => CONNECTION) },
+    { contactIds: Array.from({ length: 1001 }, () => CONNECTION) },
+  ])('refuses a malformed audience filter %#', (filter) => expect(parseAudienceFilter(filter)).toBeUndefined());
+
+  it('parses an audience preview: a channel and an optional filter', () => {
+    expect(parseAudiencePreview({ connectionId: CONNECTION })).toEqual({ connectionId: CONNECTION, audienceFilter: {} });
+    expect(parseAudiencePreview({ connectionId: CONNECTION, audienceFilter: { search: 'A' } }))
+      .toEqual({ connectionId: CONNECTION, audienceFilter: { search: 'A' } });
+    for (const body of [null, {}, { connectionId: 'bad' }, { connectionId: CONNECTION, audienceFilter: { nope: true } }]) {
+      expect(() => parseAudiencePreview(body)).toThrow(ApiHttpError);
+    }
+  });
 
   it('parses immediate and future launch choices', () => {
     vi.useFakeTimers();

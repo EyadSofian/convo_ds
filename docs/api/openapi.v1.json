@@ -5756,6 +5756,31 @@
         }
       }
     },
+    "/tenants/{tenantId}/campaigns/audience-preview": {
+      "post": {
+        "operationId": "previewCampaignAudience",
+        "summary": "Count who an audience filter would reach, without freezing it",
+        "description": "Requires `campaign.draft` and CSRF. Uses the same candidates and eligibility rules as validation; nothing is written.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AudiencePreviewRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Audience counts", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AudiencePreviewResponse" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/campaigns/{campaignId}/validate": {
       "post": {
         "operationId": "validateCampaign",
@@ -11800,6 +11825,56 @@
           }
         }
       },
+      "AudienceFilter": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Narrows a campaign audience. Every list narrows; absent or empty lists do not. labelIds: every one of these contact labels; conversationLabelIds: at least one conversation carrying any of these labels; contactIds: hand-picked contacts.",
+        "properties": {
+          "search": { "type": "string", "maxLength": 120 },
+          "labelIds": { "type": "array", "maxItems": 20, "items": { "type": "string", "format": "uuid" } },
+          "conversationLabelIds": { "type": "array", "maxItems": 20, "items": { "type": "string", "format": "uuid" } },
+          "contactIds": { "type": "array", "maxItems": 1000, "items": { "type": "string", "format": "uuid" } }
+        }
+      },
+      "AudiencePreviewRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connectionId"],
+        "properties": {
+          "connectionId": { "type": "string", "format": "uuid" },
+          "audienceFilter": { "$ref": "#/components/schemas/AudienceFilter" }
+        }
+      },
+      "AudiencePreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["total", "eligible", "excluded", "reasons", "sample"],
+        "properties": {
+          "total": { "type": "integer", "minimum": 0 },
+          "eligible": { "type": "integer", "minimum": 0 },
+          "excluded": { "type": "integer", "minimum": 0 },
+          "reasons": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["suppressed", "no_consent", "identity_inactive"],
+            "properties": {
+              "suppressed": { "type": "integer", "minimum": 0 },
+              "no_consent": { "type": "integer", "minimum": 0 },
+              "identity_inactive": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "sample": { "type": "array", "maxItems": 5, "items": { "type": "string" } }
+        }
+      },
+      "AudiencePreviewResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/AudiencePreview" },
+          "request_id": { "type": "string" }
+        }
+      },
       "CreateCampaignRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -11832,7 +11907,7 @@
             "type": "object"
           },
           "audienceFilter": {
-            "type": "object"
+            "$ref": "#/components/schemas/AudienceFilter"
           },
           "timezone": {
             "type": "string"
@@ -11924,7 +11999,7 @@
             "type": "object"
           },
           "audienceFilter": {
-            "type": "object"
+            "$ref": "#/components/schemas/AudienceFilter"
           },
           "timezone": {
             "type": "string"

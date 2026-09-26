@@ -54,6 +54,9 @@ export function initials(name: string): string {
   const tail = words[words.length - 1];
   if (head === undefined || tail === undefined) return '؟';
   const first = [...head].slice(0, 1).join('');
+  // A contact named after a phone number or an id has no initials; "2" on an
+  // avatar reads as a count. The avatar draws a person instead.
+  if (/[\p{Nd}+#@]/u.test(first)) return '';
   if (words.length === 1 || ARABIC_SCRIPT.test(first)) return first.toLocaleUpperCase('en');
   return `${first}${[...tail].slice(0, 1).join('')}`.toLocaleUpperCase('en');
 }

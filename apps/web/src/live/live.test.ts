@@ -2190,6 +2190,9 @@ describe('the Channels screen', () => {
       'channel-name': 'Website',
       'channel-token': 'signing-key-0001',
     });
+    const origins = find(root, '#channel-origins') as HTMLTextAreaElement;
+    origins.value = 'https://school.example';
+    origins.dispatchEvent(new window.Event('input', { bubbles: true }));
     click(root, '.dialog [data-act="live-connect-channel"]');
     await settle();
     expect(api.calls.find((call) => call.method === 'POST' && call.path.endsWith('/channels'))?.body).toEqual({
@@ -2198,6 +2201,7 @@ describe('the Channels screen', () => {
       displayName: 'Website',
       accessToken: 'signing-key-0001',
       providerAppId: null,
+      settings: { origins: ['https://school.example'] },
     });
     expect(app.state.channelKind).toBe('web_chat');
   });

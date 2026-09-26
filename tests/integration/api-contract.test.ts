@@ -206,6 +206,7 @@ describe('pinned OpenAPI contract', () => {
       "updateContactMetadata",
       "listCampaigns",
       "createCampaign",
+      "previewCampaignAudience",
       "validateCampaign",
       "approveCampaign",
       "launchCampaign",

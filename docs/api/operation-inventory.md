@@ -158,6 +158,7 @@ Every operation below needs: one `operationId`, request/response/error schemas, 
 | Campaigns | `POST T/campaigns` | `createCampaign` | `campaign.draft` | P4 |
 | Campaigns | `GET T/campaigns/{id}` | `getCampaign` | `campaign.read` | P4 |
 | Campaigns | `PATCH T/campaigns/{id}` | `updateCampaign` | `campaign.draft`; rejected post-launch | P4 |
+| Campaigns | `POST T/campaigns/audience-preview` | `previewCampaignAudience` | `campaign.draft` | P4 |
 | Campaigns | `POST T/campaigns/{id}/validate` | `validateCampaign` | `campaign.draft` | P4 |
 | Campaigns | `POST T/campaigns/{id}/test-send` | `testSendCampaign` | `campaign.draft` + authorized test recipient | P4 |
 | Campaigns | `POST T/campaigns/{id}/approve` | `approveCampaign` | `campaign.approve`; self-approval policy | P4 |

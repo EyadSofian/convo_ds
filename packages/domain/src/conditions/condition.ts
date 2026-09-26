@@ -61,6 +61,9 @@ const FIELD_SETS: Readonly<Record<ConditionContext, ReadonlySet<string>>> = {
   audience: new Set([
     'channel', 'customer_status', 'label_id', 'last_contact_at', 'consent',
     'created_at', 'customer_name', 'customer_phone',
+    // What a campaign audience can be narrowed by and saved as: a label on any
+    // of the contact's conversations, and a hand-picked list of contacts.
+    'conversation_label_id', 'contact_id',
   ]),
   routing: new Set([
     'channel', 'customer_status', 'label_id', 'created_at', 'customer_name',

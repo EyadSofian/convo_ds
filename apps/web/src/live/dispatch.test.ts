@@ -322,12 +322,19 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     expect(state.dialogForm).toEqual({});
 
     state.dialog = { kind: 'connect-channel', arg: 'custom' };
+    // Our own channel refuses every delivery without an allowed origin, so one is required.
     state.dialogForm = { channelAsset: 'custom-1', channelName: 'Test channel', channelToken: 'test-token' };
+    expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(false);
+    expect(state.formErrors['channelOrigins']).toBeTruthy();
+    state.dialogForm = { ...state.dialogForm, channelOrigins: 'https://school.example/path' };
+    expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(false);
+    state.dialogForm = { ...state.dialogForm, channelOrigins: Array.from({ length: 21 }, (_, index) => `https://s${String(index)}.example`).join('\n') };
+    expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(false);
+    state.dialogForm = { ...state.dialogForm, channelOrigins: ' https://school.example\nhttp://127.0.0.1:8080 https://school.example ' };
     expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(true);
     expect(connect).toHaveBeenLastCalledWith('tenant-1', expect.objectContaining({
-      kind: 'custom', providerAppId: null,
+      kind: 'custom', providerAppId: null, settings: { origins: ['https://school.example', 'http://127.0.0.1:8080'] },
     }), 'test-key');
-    expect(connect.mock.calls.at(-1)?.[1]).not.toHaveProperty('settings');
   });
 
   it('routes saved-view create, update, and retire actions to the server', async () => {

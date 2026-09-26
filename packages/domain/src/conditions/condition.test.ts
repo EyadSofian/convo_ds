@@ -5,6 +5,15 @@ const predicate = (field = 'channel', operator = 'eq', value: unknown = 'whatsap
 const document = (conditions: unknown[]) => ({ version: CONDITION_VERSION, root: { kind: 'group', match: 'all', conditions } });
 
 describe('condition documents', () => {
+  it('lets an audience narrow by conversation labels and hand-picked contacts, and nothing else does', () => {
+    const picked = document([
+      { kind: 'predicate', field: 'conversation_label_id', operator: 'in', value: ['11111111-1111-4111-8111-111111111111'] },
+      { kind: 'predicate', field: 'contact_id', operator: 'in', value: ['22222222-2222-4222-8222-222222222222'] },
+    ]);
+    expect(validateConditionDocument(picked, 'audience')).toMatchObject({ ok: true });
+    expect(validateConditionDocument(picked, 'routing')).toMatchObject({ ok: false });
+  });
+
   it('accepts a nested, versioned audience tree and preserves its typed values', () => {
     const input = document([
       predicate('channel', 'in', ['whatsapp', 'instagram']),

@@ -440,6 +440,25 @@
     min-inline-size: 0;
     min-block-size: 0;
     overflow: hidden;
+    transition: grid-template-rows var(--motion-slow) var(--ease-emphasis);
+  }
+
+  /* Scrolling a page down tucks the header away (app.ts); any scroll up, the
+     top of the page, or focus inside the header brings it back. */
+  .app[data-header='hidden'] .app__main {
+    grid-template-rows: 0 minmax(0, 1fr);
+  }
+
+  .header {
+    transition: translate var(--motion-slow) var(--ease-emphasis), opacity var(--motion-base) var(--ease-out);
+  }
+
+  .app[data-header='hidden'] .header {
+    /* Keeps its own height while its row closes, and slides out above it. */
+    block-size: var(--header-height);
+    translate: 0 -100%;
+    opacity: 0;
+    pointer-events: none;
   }
 
   .app__screen {
@@ -864,6 +883,7 @@
   .status-pill--stale .status-pill__dot {
     box-shadow: none;
     animation: convo-pulse 1.2s ease-in-out infinite;
+    animation-delay: var(--loop-phase, 0ms);
   }
 
   .status-pill--offline,
