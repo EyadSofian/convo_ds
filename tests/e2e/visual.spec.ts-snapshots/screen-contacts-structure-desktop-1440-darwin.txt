@@ -6,9 +6,11 @@ main.app__screen
           div.contacts-hero__intro
             span.contacts-hero__icon
               svg
-                rect
-                circle
                 path
+                path
+                path
+                circle
+                rect
             div.contacts-hero__copy
               h2.contacts-hero__title
               p.contacts-hero__lede
@@ -27,9 +29,10 @@ main.app__screen
                   path
                   path
               span.btn__label
-            button.btn.btn--sm.contacts-hero__primary [live-contacts-tool]
+            button.btn.btn--sm.contacts-hero__primary [live-contact-new]
               span.btn__icon
                 svg
+                  path
                   circle
                   path
                   path
@@ -38,9 +41,8 @@ main.app__screen
           div.contacts-stat.contacts-stat--blue
             span.contacts-stat__icon
               svg
+                path
                 circle
-                path
-                path
                 path
             dt.contacts-stat__label
             dd.contacts-stat__value
@@ -71,8 +73,8 @@ main.app__screen
           div.panel__header.panel__header--stack.contacts-directory__head
             form.searchbar
               svg
-                circle
                 path
+                circle
               input.input [form]
               button.btn.btn--sm [live-contacts-search]
                 span.btn__label
@@ -158,14 +160,8 @@ main.app__screen
                   span.avatar.avatar--md.avatar--tone-0
                     span.avatar__channel.channel-tile--web_chat
                       svg.channel-mark.channel-mark--product.channel-mark--web_chat
-                        rect
                         path
-                        circle
-                        circle
                         path
-                        circle
-                        circle
-                        circle
                   span.contactrow__main
                     span.contactrow__name
                       bdi
@@ -173,14 +169,8 @@ main.app__screen
                   span.contactrow__channels
                     span.contactrow__channel.channel-tile--web_chat
                       svg.channel-mark.channel-mark--product.channel-mark--web_chat
-                        rect
                         path
-                        circle
-                        circle
                         path
-                        circle
-                        circle
-                        circle
                   span.contactrow__labels
                     span.metadata__label
                       span.metadata__swatch

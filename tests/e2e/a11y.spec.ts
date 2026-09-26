@@ -171,7 +171,7 @@ test.describe('axe: no WCAG 2.1 AA violations', () => {
     await page.keyboard.press('Escape');
 
     await page.locator('.nav__item[data-arg="broadcasts"]').click();
-    await page.locator('[data-act="dialog"][data-arg="campaign"]').first().click();
+    await page.locator('[data-act="live-campaign-editor"]').first().click();
     await expect(page.locator('.dialog')).toBeVisible();
     expect(describeViolations(await audit(page))).toEqual([]);
   });

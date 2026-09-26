@@ -50,8 +50,8 @@ main.app__screen
               span.btn__label
       p.freshness
         svg
-          circle
           path
+          circle
       section.kpis.kpis--7
         div.kpi
           span.kpi__label
@@ -139,7 +139,7 @@ main.app__screen
                 svg
                   circle
                   path
-                  circle
+                  path
               div.notice__text
         section.panel
           header.panel__header
