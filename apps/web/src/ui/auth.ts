@@ -39,13 +39,6 @@ export function renderPublicAuth(state: AppState): HTMLElement {
 
 function invitationScreen(state: AppState): HTMLElement {
   const token = state.route.params['token'] ?? '';
-  if (state.authFlowComplete === 'invitation') {
-    return successScreen(
-      state,
-      t(state, 'تم قبول الدعوة', 'Invitation accepted'),
-      t(state, 'يمكنك الآن تسجيل الدخول إلى مساحة العمل.', 'You can now sign in to your workspace.'),
-    );
-  }
   return credentialForm(
     state,
     t(state, 'قبول الدعوة', 'Accept invitation'),
@@ -57,20 +50,6 @@ function invitationScreen(state: AppState): HTMLElement {
 
 function recoveryScreen(state: AppState): HTMLElement {
   const token = state.route.params['token'] ?? '';
-  if (state.authFlowComplete === 'recovery-request') {
-    return successScreen(
-      state,
-      t(state, 'تحقق من بريدك', 'Check your email'),
-      t(state, 'إذا كان هناك حساب بهذا البريد، أرسلنا رابط إعادة التعيين.', 'If an account exists for that address, a reset link has been sent.'),
-    );
-  }
-  if (state.authFlowComplete === 'recovery') {
-    return successScreen(
-      state,
-      t(state, 'تم تغيير كلمة المرور', 'Password changed'),
-      t(state, 'تم إنهاء جميع الجلسات السابقة. سجّل الدخول بكلمة المرور الجديدة.', 'All previous sessions were ended. Sign in with your new password.'),
-    );
-  }
   if (token === '') return recoveryRequestForm(state);
   return credentialForm(
     state,
@@ -144,12 +123,19 @@ function publicFailure(state: AppState, error: ApiError): HTMLElement {
   return h('div', { class: 'inline-error', role: 'alert' }, [icon('alert', 16), h('div', {}, [h('p', { class: 'inline-error__title' }, [message]), requestIdLine(state, error.requestId)])]);
 }
 
-function successScreen(state: AppState, title: string, body: string): HTMLElement {
-  return frame(state, [h('section', { class: 'auth-card auth-card--status', 'aria-labelledby': 'auth-title' }, [
-    convoLockup(),
-    h('div', { class: 'auth-card__intro' }, [h('h1', { class: 'auth-card__title', id: 'auth-title' }, [title]), h('p', { class: 'auth-card__lede' }, [body])]),
-    h('a', { class: 'button button--primary auth-form__submit', href: '#/inbox' }, [t(state, 'تسجيل الدخول', 'Sign in')]),
-  ])]);
+/** What a finished credential flow tells the person now signing in. */
+function flowNotice(state: AppState): HTMLElement | null {
+  const done = state.authFlowComplete;
+  if (done === null) return null;
+  const [title, body] = done === 'recovery-request'
+    ? [t(state, 'تحقق من بريدك', 'Check your email'), t(state, 'إذا كان هناك حساب بهذا البريد، أرسلنا رابط إعادة التعيين. افتحه ثم سجّل الدخول هنا.', 'If an account exists for that address, a reset link has been sent. Open it, then sign in here.')]
+    : done === 'recovery'
+      ? [t(state, 'تم تغيير كلمة المرور', 'Password changed'), t(state, 'تم إنهاء جميع الجلسات السابقة. سجّل الدخول بكلمة المرور الجديدة.', 'All previous sessions were ended. Sign in with your new password.')]
+      : [t(state, 'تم قبول الدعوة', 'Invitation accepted'), t(state, 'سجّل الدخول إلى مساحة العمل.', 'Sign in to your workspace.')];
+  return h('div', { class: 'notice notice--success auth-notice', role: 'status' }, [
+    h('span', { class: 'notice__icon', 'aria-hidden': 'true' }, [icon(done === 'recovery-request' ? 'mail' : 'check', 16)]),
+    h('div', { class: 'notice__text' }, [h('strong', {}, [title]), h('span', {}, [body])]),
+  ]);
 }
 
 /** A data-free shell while the session is checked; no protected nav is built. */
@@ -252,7 +238,8 @@ function signIn(state: AppState, error: ApiError | null, expired: boolean): HTML
           t(state, 'سجّل الدخول إلى مساحة العمل للمتابعة.', 'Sign in to your workspace to continue.'),
         ]),
       ]),
-      expired && error === null
+      error === null ? flowNotice(state) : null,
+      expired && error === null && state.authFlowComplete === null
         ? h('div', { class: 'notice notice--info', role: 'status' }, [
             h('span', { class: 'notice__icon', 'aria-hidden': 'true' }, [icon('clock', 16)]),
             h('div', { class: 'notice__text' }, [

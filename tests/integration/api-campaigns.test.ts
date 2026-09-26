@@ -1153,6 +1153,135 @@ describe('campaign API', () => {
     expect(providerRequests).toHaveLength(callsBeforeStaleDispatch);
   });
 
+  it('broadcasts an approved template filled for each recipient, and holds it to the catalogue', async () => {
+    const fixture = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const template = await sql.query<{ id: string }>(
+        `INSERT INTO whatsapp_templates (tenant_id,connection_id,provider_template_id,template_name,language,category,status,components,variables,last_synced_at)
+         VALUES ($1,$2,'meta-bcast','class_open','ar','marketing','approved',$3::jsonb,'[]'::jsonb,now()) RETURNING id::text`,
+        [api.tenantId, api.connectionId, JSON.stringify([
+          { type: 'HEADER', format: 'TEXT', text: 'Hello {{1}}' },
+          { type: 'BODY', text: 'Your {{1}} class starts {{2}}.' },
+          { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Open', url: 'https://school.example/c/{{1}}' }] },
+        ])],
+      );
+      const other = await sql.query<{ id: string }>(
+        `INSERT INTO whatsapp_templates (tenant_id,connection_id,provider_template_id,template_name,language,category,status,components,variables,last_synced_at)
+         VALUES ($1,$2,'meta-plain','plain_hello','en','utility','approved','[{"type":"BODY","text":"Hello"}]'::jsonb,'[]'::jsonb,now()) RETURNING id::text`,
+        [api.tenantId, api.connectionId],
+      );
+      const course = await sql.query<{ id: string }>(
+        `INSERT INTO custom_fields (tenant_id,target,key,name,type) VALUES ($1,'contact','course_bcast','Course','text') RETURNING id::text`,
+        [api.tenantId],
+      );
+      for (const [name, phone, value] of [['Broadcast Mona', '201000000901', 'IELTS'], ['Broadcast Sara', '201000000902', null]] as const) {
+        const contact = await sql.query<{ id: string }>(
+          `INSERT INTO contacts (tenant_id,display_name,search_name) VALUES ($1,$2,lower($2)) RETURNING id::text`, [api.tenantId, name],
+        );
+        await sql.query(`INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id) VALUES ($1,$2,'whatsapp',$3,$4)`,
+          [api.tenantId, contact.rows[0]!.id, api.connectionId, phone]);
+        await sql.query(`INSERT INTO consents (tenant_id,contact_id,channel,purpose,state,source) VALUES ($1,$2,'whatsapp','marketing','granted','web_form')`,
+          [api.tenantId, contact.rows[0]!.id]);
+        if (value !== null) await sql.query(
+          `INSERT INTO contact_custom_field_values (tenant_id,contact_id,field_id,value_json,search_value) VALUES ($1,$2,$3,to_jsonb($4::text),lower($4))`,
+          [api.tenantId, contact.rows[0]!.id, course.rows[0]!.id, value],
+        );
+      }
+      return { templateId: template.rows[0]!.id, plainId: other.rows[0]!.id, courseId: course.rows[0]!.id };
+    });
+    const parameters = {
+      'header:1': { source: 'display_name' },
+      'body:1': { source: 'field', fieldId: fixture.courseId, fallback: 'English' },
+      'body:2': { source: 'static', value: 'on Sunday' },
+      'button:0:1': { source: 'phone' },
+    };
+    const broadcast = (overrides: Record<string, unknown>) => draft(api, {
+      name: 'Template broadcast', audienceFilter: { search: 'broadcast' }, variables: {},
+      content: { template: { id: fixture.templateId, parameters } }, ...overrides,
+    });
+
+    // Every variable needs a source; the template must be approved on this number; a field must exist.
+    const { 'body:2': _unused, ...missing } = parameters;
+    void _unused;
+    for (const [key, content] of [
+      ['missing', { template: { id: fixture.templateId, parameters: missing } }],
+      ['unknown', { template: { id: randomUUID(), parameters } }],
+      ['field', { template: { id: fixture.templateId, parameters: { ...parameters, 'body:1': { source: 'field', fieldId: randomUUID() } } } }],
+    ] as const) {
+      const refused = await send(api, 'POST', '/campaigns', broadcast({ content }), `bcast-refused-${key}`);
+      expect(refused.statusCode, refused.body).toBe(422);
+      expect(refused.json()).toMatchObject({ error: { code: 'campaign_template_invalid' } });
+    }
+    expect((await send(api, 'POST', '/campaigns', broadcast({ content: { template: { id: fixture.templateId, parameters: { 'body:1': 'display_name' } } } }), 'bcast-malformed')).statusCode).toBe(400);
+
+    const created = await send(api, 'POST', '/campaigns', broadcast({}), 'bcast-create');
+    expect(created.statusCode, created.body).toBe(201);
+    const campaign = (created.json() as { data: { id: string; version: number; content: unknown; variables: unknown } }).data;
+    // The catalogue names the template; the server derives one variable per parameter.
+    expect(campaign.content).toEqual({ type: 'template', template: { id: fixture.templateId, name: 'class_open', language: 'ar', parameters } });
+    expect(campaign.variables).toEqual({ header_1: 'display_name', body_1: `field:${fixture.courseId}`, body_2: 'static:on Sunday', button_0_1: 'phone' });
+
+    // A test send renders exactly as the frozen audience will.
+    const authorization = await send(api, 'POST', `/channels/${api.connectionId}/test-recipients`, { peerIdentity: '201000000901', label: 'Mona QA' });
+    expect(authorization.statusCode, authorization.body).toBe(201);
+    const testSend = await send(api, 'POST', `/campaigns/${campaign.id}/test-send`, {
+      testRecipientId: (authorization.json() as { data: { id: string } }).data.id, expectedVersion: campaign.version,
+    }, 'bcast-test-send');
+    expect(testSend.statusCode, testSend.body).toBe(202);
+    const testMessage = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const row = await sql.query<{ template_preview: string; template_provider_id: string }>(
+        `SELECT template_preview,template_provider_id FROM outbound_messages WHERE id=$1`,
+        [(testSend.json() as { data: { message_id: string } }).data.message_id],
+      );
+      await sql.query(`DELETE FROM outbox WHERE message_id IN (SELECT message_id FROM campaign_test_sends WHERE campaign_id=$1)`, [campaign.id]);
+      return row.rows[0];
+    });
+    expect(testMessage).toEqual({ template_preview: 'Your IELTS class starts on Sunday.', template_provider_id: 'meta-bcast' });
+
+    expect((await send(api, 'POST', `/campaigns/${campaign.id}/validate`)).statusCode).toBe(201);
+    expect((await send(api, 'POST', `/campaigns/${campaign.id}/approve`)).statusCode).toBe(201);
+    expect((await send(api, 'POST', `/campaigns/${campaign.id}/launch`, { mode: 'now' }, 'bcast-launch')).statusCode).toBe(202);
+    expect(await api.app.get(CampaignPlannerService).plan(api.tenantId, 10)).toBe(2);
+    const messages = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ peer_identity: string; template_name: string; template_preview: string; template_components: unknown }>(
+      `SELECT m.peer_identity,m.template_name,m.template_preview,m.template_components
+         FROM outbound_messages m JOIN campaign_recipients r ON r.command_id=m.id
+         JOIN campaign_executions e ON e.id=r.execution_id WHERE e.campaign_id=$1 ORDER BY m.peer_identity`, [campaign.id],
+    ));
+    expect(messages.rows).toEqual([
+      { peer_identity: '201000000901', template_name: 'class_open', template_preview: 'Your IELTS class starts on Sunday.', template_components: [
+        { type: 'header', parameters: [{ type: 'text', text: 'Broadcast Mona' }] },
+        { type: 'body', parameters: [{ type: 'text', text: 'IELTS' }, { type: 'text', text: 'on Sunday' }] },
+        { type: 'button', subType: 'url', index: '0', parameters: [{ type: 'text', text: '201000000901' }] },
+      ] },
+      { peer_identity: '201000000902', template_name: 'class_open', template_preview: 'Your English class starts on Sunday.', template_components: [
+        { type: 'header', parameters: [{ type: 'text', text: 'Broadcast Sara' }] },
+        { type: 'body', parameters: [{ type: 'text', text: 'English' }, { type: 'text', text: 'on Sunday' }] },
+        { type: 'button', subType: 'url', index: '0', parameters: [{ type: 'text', text: '201000000902' }] },
+      ] },
+    ]);
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `DELETE FROM outbox WHERE message_id IN (SELECT r.command_id FROM campaign_recipients r JOIN campaign_executions e ON e.id=r.execution_id WHERE e.campaign_id=$1)`, [campaign.id],
+    ));
+
+    // A template paused after the draft was saved stops validation, and one
+    // paused after launch is not sent.
+    const later = await send(api, 'POST', '/campaigns', broadcast({ name: 'Paused broadcast', content: { template: { id: fixture.plainId } } }), 'bcast-paused');
+    expect(later.statusCode, later.body).toBe(201);
+    const late = await send(api, 'POST', '/campaigns', broadcast({ name: 'Paused after launch', content: { template: { id: fixture.plainId } } }), 'bcast-paused-after');
+    const lateId = dataOf(late).id;
+    await send(api, 'POST', `/campaigns/${lateId}/validate`);
+    await send(api, 'POST', `/campaigns/${lateId}/approve`);
+    await send(api, 'POST', `/campaigns/${lateId}/launch`, { mode: 'now' }, 'bcast-paused-after-launch');
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(`UPDATE whatsapp_templates SET status='paused' WHERE id=$1`, [fixture.plainId]));
+    const refusedValidation = await send(api, 'POST', `/campaigns/${dataOf(later).id}/validate`);
+    expect(refusedValidation.statusCode).toBe(409);
+    expect(refusedValidation.json()).toMatchObject({ error: { code: 'campaign_template_unavailable' } });
+    expect(await api.app.get(CampaignPlannerService).plan(api.tenantId, 10)).toBe(2);
+    const skipped = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ state: string }>(
+      `SELECT r.state FROM campaign_recipients r JOIN campaign_executions e ON e.id=r.execution_id WHERE e.campaign_id=$1`, [lateId],
+    ));
+    expect(skipped.rows.map((row) => row.state)).toEqual(['skipped', 'skipped']);
+  });
+
   it('refuses a campaign if channel readiness changes after planning', async () => {
     const created = await send(api, 'POST', '/campaigns', draft(api, {
       name: 'Readiness fence', audienceFilter: { search: 'student 1' },

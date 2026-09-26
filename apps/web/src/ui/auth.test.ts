@@ -195,11 +195,34 @@ describe('public invitation and recovery flows', () => {
     expect((form.querySelector('#authPassword') as HTMLInputElement).value).toBe('secret');
     expect((form.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
     expectNothingProtected(form);
-    state.authFlowComplete = 'invitation';
-    expect(renderPublicAuth(state).textContent).toContain('Invitation accepted');
   });
 
-  it('renders request, token, errors and both recovery success states', () => {
+  it('tells the person signing in what the finished flow did, and nothing when an error is showing', () => {
+    const state = gate();
+    state.live.session = { status: 'signed_out', error: null };
+    const notice = (): Element | null => renderGate(state).querySelector('.auth-notice');
+    expect(notice()).toBeNull();
+    state.authFlowComplete = 'invitation';
+    expect(notice()?.textContent).toContain('Invitation accepted');
+    state.authFlowComplete = 'recovery';
+    expect(notice()?.textContent).toContain('Password changed');
+    state.authFlowComplete = 'recovery-request';
+    expect(notice()?.textContent).toContain('Check your email');
+    expect(notice()?.getAttribute('role')).toBe('status');
+    // A finished flow is not an expired session.
+    state.live.session = { status: 'signed_out', error: null, expired: true };
+    expect(renderGate(state).textContent).not.toContain('Your session ended');
+    state.live.session = { status: 'signed_out', error: failure(401) };
+    expect(notice()).toBeNull();
+    state.lang = 'ar';
+    state.live.session = { status: 'signed_out', error: null };
+    expect(notice()?.textContent).toContain('تحقق من بريدك');
+    // Asking for another link shows the form again, not a finished screen.
+    state.route = { screen: 'reset-password', conversationId: null, params: {} };
+    expect(renderPublicAuth(state).querySelector('form')?.getAttribute('data-submit')).toBe('live-request-recovery');
+  });
+
+  it('renders request, token and errors', () => {
     const state = gate('ar');
     state.route = { screen: 'reset-password', conversationId: null, params: {} };
     state.live.error = failure(500);
@@ -223,10 +246,5 @@ describe('public invitation and recovery flows', () => {
       state.live.error = error;
       expect(renderPublicAuth(state).querySelector('[role="alert"]')).not.toBeNull();
     }
-    state.live.error = null;
-    state.authFlowComplete = 'recovery-request';
-    expect(renderPublicAuth(state).textContent).toContain('تحقق من بريدك');
-    state.authFlowComplete = 'recovery';
-    expect(renderPublicAuth(state).textContent).toContain('تم تغيير كلمة المرور');
   });
 });

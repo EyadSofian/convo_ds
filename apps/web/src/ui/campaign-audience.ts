@@ -31,14 +31,17 @@ const SOURCES: Readonly<Record<AudienceSource, { readonly icon: IconName; readon
 export function audienceSection(state: AppState): HTMLElement {
   const { draft, filter, connectionId } = editorAudience(state);
   const live = state.live;
+  // Built on its own, an audience narrows: "everyone" and "a saved one" are not new audiences.
+  const standalone = state.dialog?.kind === 'audience-new';
+  const sources = standalone ? AUDIENCE_SOURCES.filter((source) => source !== 'all' && source !== 'saved') : AUDIENCE_SOURCES;
   return h('section', { class: 'audience field--wide', 'aria-labelledby': 'campaign-audience-title' }, [
     h('div', { class: 'audience__head' }, [
-      sectionTitle('users', 'blue', t(state, 'من سيستلم الحملة؟', 'Who receives it?'), 'campaign-audience-title'),
+      sectionTitle('users', 'blue', standalone ? t(state, 'من في هذا الجمهور؟', 'Who is in it?') : t(state, 'من سيستلم الحملة؟', 'Who receives it?'), 'campaign-audience-title'),
       h('p', { class: 'field__hint' }, [t(state,
         'تصل الحملة فقط لمن لديه هوية سارية على القناة وموافقة تسويقية مسجلة ولم يلغِ الاشتراك.',
         'Only contacts with a live identity on the channel, recorded marketing consent and no opt-out receive it.')]),
     ]),
-    h('div', { class: 'audience__sources', role: 'radiogroup', 'aria-label': t(state, 'مصدر الجمهور', 'Audience source') }, AUDIENCE_SOURCES.map((source) => {
+    h('div', { class: 'audience__sources', role: 'radiogroup', 'aria-label': t(state, 'مصدر الجمهور', 'Audience source') }, sources.map((source) => {
       const copy = SOURCES[source];
       const [title, body] = state.lang === 'ar' ? copy.ar : copy.en;
       const chosen = draft.source === source;

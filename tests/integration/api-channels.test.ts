@@ -1,4 +1,6 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import argon2 from 'argon2';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
@@ -2896,8 +2898,9 @@ describe('the channels beyond WhatsApp', () => {
     expect(response.json()).toMatchObject({ reason: 'malformed_body' });
   });
 
-  it('refuses a Custom Channel connection that declared no origins', async () => {
-    // An unconfigured allowlist is not an open one.
+  it('refuses a browser delivery to a Custom Channel connection that declared no origins', async () => {
+    // An unconfigured allowlist is not an open one: a request carrying an
+    // Origin is a browser holding the key.
     await connectKind('custom', 'gateway-no-origins', GATEWAY_KEY, { declaredTypes: ['text'] });
     const response = await selfSigned(
       'webhooks/custom/gateway-no-origins',
@@ -2907,6 +2910,131 @@ describe('the channels beyond WhatsApp', () => {
     );
     expect(response.statusCode).toBe(403);
     expect(response.json()).toMatchObject({ reason: 'origin_not_allowed' });
+  });
+
+  it('accepts the operator’s own server, which sends no Origin, and names the customer it names', async () => {
+    const id = await connectKind('custom', 'gateway-server', GATEWAY_KEY, { declaredTypes: ['text'], outboundUrl: 'https://crm.gateway.example/in' });
+    const response = await selfSigned(
+      'webhooks/custom/gateway-server',
+      {
+        object: 'convo_custom',
+        version: '1',
+        asset_id: 'gateway-server',
+        events: [
+          { id: 'cc.srv.1', from: 'crm-4411', type: 'message', text: 'مرحبا', name: 'Hala Nabil' },
+          { id: 'cc.srv.2', from: 'crm-4411', type: 'message', text: 'again', name: 'Someone Else' },
+        ],
+      },
+      GATEWAY_KEY,
+    );
+    expect(response.statusCode).toBe(200);
+    await normalizer.drain(api.tenantId);
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ display_name: string }>(
+        `SELECT c.display_name FROM contacts c
+           JOIN contact_identities i ON i.contact_id = c.id
+          WHERE i.scope_id = $1 AND i.external_id = 'crm-4411'`,
+        [id],
+      ),
+    );
+    // The first name replaces the bare id; a later one never overwrites a name.
+    expect(rows.rows.map((row) => row.display_name)).toEqual(['Hala Nabil']);
+    // A signed delivery proved the key, and the reply URL given at connect is kept.
+    const listed = ((await send(api, owner, 'GET', '/channels')).json() as { data: { id: string; outbound_url: string | null; evidence: { kind: string; satisfied: boolean }[] }[] }).data
+      .find((connection) => connection.id === id);
+    expect(listed?.outbound_url).toBe('https://crm.gateway.example/in');
+    expect(listed?.evidence.find((item) => item.kind === 'credential_verified')?.satisfied).toBe(true);
+    // A signature alone is not enough once a browser is involved.
+    const browser = await selfSigned(
+      'webhooks/custom/gateway-server',
+      { object: 'convo_custom', version: '1', asset_id: 'gateway-server', events: [] },
+      GATEWAY_KEY,
+      { origin: 'https://elsewhere.example' },
+    );
+    expect(browser.statusCode).toBe(403);
+  });
+
+  it('replies through the operator’s own URL, signed with the channel key, once one is set', async () => {
+    const id = await connectKind('custom', 'gateway-replies', GATEWAY_KEY, { declaredTypes: ['text'] });
+    // Before a URL exists, verifying says exactly what is missing.
+    const unverified = await send(api, owner, 'POST', `/channels/${id}/test`);
+    expect((unverified.json() as { data: { last_error_code: string } }).data.last_error_code).toBe('custom_endpoint_missing');
+
+    expect((await send(api, owner, 'POST', `/channels/${id}/settings`, { outboundUrl: 'https://10.0.0.1/x' })).statusCode).toBe(400);
+    const saved = await send(api, owner, 'POST', `/channels/${id}/settings`, {
+      origins: ['https://gateway.example'],
+      outboundUrl: 'https://crm.gateway.example/convo',
+    });
+    expect(saved.statusCode).toBe(201);
+    expect((saved.json() as { data: unknown }).data).toMatchObject({ origins: ['https://gateway.example'], outbound_url: 'https://crm.gateway.example/convo' });
+    const cleared = await send(api, owner, 'POST', `/channels/${id}/settings`, { outboundUrl: null });
+    expect((cleared.json() as { data: unknown }).data).toMatchObject({ origins: ['https://gateway.example'], outbound_url: null });
+
+    // A local server stands in for their system. The public-https rule is the
+    // parser's; the transport posts wherever the stored URL says.
+    const received: { headers: Record<string, string | string[] | undefined>; body: string }[] = [];
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        received.push({ headers: request.headers, body: Buffer.concat(chunks).toString('utf8') });
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ message_id: `crm-out-${String(received.length)}` }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      await withTenant(api.pool, api.tenantId, (client) =>
+        client.query(`UPDATE channel_connections SET settings = settings || jsonb_build_object('outbound_url', $2::text) WHERE id = $1`, [
+          id,
+          `http://127.0.0.1:${String(port)}/convo`,
+        ]),
+      );
+      const verified = await send(api, owner, 'POST', `/channels/${id}/test`);
+      expect((verified.json() as { data: { last_error_code: string | null } }).data.last_error_code).toBeNull();
+      expect(JSON.parse(received[0]!.body)).toMatchObject({ object: 'convo_custom', type: 'ping', asset_id: 'gateway-replies' });
+
+      const queued = await send(api, owner, 'POST', `/channels/${id}/messages`, {
+        peerIdentity: 'crm-7',
+        messageType: 'text',
+        text: 'ردّنا',
+        trafficClass: 'interactive',
+        clientMessageId: 'custom-reply-1',
+      });
+      expect(queued.statusCode, queued.body).toBe(202);
+      await api.app.get(ChannelDispatcherService).dispatch(api.tenantId);
+      const delivered = received[1]!;
+      expect(JSON.parse(delivered.body)).toEqual({
+        object: 'convo_custom',
+        version: '1',
+        asset_id: 'gateway-replies',
+        messages: [{ id: expect.any(String), to: 'crm-7', type: 'text', text: 'ردّنا' }],
+      });
+      const stamp = String(delivered.headers['x-convo-timestamp']);
+      expect(delivered.headers['x-convo-signature']).toBe(`v1=${createHmac('sha256', GATEWAY_KEY).update(`${stamp}.${delivered.body}`).digest('hex')}`);
+      const rows = await withTenant(api.pool, api.tenantId, (client) =>
+        client.query<{ command_state: string; provider_message_id: string }>(
+          `SELECT command_state, provider_message_id FROM outbound_messages WHERE client_message_id = 'custom-reply-1'`,
+        ),
+      );
+      expect(rows.rows[0]).toEqual({ command_state: 'provider_accepted', provider_message_id: 'crm-out-2' });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('keeps settings to the channels that have them', async () => {
+    const widget = await connectKind('web_chat', 'widget-settings', WIDGET_KEY, { origins: ['https://school.example'] });
+    const refused = await send(api, owner, 'POST', `/channels/${widget}/settings`, { outboundUrl: 'https://crm.school.example/convo' });
+    expect(refused.statusCode).toBe(422);
+    expect(refused.json()).toMatchObject({ error: { code: 'channel_settings_unsupported' } });
+    const origins = await send(api, owner, 'POST', `/channels/${widget}/settings`, { origins: ['https://school.example', 'https://www.school.example'] });
+    expect((origins.json() as { data: { origins: string[] } }).data.origins).toEqual(['https://school.example', 'https://www.school.example']);
+    const page = await connectKind('messenger', 'page-settings-1', 'EAAGpagetoken00009');
+    expect((await send(api, owner, 'POST', `/channels/${page}/settings`, { origins: [] })).statusCode).toBe(422);
+    await send(api, owner, 'DELETE', `/channels/${widget}`);
+    expect((await send(api, owner, 'POST', `/channels/${widget}/settings`, { origins: [] })).statusCode).toBe(404);
   });
 
   it('stores a signing key rather than an access token for the channels we own', async () => {

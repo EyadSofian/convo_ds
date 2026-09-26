@@ -918,7 +918,29 @@ describe('CustomChannelAdapter', () => {
       dedupeKey: 'cc:msg:cc.1',
       peerIdentity: '+201000000000',
       text: 'رسالة',
+      detail: {},
     });
+  });
+
+  it('carries the sender’s name, from either place the contract allows it', () => {
+    const batch = adapter.normalize(
+      {
+        object: 'convo_custom',
+        version: '1',
+        asset_id: 'gateway-1',
+        events: [
+          { id: 'cc.n1', from: '+2010', type: 'message', text: 'hi', name: '  Mona Adel ' },
+          { id: 'cc.n2', from: '+2011', type: 'message', sender: { name: 'Sara' } },
+          { id: 'cc.n3', from: '+2012', type: 'message', text: 'x', name: '   ' },
+        ],
+      },
+      NOW,
+    );
+    expect(batch.events.map((event) => event.detail)).toEqual([
+      { sender_name: 'Mona Adel' },
+      { unsupported_message: true, sender_name: 'Sara' },
+      {},
+    ]);
   });
 
   it('normalizes the operator’s own delivery and read reports', () => {

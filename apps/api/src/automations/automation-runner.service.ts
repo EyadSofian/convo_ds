@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, withTenant } from '@convo/database';
-import { nextScheduledAt, type AutomationStep, type AutomationTrigger, type AutomationWorkflow, type ScheduleDefinition, type SqlExecutor } from '@convo/domain';
+import { filterFromConditions, filterParts, nextScheduledAt, normalizeSearchText, parseTemplateBindings, type AutomationStep, type AutomationTrigger, type AutomationWorkflow, type ConditionDocument, type ScheduleDefinition, type SqlExecutor } from '@convo/domain';
 import type { Pool } from 'pg';
+import { prepareTemplate, templateValuesFor } from '../channels/template-send.js';
 import { API_POOL } from '../tokens.js';
 
 interface DueAutomation { readonly id:string; readonly workflow:AutomationWorkflow; readonly timezone:string; readonly next_run_at:Date }
@@ -111,7 +112,36 @@ async function resolveContacts(sql:SqlExecutor,workflow:AutomationWorkflow,paylo
   if(customerId!==null)return(await sql.query<{id:string}>(`SELECT id::text FROM contacts WHERE id=$1 AND deleted_at IS NULL`,[customerId])).rows.map((row)=>row.id);
   const labelId=str(workflow.target.config['labelId']);
   if(workflow.target.type==='label'&&labelId!==null)return(await sql.query<{id:string}>(`SELECT c.id::text FROM contacts c JOIN contact_labels l ON l.contact_id=c.id WHERE l.label_id=$1 AND l.removed_at IS NULL AND c.deleted_at IS NULL ORDER BY c.id`,[labelId])).rows.map((row)=>row.id);
+  const audienceId=str(workflow.target.config['audienceId']);
+  if(workflow.target.type==='dynamic_audience'&&audienceId!==null)return audienceMembers(sql,audienceId);
   return null;
+}
+
+/**
+ * The contacts a saved audience names at the moment the run starts — the same
+ * narrowing a broadcast applies, across every channel. An audience that is
+ * gone, retired or says something a filter cannot express reaches nobody
+ * rather than an approximation of it.
+ */
+async function audienceMembers(sql:SqlExecutor,audienceId:string):Promise<readonly string[]|null>{
+  const saved=(await sql.query<{conditions:ConditionDocument}>(`SELECT conditions FROM audiences WHERE id=$1 AND state='active'`,[audienceId])).rows[0];
+  const filter=saved===undefined?null:filterFromConditions(saved.conditions);
+  if(filter===null)return null;
+  const parts=filterParts(filter);
+  const rows=await sql.query<{id:string}>(
+    `SELECT c.id::text FROM contacts c
+      WHERE c.deleted_at IS NULL
+        AND ($1::text='' OR c.search_name LIKE '%' || $1 || '%')
+        AND (cardinality($2::uuid[])=0 OR NOT EXISTS (
+          SELECT 1 FROM unnest($2::uuid[]) wanted(label_id)
+           WHERE NOT EXISTS (SELECT 1 FROM contact_labels cl WHERE cl.contact_id=c.id AND cl.label_id=wanted.label_id AND cl.removed_at IS NULL)))
+        AND (cardinality($3::uuid[])=0 OR EXISTS (
+          SELECT 1 FROM conversations v JOIN conversation_labels vl ON vl.conversation_id=v.id AND vl.removed_at IS NULL
+           WHERE v.contact_id=c.id AND vl.label_id=ANY($3::uuid[])))
+        AND (cardinality($4::uuid[])=0 OR c.id=ANY($4::uuid[]))
+      ORDER BY c.id`,
+    [normalizeSearchText(parts.search),parts.labelIds,parts.conversationLabelIds,parts.contactIds]);
+  return rows.rows.map((row)=>row.id);
 }
 
 async function nextAction(sql:SqlExecutor,runId:string):Promise<ActionRow|undefined>{
@@ -125,12 +155,17 @@ async function executeAction(sql:SqlExecutor,tenantId:string,runId:string,action
     if(seconds===null||seconds<1||seconds>31_536_000){await failAction(sql,runId,action,'automation_delay_invalid','Delay seconds must be from 1 to 31536000.');return;}
     if(action.state!=='waiting'){await sql.query(`UPDATE automation_action_executions SET state='waiting',available_at=now()+($2::text||' seconds')::interval,updated_at=now() WHERE id=$1`,[action.id,seconds]);await log(sql,tenantId,runId,step.id,'info','delay_scheduled',{seconds});return;}
   }else if(step.type==='send_whatsapp_template'){
+    // Each variable is filled for this recipient now, from the same bindings
+    // a broadcast uses; a recipient the template cannot be filled for fails
+    // on its own rather than receiving a half-empty message.
     const templateId=str(step.config['templateId']);
-    const template=templateId===null?undefined:(await sql.query<{connection_id:string;template_name:string;language:string}>(`SELECT connection_id::text,template_name,language FROM whatsapp_templates WHERE id=$1 AND status='approved'`,[templateId])).rows[0];
-    if(template===undefined||action.identity_id===null||action.external_id===null){await failAction(sql,runId,action,'automation_template_unavailable','The approved template or recipient identity is unavailable.');return;}
-    const message=await sql.query<{id:string}>(`INSERT INTO outbound_messages(tenant_id,connection_id,peer_identity,message_type,template_name,template_language,client_message_id) VALUES($1,$2,$3,'template',$4,$5,$6) ON CONFLICT(tenant_id,client_message_id) DO UPDATE SET client_message_id=excluded.client_message_id RETURNING id::text`,[tenantId,template.connection_id,action.external_id,template.template_name,template.language,`automation:${action.recipient_id}:${step.id}`]);
+    const bindings=parseTemplateBindings(step.config['variableMapping']??{});
+    const values=templateId===null||bindings===null||action.external_id===null?null:await templateValuesFor(sql,bindings,action.customer_id,action.external_id);
+    const template=values===null?null:await prepareTemplate(sql,templateId!,values);
+    if(template===null||action.identity_id===null){await failAction(sql,runId,action,'automation_template_unavailable','The approved template or recipient identity is unavailable.');return;}
+    const message=await sql.query<{id:string}>(`INSERT INTO outbound_messages(tenant_id,connection_id,peer_identity,message_type,template_name,template_language,template_provider_id,template_components,template_preview,client_message_id) VALUES($1,$2,$3,'template',$4,$5,$6,$7::jsonb,$8,$9) ON CONFLICT(tenant_id,client_message_id) DO UPDATE SET client_message_id=excluded.client_message_id RETURNING id::text`,[tenantId,template.connectionId,action.external_id,template.name,template.language,template.providerId,JSON.stringify(template.components),template.preview,`automation:${action.recipient_id}:${step.id}`]);
     const messageId=message.rows[0]!.id;
-    await sql.query(`INSERT INTO outbox(message_id,tenant_id,connection_id,peer_identity,traffic_class) VALUES($1,$2,$3,$4,'bulk') ON CONFLICT(message_id) DO NOTHING`,[messageId,tenantId,template.connection_id,action.external_id]);
+    await sql.query(`INSERT INTO outbox(message_id,tenant_id,connection_id,peer_identity,traffic_class) VALUES($1,$2,$3,$4,'bulk') ON CONFLICT(message_id) DO NOTHING`,[messageId,tenantId,template.connectionId,action.external_id]);
     await sql.query(`UPDATE automation_recipients SET outbound_command_id=$2,status='queued',queued_at=coalesce(queued_at,now()) WHERE id=$1`,[action.recipient_id,messageId]);
     await sql.query(`UPDATE automation_action_executions SET outbound_message_id=$2 WHERE id=$1`,[action.id,messageId]);
   }else if(step.type==='add_label'||step.type==='remove_label'){

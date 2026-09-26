@@ -23,6 +23,8 @@ export interface InboundRow {
   readonly text: string | null;
   readonly attachments: string;
   readonly detail: string;
+  /** The name the channel gave the sender, when it gave one. */
+  readonly senderName: string | null;
   readonly occurredAt: Date;
 }
 
@@ -42,8 +44,14 @@ export function inboundRowFrom(event: Record<string, unknown>, fallbackTime: Dat
     text: stringOrNull(event['text']),
     attachments: JSON.stringify(event['attachments'] ?? []),
     detail: JSON.stringify(event['detail'] ?? {}),
+    senderName: senderNameOf(event['detail']),
     occurredAt: occurredAt(event['occurredAt'], fallbackTime),
   };
+}
+
+function senderNameOf(detail: unknown): string | null {
+  const name = typeof detail === 'object' && detail !== null ? (detail as Record<string, unknown>)['sender_name'] : null;
+  return stringOrNull(name);
 }
 
 function kindOf(value: unknown): InboundKind {

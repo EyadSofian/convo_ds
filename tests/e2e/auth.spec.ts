@@ -248,6 +248,22 @@ test.describe('links delivered by email', () => {
       for (let index = 0; index < await passwords.count(); index += 1) await passwords.nth(index).fill('correct horse battery staple');
       await page.locator('button[type="submit"]').first().click();
       await expect.poll(() => submitted.length).toBe(1);
+      // Done: straight to sign-in, which says what just happened.
+      await expect(page.locator('#signin-email')).toBeVisible();
+      await expect(page.locator('.auth-notice')).toContainText(route === 'reset-password' ? 'Password changed' : 'Invitation accepted');
+      await expect(page).not.toHaveURL(/token=/);
     });
   }
+
+  test('asking for a reset link returns to sign-in with the address typed', async ({ page }) => {
+    await freezeClock(page);
+    await installApi(page, { signedIn: false });
+    await page.route('**/api/v1/auth/recovery', (fulfil) => fulfil.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ data: { status: 'accepted', message: 'ok' } }) }));
+    await page.goto('/#/reset-password?lang=en');
+    await page.locator('#recovery-email').fill('person@example.test');
+    await page.locator('button[type="submit"]').click();
+    await expect(page.locator('#signin-email')).toHaveValue('person@example.test');
+    await expect(page.locator('.auth-notice')).toContainText('Check your email');
+    await expect(page).toHaveURL(/#\/inbox/);
+  });
 });

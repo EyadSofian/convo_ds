@@ -7,6 +7,7 @@ import { AuthRateLimiter } from '../auth/auth-rate-limiter.js';
 import { requireRow } from '../require-row.js';
 import { API_POOL } from '../tokens.js';
 import { adapterFor } from './adapters.js';
+import { refreshStatus } from './channel.service.js';
 import { ChannelCredentialService } from './credential.service.js';
 import type { IngressDelivery, IngressOutcome } from './ingress.service.js';
 import { journalBatch, writeReceipt } from './ingress-journal.js';
@@ -30,7 +31,10 @@ import { assetFingerprint, sha256BytesHex } from './node-crypto.js';
  * Two protections a provider would otherwise give us are enforced here:
  *
  * - an **origin allowlist**, because a widget's signing key lives in a page and
- *   a key that has leaked can otherwise be used from anywhere;
+ *   a key that has leaked can otherwise be used from anywhere. A Custom Channel
+ *   is the operator's own server posting to us, which sends no Origin at all:
+ *   the signature alone admits that, and a delivery that does carry an Origin
+ *   — a browser holding the key — still has to be on the list;
  * - a **rate limit** per connection, because a widget is reachable by anyone
  *   who loads the page.
  */
@@ -102,7 +106,9 @@ export class SelfHostedIngressService {
     const row = requireRow(connection.rows, 'the connection behind a registry row vanished');
 
     const allowed = stringArray(row.settings['origins']);
-    if (!originAllowed(delivery.headers['origin'], allowed)) {
+    const origin = delivery.headers['origin'];
+    const serverToServer = adapter.kind === 'custom' && origin === undefined;
+    if (!serverToServer && !originAllowed(origin, allowed)) {
       await this.receiptWithin(sql, delivery, bodySha, false, 'signature_invalid', null);
       return { status: 'rejected', code: 'origin_not_allowed', httpStatus: 403 };
     }
@@ -164,6 +170,13 @@ export class SelfHostedIngressService {
       receiptId,
       batch,
     });
+    // A delivery signed with the stored key is the proof that key works: there
+    // is no provider to ask, so this is what verifies our own channels.
+    await sql.query(
+      'UPDATE channel_connections SET credential_verified_at = coalesce(credential_verified_at, now()) WHERE id = $1',
+      [resolved.value],
+    );
+    await refreshStatus(sql, resolved.value);
     return { status: 'accepted', receiptId, ...stored };
   }
 

@@ -840,6 +840,33 @@
         }
       }
     },
+    "/tenants/{tenantId}/channels/{connectionId}/settings": {
+      "post": {
+        "operationId": "updateChannelSettings",
+        "summary": "Change a Website Chat or Custom Channel connection's origins and reply URL",
+        "description": "Requires `channel.manage` and CSRF. `origins` replaces the allowlist a delivery carrying an Origin header must match; a Custom Channel delivery with no Origin (the operator's own server) is admitted by its signature. `outboundUrl` is where a Custom Channel's replies are posted, signed with the connection key; null removes it. Provider channels answer 422 `channel_settings_unsupported`; disconnected connections 404.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChannelSettingsUpdateRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "The connection with its new settings.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChannelConnectionResponse" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/channels/{connectionId}/messages": {
       "get": {
         "operationId": "listOutboundMessages",
@@ -7572,7 +7599,9 @@
           "created_at",
           "disconnected_at",
           "credential_held",
-          "credential_fingerprint"
+          "credential_fingerprint",
+          "origins",
+          "outbound_url"
         ],
         "properties": {
           "id": {
@@ -7653,6 +7682,15 @@
               "null"
             ],
             "description": "An HMAC fingerprint that identifies the stored credential without revealing it, so a rotation is visibly a rotation."
+          },
+          "origins": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Website Chat and Custom Channel: origins a delivery carrying an Origin header must come from. Empty for provider channels."
+          },
+          "outbound_url": {
+            "type": ["string", "null"],
+            "description": "Custom Channel: where replies are posted. Null when none is configured or for other channels."
           },
           "provider_app_id": {
             "type": [
@@ -7789,6 +7827,12 @@
               "example": "text"
             },
             "description": "What a Custom Channel's own transport says it can carry. Intersected with the capability matrix, which is the ceiling: declaring more widens nothing."
+          },
+          "outboundUrl": {
+            "type": ["string", "null"],
+            "format": "uri",
+            "maxLength": 2048,
+            "description": "Custom Channel only: the public https URL replies are posted to, signed with the connection key."
           }
         }
       },
@@ -7859,6 +7903,14 @@
             "maxLength": 128,
             "description": "The provider-facing Meta App ID shown in Meta Business. It must already be registered in the server installation; the browser never receives the App Secret."
           }
+        }
+      },
+      "ChannelSettingsUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "origins": { "type": "array", "maxItems": 20, "items": { "type": "string", "example": "https://school.example" } },
+          "outboundUrl": { "type": ["string", "null"], "format": "uri", "maxLength": 2048, "description": "Public https URL on the operator's own domain. IP literals and internal names are refused." }
         }
       },
       "InstagramLinkedPageRequest": {
@@ -11901,10 +11953,12 @@
             "format": "uuid"
           },
           "content": {
-            "type": "object"
+            "type": "object",
+            "description": "Either `{text}` with `{{variable}}` placeholders, or a WhatsApp broadcast of an approved catalogue template: `{template: {id, parameters}}` where each parameter key (`header:1`, `body:2`, `button:0:1`) names its source — `{source: \"display_name\" | \"phone\"}`, `{source: \"field\", fieldId}` or `{source: \"static\", value}` — with an optional `fallback`. The template must be approved on the campaign's number and every parameter bound (422 `campaign_template_invalid`); the stored name and language come from the catalogue, and `variables` are derived from the bindings."
           },
           "variables": {
-            "type": "object"
+            "type": "object",
+            "description": "Variable name to source: `display_name`, `phone`, `field:<uuid>` or `static:<text>`. Ignored for a catalogue template, whose variables the server derives."
           },
           "audienceFilter": {
             "$ref": "#/components/schemas/AudienceFilter"

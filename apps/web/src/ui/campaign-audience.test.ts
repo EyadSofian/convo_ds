@@ -19,7 +19,7 @@ function editor(lang: 'ar' | 'en' = 'en'): AppState {
   const state = createState(NOW);
   state.lang = lang;
   state.dialog = { kind: 'campaign', arg: '' };
-  state.live.connections = { status: 'ready', loadedAt: 1, value: [{ id: 'channel-1', status: 'healthy' }] as never };
+  state.live.connections = { status: 'ready', loadedAt: 1, value: [{ id: 'channel-1', kind: 'whatsapp', status: 'healthy', disconnected_at: null }] as never };
   return state;
 }
 
@@ -39,6 +39,11 @@ describe('the audience block', () => {
     expect(block.querySelector('[data-form="campaignSearch"]')).not.toBeNull();
     expect(text(block.querySelector('.audience__preview'))).toContain('See how many people');
     expect(text(audienceSection(editor('ar')))).toContain('من سيستلم الحملة');
+    // A saved audience made on its own narrows, so it offers only the sources that do.
+    state.dialog = { kind: 'audience-new', arg: '' };
+    const standalone = audienceSection(state);
+    expect([...standalone.querySelectorAll('.audience-source')].map((source) => source.getAttribute('data-arg'))).toEqual(['labels', 'conversations', 'picked']);
+    expect(text(standalone)).toContain('Who is in it?');
   });
 
   it('picks labels as toggling chips, and says when there are none or they failed', () => {

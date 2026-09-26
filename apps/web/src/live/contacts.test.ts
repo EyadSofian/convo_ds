@@ -247,9 +247,9 @@ describe('the contacts directory', () => {
       endSession: () => undefined, switchWorkspace: () => undefined,
     } as LiveContext;
     expect(await loadContactConnections(context)).toBe(false);
-    expect(await createContact(context, { displayName: '', connectionId: 'cn-1', externalId: 'wa-1', fields: [], labelIds: [], consents: [] })).toBe(false);
-    expect(await createContact(context, { displayName: 'Sara', connectionId: '', externalId: 'wa-1', fields: [], labelIds: [], consents: [] })).toBe(false);
-    expect(await createContact(context, { displayName: 'Sara', connectionId: 'cn-1', externalId: '', fields: [], labelIds: [], consents: [] })).toBe(false);
+    expect(await createContact(context, { displayName: '', connectionId: 'cn-1', externalId: 'wa-1', fields: [], labelIds: [] })).toBe(false);
+    expect(await createContact(context, { displayName: 'Sara', connectionId: '', externalId: 'wa-1', fields: [], labelIds: [] })).toBe(false);
+    expect(await createContact(context, { displayName: 'Sara', connectionId: 'cn-1', externalId: '', fields: [], labelIds: [] })).toBe(false);
     expect(await importContacts(context)).toBe(false);
     context.state.dialogForm = { contactImportCsv: 'invalid', contactImportConnection: 'cn-1' };
     expect(await importContacts(context)).toBe(false);
@@ -368,13 +368,12 @@ describe('the contacts directory', () => {
       type(root, '[data-form="contactCreateExternalId"]', '201112223344');
     }
 
-    it('creates a whole customer card: details, new catalogue fields, labels and consent', async () => {
+    it('creates a whole customer card: details, new catalogue fields and labels, but no consent', async () => {
       const created = contact({ id: 'contact-card', displayName: 'هالة مصطفى', version: 1 });
       const api = withCatalogue(contactsApi(MANAGER))
         .on(`POST /tenants/${TENANT}/contacts`, { status: 201, body: { data: created } })
         .on(`POST /tenants/${TENANT}/custom-fields`, { status: 201, body: { data: { id: 'f-company', target: 'contact', key: 'company', name: 'الشركة أو المدرسة', type: 'text', options: [], state: 'active', version: 1 } } })
         .on(`PATCH /tenants/${TENANT}/contacts/contact-card/metadata`, { status: 200, body: { data: { version: 2, metadata: { labels: [], customFields: [] } } } })
-        .on(`POST /tenants/${TENANT}/contacts/contact-card/consents`, { status: 201, body: { data: created } })
         .on(`GET /tenants/${TENANT}/contacts/contact-card`, { status: 200, body: { data: { ...created, displayName: 'هالة مصطفى (stored)' } } });
       const { root, app } = await open(api);
       await fill(root);
@@ -392,9 +391,8 @@ describe('the contacts directory', () => {
       type(root, '[data-form="newContactField_f-seats"]', '2');
       type(root, '[data-form="newContactField_f-tags"]', 'kids, ielts');
       click(root, '.contact-new .audience-chip');
-      click(root, '.contact-new__consent[data-arg^="newContactMarketing"]');
-      click(root, '.contact-new__consent[data-arg^="newContactService"]');
-      expect(root.querySelectorAll('.contact-new__consent[aria-checked="true"]')).toHaveLength(2);
+      // Adding someone records no consent: that is the profile's, with its evidence.
+      expect(root.querySelector('.contact-new__consent')).toBeNull();
       click(root, '.dialog [data-act="live-contact-create"]');
       await settle();
 
@@ -413,10 +411,7 @@ describe('the contacts directory', () => {
           { fieldId: 'f-tags', value: ['kids', 'ielts'] },
         ],
       });
-      expect(api.calls.filter((call) => call.path.endsWith('/consents')).map((call) => call.body)).toEqual([
-        { channel: 'whatsapp', purpose: 'marketing', state: 'granted', source: 'agent_recorded', proofRef: null },
-        { channel: 'whatsapp', purpose: 'service', state: 'granted', source: 'agent_recorded', proofRef: null },
-      ]);
+      expect(api.calls.filter((call) => call.path.endsWith('/consents'))).toEqual([]);
       // What the server stored is what is shown.
       expect(text(root.querySelector('.contact[data-contact="contact-card"]') as HTMLElement)).toContain('(stored)');
       expect(app.state.toasts.at(-1)).toMatchObject({ text: 'أُضيفت جهة الاتصال.', tone: 'default' });
@@ -429,21 +424,18 @@ describe('the contacts directory', () => {
         .on(`POST /tenants/${TENANT}/contacts`, { status: 201, body: { data: created } })
         .on(`POST /tenants/${TENANT}/custom-fields`, { status: 409, body: { error: { code: 'field_key_exists', message: 'Key taken.' } } })
         .on(`PATCH /tenants/${TENANT}/contacts/contact-part/metadata`, { status: 409, body: { error: { code: 'entity_version_conflict', message: 'Stale.' } } })
-        .on(`POST /tenants/${TENANT}/contacts/contact-part/consents`, { status: 409, body: { error: { code: 'suppression_outranks_consent', message: 'Opted out.' } } })
         .on(`GET /tenants/${TENANT}/contacts/contact-part`, { status: 500, body: { error: { code: 'internal_error', message: 'Down.' } } });
       const { root, app } = await open(api);
       app.dispatch('lang', 'en');
       await fill(root);
       type(root, '[data-form="newContact_city"]', 'Giza');
       click(root, '.contact-new .audience-chip');
-      click(root, '.contact-new__consent[data-arg^="newContactMarketing"]');
       click(root, '.dialog [data-act="live-contact-create"]');
       await settle();
       const toast = app.state.toasts.at(-1);
       expect(toast?.tone).toBe('danger');
       expect(toast?.text).toContain('City (Key taken.)');
       expect(toast?.text).toContain('details and labels (Stale.)');
-      expect(toast?.text).toContain('consent (Opted out.)');
       // The re-read failed, so the record the create returned is kept on screen.
       expect(root.querySelector('.contact[data-contact="contact-part"]')).not.toBeNull();
     });
@@ -453,16 +445,13 @@ describe('the contacts directory', () => {
       const api = withCatalogue(contactsApi(MANAGER))
         .on(`POST /tenants/${TENANT}/contacts`, { status: 201, body: { data: created } })
         .on(`PATCH /tenants/${TENANT}/contacts/contact-ar/metadata`, { status: 409, body: { error: { code: 'entity_version_conflict', message: 'قديم.' } } })
-        .on(`POST /tenants/${TENANT}/contacts/contact-ar/consents`, { status: 422, body: { error: { code: 'import_is_not_consent', message: 'مرفوض.' } } })
         .on(`GET /tenants/${TENANT}/contacts/contact-ar`, { status: 200, body: { data: created } });
       const { root, app } = await open(api);
       await fill(root);
       click(root, '.contact-new .audience-chip');
-      click(root, '.contact-new__consent[data-arg^="newContactService"]');
       click(root, '.dialog [data-act="live-contact-create"]');
       await settle();
       expect(app.state.toasts.at(-1)?.text).toContain('البيانات والتصنيفات (قديم.)');
-      expect(app.state.toasts.at(-1)?.text).toContain('الموافقة (مرفوض.)');
     });
 
     it('checks the card before sending anything', async () => {

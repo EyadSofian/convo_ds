@@ -5,17 +5,27 @@ import { dateFormat, formatNumber } from '../format.js';
 import { icon } from '../icons.js';
 import { hasPermission } from '../live/ability.js';
 import type { DelayUnit } from '../live/automation-steps.js';
-import { DELAY_UNITS, delayParts, RUNNABLE_STEPS, runnable } from '../live/automation-steps.js';
+import { automationPrefix, DELAY_UNITS, delayParts, RUNNABLE_STEPS, runnable } from '../live/automation-steps.js';
+import { storedBindings } from '../live/template-binding.js';
 import { rowsOf } from '../live/store.js';
 import { formatHash } from '../router.js';
 import { routeParamsWithLanguage } from '../state.js';
 import type { AppState } from '../state.js';
 import { t } from './copy.js';
 import { badge, button, emptyState, errorState, inlineError, page, panel, refreshButton, selectControl, skeleton, toolbar, type Tone } from './parts.js';
+import { templateComposer } from './template-composer.js';
 
 const CATEGORIES = ['academic', 'sales', 'marketing', 'operations', 'custom'] as const;
 const TRIGGERS = ['manual','schedule','customer_created','customer_updated','label_added','conversation_created','conversation_assigned','conversation_closed','customer_replied','no_reply_for_duration','custom_event','student_enrolled','course_starting','session_starting','attendance_updated','course_completed'] as const;
 const TARGETS = ['single_customer','dynamic_audience','label','saved_view','course_context','matching_conditions'] as const;
+const TARGET_NAMES: Readonly<Record<(typeof TARGETS)[number], readonly [string, string]>> = {
+  single_customer: ['العميل الذي أطلقها', 'The contact who triggered it'],
+  dynamic_audience: ['جمهور محفوظ', 'A saved audience'],
+  label: ['من يحمل تصنيفًا', 'Contacts with a label'],
+  saved_view: ['عرض محفوظ', 'A saved view'],
+  course_context: ['سياق الكورس', 'Course context'],
+  matching_conditions: ['من يطابق شروطًا', 'Contacts matching conditions'],
+};
 const STEP_NAMES: Readonly<Record<string, readonly [string, string]>> = {
   delay: ['انتظار', 'Wait'],
   send_whatsapp_template: ['إرسال قالب واتساب', 'Send a WhatsApp template'],
@@ -293,21 +303,44 @@ function targetBlock(state: AppState, automation: Automation): HTMLElement {
   return h('article', { class: 'workflow-block workflow-block--root' }, [h('div', { class: 'workflow-block__body' }, [
     h('span', { class: 'workflow-block__kind' }, [t(state, 'لمن', 'FOR')]),
     h('h3', {}, [t(state, 'مَن أو ما الذي يعمل عليه؟', 'Who or what should it work on?')]),
-    select('automationTarget', target, TARGETS),
+    selectControl({
+      form: 'automationTarget',
+      value: target,
+      ariaLabel: t(state, 'الهدف', 'Target'),
+      options: TARGETS.map((value) => {
+        const [ar, en] = TARGET_NAMES[value];
+        const soon = !['single_customer', 'dynamic_audience', 'label'].includes(value);
+        return { value, label: soon ? t(state, `${ar} (قريبًا)`, `${en} (coming soon)`) : t(state, ar, en) };
+      }),
+    }),
     target === 'label' ? labelPicker(state, 'automationTargetLabel', state.dialogForm['automationTargetLabel'] ?? String(own['labelId'] ?? '')) : null,
+    target === 'dynamic_audience' ? audiencePicker(state, state.dialogForm['automationTargetAudience'] ?? String(own['audienceId'] ?? '')) : null,
   ])]);
+}
+
+/** A saved audience target: reached afresh on every run, so a schedule always sends to who matches then. */
+function audiencePicker(state: AppState, chosen: string): HTMLElement {
+  const audiences = rowsOf(state.live.audiences);
+  if (audiences.length === 0) {
+    return h('p', { class: 'workflow-block__warning' }, [icon('bookmark', 14), state.live.audiences.status === 'ready'
+      ? t(state, 'لا يوجد جمهور محفوظ. أنشئه من «الحملات ← الجماهير المحفوظة».', 'No saved audiences. Create one under Campaigns → Saved audiences.')
+      : t(state, 'جارٍ تحميل الجماهير…', 'Loading audiences…')]);
+  }
+  return h('label', { class: 'field workflow-config' }, [
+    h('span', { class: 'field__label' }, [t(state, 'الجمهور المحفوظ', 'Saved audience')]),
+    selectControl({
+      form: 'automationTargetAudience',
+      value: chosen,
+      options: [{ value: '', label: t(state, 'اختر جمهورًا', 'Choose an audience') }, ...audiences.map((audience) => ({ value: audience.id, label: audience.name }))],
+    }),
+  ]);
 }
 
 function fieldBlock(state: AppState, label: string, title: string, control: HTMLElement): HTMLElement { return h('article', { class: 'workflow-block workflow-block--root' }, [h('div', { class: 'workflow-block__body' }, [h('span', { class: 'workflow-block__kind' }, [label]), h('h3', {}, [title]), control])]); }
 /**
- * The template picker for a `send_whatsapp_template` step.
- *
- * Written out rather than on one line because three of its guards cannot be
- * reached and that should be visible rather than buried: the function returns
- * early when the catalogue is empty, so from that point `templates[0]` and the
- * `find(...) ?? templates[0]` fallback are both guaranteed to exist. They stay
- * because they are what makes the types honest at each step, and because a
- * future edit that moves the early return would need them.
+ * The template picker for a `send_whatsapp_template` step: the same composer a
+ * broadcast uses, so a template's variables are bound the same way wherever
+ * it is sent.
  */
 function whatsappStep(state: AppState, step: Automation['workflow']['steps'][number]): HTMLElement {
   const templates = rowsOf(state.live.whatsappTemplates);
@@ -319,30 +352,18 @@ function whatsappStep(state: AppState, step: Automation['workflow']['steps'][num
       t(state, 'اربط حساب WhatsApp ثم زامن القوالب المعتمدة.', 'Connect WhatsApp and synchronize approved templates first.'),
     ]);
   }
-  const stored = step.config['templateId'];
-  /* c8 ignore next -- the early return above guarantees a first template */
-  const fallback = templates[0]?.id ?? '';
-  const selected = state.dialogForm[`automationTemplate_${step.id}`] || String(stored ?? fallback);
-  /* c8 ignore next -- same: find may miss, templates[0] cannot */
-  const template = templates.find((entry) => entry.id === selected) ?? templates[0];
-  return h('div', { class: 'whatsapp-template-picker' }, [
-    h('label', { class: 'field' }, [
-      h('span', { class: 'field__label' }, [t(state, 'قالب WhatsApp المعتمد', 'Approved WhatsApp template')]),
-      h('select', { class: 'select', 'data-act': 'form', 'data-form': `automationTemplate_${step.id}` },
-        templates.map((entry) => h('option', { value: entry.id, selected: entry.id === selected }, [`${entry.templateName} · ${entry.language}`]))),
-    ]),
-    /* c8 ignore next -- `template` is always defined here */
-    ...(template?.variables ?? []).map((variable) => h('label', { class: 'field' }, [
-      h('span', { class: 'field__label' }, [`{{${variable}}}`]),
-      select(`automationVariable_${step.id}_${variable}`, 'customer_field',
-        ['customer_field','customer_custom_field','course_field','session_field','automation_context','static_value','current_date','current_time']),
-    ])),
-    h('div', { class: 'template-preview' }, [
-      h('span', {}, [t(state, 'معاينة', 'Preview')]),
-      /* c8 ignore next -- as above */
-      h('strong', {}, [template?.templateName ?? '']),
-    ]),
-  ]);
+  const savedId = typeof step.config['templateId'] === 'string' ? step.config['templateId'] : '';
+  const selected = state.dialogForm[`automationTemplate_${step.id}`] ?? savedId;
+  return templateComposer(state, {
+    prefix: automationPrefix(step.id),
+    pick: `automationTemplate_${step.id}`,
+    templates,
+    selectedId: selected,
+    stored: selected === savedId ? storedBindings(step.config['variableMapping']) : {},
+    sample: { name: t(state, 'منى', 'Mona'), phone: '+20 100 000 0000' },
+    sender: 'WhatsApp',
+    compact: true,
+  });
 }
 function connector(): HTMLElement { return h('div', { class: 'workflow-connector', 'aria-hidden': 'true' }, [h('span', {})]); }
 function select(name: string, value: string, options: readonly string[]): HTMLSelectElement { return h('select', { class: 'select', 'data-act': 'form', 'data-form': name }, options.map((option) => h('option', { value: option, selected: option === value }, [human(option)]))); }

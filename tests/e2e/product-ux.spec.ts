@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { CONVERSATION, installApi, PASSWORD } from './support/api';
+import { CONNECTION, CONVERSATION, installApi, PASSWORD } from './support/api';
 import { freezeClock, openInbox, openScreen } from './support/workspace';
 
 test.describe('focused product UX repairs', () => {
@@ -66,6 +66,65 @@ test.describe('focused product UX repairs', () => {
       template: { id: 'whatsapp-template-1', parameters: { 'body:1': 'Ahmed' } },
     });
     await expect(dialog).toBeHidden();
+  });
+
+  test('a WhatsApp broadcast goes from template and audience to sending in one confirmation', async ({ page }) => {
+    // The workspace first: routes added after it answer before its defaults.
+    await openScreen(page, 'broadcasts', '?lang=en');
+    const calls: { path: string; body: unknown }[] = [];
+    const campaign = {
+      id: 'campaign-broadcast', name: 'Sunday reminder', objective: null, connection_id: CONNECTION, state: 'draft', version: 1,
+      revision_id: 'rev', revision: 1, revision_hash: 'd'.repeat(64), content: {}, variables: {}, audience_filter: {}, timezone: 'UTC',
+      expires_at: null, budget_amount_minor: '0', budget_currency: 'USD', approved: false, audience: null, execution: null,
+      created_at: '2026-09-09T09:00:00.000Z', updated_at: '2026-09-09T09:00:00.000Z',
+    };
+    await page.route('**/api/v1/tenants/*/whatsapp-templates', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      data: [{ id: 'wa-class', connectionId: CONNECTION, providerTemplateId: 'meta-class', templateName: 'class_reminder', language: 'en', category: 'MARKETING', status: 'approved',
+        components: [{ type: 'BODY', text: 'Hi {{1}}, your class starts {{2}}.' }], variables: ['{{1}}', '{{2}}'], lastSyncedAt: '2026-09-09T09:00:00.000Z' }],
+      page: { next_cursor: null, has_more: false }, request_id: 'e2e',
+    }) }));
+    await page.route('**/api/v1/tenants/*/campaigns/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      const body = route.request().postDataJSON() as unknown;
+      calls.push({ path: path.replace(/^.*\/campaigns/, ''), body });
+      const data = path.endsWith('/audience-preview')
+        ? { total: 12, eligible: 9, excluded: 3, reasons: { suppressed: 1, no_consent: 2, identity_inactive: 0 }, sample: ['Mona'] }
+        : path.endsWith('/validate') ? { ...campaign, state: 'ready', audience: { total: 12, eligible: 9, excluded: 3 } }
+          : path.endsWith('/approve') ? { ...campaign, state: 'ready', approved: true }
+            : { ...campaign, state: 'running', approved: true, execution: { id: 'e', state: 'running', scheduled_for: null } };
+      await route.fulfill({ status: path.endsWith('/launch') ? 202 : 200, contentType: 'application/json', body: JSON.stringify({ data, request_id: 'e2e' }) });
+    });
+    await page.route('**/api/v1/tenants/*/campaigns', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      calls.push({ path: '', body: route.request().postDataJSON() as unknown });
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ data: campaign, request_id: 'e2e' }) });
+    });
+    await expect(page.locator('.campaign-views .segmented__item')).toHaveCount(5);
+    await page.locator('[data-act="live-campaign-editor"][data-arg=""]').first().click();
+    const dialog = page.locator('.dialog');
+    await expect(dialog.locator('.broadcast__step.is-current')).toContainText('Setup');
+    // Nothing is skipped: the name is asked for first.
+    await dialog.locator('.dialog__footer [data-act="live-broadcast-step"]').click();
+    await expect(dialog.locator('.field__error')).toContainText('Name the broadcast.');
+    await dialog.locator('#campaign-name').fill('Sunday reminder');
+    await dialog.locator('.dialog__footer [data-act="live-broadcast-step"]').click();
+    await dialog.locator('.tpl-card').click();
+    await expect(dialog.locator('.wa-bubble__body')).toHaveText('Hi Mona, your class starts {{2}}.');
+    await dialog.locator('[data-form="campaignParam_body_2_value"]').fill('on Sunday');
+    await expect(dialog.locator('.wa-bubble__body')).toHaveText('Hi Mona, your class starts on Sunday.');
+    await dialog.locator('.dialog__footer [data-act="live-broadcast-step"][data-arg="2"]').click();
+    await expect(dialog.locator('.audience')).toBeVisible();
+    await dialog.locator('.dialog__footer [data-act="live-broadcast-step"][data-arg="3"]').click();
+    await expect(dialog.locator('.broadcast__review')).toContainText('9 will receive it, of 12');
+    await expect(dialog.locator('.broadcast__review')).toContainText('class_reminder · en');
+    await dialog.locator('.broadcast__finish [data-arg="now"]').click();
+    await expect(page.locator('.dialog')).toHaveCount(0);
+    expect(calls.map((call) => call.path)).toEqual(['/audience-preview', '', '/campaign-broadcast/validate', '/campaign-broadcast/approve', '/campaign-broadcast/launch']);
+    expect(calls[1]?.body).toMatchObject({
+      name: 'Sunday reminder', connectionId: CONNECTION,
+      content: { template: { id: 'wa-class', parameters: { 'body:1': { source: 'display_name' }, 'body:2': { source: 'static', value: 'on Sunday' } } } },
+    });
+    expect(calls[4]?.body).toEqual({ mode: 'now' });
   });
 
   test('using an automation template opens the newly-created draft editor', async ({ page }) => {

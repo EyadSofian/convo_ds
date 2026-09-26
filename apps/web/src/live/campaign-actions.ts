@@ -1,5 +1,5 @@
 import type { ApiResult } from '../api/client.js';
-import type { Campaign, CampaignTestSend, CreateCampaignInput } from '../api/campaigns.js';
+import type { Campaign, CampaignTestSend } from '../api/campaigns.js';
 import type { ChannelTestRecipient } from '../api/channels.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
@@ -213,18 +213,6 @@ export async function refreshCampaignReportExport(context: LiveContext): Promise
   const result = await context.live.campaignsApi.reportExport(tenantId, current.value.id);
   context.live.campaignReportExport = fromResult(result, context.now());
   context.refresh();
-}
-
-export function createCampaign(context: LiveContext, input: CreateCampaignInput): Promise<boolean> {
-  return mutate(context, 'campaign-create',
-    (tenantId) => context.live.campaignsApi.create(tenantId, input, context.newKey()),
-    (campaign) => t(context, `أُنشئت مسودة «${campaign.name}»`, `Draft “${campaign.name}” created`));
-}
-
-export function updateCampaign(context: LiveContext, id: string, input: CreateCampaignInput, expectedVersion: number): Promise<boolean> {
-  return mutate(context, `campaign-update:${id}`,
-    (tenantId) => context.live.campaignsApi.update(tenantId, id, input, expectedVersion, context.newKey()),
-    (campaign) => t(context, `حُفظت المراجعة ${String(campaign.revision)}`, `Revision ${String(campaign.revision)} saved`));
 }
 
 export function validateCampaign(context: LiveContext, id: string): Promise<boolean> {

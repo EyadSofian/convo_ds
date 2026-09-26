@@ -202,7 +202,7 @@ describe('automation product API',()=>{let h:Harness;beforeAll(async()=>{h=await
        (tenant_id,connection_id,provider_template_id,template_name,language,category,status,
         components,variables,last_synced_at)
      VALUES ($1,$2,$3,'enrollment_confirmation','ar','UTILITY','approved',
-             '[]'::jsonb,'["1","2"]'::jsonb,now())
+             '[{"type":"BODY","text":"أهلًا {{1}}، موعدك {{2}}"}]'::jsonb,'["{{1}}","{{2}}"]'::jsonb,now())
      RETURNING id::text`,[h.tenantId,connectionId,`ptid-${randomUUID()}`]);
    return template.rows[0]?.id ?? '';
   });
@@ -216,11 +216,14 @@ describe('automation product API',()=>{let h:Harness;beforeAll(async()=>{h=await
    return send(h,'POST',`/automations/${a.id}/activate`,{version:a.version});
   };
 
-  // No map at all, a map that is not an object, and a map missing a variable.
+  // No map at all, a map that is not an object, an old-style map, a map
+  // missing a variable, and one reading a field that does not exist.
   for (const config of [
    {templateId},
    {templateId,variableMapping:'not-an-object'},
-   {templateId,variableMapping:{'1':{type:'static',value:'x'}}},
+   {templateId,variableMapping:{'1':{type:'static',value:'x'},'2':{type:'static',value:'y'}}},
+   {templateId,variableMapping:{'body:1':{source:'display_name'}}},
+   {templateId,variableMapping:{'body:1':{source:'display_name'},'body:2':{source:'field',fieldId:randomUUID()}}},
   ]) {
    const refused=await activateWith(config);
    expect(refused.statusCode,refused.body).toBe(409);
@@ -228,7 +231,7 @@ describe('automation product API',()=>{let h:Harness;beforeAll(async()=>{h=await
   }
 
   // Complete map: the template check passes and activation succeeds.
-  const ok=await activateWith({templateId,variableMapping:{'1':{type:'static',value:'a'},'2':{type:'static',value:'b'}}});
+  const ok=await activateWith({templateId,variableMapping:{'body:1':{source:'display_name',fallback:'there'},'body:2':{source:'static',value:'Sunday'}}});
   expect(ok.statusCode,ok.body).toBe(200);
  });
  it('re-raises an ingest failure that is not an idempotency conflict',async()=>{
@@ -312,6 +315,57 @@ describe('automation product API',()=>{let h:Harness;beforeAll(async()=>{h=await
 
   const failed=await seedRun(h,{...workflow,target:{type:'single_customer',config:{customerId:fixture.unreachableId}},steps:[step]});
   await runner.execute(h.tenantId);await runner.execute(h.tenantId);expect((await runState(h,failed))['status']).toBe('failed');
+ });
+
+ it('sends a filled template to a saved audience when its schedule comes due',async()=>{
+  const fixture=await withTenant(h.pool,h.tenantId,async(client)=>{
+   const connection=await client.query<{id:string}>(`INSERT INTO channel_connections(tenant_id,kind,external_asset_id,display_name,status) VALUES($1,'whatsapp',$2,'Broadcast WhatsApp','healthy') RETURNING id::text`,[h.tenantId,`asset-${randomUUID()}`]);
+   const template=await client.query<{id:string}>(`INSERT INTO whatsapp_templates(tenant_id,connection_id,provider_template_id,template_name,language,category,status,components,variables,last_synced_at) VALUES($1,$2,$3,'class_reminder','en','marketing','approved','[{"type":"BODY","text":"Hi {{1}}, your level is {{2}}."}]','["{{1}}","{{2}}"]',now()) RETURNING id::text`,[h.tenantId,connection.rows[0]!.id,randomUUID()]);
+   const vip=await client.query<{id:string}>(`INSERT INTO labels(tenant_id,name,color) VALUES($1,$2,'#2563eb') RETURNING id::text`,[h.tenantId,`VIP ${randomUUID()}`]);
+   const level=await client.query<{id:string}>(`INSERT INTO custom_fields(tenant_id,target,key,name,type,options) VALUES($1,'contact',$2,'Level','multi_select','["B1","IELTS"]'::jsonb) RETURNING id::text`,[h.tenantId,`level_${randomUUID().replaceAll('-','').slice(0,12)}`]);
+   const people:string[]=[];
+   for(const [name,phone,labelled] of [['Mona','201000000101',true],['Sara','201000000102',true],['Omar','201000000103',false]] as const){
+    const contact=await client.query<{id:string}>(`INSERT INTO contacts(tenant_id,display_name) VALUES($1,$2) RETURNING id::text`,[h.tenantId,name]);
+    await client.query(`INSERT INTO contact_identities(tenant_id,contact_id,kind,scope_id,external_id) VALUES($1,$2,'whatsapp',$3,$4)`,[h.tenantId,contact.rows[0]!.id,connection.rows[0]!.id,phone]);
+    if(labelled)await client.query(`INSERT INTO contact_labels(tenant_id,contact_id,label_id) VALUES($1,$2,$3)`,[h.tenantId,contact.rows[0]!.id,vip.rows[0]!.id]);
+    people.push(contact.rows[0]!.id);
+   }
+   await client.query(`INSERT INTO contact_custom_field_values(tenant_id,contact_id,field_id,value_json,search_value) VALUES($1,$2,$3,'["B1","IELTS"]','b1 ielts')`,[h.tenantId,people[0],level.rows[0]!.id]);
+   const audience=await client.query<{id:string}>(`INSERT INTO audiences(tenant_id,name,conditions) VALUES($1,$2,$3::jsonb) RETURNING id::text`,[h.tenantId,`VIPs ${randomUUID()}`,JSON.stringify({version:1,root:{kind:'group',match:'all',conditions:[{kind:'predicate',field:'label_id',operator:'eq',value:vip.rows[0]!.id}]}})]);
+   const vague=await client.query<{id:string}>(`INSERT INTO audiences(tenant_id,name,conditions) VALUES($1,$2,$3::jsonb) RETURNING id::text`,[h.tenantId,`Vague ${randomUUID()}`,JSON.stringify({version:1,root:{kind:'group',match:'any',conditions:[]}})]);
+   return{templateId:template.rows[0]!.id,levelId:level.rows[0]!.id,audienceId:audience.rows[0]!.id,vagueId:vague.rows[0]!.id};
+  });
+  const step={id:'send',type:'send_whatsapp_template',config:{templateId:fixture.templateId,variableMapping:{'body:1':{source:'display_name'},'body:2':{source:'field',fieldId:fixture.levelId,fallback:'to be confirmed'}}}};
+  const at5pm={...workflow,trigger:{type:'schedule',config:{}},schedule:{kind:'one_time',at:'2030-01-01T17:00:00.000Z'},steps:[step]};
+  const create=async(target:Record<string,unknown>)=>(await send(h,'POST','/automations',{name:`Broadcast ${randomUUID()}`,timezone:'Africa/Cairo',workflow:{...at5pm,target}})).json() as {data:{id:string;version:number}};
+  // A saved audience a filter cannot express, or none at all, is refused before it runs.
+  for(const config of [{},{audienceId:fixture.vagueId},{audienceId:randomUUID()}]){
+   const draft=(await create({type:'dynamic_audience',config})).data;
+   const refused=await send(h,'POST',`/automations/${draft.id}/activate`,{version:draft.version});
+   expect(refused.statusCode,refused.body).toBe(409);
+   expect((refused.json() as {error:{code:string}}).error.code).toBe('automation_step_incomplete');
+  }
+  const a=(await create({type:'dynamic_audience',config:{audienceId:fixture.audienceId}})).data;
+  const active=await send(h,'POST',`/automations/${a.id}/activate`,{version:a.version});
+  expect(active.statusCode,active.body).toBe(200);
+  await withTenant(h.pool,h.tenantId,(client)=>client.query(`UPDATE automation_schedule_queue SET due_at=now()-interval '1 minute' WHERE automation_id=$1`,[a.id]));
+  const runner=h.app.get(AutomationRunnerService);
+  expect(await runner.enqueueDue(h.tenantId,new Date(),10)).toBe(1);
+  for(let pass=0;pass<4;pass+=1)await runner.execute(h.tenantId);
+  const sent=await withTenant(h.pool,h.tenantId,(client)=>client.query<{peer_identity:string;template_name:string;template_preview:string;template_components:unknown}>(
+   `SELECT m.peer_identity,m.template_name,m.template_preview,m.template_components FROM outbound_messages m
+     JOIN automation_recipients r ON r.outbound_command_id=m.id JOIN automation_runs run ON run.id=r.automation_run_id
+    WHERE run.automation_id=$1 ORDER BY m.peer_identity`,[a.id]));
+  // Only the audience, each filled with their own values or the fallback.
+  expect(sent.rows).toEqual([
+   {peer_identity:'201000000101',template_name:'class_reminder',template_preview:'Hi Mona, your level is B1, IELTS.',template_components:[{type:'body',parameters:[{type:'text',text:'Mona'},{type:'text',text:'B1, IELTS'}]}]},
+   {peer_identity:'201000000102',template_name:'class_reminder',template_preview:'Hi Sara, your level is to be confirmed.',template_components:[{type:'body',parameters:[{type:'text',text:'Sara'},{type:'text',text:'to be confirmed'}]}]},
+  ]);
+  // A retired audience reaches nobody rather than everybody.
+  await withTenant(h.pool,h.tenantId,(client)=>client.query(`UPDATE audiences SET state='retired' WHERE id=$1`,[fixture.audienceId]));
+  const retired=await seedRun(h,{...at5pm,target:{type:'dynamic_audience',config:{audienceId:fixture.audienceId}}});
+  await runner.execute(h.tenantId);await runner.execute(h.tenantId);
+  expect((await runState(h,retired))['status']).toBe('failed');
  });
 
  it('finishes empty audiences, records unsupported targets, and contains a frozen-step mismatch',async()=>{

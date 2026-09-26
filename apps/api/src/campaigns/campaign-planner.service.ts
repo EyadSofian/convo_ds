@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, withTenant } from '@convo/database';
 import type { SqlExecutor } from '@convo/domain';
 import type { Pool } from 'pg';
+import { prepareTemplate } from '../channels/template-send.js';
 import { API_POOL } from '../tokens.js';
 import { campaignCommandContent } from './campaign-dispatch.js';
 
@@ -86,7 +87,10 @@ export class CampaignPlannerService {
       let planned = 0;
       for (const recipient of recipients.rows) {
         const message = campaignCommandContent(recipient.content, recipient.rendered_variables);
-        if (message === null) {
+        // A catalogue template is filled now, against the catalogue as it is:
+        // one paused since the freeze, or values that no longer fit it, is not sent.
+        const template = message?.templateId === undefined ? undefined : await prepareTemplate(sql, message.templateId, message.templateValues!);
+        if (message === null || template === null) {
           await skipInvalid(sql, recipient.id);
           planned += 1;
           continue;
@@ -94,10 +98,12 @@ export class CampaignPlannerService {
         const inserted = await sql.query<{ id: string }>(
           `INSERT INTO outbound_messages
              (tenant_id,connection_id,peer_identity,message_type,text_body,template_name,
-              template_language,client_message_id,campaign_stop_version)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id::text`,
+              template_language,template_provider_id,template_components,template_preview,client_message_id,campaign_stop_version)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12) RETURNING id::text`,
           [tenantId, recipient.connection_id, recipient.external_id, message.type, message.text,
-            message.templateName, message.templateLanguage, `campaign:${recipient.id}`, recipient.stop_version],
+            template?.name ?? message.templateName, template?.language ?? message.templateLanguage,
+            template?.providerId ?? null, JSON.stringify(template?.components ?? []), template?.preview ?? null,
+            `campaign:${recipient.id}`, recipient.stop_version],
         );
         const messageId = inserted.rows[0]!.id;
         await sql.query(

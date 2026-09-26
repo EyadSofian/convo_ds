@@ -53,8 +53,65 @@ export async function openCampaignEditor(context: LiveContext, arg: string): Pro
   context.live.error = null;
   context.live.audiencePreview = null;
   context.refresh();
-  await loadAudienceSources(context, sourceOf((campaign?.audience_filter ?? {}) as AudienceFilter));
+  // The message step picks from the approved templates, and a variable can
+  // read a contact field; both are fetched with the audience's catalogues.
+  const work: Promise<void>[] = [loadAudienceSources(context, sourceOf((campaign?.audience_filter ?? {}) as AudienceFilter))];
+  if (context.live.whatsappTemplates.status !== 'ready') work.push(loadWhatsAppTemplates(context));
+  await Promise.all(work);
   return true;
+}
+
+/** Opens a saved audience on its own, to build and save one for later. */
+export async function openAudienceDialog(context: LiveContext): Promise<boolean> {
+  context.state.dialog = { kind: 'audience-new', arg: '' };
+  context.state.dialogForm = { campaignAudienceSource: 'labels' };
+  context.state.formErrors = {};
+  context.live.error = null;
+  context.live.audiencePreview = null;
+  context.refresh();
+  await loadAudienceSources(context, 'labels');
+  return true;
+}
+
+/** Shows one bucket of the campaign list, or the saved audiences. */
+export async function showCampaignView(context: LiveContext, arg: string): Promise<boolean> {
+  const view = (['all', 'drafts', 'scheduled', 'sending', 'completed', 'audiences'] as const).find((entry) => entry === arg);
+  if (view === undefined) return false;
+  context.live.campaignView = view;
+  context.refresh();
+  if (view === 'audiences') await loadAudienceSources(context, 'labels');
+  return true;
+}
+
+/** Retires a saved audience; broadcasts already frozen keep who they had. */
+export async function retireAudience(context: LiveContext, id: string): Promise<boolean> {
+  const audience = rowsOf(context.live.audiences).find((entry) => entry.id === id);
+  if (audience === undefined) return false;
+  return forTenant(context, false, async (tenantId) => {
+    context.live.busy = `audience-retire:${id}`;
+    context.refresh();
+    const result = await context.live.savedViewsApi.retireAudience(tenantId, id, audience.version);
+    context.live.busy = null;
+    if (!result.ok) {
+      pushToast(context.state, result.error.message, 'danger');
+      context.refresh();
+      return false;
+    }
+    context.live.audiences = { status: 'ready', value: rowsOf(context.live.audiences).filter((entry) => entry.id !== id), loadedAt: context.now() };
+    pushToast(context.state, t(context, `أُزيل الجمهور «${audience.name}».`, `Audience “${audience.name}” removed.`));
+    context.refresh();
+    return true;
+  });
+}
+
+/** The approved WhatsApp templates the broadcast wizard and automations pick from. */
+export async function loadWhatsAppTemplates(context: LiveContext): Promise<void> {
+  return forTenant(context, undefined, async (tenantId) => {
+    context.live.whatsappTemplates = LOADING;
+    context.refresh();
+    context.live.whatsappTemplates = fromResult(await context.live.automationsApi.whatsappTemplates(tenantId), context.now());
+    context.refresh();
+  });
 }
 
 /** Switches where the audience comes from, and fetches what that source lists. */
@@ -132,7 +189,13 @@ export async function saveCampaignAudience(context: LiveContext): Promise<boolea
       return false;
     }
     context.live.audiences = { status: 'ready', value: [...(context.live.audiences.status === 'ready' ? context.live.audiences.value : []), result.data], loadedAt: context.now() };
-    context.state.dialogForm = { ...context.state.dialogForm, campaignAudienceSource: 'saved', campaignSavedAudience: result.data.id, campaignAudienceName: '' };
+    if (context.state.dialog?.kind === 'audience-new') {
+      // Made on its own, the audience is done once it is saved.
+      context.state.dialog = null;
+      context.state.dialogForm = {};
+    } else {
+      context.state.dialogForm = { ...context.state.dialogForm, campaignAudienceSource: 'saved', campaignSavedAudience: result.data.id, campaignAudienceName: '' };
+    }
     pushToast(context.state, t(context, `حُفظ الجمهور «${name}».`, `Audience “${name}” saved.`));
     context.refresh();
     return true;

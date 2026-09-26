@@ -1,3 +1,5 @@
+import { bindingVariable, isBindingVariable, parseTemplateBindings, variableKeyOf } from '@convo/domain';
+import type { TemplateBindings } from '@convo/domain';
 import { ApiHttpError } from '../http-error.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -116,8 +118,44 @@ export function parseCampaignDraft(body: unknown): CampaignDraftInput {
       typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
     throw invalid('The campaign draft is not valid.');
   }
-  return { name, objective, connectionId, content, variables, audienceFilter, timezone,
-    expiresAt, budgetAmountMinor: amount, budgetCurrency: currency };
+  const bound = boundTemplateOf(content);
+  return { name, objective, connectionId, audienceFilter, timezone, expiresAt, budgetAmountMinor: amount, budgetCurrency: currency,
+    ...(bound === null ? { content, variables } : boundDraft(bound)) };
+}
+
+/** A broadcast of an approved template whose every `{{n}}` names where its value comes from. */
+export interface BoundTemplate {
+  readonly id: string;
+  readonly parameters: TemplateBindings;
+}
+
+/**
+ * The template a broadcast sends, when it names one from the catalogue by id.
+ * `null` for any other content — text, or the older name-only template — which
+ * keeps working as it did. A catalogue template that is malformed is refused.
+ */
+export function boundTemplateOf(content: Readonly<Record<string, unknown>>): BoundTemplate | null {
+  const template = recordOrNull(content['template']);
+  if (template === null || template['id'] === undefined) return null;
+  const id = template['id'];
+  const parameters = parseTemplateBindings(template['parameters'] ?? {});
+  if (typeof id !== 'string' || !UUID.test(id) || parameters === null) {
+    throw invalid('Choose an approved template and say where each of its variables comes from.');
+  }
+  return { id: id.toLowerCase(), parameters };
+}
+
+/**
+ * The stored content and variables of a bound template. The variables are the
+ * server's own derivation of the bindings — one per parameter — so a frozen
+ * audience resolves exactly what the template needs and nothing a client sent.
+ * The name and language are filled in from the catalogue when it is checked.
+ */
+function boundDraft(bound: BoundTemplate): Pick<CampaignDraftInput, 'content' | 'variables'> {
+  return {
+    content: { type: 'template', template: { id: bound.id, parameters: bound.parameters } },
+    variables: Object.fromEntries(Object.entries(bound.parameters).map(([key, binding]) => [variableKeyOf(key), bindingVariable(binding)])),
+  };
 }
 
 export function parseCampaignUpdate(body: unknown): CampaignUpdateInput {
@@ -152,7 +190,7 @@ export function parseCampaignTestSend(body: unknown): CampaignTestSendInput {
 
 function validVariables(variables: Readonly<Record<string, unknown>>): boolean {
   return Object.entries(variables).every(([key, source]) =>
-    /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) && source === 'display_name');
+    /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) && isBindingVariable(source));
 }
 
 export function parseCampaignLaunch(body: unknown): { readonly scheduledFor: string | null } {

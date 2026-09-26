@@ -1,3 +1,6 @@
+import { parseTemplateBindings, resolveTemplateValues, variableKeyOf } from '@convo/domain';
+import type { TemplateBindings } from '@convo/domain';
+
 export interface CampaignPermitState {
   readonly recipient_state: string;
   readonly execution_state: string;
@@ -19,6 +22,9 @@ export interface CampaignCommandContent {
   readonly text: string | null;
   readonly templateName: string | null;
   readonly templateLanguage: string | null;
+  /** A catalogue template: which one, and the value of each of its parameters. */
+  readonly templateId?: string;
+  readonly templateValues?: Readonly<Record<string, string>>;
 }
 
 /** Renders only values captured in the immutable audience snapshot. */
@@ -26,6 +32,15 @@ export function campaignCommandContent(
   content: Readonly<Record<string, unknown>>,
   renderedVariables: Readonly<Record<string, unknown>>,
 ): CampaignCommandContent | null {
+  const bound = boundContent(content);
+  if (bound !== undefined) {
+    if (bound === null) return null;
+    const values = resolveTemplateValues(bound.parameters, (key) => renderedVariables[variableKeyOf(key)]);
+    return values === null ? null : {
+      type: 'template', text: null, templateName: bound.name, templateLanguage: bound.language,
+      templateId: bound.id, templateValues: values,
+    };
+  }
   if (typeof content['text'] === 'string' && content['text'].trim() !== '') {
     let unresolved = false;
     const rendered = content['text'].replace(/\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g, (_match, key: string) => {
@@ -52,6 +67,21 @@ export function campaignCommandContent(
     }
   }
   return null;
+}
+
+/**
+ * A stored catalogue template: `undefined` when the content is not one,
+ * `null` when it is one that can no longer be read.
+ */
+function boundContent(content: Readonly<Record<string, unknown>>):
+  { readonly id: string; readonly name: string; readonly language: string; readonly parameters: TemplateBindings } | null | undefined {
+  const template = content['template'];
+  if (typeof template !== 'object' || template === null || Array.isArray(template) || !('id' in template)) return undefined;
+  const value = template as Record<string, unknown>;
+  const parameters = parseTemplateBindings(value['parameters']);
+  const { id, name, language } = value;
+  return typeof id === 'string' && typeof name === 'string' && typeof language === 'string' && parameters !== null
+    ? { id, name, language, parameters } : null;
 }
 
 /** Pure policy evaluated from the locked database projection at dispatch time. */

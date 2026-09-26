@@ -227,6 +227,40 @@ describe('connected integrations', () => {
     expect(edited.querySelector('[data-act="live-instagram-page"]')?.getAttribute('data-arg')).toBe('cn-ig');
   });
 
+  it('tells the operator’s own system where to post, how to sign, and where replies go', () => {
+    const custom = connection({ id: 'cn-cc', kind: 'custom', provider: 'custom', external_asset_id: 'gateway-1', origins: [], outbound_url: null, last_error_code: 'custom_endpoint_missing' });
+    const { state, element } = screen([custom]);
+    state.expandedConnection = 'cn-cc';
+    const initial = element().querySelector('.own-setup') as HTMLElement;
+    expect(initial.textContent).toContain(`${window.location.origin}/api/v1/webhooks/custom/gateway-1`);
+    expect(initial.textContent).toContain('x-convo-signature');
+    expect(initial.textContent).toContain('replies on this channel cannot be sent');
+    expect(initial.querySelector('.own-setup__pre')?.textContent).toContain('"asset_id": "gateway-1"');
+    expect((initial.querySelector('[data-form="channelOutbound_cn-cc"]') as HTMLInputElement).value).toBe('');
+    expect(initial.querySelector('[data-act="live-channel-settings"]')?.getAttribute('data-arg')).toBe('cn-cc');
+    expect(element().querySelector('.connection__error')?.textContent).toContain('No reply URL is set');
+    expect((element().querySelector('[data-form="channelToken_cn-cc"]') as HTMLInputElement).placeholder).toBe('New signing key');
+
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [{ ...custom, outbound_url: 'https://crm.school.example/convo', origins: ['https://school.example'] }] };
+    const saved = element().querySelector('.own-setup') as HTMLElement;
+    expect([...saved.querySelectorAll('.own-setup__code')].map((code) => code.textContent)).toContain('https://crm.school.example/convo');
+    expect((saved.querySelector('[data-form="channelOrigins_cn-cc"]') as HTMLTextAreaElement).value).toBe('https://school.example');
+    state.dialogForm = { 'channelOutbound_cn-cc': 'https://typed.example/x', 'channelOrigins_cn-cc': 'https://typed.example' };
+    const typed = element().querySelector('.own-setup') as HTMLElement;
+    expect((typed.querySelector('[data-form="channelOutbound_cn-cc"]') as HTMLInputElement).value).toBe('https://typed.example/x');
+    expect((typed.querySelector('[data-form="channelOrigins_cn-cc"]') as HTMLTextAreaElement).value).toBe('https://typed.example');
+
+    // A website widget: the same guide, with no reply URL and no example.
+    const widget = screen([connection({ id: 'cn-wc', kind: 'web_chat', provider: 'web_chat', external_asset_id: 'widget-1' })], 'ar');
+    widget.state.expandedConnection = 'cn-wc';
+    const block = widget.element().querySelector('.own-setup') as HTMLElement;
+    expect(block.textContent).toContain('/api/v1/webhooks/web-chat/widget-1');
+    expect(block.querySelector('[data-form="channelOutbound_cn-wc"]')).toBeNull();
+    expect(block.querySelector('.own-setup__pre')).toBeNull();
+    expect((block.querySelector('[data-form="channelOrigins_cn-wc"]') as HTMLTextAreaElement).value).toBe('');
+    expect(block.textContent).toContain('ربط نظامك');
+  });
+
   it('explains Meta capability refusals instead of leaving an opaque provider code', () => {
     const { state, element } = screen([connection({ last_error_code: 'provider_error_3' })]);
     state.expandedConnection = 'cn-1';

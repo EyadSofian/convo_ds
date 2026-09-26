@@ -106,17 +106,13 @@ export interface NewContactInput {
   /** Profile details; a standard field with no id is created in the catalogue first. */
   readonly fields: readonly NewContactField[];
   readonly labelIds: readonly string[];
-  /**
-   * Consent the operator has evidence for now, recorded as their own
-   * statement, on the channel of the identity it is about.
-   */
-  readonly consents: readonly { readonly purpose: 'marketing' | 'service'; readonly channel: string }[];
 }
 
 /**
- * Creates a contact on one explicit channel identity, then — as separate,
- * attributable steps — writes its profile details and labels and records any
- * consent the operator vouched for. The contact exists once the first step
+ * Creates a contact on one explicit channel identity, then — as a separate,
+ * attributable step — writes its profile details and labels. Consent is not
+ * part of adding someone; it is recorded on the profile, with its evidence.
+ * The contact exists once the first step
  * succeeds; a later step that is refused is reported, not rolled back, so a
  * rejected email never costs the operator the customer they just added.
  */
@@ -138,7 +134,7 @@ export async function createContact(context: LiveContext, input: NewContactInput
     const problems = await enrichContact(context, tenantId, result.data, input);
     // Whatever was written after the create is read back, so the profile shows
     // what the server stored rather than what was typed.
-    const enriched = input.fields.length + input.labelIds.length + input.consents.length > 0;
+    const enriched = input.fields.length + input.labelIds.length > 0;
     const reread = enriched ? await live.contactsApi.read(tenantId, result.data.id) : null;
     live.busy = null;
     live.selectedContactId = result.data.id;
@@ -154,7 +150,7 @@ export async function createContact(context: LiveContext, input: NewContactInput
   });
 }
 
-/** Writes the profile, labels and consent of a contact just created; returns what was refused. */
+/** Writes the profile and labels of a contact just created; returns what was refused. */
 async function enrichContact(context: LiveContext, tenantId: string, contact: Contact, input: NewContactInput): Promise<readonly string[]> {
   const { live } = context;
   const problems: string[] = [];
@@ -176,10 +172,6 @@ async function enrichContact(context: LiveContext, tenantId: string, contact: Co
   if (writes.length > 0 || labelIds.length > 0) {
     const patched = await live.metadataApi.contact(tenantId, contact.id, { version: contact.version, addLabels: labelIds, fields: writes });
     if (!patched.ok) problems.push(t(context, `البيانات والتصنيفات (${patched.error.message})`, `details and labels (${patched.error.message})`));
-  }
-  for (const consent of input.consents) {
-    const recorded = await live.contactsApi.recordConsent(tenantId, contact.id, { ...consent, state: 'granted', source: 'agent_recorded', proofRef: null });
-    if (!recorded.ok) problems.push(t(context, `الموافقة (${recorded.error.message})`, `consent (${recorded.error.message})`));
   }
   return problems;
 }

@@ -111,6 +111,18 @@ export type {
   ReadinessInput,
 } from './channels/kinds.js';
 export { buildWhatsAppTemplateComponents, defineWhatsAppTemplate, renderWhatsAppTemplatePreview } from './channels/whatsapp-template.js';
+export {
+  bindingsComplete,
+  bindingVariable,
+  isBindingVariable,
+  parseTemplateBindings,
+  resolveTemplateValues,
+  TEMPLATE_BINDING_SOURCES,
+  variableKeyOf,
+} from './channels/template-bindings.js';
+export type { TemplateBinding, TemplateBindings, TemplateBindingSource } from './channels/template-bindings.js';
+export { conditionsFromFilter, filterFromConditions, filterParts } from './conditions/audience-filter.js';
+export type { AudienceFilter } from './conditions/audience-filter.js';
 export type {
   WhatsAppTemplateComponentKind,
   WhatsAppTemplateDefinition,

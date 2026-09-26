@@ -573,6 +573,15 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
         { id: 'lb-3', name: 'مهتم', color: '#2f7d5b', state: 'active', version: 1 },
       ]));
     }
+    if (path.endsWith('/audiences')) {
+      return json(route, paged([{
+        id: 'audience-interested', name: 'المهتمون بالكورسات', description: null, state: 'active', version: 1,
+        conditions: { version: 1, root: { kind: 'group', match: 'all', conditions: [{ kind: 'predicate', field: 'label_id', operator: 'eq', value: 'lb-3' }] } },
+      }]));
+    }
+    if (path.endsWith('/campaigns/audience-preview') && method === 'POST') {
+      return json(route, { data: { total: 214, eligible: 187, excluded: 27, reasons: { suppressed: 4, no_consent: 21, identity_inactive: 2 }, sample: ['منى خليل', 'سارة أحمد'] }, request_id: 'e2e' });
+    }
     if (path.endsWith('/custom-fields')) {
       return json(route, paged([]));
     }

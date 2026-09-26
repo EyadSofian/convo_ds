@@ -247,6 +247,7 @@ Implemented in Milestone C, pinned in the spec, and covered in both directions b
 | Channels | `POST T/channels` | `connectChannel` | `channel.manage` + CSRF + `Idempotency-Key` | P2 |
 | Channels | `POST T/channels/{id}/test` | `testChannelConnection` | `channel.manage` + CSRF | P2 |
 | Channels | `POST T/channels/{id}/credential` | `rotateChannelCredential` | **`credential.rotate`** + CSRF | P2 |
+| Channels | `POST T/channels/{id}/settings` | `updateChannelSettings` | `channel.manage` + CSRF | P2 |
 | Channels | `GET T/channels/{id}/test-recipients` | `listChannelTestRecipients` | `campaign.read` | P4 |
 | Channels | `POST T/channels/{id}/test-recipients` | `authorizeChannelTestRecipient` | `channel.manage` + CSRF | P4 |
 | Channels | `DELETE T/channels/{id}/test-recipients/{authorizationId}` | `revokeChannelTestRecipient` | `channel.manage` + CSRF | P4 |

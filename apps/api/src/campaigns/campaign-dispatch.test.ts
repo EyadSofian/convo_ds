@@ -34,6 +34,27 @@ describe('campaign dispatch policy', () => {
     expect(campaignCommandContent({ template: [] }, {})).toBeNull();
   });
 
+  it('fills a catalogue template from the frozen values, falling back where a contact had none', () => {
+    const content = {
+      type: 'template',
+      template: {
+        id: 'tpl-1', name: 'course_open', language: 'ar',
+        parameters: { 'body:1': { source: 'display_name', fallback: 'عميلنا' }, 'body:2': { source: 'static', value: 'الأحد' } },
+      },
+    };
+    expect(campaignCommandContent(content, { body_1: 'سارة', body_2: 'الأحد' })).toEqual({
+      type: 'template', text: null, templateName: 'course_open', templateLanguage: 'ar',
+      templateId: 'tpl-1', templateValues: { 'body:1': 'سارة', 'body:2': 'الأحد' },
+    });
+    expect(campaignCommandContent(content, {})?.templateValues).toEqual({ 'body:1': 'عميلنا', 'body:2': 'الأحد' });
+    // Nothing to fall back on: that recipient cannot be sent this template.
+    const strict = { template: { ...content.template, parameters: { 'body:1': { source: 'phone' } } } };
+    expect(campaignCommandContent(strict, {})).toBeNull();
+    // A stored template that no longer reads as one is not guessed at.
+    expect(campaignCommandContent({ template: { id: 'tpl-1', name: 'x', language: 'ar', parameters: 'nope' } }, {})).toBeNull();
+    expect(campaignCommandContent({ template: { id: 'tpl-1', parameters: {} } }, {})).toBeNull();
+  });
+
   it('creates a trimmed template command', () => {
     expect(campaignCommandContent({ template: { name: ' course_open ', language: ' ar ' } }, {}))
       .toEqual({ type: 'template', text: null, templateName: 'course_open', templateLanguage: 'ar' });

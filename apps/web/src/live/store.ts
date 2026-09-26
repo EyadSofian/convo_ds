@@ -123,6 +123,8 @@ export type SessionState =
  * screen greying out. `error` is the server's answer to the last attempt, kept
  * beside the form that caused it.
  */
+export type CampaignView = 'all' | 'drafts' | 'scheduled' | 'sending' | 'completed' | 'audiences';
+
 export interface LiveState {
   readonly api: PeopleApi;
   readonly channels: ChannelsApi;
@@ -264,6 +266,8 @@ export interface LiveState {
   conversationTemplates: Resource<readonly WhatsAppTemplateCatalogueItem[]>;
   conversationTemplateCursor: string | null;
   selectedCampaignId: string | null;
+  /** Which campaigns the list shows: a lifecycle bucket, or the saved audiences. */
+  campaignView: CampaignView;
   /** Single authoritative readable-Inbox query, shared by load and realtime. */
   inboxQuery: InboxQuery;
   /** Text currently being typed before the debounced server search commits it. */
@@ -398,6 +402,7 @@ export function createLiveState(
     conversationTemplates: IDLE,
     conversationTemplateCursor: null,
     selectedCampaignId: null,
+    campaignView: 'all',
     inboxQuery: INBOX_QUERY_DEFAULT,
     inboxSearchDraft: '',
     inboxNextCursor: null,

@@ -301,6 +301,51 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     expect(state.dialogForm['channelPage_ig1']).toBeUndefined();
   });
 
+  it('saves our own channels’ origins and reply URL, keeping what nobody touched', async () => {
+    const { state, context } = active();
+    const updateSettings = vi.fn().mockResolvedValue({ ok: true, data: { id: 'custom-1' } });
+    const saved = [
+      { id: 'custom-1', kind: 'custom', origins: ['https://school.example'], outbound_url: 'https://crm.school.example/a' },
+      { id: 'custom-2', kind: 'custom' },
+      { id: 'widget-1', kind: 'web_chat', origins: ['https://school.example'] },
+    ];
+    Object.defineProperty(context.live, 'channels', { value: {
+      updateSettings,
+      connections: vi.fn().mockResolvedValue({ ok: true, data: saved }),
+      catalogue: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      testRecipients: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+    } });
+    state.live.connections = { status: 'ready', loadedAt: 1, value: saved as never };
+    expect(await LIVE_ACTIONS['live-channel-settings']?.(context, 'missing')).toBe(false);
+    // Untouched fields carry the saved values through.
+    expect(await LIVE_ACTIONS['live-channel-settings']?.(context, 'custom-1')).toBe(true);
+    expect(updateSettings).toHaveBeenLastCalledWith('tenant-1', 'custom-1', { origins: ['https://school.example'], outboundUrl: 'https://crm.school.example/a' });
+    // A cleared reply URL is removed; a Custom Channel may have no origins.
+    state.dialogForm = { 'channelOutbound_custom-2': '', 'channelOrigins_custom-2': '' };
+    expect(await LIVE_ACTIONS['live-channel-settings']?.(context, 'custom-2')).toBe(true);
+    expect(updateSettings).toHaveBeenLastCalledWith('tenant-1', 'custom-2', { origins: [], outboundUrl: null });
+    expect(state.dialogForm['channelOutbound_custom-2']).toBeUndefined();
+    expect(await LIVE_ACTIONS['live-channel-settings']?.(context, 'custom-2')).toBe(true);
+    expect(updateSettings).toHaveBeenLastCalledWith('tenant-1', 'custom-2', { origins: [], outboundUrl: null });
+    state.dialogForm = { 'channelOutbound_custom-1': 'http://crm.school.example' };
+    expect(await LIVE_ACTIONS['live-channel-settings']?.(context, 'custom-1')).toBe(false);
+    expect(context.live.error?.message).toContain('https');
+    state.dialogForm = { 'channelOrigins_custom-1': 'https://school.example/path' };
+    expect(await LIVE_ACTIONS['live-channel-settings']?.(context, 'custom-1')).toBe(false);
+    // A widget without any origin would refuse every message; and it has no reply URL.
+    state.dialogForm = { 'channelOrigins_widget-1': '' };
+    expect(await LIVE_ACTIONS['live-channel-settings']?.(context, 'widget-1')).toBe(false);
+    state.dialogForm = { 'channelOrigins_widget-1': 'https://www.school.example' };
+    expect(await LIVE_ACTIONS['live-channel-settings']?.(context, 'widget-1')).toBe(true);
+    expect(updateSettings).toHaveBeenLastCalledWith('tenant-1', 'widget-1', { origins: ['https://www.school.example'] });
+    state.lang = 'ar';
+    state.dialogForm = { 'channelOrigins_widget-1': '' };
+    expect(await LIVE_ACTIONS['live-channel-settings']?.(context, 'widget-1')).toBe(false);
+    state.dialogForm = { 'channelOutbound_custom-1': 'nope' };
+    expect(await LIVE_ACTIONS['live-channel-settings']?.(context, 'custom-1')).toBe(false);
+    expect(context.live.error?.message).toContain('https');
+  });
+
   it('requires a linked Page for Instagram and carries it only for that connection kind', async () => {
     const { state, context } = active();
     const connect = vi.fn().mockResolvedValue({ ok: true, data: { id: 'new-channel', display_name: 'Test channel' } });
@@ -321,11 +366,26 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     }), 'test-key');
     expect(state.dialogForm).toEqual({});
 
-    state.dialog = { kind: 'connect-channel', arg: 'custom' };
-    // Our own channel refuses every delivery without an allowed origin, so one is required.
-    state.dialogForm = { channelAsset: 'custom-1', channelName: 'Test channel', channelToken: 'test-token' };
+    // A website widget posts from a browser, so it needs at least one origin.
+    state.dialog = { kind: 'connect-channel', arg: 'web_chat' };
+    state.dialogForm = { channelAsset: 'widget-1', channelName: 'Widget', channelToken: 'test-token' };
     expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(false);
-    expect(state.formErrors['channelOrigins']).toBeTruthy();
+    expect(state.formErrors['channelOrigins']).toContain('at least one');
+
+    // The operator's own server sends no Origin: none is needed, and the reply URL is checked when given.
+    state.dialog = { kind: 'connect-channel', arg: 'custom' };
+    state.dialogForm = { channelAsset: 'custom-0', channelName: 'Test channel', channelToken: 'test-token', channelOutboundUrl: 'http://10.0.0.1/x' };
+    expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(false);
+    expect(state.formErrors['channelOutboundUrl']).toBeTruthy();
+    state.dialogForm = { ...state.dialogForm, channelOutboundUrl: 'https://crm.school.example/convo' };
+    expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(true);
+    expect(connect).toHaveBeenLastCalledWith('tenant-1', expect.objectContaining({
+      kind: 'custom', settings: { origins: [], outboundUrl: 'https://crm.school.example/convo' },
+    }), 'test-key');
+    state.dialog = { kind: 'connect-channel', arg: 'custom' };
+    state.dialogForm = { channelAsset: 'custom-1', channelName: 'Test channel', channelToken: 'test-token', channelOrigins: 'https://school.example/path' };
+    expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(false);
+    expect(state.formErrors['channelOrigins']).toContain('Each origin');
     state.dialogForm = { ...state.dialogForm, channelOrigins: 'https://school.example/path' };
     expect(await LIVE_ACTIONS['live-connect-channel']?.(context, '')).toBe(false);
     state.dialogForm = { ...state.dialogForm, channelOrigins: Array.from({ length: 21 }, (_, index) => `https://s${String(index)}.example`).join('\n') };
@@ -605,6 +665,10 @@ describe('public credential actions', () => {
     await expect(LIVE_ACTIONS['live-request-recovery']?.(ctx, '')).resolves.toBe(true);
     expect(requestRecovery).toHaveBeenCalledWith('person@example.test');
     expect(ctx.state.authFlowComplete).toBe('recovery-request');
+    // Straight back to sign-in, with the address already typed.
+    expect(ctx.state.route.screen).toBe('inbox');
+    expect(ctx.state.dialogForm).toEqual({ signinEmail: 'person@example.test' });
+    ctx.state.dialogForm = { recoveryEmail: 'person@example.test' };
     requestRecovery.mockResolvedValueOnce({ ok: false, error: { code: 'down', message: 'down', requestId: null, status: 503, details: [] } });
     ctx.live.busy = null;
     await expect(LIVE_ACTIONS['live-request-recovery']?.(ctx, '')).resolves.toBe(false);
@@ -638,6 +702,8 @@ describe('public credential actions', () => {
     ctx.state.dialogForm = { authPassword: 'long enough password', authPasswordConfirm: 'long enough password' };
     await expect(LIVE_ACTIONS['live-accept-invitation']?.(ctx, '')).resolves.toBe(true);
     expect(ctx.state.authFlowComplete).toBe('invitation');
+    expect(ctx.state.route).toEqual({ screen: 'inbox', conversationId: null, params: {} });
+    expect(ctx.state.dialogForm).toEqual({});
     ctx.live.busy = 'already-busy';
     await expect(LIVE_ACTIONS['live-accept-invitation']?.(ctx, '')).resolves.toBe(false);
   });

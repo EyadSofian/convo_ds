@@ -53,6 +53,20 @@ describe('renderDialog', () => {
     state.dialog = { kind: 'connect-channel', arg: 'messenger' };
     expect((renderDialog(state) as HTMLElement).querySelector('.channel-setup-guide')?.textContent).toContain('Page access token');
   });
+
+  it('asks a Custom Channel for its reply URL and makes its origins optional', () => {
+    const state = base();
+    state.dialog = { kind: 'connect-channel', arg: 'custom' };
+    const custom = renderDialog(state) as HTMLElement;
+    expect(custom.querySelector('#channel-outbound')).not.toBeNull();
+    expect(custom.querySelector('label[for="channel-origins"]')?.textContent).toBe('Allowed browser origins (optional)');
+    expect(custom.textContent).toContain('needs nothing here');
+    state.dialog = { kind: 'connect-channel', arg: 'web_chat' };
+    const widget = renderDialog(state) as HTMLElement;
+    expect(widget.querySelector('#channel-outbound')).toBeNull();
+    expect(widget.querySelector('label[for="channel-origins"]')?.textContent).toBe('Allowed sending origins');
+    expect(widget.textContent).toContain('without one no message arrives');
+  });
 });
 
 describe('WhatsApp template picker', () => {
@@ -315,49 +329,15 @@ describe('campaign dialogs', () => {
     }
   });
 
-  it('creates a draft only against a healthy channel', () => {
+  it('opens the broadcast wizard for a new or saved campaign, and a saved audience on its own', () => {
     const state = base();
-    state.live.connections = { status: 'ready', loadedAt: 1, value: [healthy('cn-1'), healthy('cn-2', 'degraded')] };
-    const dialog = open(state, 'campaign');
-    expect(dialog.querySelector('.dialog__title')?.textContent).toBe('New campaign');
-    expect(Array.from(dialog.querySelectorAll('#campaign-channel option')).map((option) => option.getAttribute('value'))).toEqual(['cn-1']);
-    expect((dialog.querySelector('.dialog__footer [data-act="live-campaign-create"]') as HTMLButtonElement).disabled).toBe(false);
-
-    state.live.connections = { status: 'ready', loadedAt: 1, value: [] };
-    const blocked = renderDialog(state) as HTMLElement;
-    expect(blocked.textContent).toContain('Connect a healthy channel');
-    expect((blocked.querySelector('.dialog__footer [data-act="live-campaign-create"]') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('edits from the saved revision, keeping its own channel even if it is not healthy now', () => {
-    const state = base();
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [{ ...healthy(), kind: 'whatsapp', disconnected_at: null }] };
+    expect(open(state, 'campaign').querySelector('.broadcast')).not.toBeNull();
     state.live.campaigns = { status: 'ready', loadedAt: 1, value: [CAMPAIGN] };
-    state.live.connections = { status: 'ready', loadedAt: 1, value: [healthy('cn-1', 'degraded')] };
-    state.formErrors = { campaignName: 'Enter a campaign name.', campaignMessage: 'Write the message.' };
-    state.live.busy = 'campaign-update:c-1';
-    const dialog = open(state, 'campaign-edit', 'c-1');
-    expect(dialog.querySelector('.dialog__title')?.textContent).toBe('Edit campaign');
-    expect((dialog.querySelector('#campaign-name') as HTMLInputElement).value).toBe('Autumn intake');
-    expect(dialog.querySelector('#campaign-message')?.textContent).toBe('Hello {{display_name}}');
-    expect((dialog.querySelector('#campaign-search') as HTMLInputElement).value).toBe('student');
-    expect(dialog.querySelector('form')?.getAttribute('data-arg')).toBe('c-1');
-    expect((dialog.querySelector('.dialog__footer [data-act="live-campaign-update"]') as HTMLButtonElement).disabled).toBe(true);
-
-    state.formErrors = {};
-    state.dialogForm = { campaignName: 'Renamed', campaignMessage: 'New text', campaignObjective: '', campaignSearch: '' };
-    const typed = renderDialog(state) as HTMLElement;
-    expect((typed.querySelector('#campaign-name') as HTMLInputElement).value).toBe('Renamed');
-    expect(typed.querySelector('#campaign-message')?.textContent).toBe('New text');
-  });
-
-  it('edits a campaign whose saved content has no text or search', () => {
-    const state = base();
-    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{ ...CAMPAIGN, content: { template: 'x' }, audience_filter: {}, objective: null }] };
-    state.live.connections = { status: 'ready', loadedAt: 1, value: [healthy()] };
-    const dialog = open(state, 'campaign-edit', 'c-1');
-    expect(dialog.querySelector('#campaign-message')?.textContent).toBe('');
-    expect((dialog.querySelector('#campaign-search') as HTMLInputElement).value).toBe('');
-    expect((dialog.querySelector('#campaign-objective') as HTMLInputElement).value).toBe('');
+    expect(open(state, 'campaign-edit', 'c-1').querySelector('.dialog__title')?.textContent).toBe('Edit broadcast');
+    const audience = open(state, 'audience-new');
+    expect(audience.querySelector('.dialog__title')?.textContent).toBe('New audience');
+    expect(audience.querySelector('.audience')).not.toBeNull();
   });
 
   it('sends a test only to a recipient authorized on the campaign’s own channel', () => {

@@ -48,6 +48,13 @@ export interface ChannelSettings {
   readonly ratePerMinute?: number | undefined;
   /** What a Custom Channel's own transport says it can carry. */
   readonly declaredTypes?: readonly string[] | undefined;
+  /** Where a Custom Channel receives replies; null clears it. */
+  readonly outboundUrl?: string | null | undefined;
+}
+
+export interface ChannelSettingsUpdate {
+  readonly origins?: readonly string[];
+  readonly outboundUrl?: string | null;
 }
 
 export interface RotateCredentialRequest {
@@ -177,6 +184,9 @@ export function parseConnectChannel(input: unknown): ParseResult<ConnectChannelR
   if (kind !== 'instagram' && settings.facebookPageId !== undefined) {
     details.push({ field: 'settings.facebookPageId', code: 'unsupported', message: 'A Facebook Page ID is only used for Instagram.' });
   }
+  if (kind !== 'custom' && typeof settings.outboundUrl === 'string') {
+    details.push({ field: 'settings.outboundUrl', code: 'unsupported', message: 'A reply URL is only used by a Custom Channel.' });
+  }
 
   if (details.length > 0 || kind === null) {
     return { ok: false, details };
@@ -211,6 +221,7 @@ function parseSettings(raw: unknown, details: ErrorDetail[]): ChannelSettings {
     origins?: readonly string[];
     ratePerMinute?: number;
     declaredTypes?: readonly string[];
+    outboundUrl?: string | null;
   } = {};
 
   if ('facebookPageId' in record) {
@@ -265,7 +276,60 @@ function parseSettings(raw: unknown, details: ErrorDetail[]): ChannelSettings {
     }
   }
 
+  if ('outboundUrl' in record) {
+    const raw = record['outboundUrl'];
+    const url = raw === null ? null : outboundUrlOf(raw);
+    if (url === undefined) {
+      details.push({
+        field: 'settings.outboundUrl',
+        code: 'malformed',
+        message: 'Provide a public https:// URL on your own domain, e.g. "https://crm.school.example/convo".',
+      });
+    } else {
+      settings.outboundUrl = url;
+    }
+  }
+
   return settings;
+}
+
+const INTERNAL_HOST = /(^localhost$|\.localhost$|\.internal$|\.local$|^[0-9.]+$|^\[)/i;
+
+/**
+ * A Custom Channel's reply URL.
+ *
+ * The API itself makes this request, so it is held to a public https name: an
+ * IP literal or an internal name would let a tenant aim our own network at our
+ * own services. Credentials in the URL are refused rather than silently sent.
+ */
+function outboundUrlOf(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || raw.length > 2048) return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return undefined;
+  }
+  const publicName = url.hostname.includes('.') && !INTERNAL_HOST.test(url.hostname);
+  return url.protocol === 'https:' && url.username === '' && url.password === '' && publicName ? url.toString() : undefined;
+}
+
+/** Changing what our own channels accept and where replies go, after connecting. */
+export function parseSettingsUpdate(input: unknown): ParseResult<ChannelSettingsUpdate> {
+  const record = asRecord(input);
+  if (record === null) return malformedBody();
+  const details: ErrorDetail[] = Object.keys(record)
+    .filter((key) => key !== 'origins' && key !== 'outboundUrl')
+    .map((key) => ({ field: key, code: 'unsupported', message: 'Only origins and outboundUrl can be changed here.' }));
+  const settings = parseSettings(record, details);
+  if (details.length > 0) return { ok: false, details };
+  return {
+    ok: true,
+    value: {
+      ...(settings.origins === undefined ? {} : { origins: settings.origins }),
+      ...(settings.outboundUrl === undefined ? {} : { outboundUrl: settings.outboundUrl }),
+    },
+  };
 }
 
 export function parseRotateCredential(input: unknown): ParseResult<RotateCredentialRequest> {

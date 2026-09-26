@@ -16,6 +16,11 @@ export type StepType = AutomationStep['type'];
 /** Step kinds the executor can run, in the order the builder offers them. */
 export const RUNNABLE_STEPS: readonly StepType[] = ['delay', 'send_whatsapp_template', 'add_label', 'remove_label', 'update_customer_field'];
 
+/** The form-key prefix of one template step's variables, so two steps never share one. */
+export function automationPrefix(stepId: string): string {
+  return `automationParam_${stepId}_`;
+}
+
 export function runnable(type: string): boolean {
   return (RUNNABLE_STEPS as readonly string[]).includes(type);
 }

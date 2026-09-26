@@ -62,6 +62,15 @@ export interface ChannelConnection {
   readonly disconnected_at: string | null;
   readonly credential_held: boolean;
   readonly credential_fingerprint: string | null;
+  /** Our own channels: origins a browser delivery must come from. */
+  readonly origins?: readonly string[];
+  /** A Custom Channel: where replies are posted. */
+  readonly outbound_url?: string | null;
+}
+
+export interface ChannelSettingsInput {
+  readonly origins?: readonly string[];
+  readonly outboundUrl?: string | null;
 }
 
 export interface ChannelCatalogueEntry {
@@ -94,7 +103,7 @@ export interface ConnectChannelInput {
   readonly displayName: string;
   readonly accessToken: string;
   readonly providerAppId: string | null;
-  readonly settings?: { readonly facebookPageId: string } | { readonly origins: readonly string[] };
+  readonly settings?: { readonly facebookPageId: string } | { readonly origins: readonly string[]; readonly outboundUrl?: string };
 }
 
 export class ChannelsApi {
@@ -152,6 +161,10 @@ export class ChannelsApi {
     return this.client.post<ChannelConnection>(`/tenants/${tenantId}/channels/${connectionId}/instagram-page`, {
       body: { facebookPageId },
     });
+  }
+
+  updateSettings(tenantId: string, connectionId: string, settings: ChannelSettingsInput): Promise<ApiResult<ChannelConnection>> {
+    return this.client.post<ChannelConnection>(`/tenants/${tenantId}/channels/${connectionId}/settings`, { body: settings });
   }
 
   disconnect(tenantId: string, connectionId: string): Promise<ApiResult<undefined>> {

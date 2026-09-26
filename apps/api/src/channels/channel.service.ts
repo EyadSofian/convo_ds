@@ -11,7 +11,7 @@ import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG, CHANNEL_TRANSPORT } from '../tokens.js';
 import { implementedKinds } from './adapters.js';
-import { parseConnectChannel, parseInstagramPage, parseRotateCredential } from './channel-request.js';
+import { parseConnectChannel, parseInstagramPage, parseRotateCredential, parseSettingsUpdate } from './channel-request.js';
 import type { ConnectChannelRequest } from './channel-request.js';
 import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
@@ -56,6 +56,10 @@ export interface ChannelConnectionSummary {
   /** Whether a credential is held. Never the credential, never a prefix of it. */
   readonly credential_held: boolean;
   readonly credential_fingerprint: string | null;
+  /** Origins a delivery carrying an Origin must come from (our own channels only). */
+  readonly origins: readonly string[];
+  /** Where a Custom Channel's replies are posted. */
+  readonly outbound_url: string | null;
 }
 
 export interface ChannelCatalogueEntry {
@@ -90,6 +94,8 @@ interface ConnectionRow {
   readonly created_at: Date;
   readonly disconnected_at: Date | null;
   readonly credential_fingerprint: string | null;
+  readonly origins: unknown;
+  readonly outbound_url: string | null;
 }
 
 const ASSET_TAKEN_INDEX = 'channel_asset_registry_asset_uq';
@@ -124,6 +130,7 @@ function settingsColumn(request: ConnectChannelRequest): Record<string, unknown>
   if (request.settings.declaredTypes !== undefined) {
     settings['declared_types'] = request.settings.declaredTypes;
   }
+  if (typeof request.settings.outboundUrl === 'string') settings['outbound_url'] = request.settings.outboundUrl;
   return settings;
 }
 
@@ -293,7 +300,7 @@ export class ChannelService {
       const check = await this.credentials.withActive(
         sql,
         { tenantId, connectionId, purpose: credentialPurpose(connection.kind) },
-        (token) => this.transport.validateConnection(connection.kind, token, connection.external_asset_id, connection.facebook_page_id),
+        (token) => this.transport.validateConnection(connection.kind, token, connection.external_asset_id, connection.facebook_page_id, connection.outbound_url),
       );
 
       if (check === null) {
@@ -429,6 +436,39 @@ export class ChannelService {
   }
 
   /**
+   * Changes where our own channels accept deliveries from and, for a Custom
+   * Channel, where replies go. Verifying afterwards is what proves the URL.
+   */
+  async updateSettings(
+    session: AuthenticatedSession,
+    tenantId: string,
+    connectionId: string,
+    body: unknown,
+  ): Promise<ChannelConnectionSummary> {
+    const parsed = parseSettingsUpdate(body);
+    if (!parsed.ok) throw new ApiHttpError(400, 'invalid_input', 'The request is not valid.', parsed.details);
+    return this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) => {
+      const connection = await requireConnection(sql, connectionId);
+      if (connection.disconnected_at !== null) {
+        throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+      }
+      const own = connection.kind === 'web_chat' || connection.kind === 'custom';
+      if (!own || (connection.kind !== 'custom' && parsed.value.outboundUrl !== undefined)) {
+        throw new ApiHttpError(422, 'channel_settings_unsupported', 'This channel has no settings of that kind.');
+      }
+      const patch: Record<string, unknown> = {};
+      if (parsed.value.origins !== undefined) patch['origins'] = parsed.value.origins;
+      if (typeof parsed.value.outboundUrl === 'string') patch['outbound_url'] = parsed.value.outboundUrl;
+      await sql.query(
+        `UPDATE channel_connections SET settings = (settings || $2::jsonb) - $3::text[] WHERE id = $1`,
+        [connectionId, JSON.stringify(patch), parsed.value.outboundUrl === null ? ['outbound_url'] : []],
+      );
+      const rows = await readConnections(sql, connectionId);
+      return requireRow(rows, 'the connection vanished mid-transaction');
+    });
+  }
+
+  /**
    * Takes a connection out of service and revokes its credentials.
    *
    * The asset claim is released so the same number can be connected again —
@@ -471,7 +511,8 @@ async function requireConnection(sql: SqlExecutor, connectionId: string): Promis
             app.external_app_id AS provider_app_id, c.capabilities,
             c.asset_verified_at, c.credential_verified_at, c.webhook_subscribed_at,
             c.first_inbound_at, c.first_outbound_at, c.last_error_code, c.last_error_at,
-            c.created_at, c.disconnected_at, NULL::text AS credential_fingerprint
+            c.created_at, c.disconnected_at, NULL::text AS credential_fingerprint,
+            c.settings->'origins' AS origins, c.settings->>'outbound_url' AS outbound_url
        FROM channel_connections c
        LEFT JOIN channel_apps app ON app.id = c.app_id
       WHERE c.id = $1`,
@@ -498,13 +539,14 @@ async function recordError(sql: SqlExecutor, connectionId: string, code: string)
  * column and the rendering can never disagree — and no endpoint can set
  * `healthy` by writing it.
  */
-async function refreshStatus(sql: SqlExecutor, connectionId: string): Promise<void> {
+export async function refreshStatus(sql: SqlExecutor, connectionId: string): Promise<void> {
   const rows = await sql.query<ConnectionRow>(
     `SELECT id::text, kind, display_name, external_asset_id, settings->>'facebook_page_id' AS facebook_page_id,
             NULL::text AS provider_app_id, capabilities,
             asset_verified_at, credential_verified_at, webhook_subscribed_at,
             first_inbound_at, first_outbound_at, last_error_code, last_error_at,
-            created_at, disconnected_at, NULL::text AS credential_fingerprint
+            created_at, disconnected_at, NULL::text AS credential_fingerprint,
+            NULL::jsonb AS origins, NULL::text AS outbound_url
        FROM channel_connections WHERE id = $1`,
     [connectionId],
   );
@@ -545,7 +587,8 @@ async function readConnections(
             c.first_inbound_at, c.first_outbound_at, c.last_error_code, c.last_error_at,
             c.created_at, c.disconnected_at,
             (SELECT cr.fingerprint FROM channel_credentials cr
-              WHERE cr.connection_id = c.id AND cr.status = 'active') AS credential_fingerprint
+              WHERE cr.connection_id = c.id AND cr.status = 'active') AS credential_fingerprint,
+            c.settings->'origins' AS origins, c.settings->>'outbound_url' AS outbound_url
        FROM channel_connections c
        LEFT JOIN channel_apps app ON app.id = c.app_id
       WHERE ($1::uuid IS NULL OR c.id = $1)
@@ -580,6 +623,8 @@ async function readConnections(
       disconnected_at: row.disconnected_at?.toISOString() ?? null,
       credential_held: row.credential_fingerprint !== null,
       credential_fingerprint: row.credential_fingerprint,
+      origins: Array.isArray(row.origins) ? row.origins.filter((entry): entry is string => typeof entry === 'string') : [],
+      outbound_url: row.outbound_url,
     };
   });
 }

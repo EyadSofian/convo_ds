@@ -131,6 +131,11 @@ export class CustomChannelAdapter implements ChannelAdapter {
 
       if (type === 'message') {
         const text = asString(event['text']);
+        // The operator's system usually knows who is writing; their name lets
+        // the contact read as a person rather than as an id.
+        const name = (asString(event['name']) ?? asString(asRecord(event['sender'])?.['name']) ?? '').trim().slice(0, 200);
+        const detail: Record<string, unknown> = text === null ? { unsupported_message: true } : {};
+        if (name !== '') detail['sender_name'] = name;
         events.push({
           kind: text === null ? 'unsupported' : 'message',
           dedupeKey: `cc:msg:${id}`,
@@ -141,7 +146,7 @@ export class CustomChannelAdapter implements ChannelAdapter {
           contentType: asString(event['content_type']) ?? 'text',
           text,
           attachments: [],
-          detail: text === null ? { unsupported_message: true } : {},
+          detail,
           occurredAt,
           source: event,
         });
