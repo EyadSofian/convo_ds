@@ -28,7 +28,7 @@ describe('ContactService concurrent identity conflicts', () => {
   it('turns a create identity uniqueness race into a safe conflict', async () => {
     const service = serviceWithIdentityRace();
     await expect(service.create({} as AuthenticatedSession, TENANT, {
-      displayName: 'Sara', connectionId: CONNECTION, externalId: 'wa-1',
+      displayName: 'Sara', identity: { connectionId: CONNECTION, externalId: 'wa-1' },
     })).rejects.toMatchObject({ status: 409, code: 'contact_identity_exists' });
   });
 
@@ -47,7 +47,7 @@ describe('ContactService concurrent identity conflicts', () => {
       requirePermission: vi.fn(async () => ({ membershipId: 'membership-1' })),
     };
     const service = new ContactService(authorization as unknown as AuthorizationService);
-    await expect(service.create({} as AuthenticatedSession, TENANT, { displayName: 'Sara', connectionId: CONNECTION, externalId: 'wa-1' }))
+    await expect(service.create({} as AuthenticatedSession, TENANT, { displayName: 'Sara', identity: { connectionId: CONNECTION, externalId: 'wa-1' } }))
       .rejects.toMatchObject({ status: 404, code: 'resource_not_found' });
     await expect(service.importBatch({} as AuthenticatedSession, TENANT, { connectionId: CONNECTION, rows: [{ displayName: 'Sara', externalId: 'wa-1' }] }))
       .rejects.toMatchObject({ status: 404, code: 'resource_not_found' });

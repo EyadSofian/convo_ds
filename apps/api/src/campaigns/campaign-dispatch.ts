@@ -107,8 +107,8 @@ export function campaignDispatchRefusal(
   if (row.expires_at !== null && row.expires_at.getTime() <= now) {
     return { reason: 'campaign_expired', detail: 'The campaign expired before dispatch.' };
   }
-  if (row.consent_state !== 'granted') {
-    return { reason: 'marketing_consent_missing', detail: 'Marketing consent is not currently granted.' };
+  if (row.consent_state === 'withdrawn') {
+    return { reason: 'marketing_consent_withdrawn', detail: 'The contact withdrew marketing consent.' };
   }
   return null;
 }

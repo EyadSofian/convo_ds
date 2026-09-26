@@ -2637,6 +2637,12 @@
     font-size: var(--text-2xl);
   }
 
+  .automation-builder__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
   .automation-builder__back {
     grid-column: 1 / -1;
     display: flex;
@@ -2890,6 +2896,7 @@
 
   @container screen (max-width: 760px) {
     .automation-hero,
+    .automation-builder__header,
     .automation-builder__layout {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -3095,6 +3102,37 @@
 
   .broadcast__number-state.is-ready {
     background: var(--success-soft);
+  }
+
+  .broadcast__number-state.is-off {
+    background: var(--surface-2);
+    color: var(--text-muted);
+  }
+
+  .broadcast__number:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .broadcast__panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+  }
+
+  .link-button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent-text);
+    font: inherit;
+    font-weight: var(--weight-semibold);
+    text-decoration: underline;
+    cursor: pointer;
   }
 
   .broadcast__schedule {

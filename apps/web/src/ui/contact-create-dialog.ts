@@ -14,9 +14,9 @@ import { button, dialogShell, inlineError, isolated, sectionTitle, selectControl
  * Adding a customer by hand.
  *
  * Laid out the way support tools present a new customer card: who they are
- * and where they are reached first — an explicit channel identity is the one
- * required part — then the details a team keeps on a customer and their
- * labels. Consent is recorded later, on the profile, when there is evidence.
+ * and where they are reached first — a channel identity, optional, since the
+ * people who write in get theirs automatically — then the details a team
+ * keeps on a customer and their labels. Consent is recorded later, on the profile, when there is evidence.
  */
 export function contactCreateDialog(state: AppState): HTMLElement {
   const live = state.live;
@@ -36,11 +36,11 @@ export function contactCreateDialog(state: AppState): HTMLElement {
           h('div', { class: 'contact-new__grid' }, [
             input(state, 'contactCreateName', t(state, 'الاسم الكامل', 'Full name'), t(state, 'مثال: منى خليل', 'e.g. Mona Khalil'), { required: true, wide: true }),
             h('div', { class: 'field' }, [
-              h('label', { class: 'field__label', for: 'contact-new-channel' }, [t(state, 'القناة', 'Channel'), requiredMark()]),
+              h('label', { class: 'field__label', for: 'contact-new-channel' }, [t(state, 'القناة (اختياري)', 'Channel (optional)')]),
               connections.length === 0
-                ? live.connections.status === 'ready'
-                  ? h('p', { class: 'contact-new__empty', role: 'status' }, [t(state, 'لا توجد قناة متصلة. اربط قناة أولًا.', 'No connected channel. Connect one first.')])
-                  : h('p', { class: 'contact-new__empty', role: 'status' }, [live.connections.status === 'error'
+                ? h('p', { class: 'contact-new__empty', role: 'status' }, [live.connections.status === 'ready'
+                    ? t(state, 'لا توجد قناة متصلة بعد. يمكنك إضافة العميل الآن وربطه بقناة لاحقًا.', 'No channel is connected yet. Add the customer now and attach a channel later.')
+                    : live.connections.status === 'error'
                       ? live.connections.error.message
                       : t(state, 'جارٍ تحميل القنوات…', 'Loading channels…')])
                 : selectControl({
@@ -48,20 +48,25 @@ export function contactCreateDialog(state: AppState): HTMLElement {
                     form: 'contactCreateConnection',
                     value: connectionId,
                     options: [
-                      { value: '', label: t(state, 'اختر قناة متصلة', 'Choose a connected channel') },
+                      { value: '', label: t(state, 'بدون قناة الآن', 'No channel yet') },
                       ...connections.map((connection) => ({ value: connection.id, label: `${phrase(state, CHANNEL_NAMES, connection.kind)} · ${connection.display_name}` })),
                     ],
                   }),
+              h('p', { class: 'field__hint' }, [t(state,
+                'من يراسلك يُضاف تلقائيًا بقناته. هنا تضيف أحدًا بنفسك.',
+                'People who message you are added with their channel automatically. Here you add someone yourself.')]),
               fieldError(state, 'contactCreateConnection'),
             ]),
-            h('div', { class: 'field' }, [
+            kind === undefined ? null : h('div', { class: 'field' }, [
               h('label', { class: 'field__label', for: 'contact-new-external' }, [
-                kind === undefined ? null : h('span', { class: `contact-new__mark channel-tile--${kind}`, 'aria-hidden': 'true' }, [channelMark(kind, 12)]),
+                h('span', { class: `contact-new__mark channel-tile--${kind}`, 'aria-hidden': 'true' }, [channelMark(kind, 12)]),
                 t(state, 'معرّف العميل على القناة', 'Customer channel ID'),
-                requiredMark(),
+                kind === 'whatsapp' ? null : requiredMark(),
               ]),
               h('input', { id: 'contact-new-external', class: 'input', type: 'text', dir: 'ltr', value: form['contactCreateExternalId'] ?? '', placeholder: kind === 'whatsapp' ? '201001234567' : '', 'data-act': 'form', 'data-form': 'contactCreateExternalId' }),
-              h('p', { class: 'field__hint' }, [channelIdHint(kind, state.lang)]),
+              h('p', { class: 'field__hint' }, [kind === 'whatsapp'
+                ? t(state, 'اتركه فارغًا ليُستخدم رقم الهاتف المكتوب بالأسفل.', 'Leave it empty to use the phone number below.')
+                : channelIdHint(kind, state.lang)]),
               fieldError(state, 'contactCreateExternalId'),
             ]),
           ]),
@@ -72,7 +77,7 @@ export function contactCreateDialog(state: AppState): HTMLElement {
     ],
     [
       button({ label: t(state, 'إلغاء', 'Cancel'), act: 'close-dialog', variant: 'ghost' }),
-      button({ label: t(state, 'إضافة جهة الاتصال', 'Add contact'), icon: 'userPlus', act: 'live-contact-create', variant: 'primary', busy, disabled: connections.length === 0 }),
+      button({ label: t(state, 'إضافة جهة الاتصال', 'Add contact'), icon: 'userPlus', act: 'live-contact-create', variant: 'primary', busy }),
     ],
     { size: 'lg' },
   );

@@ -277,6 +277,8 @@ export interface LiveState {
   /** Views loaded from the guarded API; never browser-local query presets. */
   savedViews: Resource<readonly SavedView[]>;
   selectedSavedViewId: string | null;
+  /** Archived conversations ticked for bringing back or deleting. */
+  archivedSelection: readonly string[];
   /** Reusable campaign audiences. */
   audiences: Resource<readonly SavedAudience[]>;
   /**
@@ -408,6 +410,7 @@ export function createLiveState(
     inboxNextCursor: null,
     savedViews: IDLE,
     selectedSavedViewId: null,
+    archivedSelection: [],
     audiences: IDLE,
     audiencePreview: null,
     contactFilters: { labelId: '', fieldId: '', fieldValue: '' },

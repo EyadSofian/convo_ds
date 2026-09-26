@@ -83,8 +83,8 @@ function templatesView(state: AppState): Child {
       canCreate ? h('div', { class: 'automation-blank' }, [
         h('label', { for: 'automation-blank-name' }, [t(state, 'أو ابدأ من الصفر', 'Or build from scratch')]),
         h('div', { class: 'automation-blank__row' }, [
-          h('input', { id: 'automation-blank-name', class: 'input', 'data-act': 'form', 'data-form': 'automationBlankName', placeholder: t(state, 'اسم الأتمتة', 'Automation name') }),
-          button({ label: t(state, 'إنشاء مسودة', 'Create draft'), icon: 'plus', act: 'live-automation-create', variant: 'primary', small: true }),
+          h('input', { id: 'automation-blank-name', class: 'input', 'data-act': 'form', 'data-form': 'automationBlankName', placeholder: t(state, 'اسم الأتمتة (اختياري)', 'Automation name (optional)') }),
+          button({ label: t(state, 'إنشاء أتمتة', 'Create automation'), icon: 'plus', act: 'live-automation-create', variant: 'primary', small: true, busy: state.live.busy === 'automation-create' }),
         ]),
       ]) : null,
     ]),
@@ -120,7 +120,9 @@ function automationsView(state: AppState): Child {
   if (resource.status === 'idle' || resource.status === 'loading') return skeleton(state, 5);
   if (resource.status === 'error') return errorState(state, resource.error, 'live-automations-reload');
   const controls = automationFilters(state);
-  if (resource.value.length === 0) return panel(t(state, 'أتمتتي', 'My Automations'), [controls, emptyState({ icon: 'workflow', title: t(state, 'لا توجد أتمتة مطابقة', 'No matching automations'), body: t(state, 'غيّر البحث أو الحالة، أو أنشئ مسودة من القوالب.', 'Change the search or state, or create a draft from Templates.') })]);
+  const create = hasPermission(state.live, 'automation.create')
+    ? { label: t(state, 'أتمتة جديدة', 'New automation'), act: 'live-automation-create', primary: true } : undefined;
+  if (resource.value.length === 0) return panel(t(state, 'أتمتتي', 'My Automations'), [controls, emptyState({ icon: 'workflow', title: t(state, 'لا توجد أتمتة مطابقة', 'No matching automations'), body: t(state, 'غيّر البحث أو الحالة، أو أنشئ أتمتة جديدة.', 'Change the search or state, or create a new automation.'), action: create })]);
   return h('div', { class: 'automation-list' }, [controls, ...resource.value.map((automation) => automationCard(state, automation)), state.live.automationNextCursor === null ? null : h('div', { class: 'automation-list__more' }, [button({ label: t(state, 'تحميل المزيد', 'Load more'), act: 'live-automation-load-more', small: true, busy: state.live.busy === 'automation-load-more' })])]);
 }
 
@@ -165,8 +167,17 @@ function builder(state: AppState, automation: Automation): HTMLElement {
   return h('section', { class: 'automation-builder', 'data-automation-builder': true }, [
     h('header', { class: 'automation-builder__header' }, [
       h('a', { class: 'automation-builder__back', href: formatHash({ screen: 'automations', conversationId: null, params: routeParamsWithLanguage(state, { view: 'mine' }) }) }, [icon('chevronStart', 16), t(state, 'رجوع إلى أتمتتي', 'Back to automations')]),
-      h('div', {}, [h('p', { class: 'eyebrow' }, [t(state, 'مسودة سير عمل', 'Workflow draft')]), h('h2', {}, [automation.name])]),
-      button({ label: t(state, 'حفظ المسودة', 'Save draft'), icon: 'check', act: 'live-automation-save', arg: automation.id, variant: 'primary', busy: state.live.busy === `automation-save:${automation.id}` }),
+      h('div', {}, [h('p', { class: 'eyebrow' }, [automation.state === 'paused' ? t(state, 'أتمتة متوقفة', 'Paused automation') : t(state, 'أتمتة لم تُفعّل بعد', 'Not turned on yet')]), h('h2', {}, [automation.name])]),
+      h('div', { class: 'automation-builder__actions' }, [
+        button({ label: t(state, 'حفظ كمسودة', 'Save as draft'), icon: 'check', act: 'live-automation-save', arg: automation.id, busy: state.live.busy === `automation-save:${automation.id}` }),
+        hasPermission(state.live, 'automation.activate')
+          ? button({
+              label: automation.state === 'paused' ? t(state, 'حفظ واستئناف', 'Save and resume') : t(state, 'حفظ وتفعيل', 'Save and turn on'),
+              icon: 'play', act: 'live-automation-save-activate', arg: automation.id, variant: 'primary',
+              busy: state.live.busy === `automation-activate:${automation.id}`,
+            })
+          : null,
+      ]),
     ]),
     h('div', { class: 'automation-builder__layout' }, [
       h('aside', { class: 'automation-builder__rail', 'aria-label': t(state, 'مراحل الإعداد', 'Builder stages') }, ['WHEN','CONDITIONS','TARGET','ACTIONS','MESSAGE','VARIABLES','SCHEDULE','SAFETY','REVIEW'].map((label,index) => h('div', { class: `automation-stage${index < 4 ? ' automation-stage--ready' : ''}` }, [h('span', {}, [String(index + 1)]), label]))),

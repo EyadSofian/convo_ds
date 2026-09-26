@@ -538,6 +538,14 @@ div.inbox
                   bdi.mono
                 span.badge.badge--success
                   span.badge__dot
+            div.contact__add-channel
+              select.select [form]
+                option
+                option
+                option
+              input.input [form]
+              button.btn.btn--sm [live-contact-identity-add]
+                span.btn__label
           section.panel-section.contact__card.contact__consent
             h3.panel-section__title
               span.section-chip.section-chip--green

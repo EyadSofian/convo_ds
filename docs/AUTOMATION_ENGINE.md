@@ -6,6 +6,10 @@ Status: durable trigger scheduling and the MVP executor are implemented in migra
 
 The signed-in workspace exposes three views: **Templates**, **My Automations**, and **Runs & Logs**. Nineteen product presets create independent editable drafts. There is no application-level automation count limit. The builder renders human-readable `WHEN → FOR → THEN` blocks and never exposes workflow JSON.
 
+**Create automation** opens the builder straight away on a new, unsaved-to-active workflow (a daily schedule sending one WhatsApp template to a dynamic audience). The builder's header decides what happens next: **Save as draft** keeps it off, **Save and turn on** saves and activates it in one go (**Save and resume** for a paused one) and returns to the list. When activation is refused — a template not chosen, say — the draft is kept and the reason is shown in the builder.
+
+Scheduled automations need the `worker-automation` process role running beside the API; it materialises due schedules and executes runs.
+
 An automation holds one extensible trigger, a dynamic target, up to 50 ordered steps, optional schedule data, safety policy, timezone, lifecycle state and optimistic version. The initial catalogue contains 24 trigger contracts, including education events that may arrive from the internal API, a webhook bridge or a future LMS/CRM. It does not create course or student data.
 
 ## Durable execution flow

@@ -38,6 +38,7 @@ import { refreshNotificationCount, runNotificationAction } from './live/notifica
 import { createLiveState, renewLiveState, rowsOf } from './live/store';
 import type { LiveState } from './live/store';
 import { attrOf, closestWithAttr, replace } from './dom';
+import { lockLoops } from './loops';
 import type { PreferenceStore } from './preferences';
 import { browserStore, readPreferences, writePreferences } from './preferences';
 import type { Route, RouterHost, ScreenId } from './router';
@@ -571,11 +572,8 @@ export function mount(options: MountOptions): AppHandle {
     applyMotion(root, motion, 'view', keys.view, state.clock.getTime());
     applyMotion(root, motion, 'detail', keys.detail, state.clock.getTime());
     applyMotion(root, motion, 'tool', keys.tool, state.clock.getTime());
-    // Every infinite loop — spinner, shimmer, pulse — runs on one shared clock
-    // (84 s is a multiple of each period), so a spinner rebuilt by a render
-    // carries on at the same angle instead of snapping back to zero.
-    root.style.setProperty('--loop-phase', `-${String(state.clock.getTime() % 84_000)}ms`);
     replace(root, [renderApp(state)]);
+    lockLoops(root.ownerDocument);
     growComposer(root);
     restoreScroll(root, scroll);
     if (viewChanged) {

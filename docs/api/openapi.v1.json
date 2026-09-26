@@ -1214,8 +1214,8 @@
       },
       "post": {
         "operationId": "createContact",
-        "summary": "Create a contact on an explicit channel identity",
-        "description": "Requires `contact.edit` scoped to the selected channel connection. The identity is never inferred or merged, and creation does not record marketing consent.",
+        "summary": "Create a contact, optionally on an explicit channel identity",
+        "description": "Requires `contact.edit` (scoped to the selected channel connection when an identity is given). The identity is optional: give both `connectionId` and `externalId`, or neither. It is never inferred or merged, and creation does not record marketing consent.",
         "security": [
           {
             "SessionCookie": []
@@ -1233,10 +1233,10 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["displayName", "connectionId", "externalId"],
+                "required": ["displayName"],
                 "properties": {
                   "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
-                  "connectionId": { "type": "string", "format": "uuid" },
+                  "connectionId": { "type": ["string", "null"], "format": "uuid" },
                   "externalId": { "type": "string", "minLength": 1, "maxLength": 256 }
                 }
               }
@@ -1245,7 +1245,7 @@
         },
         "responses": {
           "201": {
-            "description": "The new contact, with its single channel-scoped identity and no implied consent.",
+            "description": "The new contact, with its channel-scoped identity when one was given, and no implied consent.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ContactResponse" }
@@ -1449,6 +1449,41 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
+        }
+      }
+    },
+    "/tenants/{tenantId}/contacts/{contactId}/identities": {
+      "post": {
+        "operationId": "addContactIdentity",
+        "summary": "Attach a channel identity to an existing contact",
+        "description": "Requires `contact.edit` scoped to the selected channel connection and CSRF. Refuses an identity another contact already holds (409 `contact_identity_exists`); a disconnected channel or unknown contact is 404.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "contactId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["connectionId", "externalId"],
+            "properties": {
+              "connectionId": { "type": "string", "format": "uuid" },
+              "externalId": { "type": "string", "minLength": 1, "maxLength": 256 }
+            }
+          } } }
+        },
+        "responses": {
+          "201": { "description": "The contact with the new identity.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactResponse" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -1894,6 +1929,55 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/archived": {
+      "post": {
+        "operationId": "manageArchivedConversations",
+        "summary": "Restore archived conversations to the inbox, or remove them",
+        "description": "CSRF. `restore` needs `conversation.close` on each conversation and puts it back as resolved; it is refused per conversation while the customer has a live conversation on that channel (`active_conversation_exists`). `delete` needs `retention.manage` (403 otherwise) and removes archived conversations from every list, search and read; the rows, messages and audit are kept. Each conversation is answered on its own: `done` lists what changed, `refused` says why the rest did not (`resource_not_found`, `permission_denied`, `conversation_not_archived`, `active_conversation_exists`).",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "conversationIds"],
+            "properties": {
+              "action": { "type": "string", "enum": ["restore", "delete"] },
+              "conversationIds": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "type": "string", "format": "uuid" } }
+            }
+          } } }
+        },
+        "responses": {
+          "200": { "description": "What changed, and why the rest did not.", "content": { "application/json": { "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["data", "request_id"],
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["done", "refused"],
+                "properties": {
+                  "done": { "type": "array", "items": { "type": "string", "format": "uuid" } },
+                  "refused": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "code"], "properties": { "id": { "type": "string" }, "code": { "type": "string" } } } }
+                }
+              },
+              "request_id": { "type": "string" }
+            }
+          } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
         }
       }
     },

@@ -312,6 +312,15 @@ export class ConversationsApi {
    * The version is required for the same reason a claim's is: two agents acting
    * on the same stale screen must not both succeed.
    */
+  /** Restores or removes a selection of archived conversations; each is answered on its own. */
+  archived(
+    tenantId: string,
+    action: 'restore' | 'delete',
+    conversationIds: readonly string[],
+  ): Promise<ApiResult<{ readonly done: readonly string[]; readonly refused: readonly { readonly id: string; readonly code: string }[] }>> {
+    return this.client.post(`/tenants/${tenantId}/conversations/archived`, { body: { action, conversationIds } });
+  }
+
   transition(
     tenantId: string,
     conversationId: string,

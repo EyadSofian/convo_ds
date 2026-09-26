@@ -1287,6 +1287,25 @@ describe('contacts', () => {
     expect(duplicate.json()).toMatchObject({ error: { code: 'contact_identity_exists' } });
   });
 
+  it('adds a contact with no channel yet, and attaches one later', async () => {
+    const created = await send(api, owner, 'POST', '/contacts', { displayName: 'Walk-in parent' });
+    expect(created.statusCode, created.body).toBe(201);
+    const contact = (created.json() as { data: { id: string; identities: unknown[] } }).data;
+    expect(contact.identities).toEqual([]);
+    // Half an identity is refused rather than guessed at.
+    expect((await send(api, owner, 'POST', '/contacts', { displayName: 'Half', externalId: '2010' })).statusCode).toBe(400);
+    expect((await send(api, owner, 'POST', '/contacts', { displayName: 'Half', connectionId: inboxA })).statusCode).toBe(400);
+    const attached = await send(api, owner, 'POST', `/contacts/${contact.id}/identities`, { connectionId: inboxA, externalId: 'walk-in-2010' });
+    expect(attached.statusCode, attached.body).toBe(201);
+    expect((attached.json() as { data: { identities: { scopeId: string; externalId: string }[] } }).data.identities)
+      .toEqual([expect.objectContaining({ scopeId: inboxA, externalId: 'walk-in-2010' })]);
+    const again = await send(api, owner, 'POST', `/contacts/${contact.id}/identities`, { connectionId: inboxA, externalId: 'walk-in-2010' });
+    expect(again.statusCode).toBe(409);
+    expect((await send(api, owner, 'POST', `/contacts/${randomUUID()}/identities`, { connectionId: inboxA, externalId: 'x-1' })).statusCode).toBe(404);
+    expect((await send(api, owner, 'POST', `/contacts/${contact.id}/identities`, { connectionId: randomUUID(), externalId: 'x-2' })).statusCode).toBe(404);
+    expect((await send(api, owner, 'POST', `/contacts/${contact.id}/identities`, { externalId: 'x-3' })).statusCode).toBe(400);
+  });
+
   it('imports a validated CSV batch atomically and exports contacts only with export permission', async () => {
     const imported = await send(api, owner, 'POST', '/contacts/import', {
       connectionId: inboxA,
@@ -3590,6 +3609,76 @@ describe('the conversation lifecycle', () => {
       }
     ).data;
   }
+});
+
+describe('archived conversations: back to the inbox, or removed', () => {
+  const peer = '15557000580';
+
+  async function threadIds(): Promise<{ id: string; status: string }[]> {
+    const rows = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ id: string; status: string }>('SELECT id::text, status FROM conversations WHERE peer_identity = $1 ORDER BY created_at', [peer]),
+    );
+    return rows.rows;
+  }
+
+  async function archive(id: string): Promise<void> {
+    for (const command of [{ command: 'resolve', resolution: 'Done' }, { command: 'archive' }]) {
+      const { version } = ((await send(api, owner, 'GET', `/conversations/${id}`)).json() as { data: { version: number } }).data;
+      expect((await send(api, owner, 'POST', `/conversations/${id}/transitions`, { version, ...command })).statusCode).toBe(200);
+    }
+  }
+
+  const bulk = (browser: Browser, body: Record<string, unknown>): Promise<LightMyRequestResponse> => send(api, browser, 'POST', '/conversations/archived', body);
+
+  it('restores an archived thread unless the customer already has a live one, and removes only with the retention key', async () => {
+    await customerWrites(INBOX_A, peer, 'أول سؤال', 'wamid.rt-580');
+    const [first] = await threadIds();
+    await archive(first!.id);
+    await customerWrites(INBOX_A, peer, 'سؤال جديد', 'wamid.rt-581');
+    const second = (await threadIds())[1]!;
+
+    // One live thread per customer and channel: the newer one blocks the older.
+    const blocked = await bulk(owner, { action: 'restore', conversationIds: [first!.id] });
+    expect(blocked.statusCode, blocked.body).toBe(200);
+    expect((blocked.json() as { data: unknown }).data).toEqual({ done: [], refused: [{ id: first!.id, code: 'active_conversation_exists' }] });
+
+    await archive(second.id);
+    const unknown = randomUUID();
+    const restored = await bulk(owner, { action: 'restore', conversationIds: [first!.id, first!.id, unknown] });
+    expect((restored.json() as { data: unknown }).data).toEqual({ done: [first!.id], refused: [{ id: unknown, code: 'resource_not_found' }] });
+    expect(((await send(api, owner, 'GET', `/conversations/${first!.id}`)).json() as { data: { status: string } }).data.status).toBe('resolved');
+
+    // Removing is for those who hold retention.
+    await addMember(api, 'archive-supervisor@realtime.test', 'supervisor', [{ type: 'tenant', id: null }]);
+    const supervisor = await login(api, 'archive-supervisor@realtime.test', MEMBER_PASSWORD);
+    expect((await bulk(supervisor, { action: 'delete', conversationIds: [second.id] })).statusCode).toBe(403);
+    const removed = await bulk(owner, { action: 'delete', conversationIds: [second.id, first!.id] });
+    expect((removed.json() as { data: unknown }).data).toEqual({ done: [second.id], refused: [{ id: first!.id, code: 'conversation_not_archived' }] });
+    // Gone everywhere an operator looks, archive included.
+    expect((await send(api, owner, 'GET', `/conversations/${second.id}`)).statusCode).toBe(404);
+    const archived = await send(api, owner, 'GET', `/conversations?queue=all&filter=${encodeURIComponent(JSON.stringify({ key: 'status', operator: 'eq', value: 'archived' }))}`);
+    expect((archived.json() as { data: { id: string }[] }).data.map((row) => row.id)).not.toContain(second.id);
+    // The row stays as evidence, with who removed it.
+    const kept = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ deleted_by: string | null }>('SELECT deleted_by_membership_id::text AS deleted_by FROM conversations WHERE id = $1', [second.id]),
+    );
+    expect(kept.rows[0]?.deleted_by).not.toBeNull();
+    // A supervisor may still bring back what they could archive.
+    await archive(first!.id);
+    expect(((await bulk(supervisor, { action: 'restore', conversationIds: [first!.id] })).json() as { data: { done: string[] } }).data.done).toEqual([first!.id]);
+  });
+
+  it('refuses a malformed request, and an agent without the closing key', async () => {
+    for (const body of [{}, { action: 'burn', conversationIds: [randomUUID()] }, { action: 'restore', conversationIds: [] }, { action: 'restore', conversationIds: ['nope'] }]) {
+      expect((await bulk(owner, body)).statusCode).toBe(400);
+    }
+    const [thread] = await threadIds();
+    await archive(thread!.id);
+    await addMember(api, 'archive-analyst@realtime.test', 'analyst', [{ type: 'tenant', id: null }]);
+    const analyst = await login(api, 'archive-analyst@realtime.test', MEMBER_PASSWORD);
+    expect(((await bulk(analyst, { action: 'restore', conversationIds: [thread!.id] })).json() as { data: unknown }).data)
+      .toEqual({ done: [], refused: [{ id: thread!.id, code: 'permission_denied' }] });
+  });
 });
 
 describe('private notes and the read cursor', () => {

@@ -84,7 +84,9 @@ describe('navigation', () => {
     app.state.navOpen = true;
     app.state.openMenu = 'user';
     app.state.listOpen = true;
+    app.state.dialog = { kind: 'campaign', arg: '' };
     runAction('nav', app.context, 'people');
+    expect(app.state.dialog).toBeNull();
     expect(app.state.navOpen).toBe(false);
     expect(app.state.openMenu).toBeNull();
     expect(app.state.listOpen).toBe(false);

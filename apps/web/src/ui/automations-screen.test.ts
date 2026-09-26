@@ -396,3 +396,25 @@ describe('glyphs and tones chosen per row', () => {
     expect(renderAutomations(s).textContent).toContain('Quarantined');
   });
 });
+
+describe('the builder’s header', () => {
+  function header(state: 'draft' | 'paused', permissions: readonly string[]): HTMLElement {
+    const s = createState(new Date('2026-09-17T00:00:00Z'));
+    s.lang = 'en';
+    s.live.session = { status: 'signed_in', email: 'a@b.c', tenantId: 't', memberships: [{ id: 'm', tenant: { id: 't', name: 'S', slug: 's' }, role: { id: 'r', key: 'x', name: 'X' }, permissions }] };
+    s.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1' } };
+    s.live.automations = { status: 'ready', value: [{ ...AUTOMATION, state }], loadedAt: 1 };
+    return renderAutomations(s).querySelector('.automation-builder__header') as HTMLElement;
+  }
+
+  it('offers saving as a draft or turning it on, as the operator may', () => {
+    const draft = header('draft', ['automation.read', 'automation.edit', 'automation.activate']);
+    expect(draft.querySelector('[data-act="live-automation-save"]')?.textContent).toBe('Save as draft');
+    expect(draft.querySelector('[data-act="live-automation-save-activate"]')?.textContent).toBe('Save and turn on');
+    expect(draft.textContent).toContain('Not turned on yet');
+    const paused = header('paused', ['automation.read', 'automation.edit', 'automation.activate']);
+    expect(paused.querySelector('[data-act="live-automation-save-activate"]')?.textContent).toBe('Save and resume');
+    expect(paused.textContent).toContain('Paused automation');
+    expect(header('draft', ['automation.read', 'automation.edit']).querySelector('[data-act="live-automation-save-activate"]')).toBeNull();
+  });
+});

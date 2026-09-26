@@ -23,8 +23,23 @@ describe('ContactController.create', () => {
     }, 'csrf', request)).resolves.toEqual({ data: { id: 'contact-1' }, request_id: 'request-1' });
     expect(auth.requireCsrf).toHaveBeenCalledOnce();
     expect(contacts.create).toHaveBeenCalledWith(session, tenantId, {
-      displayName: 'Sara', connectionId, externalId: '201000000000',
+      displayName: 'Sara', identity: { connectionId, externalId: '201000000000' },
     });
+    // No channel at all is a contact with no identity yet.
+    await controller.create(tenantId, { displayName: 'Walk-in', connectionId: null }, 'csrf', request);
+    expect(contacts.create).toHaveBeenLastCalledWith(session, tenantId, { displayName: 'Walk-in', identity: null });
+  });
+
+  it('attaches an identity through the same authenticated, CSRF-protected checks', async () => {
+    const auth = { authenticate: vi.fn().mockResolvedValue(session), requireCsrf: vi.fn() };
+    const contacts = { addIdentity: vi.fn().mockResolvedValue({ id: 'contact-1' }) };
+    const controller = new ContactController(auth as never, contacts as unknown as ContactService);
+    const request = { headers: { cookie: 'session=cookie' }, id: 'request-1' } as unknown as FastifyRequest;
+    await expect(controller.addIdentity(tenantId, 'contact-1', { connectionId, externalId: ' 2010 ' }, 'csrf', request))
+      .resolves.toEqual({ data: { id: 'contact-1' }, request_id: 'request-1' });
+    expect(contacts.addIdentity).toHaveBeenCalledWith(session, tenantId, 'contact-1', { connectionId, externalId: '2010' });
+    await expect(controller.addIdentity(tenantId, 'contact-1', { connectionId: 'bad' }, 'csrf', request))
+      .rejects.toMatchObject({ status: 400, code: 'validation_failed' });
   });
 
   it('rejects missing or malformed identity fields before invoking the service', async () => {

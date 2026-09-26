@@ -167,28 +167,22 @@
      and settle upright the moment it lands. */
   .btn__icon--refreshing > svg {
     animation: convo-spin 1s linear infinite;
-    animation-delay: var(--loop-phase, 0ms);
     color: var(--accent-text);
   }
 
-  /* A label-only button: the label keeps its place, invisible, under the spinner. */
-  .btn__stack {
+  /* A label-only button that is working: the spinner leads the label, which
+     stays readable, so the button says what it is doing. */
+  .btn__busy {
     display: inline-grid;
-    min-inline-size: 0;
-  }
-
-  .btn__stack > * {
-    grid-area: 1 / 1;
-  }
-
-  .btn__stack > .btn__label {
-    opacity: 0;
-  }
-
-  .btn__stack > .spinner {
-    place-self: center;
+    place-items: center;
+    flex: 0 0 auto;
     inline-size: var(--btn-icon);
     block-size: var(--btn-icon);
+  }
+
+  .btn__busy > .spinner {
+    inline-size: 100%;
+    block-size: 100%;
   }
 
   /* --------------------------------------------------------------- badge -- */
@@ -723,7 +717,6 @@
     background: linear-gradient(100deg, var(--skeleton) 30%, var(--skeleton-shine) 50%, var(--skeleton) 70%) var(--skeleton);
     background-size: 220% 100%;
     animation: convo-shimmer 1.5s ease-in-out infinite;
-    animation-delay: var(--loop-phase, 0ms);
   }
 
   .skeleton__block--wide {

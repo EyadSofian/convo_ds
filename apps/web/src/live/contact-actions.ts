@@ -101,6 +101,7 @@ export async function openNewContact(context: LiveContext): Promise<boolean> {
 
 export interface NewContactInput {
   readonly displayName: string;
+  /** Empty for a contact with no channel yet; the id then is empty too. */
   readonly connectionId: string;
   readonly externalId: string;
   /** Profile details; a standard field with no id is created in the catalogue first. */
@@ -118,12 +119,16 @@ export interface NewContactInput {
  */
 export async function createContact(context: LiveContext, input: NewContactInput): Promise<boolean> {
   const { live } = context;
-  if (input.displayName.trim() === '' || input.connectionId === '' || input.externalId.trim() === '') return false;
+  // A channel is optional, but half of one — a channel with no id — is not.
+  if (input.displayName.trim() === '' || (input.connectionId !== '') !== (input.externalId.trim() !== '')) return false;
   return forTenant(context, false, async (tenantId) => {
     live.busy = 'contact:create';
     live.error = null;
     context.refresh();
-    const result = await live.contactsApi.create(tenantId, { displayName: input.displayName.trim(), connectionId: input.connectionId, externalId: input.externalId.trim() });
+    const result = await live.contactsApi.create(tenantId, {
+      displayName: input.displayName.trim(),
+      ...(input.connectionId === '' ? {} : { connectionId: input.connectionId, externalId: input.externalId.trim() }),
+    });
     if (!result.ok) {
       live.busy = null;
       live.error = result.error;
@@ -146,6 +151,31 @@ export async function createContact(context: LiveContext, input: NewContactInput
       : t(context, `أُضيفت جهة الاتصال، لكن لم يُحفظ: ${problems.join('، ')}`, `Contact added, but not everything was saved: ${problems.join('; ')}`),
     problems.length === 0 ? 'default' : 'danger');
     await loadContactsScreen(context);
+    return true;
+  });
+}
+
+/** Makes a contact reachable on one more channel, from their profile. */
+export async function addContactIdentity(context: LiveContext, contactId: string, connectionId: string, externalId: string): Promise<boolean> {
+  const { live } = context;
+  return forTenant(context, false, async (tenantId) => {
+    live.busy = `contact-identity:${contactId}`;
+    live.error = null;
+    context.refresh();
+    const result = await live.contactsApi.addIdentity(tenantId, contactId, { connectionId, externalId });
+    live.busy = null;
+    if (!result.ok) {
+      pushToast(context.state, result.error.message, 'danger');
+      context.refresh();
+      return false;
+    }
+    live.selectedContact = ready(result.data, context.now());
+    live.contacts = live.contacts.status === 'ready'
+      ? ready(live.contacts.value.map((contact) => (contact.id === contactId ? result.data : contact)), context.now())
+      : live.contacts;
+    context.state.dialogForm = { ...context.state.dialogForm, [`contactIdentityConnection_${contactId}`]: '', [`contactIdentityExternal_${contactId}`]: '' };
+    pushToast(context.state, t(context, 'أُضيفت القناة إلى جهة الاتصال.', 'Channel added to the contact.'));
+    context.refresh();
     return true;
   });
 }

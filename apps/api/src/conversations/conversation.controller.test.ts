@@ -24,6 +24,17 @@ function controller() {
 }
 
 describe('ConversationController query boundaries', () => {
+  it('refuses an archive request that is not a restore or delete of named conversations', async () => {
+    const auth = { authenticate: vi.fn(async () => ({ userId: 'user-1' })), requireCsrf: vi.fn() } as unknown as AuthService;
+    const lifecycle = { archived: vi.fn(async () => ({ done: [id], refused: [] })) } as unknown as LifecycleService;
+    const instance = new ConversationController(auth, {} as ConversationService, {} as OutboundService, lifecycle, {} as NoteService, {} as RoutingService);
+    for (const body of [null, [id], { action: 'restore' }, { action: 'purge', conversationIds: [id] }, { action: 'delete', conversationIds: ['bad'] }]) {
+      await expect(instance.archived(id, body, 'csrf', request)).rejects.toMatchObject({ status: 400 });
+    }
+    await expect(instance.archived(id, { action: 'delete', conversationIds: [id] }, 'csrf', request)).resolves.toMatchObject({ data: { done: [id] } });
+    expect(lifecycle.archived).toHaveBeenCalledWith(expect.anything(), id, 'delete', [id]);
+  });
+
   it('normalizes supported unassigned query values and de-duplicates labels', async () => {
     const { instance, conversations } = controller();
     const result = await instance.unassigned(id, id, 'urgent', 'instagram', [id, id], request);

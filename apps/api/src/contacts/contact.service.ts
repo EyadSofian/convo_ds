@@ -99,49 +99,42 @@ export class ContactService {
   async create(
     session: AuthenticatedSession,
     tenantId: string,
-    input: { readonly displayName: string; readonly connectionId: string; readonly externalId: string },
+    input: { readonly displayName: string; readonly identity: { readonly connectionId: string; readonly externalId: string } | null },
   ): Promise<ContactDetail> {
-    this.authorization.assertTenantId(input.connectionId);
-    try {
-      return await this.authorization.withPrincipal(session, tenantId, async ({ sql }) => {
-        const principal = await this.authorization.requirePermission(sql, session, 'contact.edit', { inboxId: input.connectionId });
-        const connection = await sql.query<{ kind: string }>(
-          `SELECT kind FROM channel_connections WHERE id=$1 AND disconnected_at IS NULL`, [input.connectionId],
-        );
-        const kind = connection.rows[0]?.kind;
-        if (kind === undefined) throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
-        const existing = await sql.query(
-          `SELECT 1 FROM contact_identities WHERE kind=$1 AND scope_id=$2 AND external_id=$3 AND valid_to IS NULL`,
-          [kind, input.connectionId, input.externalId],
-        );
-        if (existing.rows.length > 0) {
-          throw new ApiHttpError(409, 'contact_identity_exists', 'This channel identity is already attached to a contact.');
-        }
-        const inserted = await sql.query<{ id: string }>(
-          `INSERT INTO contacts (tenant_id,display_name,search_name)
-           VALUES ($1,$2,$3) RETURNING id::text`,
-          [tenantId, input.displayName, normalizeSearchText(input.displayName)],
-        );
-        const contactId = requireRow(inserted.rows, 'the contact insert returned no id').id;
-        await sql.query(
-          `INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id,provenance)
-           VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
-          [tenantId, contactId, kind, input.connectionId, input.externalId,
-            JSON.stringify({ source: 'agent_recorded', actorMembershipId: principal.membershipId })],
-        );
-        // No consent is created here. Audience planning remains responsible for
-        // excluding anyone without recorded marketing consent or with suppression.
-        return detailOf(sql, contactId);
-      });
-    } catch (error) {
-      // The partial unique index is the race-safe authority if two operators
-      // create the same identity concurrently. The enclosing transaction
-      // rolls back the contact row too, so this remains an atomic conflict.
-      if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') {
-        throw new ApiHttpError(409, 'contact_identity_exists', 'This channel identity is already attached to a contact.');
-      }
-      throw error;
-    }
+    if (input.identity !== null) this.authorization.assertTenantId(input.identity.connectionId);
+    return uniqueIdentity(() => this.authorization.withPrincipal(session, tenantId, async ({ sql }) => {
+      const principal = await this.authorization.requirePermission(sql, session, 'contact.edit', input.identity === null ? undefined : { inboxId: input.identity.connectionId });
+      // The identity is checked before anything is written.
+      const kind = input.identity === null ? null : await freeIdentityKind(sql, input.identity);
+      const inserted = await sql.query<{ id: string }>(
+        `INSERT INTO contacts (tenant_id,display_name,search_name)
+         VALUES ($1,$2,$3) RETURNING id::text`,
+        [tenantId, input.displayName, normalizeSearchText(input.displayName)],
+      );
+      const contactId = requireRow(inserted.rows, 'the contact insert returned no id').id;
+      if (input.identity !== null) await insertIdentity(sql, tenantId, contactId, kind!, input.identity, principal.membershipId);
+      // No consent is created here. Audience planning excludes anyone who
+      // opted out or withdrew consent.
+      return detailOf(sql, contactId);
+    }));
+  }
+
+  /** Makes a contact reachable on one more channel. */
+  async addIdentity(
+    session: AuthenticatedSession,
+    tenantId: string,
+    contactId: string,
+    identity: { readonly connectionId: string; readonly externalId: string },
+  ): Promise<ContactDetail> {
+    this.authorization.assertTenantId(contactId);
+    this.authorization.assertTenantId(identity.connectionId);
+    return uniqueIdentity(() => this.authorization.withPrincipal(session, tenantId, async ({ sql }) => {
+      const principal = await this.authorization.requirePermission(sql, session, 'contact.edit', { inboxId: identity.connectionId });
+      const found = await sql.query(`SELECT 1 FROM contacts WHERE id=$1 AND deleted_at IS NULL`, [contactId]);
+      if (found.rows.length === 0) throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+      await insertIdentity(sql, tenantId, contactId, await freeIdentityKind(sql, identity), identity, principal.membershipId);
+      return detailOf(sql, contactId);
+    }));
   }
 
   /** Atomically import explicitly scoped identities; duplicates abort the batch. */
@@ -555,6 +548,59 @@ async function canReachContact(
     [contactId, reach, principal.membershipId, tenantWide, teams, inboxes],
   );
   return rows.rows.length > 0;
+}
+
+/**
+ * The channel kind of an identity that may be attached: its connection is live
+ * and no other contact holds it. The partial unique index stays the race-safe
+ * authority when two operators attach the same identity at once; see
+ * `uniqueIdentity`.
+ */
+async function freeIdentityKind(
+  sql: SqlExecutor,
+  identity: { readonly connectionId: string; readonly externalId: string },
+): Promise<string> {
+  const connection = await sql.query<{ kind: string }>(
+    `SELECT kind FROM channel_connections WHERE id=$1 AND disconnected_at IS NULL`, [identity.connectionId],
+  );
+  const kind = connection.rows[0]?.kind;
+  if (kind === undefined) throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+  const existing = await sql.query(
+    `SELECT 1 FROM contact_identities WHERE kind=$1 AND scope_id=$2 AND external_id=$3 AND valid_to IS NULL`,
+    [kind, identity.connectionId, identity.externalId],
+  );
+  if (existing.rows.length > 0) throw identityTaken();
+  return kind;
+}
+
+async function insertIdentity(
+  sql: SqlExecutor,
+  tenantId: string,
+  contactId: string,
+  kind: string,
+  identity: { readonly connectionId: string; readonly externalId: string },
+  membershipId: string,
+): Promise<void> {
+  await sql.query(
+    `INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id,provenance)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+    [tenantId, contactId, kind, identity.connectionId, identity.externalId,
+      JSON.stringify({ source: 'agent_recorded', actorMembershipId: membershipId })],
+  );
+}
+
+function identityTaken(): ApiHttpError {
+  return new ApiHttpError(409, 'contact_identity_exists', 'This channel identity is already attached to a contact.');
+}
+
+/** A concurrent insert of the same identity rolls back the whole write, and reads as the same conflict. */
+async function uniqueIdentity<T>(write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') throw identityTaken();
+    throw error;
+  }
 }
 
 async function readContact(sql: SqlExecutor, contactId: string): Promise<RawContact> {

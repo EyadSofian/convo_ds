@@ -115,3 +115,12 @@ export function channelIdHint(kind: string | undefined, lang: Lang): string {
   const [ar, en] = hints[kind ?? ''] ?? ['اختر القناة أولًا.', 'Choose the channel first.'];
   return lang === 'ar' ? ar : en;
 }
+
+/**
+ * The customer's id on a channel that can be read off their profile: on
+ * WhatsApp it is the phone number in international form, digits only.
+ * Empty when there is nothing to derive.
+ */
+export function derivedChannelId(kind: string, phone: string): string {
+  return kind === 'whatsapp' ? phone.replace(/[^0-9]/g, '') : '';
+}

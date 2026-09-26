@@ -294,6 +294,82 @@ describe('the queue', () => {
     expect(api.countOf(`GET /tenants/${TENANT}/conversations?queue=mine`)).toBe(2);
   });
 
+  it('works through the archive in bulk: tick, bring back, delete with the retention key', async () => {
+    const OTHER = '66666666-6666-4666-8666-666666666666';
+    const archived = `/tenants/${TENANT}/conversations?queue=mine&filter=${encodeURIComponent(JSON.stringify({ key: 'status', operator: 'eq', value: 'archived' }))}`;
+    const api = inboxApi()
+      .on('GET /me/memberships', { status: 200, body: { data: [{
+        id: MEMBERSHIP, tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' }, role: { id: 'admin-role', key: 'admin', name: 'Admin' },
+        permissions: ['conversation.read', 'conversation.unassigned.preview', 'conversation.close', 'retention.manage'],
+      }] } })
+      .on(`GET ${archived}`, { status: 200, body: { data: [conversation({ status: 'archived' }), conversation({ id: OTHER, status: 'archived', peerIdentity: '15550000001' })] } })
+      .on(`POST /tenants/${TENANT}/conversations/archived`, { status: 200, body: { data: { done: [CONVERSATION], refused: [{ id: OTHER, code: 'active_conversation_exists' }] } } });
+    const { root, app } = await open(api);
+    click(root, '[data-act="live-inbox-archived-toggle"]');
+    await settle();
+    const bar = (): HTMLElement => root.querySelector('.archived__bar') as HTMLElement;
+    expect(bar().querySelector('[data-act="live-archived-restore"]')?.hasAttribute('disabled')).toBe(true);
+    // Tick one: the bar counts it and the select-all shows mixed.
+    click(root, ".archived__row .archived__tick");
+    await settle();
+    expect(bar().querySelector('.archived__tick')?.getAttribute('aria-checked')).toBe('mixed');
+    // Select all, then everything is ticked.
+    click(root, '.archived__bar .archived__tick');
+    await settle();
+    expect([...root.querySelectorAll('.archived__row .archived__tick')].map((tick) => tick.getAttribute('aria-checked'))).toEqual(['true', 'true']);
+    expect(bar().querySelector('.archived__tick')?.getAttribute('aria-checked')).toBe('true');
+    click(root, '[data-act="live-archived-restore"]');
+    await settle();
+    expect(api.calls.find((call) => call.path.endsWith('/conversations/archived'))?.body).toEqual({ action: 'restore', conversationIds: [CONVERSATION, OTHER] });
+    expect(app.state.toasts.at(-1)).toMatchObject({ tone: 'danger' });
+    expect(app.state.toasts.at(-1)?.text).toContain('للعميل محادثة جارية أحدث');
+    // Deleting is confirmed first.
+    click(root, '.archived__bar .archived__tick');
+    await settle();
+    click(root, '.archived__bar [data-arg="archived-delete"]');
+    await settle();
+    expect(root.querySelector('.dialog')?.textContent).toContain('2');
+    api.on(`POST /tenants/${TENANT}/conversations/archived`, { status: 200, body: { data: { done: [CONVERSATION, OTHER], refused: [] } } });
+    click(root, '.dialog [data-act="live-archived-delete"]');
+    await settle();
+    expect(api.calls.filter((call) => call.path.endsWith('/conversations/archived')).at(-1)?.body).toEqual({ action: 'delete', conversationIds: [CONVERSATION, OTHER] });
+    expect(root.querySelector('.dialog')).toBeNull();
+    expect(app.state.toasts.at(-1)).toMatchObject({ text: 'حُذفت 2 محادثة.', tone: 'default' });
+    // A refusal of the whole request is said, and nothing is selected by it.
+    click(root, '.archived__bar .archived__tick');
+    await settle();
+    api.on(`POST /tenants/${TENANT}/conversations/archived`, { status: 403, body: { error: { code: 'permission_denied', message: 'Not yours.' } } });
+    click(root, '[data-act="live-archived-restore"]');
+    await settle();
+    expect(app.state.toasts.at(-1)).toMatchObject({ text: 'Not yours.', tone: 'danger' });
+    // Leaving the archive drops the selection.
+    click(root, '[data-act="live-inbox-archived-toggle"]');
+    await settle();
+    expect(app.state.live.archivedSelection).toEqual([]);
+  });
+
+  it('offers only bringing back to somebody without the retention key, and names an unfamiliar refusal', async () => {
+    const archived = `/tenants/${TENANT}/conversations?queue=mine&filter=${encodeURIComponent(JSON.stringify({ key: 'status', operator: 'eq', value: 'archived' }))}`;
+    const api = inboxApi()
+      .on(`GET ${archived}`, { status: 200, body: { data: [conversation({ status: 'archived' })] } })
+      .on(`POST /tenants/${TENANT}/conversations/archived`, { status: 200, body: { data: { done: [], refused: [{ id: CONVERSATION, code: 'something_new' }] } } });
+    const { root, app } = await open(api);
+    app.state.lang = 'en';
+    click(root, '[data-act="live-inbox-archived-toggle"]');
+    await settle();
+    expect(root.querySelector('.archived__bar [data-arg="archived-delete"]')).toBeNull();
+    // Nothing ticked, nothing sent.
+    app.dispatch('live-archived-restore');
+    await settle();
+    expect(api.calls.some((call) => call.path.endsWith('/conversations/archived'))).toBe(false);
+    click(root, '.archived__row .archived__tick');
+    await settle();
+    expect(root.querySelector('.archived__count')?.textContent).toBe('1 selected');
+    click(root, '[data-act="live-archived-restore"]');
+    await settle();
+    expect(app.state.toasts.at(-1)).toMatchObject({ text: '0 conversation(s) back in the inbox. 1 unchanged: something_new.', tone: 'danger' });
+  });
+
   it('reloads both inbox halves with the operator filters', async () => {
     const api = inboxApi()
       .on(`GET /tenants/${TENANT}/conversations/unassigned?priority=urgent`, {

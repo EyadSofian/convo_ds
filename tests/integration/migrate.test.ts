@@ -90,6 +90,7 @@ describe('migrate', () => {
       '0040_whatsapp_template_send_evidence.sql',
       '0041_meta_contact_profile_queue.sql',
       '0042_meta_profile_tenant_backfill.sql',
+      '0043_conversation_removal.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);

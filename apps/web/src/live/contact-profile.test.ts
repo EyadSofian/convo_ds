@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CustomField } from '../api/metadata.js';
-import { channelIdHint, customFieldKey, newContactFields, STANDARD_CONTACT_FIELDS, standardFieldKey, typedValue } from './contact-profile.js';
+import { channelIdHint, customFieldKey, derivedChannelId, newContactFields, STANDARD_CONTACT_FIELDS, standardFieldKey, typedValue } from './contact-profile.js';
 
 function field(overrides: Partial<CustomField>): CustomField {
   return { id: 'f-1', target: 'contact', key: 'level', name: 'Level', type: 'text', options: [], state: 'active', version: 1, ...overrides };
@@ -71,5 +71,13 @@ describe('channelIdHint', () => {
     expect(channelIdHint('custom', 'en')).toContain('your own system');
     expect(channelIdHint(undefined, 'en')).toBe('Choose the channel first.');
     expect(channelIdHint('pigeon', 'ar')).toBe('اختر القناة أولًا.');
+  });
+});
+
+describe('derivedChannelId', () => {
+  it('reads a WhatsApp id off the phone, and nothing for other channels', () => {
+    expect(derivedChannelId('whatsapp', '+20 (100) 123-4567')).toBe('201001234567');
+    expect(derivedChannelId('whatsapp', '')).toBe('');
+    expect(derivedChannelId('messenger', '+201001234567')).toBe('');
   });
 });

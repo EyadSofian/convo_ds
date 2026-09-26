@@ -266,6 +266,21 @@ export class ConversationController {
     };
   }
 
+  /** Restores or removes a selection of archived conversations. */
+  @Post('tenants/:tenantId/conversations/archived')
+  @HttpCode(200)
+  async archived(
+    @Param('tenantId') tenantId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    const input = archivedBody(body);
+    return { data: await this.lifecycle.archived(session, tenantId, input.action, input.conversationIds), request_id: request.id };
+  }
+
   /** The reporting episodes of one conversation, oldest first. */
   @Get('tenants/:tenantId/conversations/:conversationId/episodes')
   async episodes(
@@ -782,4 +797,18 @@ function expectedVersion(body: unknown): number {
     );
   }
   return value;
+}
+
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** An action on up to 200 archived conversations, each named once. */
+function archivedBody(body: unknown): { readonly action: 'restore' | 'delete'; readonly conversationIds: readonly string[] } {
+  const record = typeof body === 'object' && body !== null && !Array.isArray(body) ? body as Record<string, unknown> : {};
+  const action = record['action'];
+  const ids = record['conversationIds'];
+  if ((action !== 'restore' && action !== 'delete') || !Array.isArray(ids) || ids.length < 1 || ids.length > 200 ||
+      !ids.every((id) => typeof id === 'string' && CONVERSATION_ID.test(id))) {
+    throw new ApiHttpError(400, 'validation_failed', 'Send restore or delete with 1 to 200 conversation ids.');
+  }
+  return { action, conversationIds: [...new Set(ids as readonly string[])] };
 }

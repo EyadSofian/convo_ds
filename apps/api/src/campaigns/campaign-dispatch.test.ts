@@ -68,13 +68,15 @@ describe('campaign dispatch policy', () => {
     [permit({ campaign_stop_version: '3' }), 'campaign_fence_changed'],
     [permit({ approved: false }), 'campaign_approval_revoked'],
     [permit({ expires_at: new Date(NOW) }), 'campaign_expired'],
-    [permit({ consent_state: 'withdrawn' }), 'marketing_consent_missing'],
+    [permit({ consent_state: 'withdrawn' }), 'marketing_consent_withdrawn'],
   ] as const)('refuses an unsafe projection with %s', (row, reason) => {
     expect(campaignDispatchRefusal(row, NOW)).toMatchObject({ reason });
   });
 
-  it('allows a live approved recipient before expiry', () => {
+  it('allows a live approved recipient before expiry, with or without a recorded consent', () => {
     expect(campaignDispatchRefusal(permit({ expires_at: new Date(NOW + 1) }), NOW)).toBeNull();
+    // Broadcasts reach everyone who has not said no.
+    expect(campaignDispatchRefusal(permit({ consent_state: null }), NOW)).toBeNull();
   });
 
   it.each([

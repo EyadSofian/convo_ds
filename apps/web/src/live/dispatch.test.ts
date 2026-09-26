@@ -84,6 +84,7 @@ describe('the automation actions the DOM can name', () => {
   it.each([
     'live-automation-use',
     'live-automation-save',
+    'live-automation-save-activate',
     'live-automation-add-step',
     'live-automation-remove-step',
     'live-automation-transition',
@@ -103,44 +104,27 @@ describe('the automation actions the DOM can name', () => {
     expect(ctx.state.dialogForm['assignPicked']).toBe('m-1');
   });
 
-  it('refuses to create a blank automation with no name, and does not clear the form', async () => {
-    const ctx = context();
-    ctx.state.dialogForm = { automationBlankName: '   ' };
-    await expect(LIVE_ACTIONS['live-automation-create']?.(ctx, '')).resolves.toBe(false);
-    // The operator's other typing survives a refused submit.
-    expect(ctx.state.dialogForm['automationBlankName']).toBe('   ');
-  });
-
-  it('clears the form once the server has committed the new automation', async () => {
-    // The dialog only empties after a confirmed create, so a refusal never
-    // loses what the operator typed.
+  it('creates a blank automation with or without a name, and keeps the name when the server refuses', async () => {
     const ctx = context();
     ctx.state.live.session = { status: 'signed_in', email: 'a@b.c', memberships: [], tenantId: 't' };
-    // A successful create reloads the screen, so every read the reload makes
-    // has to answer too.
     const ok = <T,>(data: T) => Promise.resolve({ ok: true as const, data });
+    const create = vi.fn()
+      .mockResolvedValueOnce({ ok: true, data: { id: 'a-1', name: 'Welcome flow', state: 'draft', workflow: { trigger: { type: 'schedule' } }, version: 1 } })
+      .mockResolvedValueOnce({ ok: true, data: { id: 'a-2', name: 'New automation', state: 'draft', workflow: { trigger: { type: 'schedule' } }, version: 1 } })
+      .mockResolvedValueOnce({ ok: false, error: { code: 'automation_exists', message: 'Taken', requestId: null, status: 409, details: [] } });
     Object.defineProperty(ctx.live, 'automationsApi', {
-      value: {
-        create: vi.fn().mockResolvedValue({ ok: true, data: { id: 'a-1' } }),
-        templates: vi.fn(() => ok([])),
-        whatsappTemplates: vi.fn(() => ok([])),
-        list: vi.fn(() => ok([])),
-        runs: vi.fn(() => ok([])),
-      },
+      value: { create, templates: vi.fn(() => ok([])), whatsappTemplates: vi.fn(() => ok([])), list: vi.fn(() => ok([])), runs: vi.fn(() => ok([])) },
     });
+    Object.defineProperty(ctx.live, 'savedViewsApi', { value: { audiences: vi.fn(() => ok([])) } });
+    Object.defineProperty(ctx.live, 'metadataApi', { value: { labels: vi.fn(() => ok([])), fields: vi.fn(() => ok([])) } });
     ctx.state.dialogForm = { automationBlankName: 'Welcome flow' };
     await expect(LIVE_ACTIONS['live-automation-create']?.(ctx, '')).resolves.toBe(true);
+    // Straight into the builder, with the form emptied.
+    expect(ctx.state.route.params).toEqual({ view: 'mine', edit: 'a-1' });
     expect(ctx.state.dialogForm).toEqual({});
-  });
-
-  it('declines when the dialog has no name field at all', async () => {
-    const ctx = context();
-    ctx.state.dialogForm = {};
-    await expect(LIVE_ACTIONS['live-automation-create']?.(ctx, '')).resolves.toBe(false);
-  });
-
-  it('keeps the form when creation is declined by the server', async () => {
-    const ctx = context();
+    expect(create.mock.calls[0]?.[1]).toMatchObject({ name: 'Welcome flow', workflow: { target: { type: 'dynamic_audience' }, steps: [{ type: 'send_whatsapp_template' }] } });
+    await expect(LIVE_ACTIONS['live-automation-create']?.(ctx, '')).resolves.toBe(true);
+    expect(create.mock.calls[1]?.[1]).toMatchObject({ name: expect.stringContaining('New automation · ') });
     ctx.state.dialogForm = { automationBlankName: 'Welcome flow' };
     await expect(LIVE_ACTIONS['live-automation-create']?.(ctx, '')).resolves.toBe(false);
     expect(ctx.state.dialogForm['automationBlankName']).toBe('Welcome flow');

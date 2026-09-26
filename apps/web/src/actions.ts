@@ -50,6 +50,8 @@ const nav: ActionHandler = (context, arg) => {
   // Choosing a destination is what a navigation drawer is for; leaving it open
   // over the screen that was just chosen would hide that screen.
   state.navOpen = false;
+  // A link inside a dialog leads away from it: the dialog does not follow.
+  state.dialog = null;
   // A destination opens at its top: a role, team or tab picked on the way is
   // not carried to it. Without this "All roles" left the missing role on screen.
   state.route = {

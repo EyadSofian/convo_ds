@@ -5,7 +5,8 @@ import { pushToast } from '../state.js';
 import type { AppState } from '../state.js';
 import { hasPermission } from './ability.js';
 import type { LiveContext } from './actions.js';
-import { audienceProblem, previewCampaignAudience } from './audience-actions.js';
+import { syncWhatsAppTemplates } from './actions.js';
+import { audienceProblem, loadWhatsAppTemplates, previewCampaignAudience } from './audience-actions.js';
 import { editorAudience } from './audience.js';
 import { loadCampaignsScreen } from './campaign-actions.js';
 import { bindingsFromForm, storedBindings, templateDefinition } from './template-binding.js';
@@ -104,6 +105,23 @@ export async function goToBroadcastStep(context: LiveContext, arg: string): Prom
   // Reaching the review, the count is taken for the operator.
   if (target === 3) await previewCampaignAudience(context);
   return true;
+}
+
+/** Shows any step, to look around; Next and sending still check each one. */
+export function jumpToBroadcastStep(context: LiveContext, arg: string): boolean {
+  const target = Number(arg);
+  if (!Number.isInteger(target) || target < 0 || target > 3) return false;
+  context.state.formErrors = {};
+  context.state.dialogForm = { ...context.state.dialogForm, broadcastStep: String(target) };
+  context.refresh();
+  return true;
+}
+
+/** Reads a number's approved templates from Meta again, then offers the new list. */
+export async function syncBroadcastTemplates(context: LiveContext, connectionId: string): Promise<boolean> {
+  const synced = await syncWhatsAppTemplates(context, connectionId);
+  if (synced) await loadWhatsAppTemplates(context);
+  return synced;
 }
 
 /** A local `datetime-local` value as an instant, when it is one in the future. */

@@ -80,6 +80,7 @@ export const ERROR_CODES: Readonly<Record<string, Phrase>> = {
   provider_not_connected: { ar: 'المزوّد غير متصل', en: 'Provider not connected' },
   provider_error_3: { ar: 'تطبيق Meta لا يملك الصلاحية أو القدرة المطلوبة لهذا الأصل. راجع صلاحيات التطبيق وربط الأصل.', en: 'The Meta app lacks the capability required for this asset. Review app permissions and asset access.' },
   marketing_consent_missing: { ar: 'لا توجد موافقة تسويقية', en: 'No marketing consent' },
+  marketing_consent_withdrawn: { ar: 'سحب العميل موافقته التسويقية', en: 'Withdrew marketing consent' },
   attempt_never_completed: { ar: 'لم تكتمل المحاولة', en: 'Attempt never completed' },
   channel_not_ready: { ar: 'القناة غير جاهزة', en: 'Channel not ready' },
   suppressed: { ar: 'العميل ألغى الاشتراك', en: 'Recipient opted out' },

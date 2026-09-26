@@ -77,6 +77,19 @@ export class ContactController {
     };
   }
 
+  @Post('tenants/:tenantId/contacts/:contactId/identities')
+  async addIdentity(
+    @Param('tenantId') tenantId: string,
+    @Param('contactId') contactId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return { data: await this.contacts.addIdentity(session, tenantId, contactId, parseIdentityBody(body)), request_id: request.id };
+  }
+
   @Post('tenants/:tenantId/contacts/import')
   async import(
     @Param('tenantId') tenantId: string,
@@ -137,17 +150,41 @@ interface UpdateInput {
   readonly displayName: string;
 }
 
-function parseCreate(body: unknown): { displayName: string; connectionId: string; externalId: string } {
-  const record = asRecord(body);
-  const displayName = typeof record['displayName'] === 'string' ? record['displayName'].trim() : '';
+/** A channel identity: a live connection and the customer's id on it. */
+export interface IdentityInput {
+  readonly connectionId: string;
+  readonly externalId: string;
+}
+
+function parseIdentity(record: Record<string, unknown>, details: { field: string; code: string; message: string }[]): IdentityInput {
   const connectionId = record['connectionId'];
   const externalId = typeof record['externalId'] === 'string' ? record['externalId'].trim() : '';
-  const details: { field: string; code: string; message: string }[] = [];
-  if (displayName.length < 1 || displayName.length > 200) details.push({ field: 'displayName', code: 'invalid', message: 'A display name is 1 to 200 characters.' });
   if (typeof connectionId !== 'string' || !UUID.test(connectionId)) details.push({ field: 'connectionId', code: 'invalid', message: 'Choose a valid channel connection.' });
   if (externalId.length < 1 || externalId.length > 256) details.push({ field: 'externalId', code: 'invalid', message: 'A channel identity is 1 to 256 characters.' });
+  return { connectionId: connectionId as string, externalId };
+}
+
+/**
+ * A new contact. The channel identity is optional: a customer typed in by
+ * hand may not be reachable anywhere yet, and one who writes in gets theirs
+ * attached by the message itself.
+ */
+function parseCreate(body: unknown): { displayName: string; identity: IdentityInput | null } {
+  const record = asRecord(body);
+  const displayName = typeof record['displayName'] === 'string' ? record['displayName'].trim() : '';
+  const details: { field: string; code: string; message: string }[] = [];
+  if (displayName.length < 1 || displayName.length > 200) details.push({ field: 'displayName', code: 'invalid', message: 'A display name is 1 to 200 characters.' });
+  const named = (record['connectionId'] ?? null) !== null || (typeof record['externalId'] === 'string' && record['externalId'].trim() !== '');
+  const identity = named ? parseIdentity(record, details) : null;
   if (details.length > 0) throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', details);
-  return { displayName, connectionId: connectionId as string, externalId };
+  return { displayName, identity };
+}
+
+function parseIdentityBody(body: unknown): IdentityInput {
+  const details: { field: string; code: string; message: string }[] = [];
+  const identity = parseIdentity(asRecord(body), details);
+  if (details.length > 0) throw new ApiHttpError(400, 'validation_failed', 'The request body is not valid.', details);
+  return identity;
 }
 
 function parseImport(body: unknown): { connectionId: string; rows: readonly { displayName: string; externalId: string }[] } {

@@ -32,7 +32,7 @@ describe('the audience block', () => {
     const sources = [...block.querySelectorAll('.audience-source')];
     expect(sources.map((source) => source.getAttribute('data-arg'))).toEqual(['all', 'labels', 'conversations', 'picked', 'saved']);
     expect(sources[0]?.getAttribute('aria-checked')).toBe('true');
-    expect(text(block)).toContain('marketing consent');
+    expect(text(block)).toContain('opted out or withdrew consent');
     // Everyone: no picker, no saving, but a name narrowing and a count.
     expect(block.querySelector('.audience__panel')).toBeNull();
     expect(block.querySelector('.audience__save')).toBeNull();
