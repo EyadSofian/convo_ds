@@ -2773,6 +2773,22 @@
     inline-size: 100%;
   }
 
+  .workflow-config {
+    display: grid;
+    gap: var(--space-1);
+    margin-block-start: var(--space-3);
+  }
+
+  .workflow-config--row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .workflow-block--blocked {
+    border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+    background: linear-gradient(160deg, var(--warning-soft), var(--surface-1) 60%);
+  }
+
   .workflow-block__warning {
     display: flex;
     gap: var(--space-2);

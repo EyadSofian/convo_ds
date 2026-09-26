@@ -2,6 +2,8 @@ import type { Automation, AutomationInput, AutomationListQuery, AutomationRun, A
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { forTenant, fromResult, LOADING, refetching, rowsOf } from './store.js';
+import { stepConfigFrom } from './automation-steps.js';
+import { loadMetadataCatalog } from './metadata-catalog.js';
 
 function copy(context: LiveContext, ar: string, en: string): string {
   return context.state.lang === 'ar' ? ar : en;
@@ -11,7 +13,10 @@ export async function loadAutomationsScreen(context: LiveContext): Promise<void>
   const view = context.state.route.params['view'] ?? 'templates';
   if (context.state.route.params['edit'] !== undefined || view === 'mine') {
     await loadAutomationPage(context, true);
-    if (context.state.route.params['edit'] !== undefined) await loadWhatsAppTemplates(context);
+    if (context.state.route.params['edit'] !== undefined) {
+      // The step editors pick labels and fields from the company's catalogue.
+      await Promise.all([loadWhatsAppTemplates(context), context.live.labels.status === 'idle' ? loadMetadataCatalog(context) : null]);
+    }
     return;
   }
   if (view === 'runs') {
@@ -136,7 +141,8 @@ export async function createBlankAutomation(context: LiveContext, name: string):
       version: 1,
       trigger: { type: 'manual', config: {} },
       target: { type: 'matching_conditions', config: {} },
-      steps: [{ id: 'step_1', type: 'create_internal_notification', config: {} }],
+      // A step the executor can run, left for the operator to point at a label.
+      steps: [{ id: 'step_1', type: 'add_label', config: {} }],
       safety: { approvalRequired: true, duplicateWindowSeconds: 86400 },
     },
   };
@@ -147,16 +153,11 @@ export async function saveAutomation(context: LiveContext, automationId: string)
   const automation = rowsOf(context.live.automations).find((entry) => entry.id === automationId);
   if (automation === undefined) return false;
   const form = context.state.dialogForm;
-  const steps = automation.workflow.steps.map((step) => {
-    const type=form[`automationStep_${step.id}`]||step.type;
-    if(type!=='send_whatsapp_template')return{...step,type};
-    const templateId=form[`automationTemplate_${step.id}`]||String(step.config['templateId']??'');
-    const template=rowsOf(context.live.whatsappTemplates).find((entry)=>entry.id===templateId);
-    const previous=typeof step.config['variableMapping']==='object'&&step.config['variableMapping']!==null?step.config['variableMapping'] as Readonly<Record<string,unknown>>:{};
-    const variableMapping=Object.fromEntries((template?.variables??[]).map((variable)=>[variable,{type:form[`automationVariable_${step.id}_${variable}`]||mappingType(previous[variable])||'customer_field'}]));
-    return{...step,type,config:{...step.config,templateId,variableMapping}};
-  });
+  const steps = stepsFromForm(context, automation);
   const triggerType = form['automationTrigger'] || automation.workflow.trigger.type;
+  const targetType = (form['automationTarget'] || automation.workflow.target.type) as Automation['workflow']['target']['type'];
+  const ownTarget = targetType === automation.workflow.target.type ? automation.workflow.target.config : {};
+  const targetLabel = form['automationTargetLabel'] ?? (typeof ownTarget['labelId'] === 'string' ? ownTarget['labelId'] : '');
   const schedule = triggerType === 'schedule'
     ? scheduleOf(form, automation.workflow.schedule, context.now())
     : automation.workflow.schedule;
@@ -167,12 +168,31 @@ export async function saveAutomation(context: LiveContext, automationId: string)
     workflow: {
       ...automation.workflow,
       trigger: { ...automation.workflow.trigger, type: triggerType },
-      target: { ...automation.workflow.target, type: form['automationTarget'] || automation.workflow.target.type },
+      target: { type: targetType, config: targetType === 'label' ? (targetLabel === '' ? {} : { labelId: targetLabel }) : ownTarget },
       steps,
       ...(schedule === undefined ? {} : { schedule }),
     },
   };
   return mutate(context, `automation-save:${automationId}`, (tenantId) => context.live.automationsApi.update(tenantId, automationId, automation.version, input), copy(context, 'حُفظت المسودة.', 'Draft saved.'));
+}
+
+/**
+ * The steps as the builder shows them: each with the kind and config typed so
+ * far. Saving, adding and removing a step all start from this, so a step being
+ * configured is never lost to a neighbour being added.
+ */
+export function stepsFromForm(context: LiveContext, automation: Automation): AutomationStep[] {
+  const form = context.state.dialogForm;
+  const fields = rowsOf(context.live.customFields);
+  return automation.workflow.steps.map((step) => {
+    const type=(form[`automationStep_${step.id}`]||step.type) as AutomationStep['type'];
+    if(type!=='send_whatsapp_template')return{...step,type,config:stepConfigFrom(form,step,type,fields)};
+    const templateId=form[`automationTemplate_${step.id}`]||String(step.config['templateId']??'');
+    const template=rowsOf(context.live.whatsappTemplates).find((entry)=>entry.id===templateId);
+    const previous=typeof step.config['variableMapping']==='object'&&step.config['variableMapping']!==null?step.config['variableMapping'] as Readonly<Record<string,unknown>>:{};
+    const variableMapping=Object.fromEntries((template?.variables??[]).map((variable)=>[variable,{type:form[`automationVariable_${step.id}_${variable}`]||mappingType(previous[variable])||'customer_field'}]));
+    return{...step,type,config:{...step.config,templateId,variableMapping}};
+  });
 }
 
 export function scheduleOf(form:Readonly<Record<string,string>>,previous:Readonly<Record<string,unknown>>|undefined,now:number):Readonly<Record<string,unknown>>{
@@ -190,15 +210,15 @@ export function mappingType(value:unknown):string{if(typeof value!=='object'||va
 export async function addAutomationStep(context: LiveContext, automationId: string): Promise<boolean> {
   const automation = rowsOf(context.live.automations).find((entry) => entry.id === automationId);
   if (automation === undefined || automation.workflow.steps.length >= 50) return false;
-  const step: AutomationStep = { id: `step_${String(automation.workflow.steps.length + 1)}_${context.newKey().slice(-4)}`, type: 'create_internal_notification', config: {} };
-  return updateWorkflow(context, automation, [...automation.workflow.steps, step], copy(context, 'أُضيفت خطوة جديدة.', 'Step added.'));
+  const step: AutomationStep = { id: `step_${String(automation.workflow.steps.length + 1)}_${context.newKey().slice(-4)}`, type: 'add_label', config: {} };
+  return updateWorkflow(context, automation, [...stepsFromForm(context, automation), step], copy(context, 'أُضيفت خطوة جديدة.', 'Step added.'));
 }
 
 export async function removeAutomationStep(context: LiveContext, argument: string): Promise<boolean> {
   const [automationId = '', stepId = ''] = argument.split(':');
   const automation = rowsOf(context.live.automations).find((entry) => entry.id === automationId);
   if (automation === undefined || automation.workflow.steps.length <= 1) return false;
-  return updateWorkflow(context, automation, automation.workflow.steps.filter((step) => step.id !== stepId), copy(context, 'حُذفت الخطوة.', 'Step removed.'));
+  return updateWorkflow(context, automation, stepsFromForm(context, automation).filter((step) => step.id !== stepId), copy(context, 'حُذفت الخطوة.', 'Step removed.'));
 }
 
 export async function transitionAutomation(context: LiveContext, argument: string): Promise<boolean> {

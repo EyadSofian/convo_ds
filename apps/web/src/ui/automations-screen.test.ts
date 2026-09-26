@@ -39,6 +39,87 @@ describe('automation screen',()=>{
  });
 });
 
+describe('configuring each step', () => {
+  function builder(steps: Record<string, unknown>[], form: Record<string, string> = {}, target: Record<string, unknown> = { type: 'dynamic_audience', config: {} }) {
+    const s = state('mine');
+    s.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1' } };
+    s.live.automations = { status: 'ready', value: [{ ...AUTOMATION, workflow: { ...WORKFLOW, target, steps } as never }], loadedAt: 1 };
+    s.dialogForm = form;
+    return s;
+  }
+  const LABELS = [{ id: 'l-1', name: 'VIP', color: '#2563eb', state: 'active' as const, version: 1 }, { id: 'l-old', name: 'Old', color: '#000000', state: 'retired' as const, version: 1 }];
+
+  it('edits a wait in a whole unit, as stored or as typed', () => {
+    const s = builder([{ id: 's1', type: 'delay', config: { seconds: 172_800 } }]);
+    let root = renderAutomations(s);
+    expect((root.querySelector('[data-form="automationDelay_s1"]') as HTMLInputElement).value).toBe('2');
+    expect((root.querySelector('[data-form="automationDelayUnit_s1"]') as HTMLSelectElement).value).toBe('days');
+    expect(root.querySelector('[data-step="s1"] h3')?.textContent).toBe('Wait');
+    s.dialogForm = { automationDelay_s1: '30', automationDelayUnit_s1: 'minutes' };
+    root = renderAutomations(s);
+    expect((root.querySelector('[data-form="automationDelay_s1"]') as HTMLInputElement).value).toBe('30');
+    expect((root.querySelector('[data-form="automationDelayUnit_s1"]') as HTMLSelectElement).value).toBe('minutes');
+    s.lang = 'ar';
+    expect([...renderAutomations(s).querySelectorAll('[data-form="automationDelayUnit_s1"] option')].map((option) => option.textContent)).toEqual(['دقائق', 'ساعات', 'أيام']);
+  });
+
+  it('picks a label for a label step, and says when there is none to pick', () => {
+    const s = builder([{ id: 's1', type: 'add_label', config: { labelId: 'l-1' } }, { id: 's2', type: 'remove_label', config: {} }]);
+    expect(renderAutomations(s).textContent).toContain('Loading labels…');
+    s.live.labels = { status: 'ready', value: [LABELS[1]!], loadedAt: 1 };
+    expect(renderAutomations(s).textContent).toContain('No labels yet');
+    s.live.labels = { status: 'ready', value: LABELS, loadedAt: 1 };
+    const root = renderAutomations(s);
+    expect((root.querySelector('[data-form="automationLabel_s1"]') as HTMLSelectElement).value).toBe('l-1');
+    expect((root.querySelector('[data-form="automationLabel_s2"]') as HTMLSelectElement).value).toBe('');
+    expect([...root.querySelectorAll('[data-form="automationLabel_s1"] option')].map((option) => option.textContent)).toEqual(['Choose a label', 'VIP']);
+  });
+
+  it('picks a contact field and its value for a field step', () => {
+    const s = builder([{ id: 's1', type: 'update_customer_field', config: { fieldId: 'f-1', value: 3 } }, { id: 's2', type: 'update_customer_field', config: {} }]);
+    s.live.customFields = { status: 'ready', value: [
+      { id: 'f-1', target: 'contact', key: 'seats', name: 'Seats', type: 'number', options: [], state: 'active', version: 1 },
+      { id: 'f-2', target: 'conversation', key: 'topic', name: 'Topic', type: 'text', options: [], state: 'active', version: 1 },
+    ], loadedAt: 1 };
+    let root = renderAutomations(s);
+    expect((root.querySelector('[data-form="automationField_s1"]') as HTMLSelectElement).value).toBe('f-1');
+    expect((root.querySelector('[data-form="automationFieldValue_s1"]') as HTMLInputElement).value).toBe('3');
+    expect((root.querySelector('[data-form="automationFieldValue_s2"]') as HTMLInputElement).value).toBe('');
+    expect([...root.querySelectorAll('[data-form="automationField_s1"] option')].map((option) => option.textContent)).toEqual(['Choose a field', 'Seats']);
+    s.dialogForm = { automationField_s2: 'f-1', automationFieldValue_s2: '7' };
+    root = renderAutomations(s);
+    expect((root.querySelector('[data-form="automationFieldValue_s2"]') as HTMLInputElement).value).toBe('7');
+  });
+
+  it('follows a kind changed in the form, and flags a kind the executor cannot run', () => {
+    const s = builder([{ id: 's1', type: 'webhook', config: {} }, { id: 's2', type: 'add_label', config: { labelId: 'l-1' } }], { automationStep_s2: 'delay' });
+    const root = renderAutomations(s);
+    const blocked = root.querySelector('[data-step="s1"]') as HTMLElement;
+    expect(blocked.className).toContain('workflow-block--blocked');
+    expect(blocked.textContent).toContain('activation will refuse it');
+    expect([...blocked.querySelectorAll('select option')].map((option) => option.textContent)).toContain('Webhook (not available yet)');
+    const changed = root.querySelector('[data-step="s2"]') as HTMLElement;
+    expect(changed.querySelector('h3')?.textContent).toBe('Wait');
+    // A kind just chosen starts from nothing: the label it had is not a delay.
+    expect((changed.querySelector('[data-form="automationDelay_s2"]') as HTMLInputElement).value).toBe('1');
+    s.lang = 'ar';
+    expect(renderAutomations(s).querySelector('[data-step="s1"]')?.textContent).toContain('غير متاحة بعد');
+  });
+
+  it('names the label of a label audience', () => {
+    const s = builder([{ id: 's1', type: 'delay', config: { seconds: 60 } }], {}, { type: 'label', config: { labelId: 'l-1' } });
+    s.live.labels = { status: 'ready', value: LABELS, loadedAt: 1 };
+    expect((renderAutomations(s).querySelector('[data-form="automationTargetLabel"]') as HTMLSelectElement).value).toBe('l-1');
+    s.dialogForm = { automationTarget: 'label', automationTargetLabel: '' };
+    expect((renderAutomations(s).querySelector('[data-form="automationTargetLabel"]') as HTMLSelectElement).value).toBe('');
+    s.dialogForm = { automationTarget: 'single_customer' };
+    expect(renderAutomations(s).querySelector('[data-form="automationTargetLabel"]')).toBeNull();
+    const other = builder([{ id: 's1', type: 'delay', config: { seconds: 60 } }], { automationTarget: 'label' });
+    other.live.labels = { status: 'ready', value: LABELS, loadedAt: 1 };
+    expect((renderAutomations(other).querySelector('[data-form="automationTargetLabel"]') as HTMLSelectElement).value).toBe('');
+  });
+});
+
 describe('the schedule block follows the chosen recurrence', () => {
   function builderFor(schedule: Record<string, unknown> | undefined, kind = 'schedule') {
     const s = state('mine');
