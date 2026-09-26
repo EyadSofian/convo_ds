@@ -12,9 +12,10 @@ main.app__screen
                 path
                 path
             span.btn__label
-          button.btn.btn--primary.btn--sm [dialog]
+          button.btn.btn--primary.btn--sm [live-campaign-editor]
             span.btn__icon
               svg
+                path
                 path
             span.btn__label
       section.kpis.kpis--4
@@ -148,11 +149,13 @@ main.app__screen
                 button.btn.btn--sm [dialog]
                   span.btn__icon
                     svg
+                      path
+                      path
                       rect
                       path
                   span.btn__label
               div.action-bar__group
-                button.btn.btn--ghost.btn--sm [dialog]
+                button.btn.btn--ghost.btn--sm [live-campaign-editor]
                   span.btn__icon
                     svg
                       path
@@ -161,6 +164,7 @@ main.app__screen
                 button.btn.btn--ghost.btn--sm [dialog]
                   span.btn__icon
                     svg
+                      path
                       path
                       path
                   span.btn__label

@@ -33,6 +33,7 @@ main.app__screen
                 span.btn__icon
                   svg
                     path
+                    path
                 span.btn__label
         section.automation-category
           header.automation-category__head
@@ -42,6 +43,8 @@ main.app__screen
             article.automation-template-card
               div.automation-template-card__icon
                 svg
+                  path
+                  path
                   rect
                   path
               div.automation-template-card__content
@@ -100,6 +103,8 @@ main.app__screen
             article.automation-template-card
               div.automation-template-card__icon
                 svg
+                  path
+                  path
                   rect
                   path
               div.automation-template-card__content

@@ -19,11 +19,12 @@ div.inbox
             span.btn__icon
               svg
                 path
+                path
       div.listhead__row
         div.inbox-search
           svg
-            circle
             path
+            circle
           input.inbox-search__input [live-inbox-search]
         div.listhead__tools
           div.menu-anchor
@@ -42,7 +43,6 @@ div.inbox
             span.btn__icon
               svg
                 path
-                circle
                 circle
       div.listhead__row.listhead__row--sort
         span.listhead__sortlabel
@@ -98,7 +98,6 @@ div.inbox
               span.badge.badge--warning
                 svg
                   path
-                  path
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
@@ -126,7 +125,6 @@ div.inbox
               span.badge.badge--danger
                 svg
                   path
-                  path
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
@@ -136,14 +134,8 @@ div.inbox
               path
             span.avatar__channel.channel-tile--web_chat
               svg.channel-mark.channel-mark--product.channel-mark--web_chat
-                rect
                 path
-                circle
-                circle
                 path
-                circle
-                circle
-                circle
           div.convrow__main
             div.convrow__line
               span.convrow__name
@@ -188,7 +180,6 @@ div.inbox
               span.badge.badge--warning
                 svg
                   path
-                  path
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
@@ -216,7 +207,6 @@ div.inbox
               span.badge.badge--danger
                 svg
                   path
-                  path
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
@@ -226,14 +216,8 @@ div.inbox
               path
             span.avatar__channel.channel-tile--web_chat
               svg.channel-mark.channel-mark--product.channel-mark--web_chat
-                rect
                 path
-                circle
-                circle
                 path
-                circle
-                circle
-                circle
           div.convrow__main
             div.convrow__line
               span.convrow__name
@@ -278,7 +262,6 @@ div.inbox
               span.badge.badge--warning
                 svg
                   path
-                  path
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
@@ -306,7 +289,6 @@ div.inbox
               span.badge.badge--danger
                 svg
                   path
-                  path
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
@@ -316,14 +298,8 @@ div.inbox
               path
             span.avatar__channel.channel-tile--web_chat
               svg.channel-mark.channel-mark--product.channel-mark--web_chat
-                rect
                 path
-                circle
-                circle
                 path
-                circle
-                circle
-                circle
           div.convrow__main
             div.convrow__line
               span.convrow__name
@@ -357,13 +333,16 @@ div.inbox
           button.btn.btn--sm [live-lifecycle-open]
             span.btn__icon
               svg
-                circle
                 path
+                circle
             span.btn__label
           button.btn.btn--sm [live-lifecycle-open]
             span.btn__icon
               svg
                 circle
+                path
+                path
+                path
                 path
                 path
             span.btn__label
@@ -376,8 +355,8 @@ div.inbox
         button.btn.btn--ghost.btn--sm.btn--icon [live-inbox-mark-unread]
           span.btn__icon
             svg
-              rect
               path
+              rect
         button.btn.btn--ghost.btn--sm.btn--icon.thread__paneltoggle.thread__paneltoggle--inline [panel]
           span.btn__icon
             svg
@@ -470,13 +449,13 @@ div.inbox
                 svg
                   path
                   path
-                  path
             span.composer__hint
             button.btn.btn--sm.composer__templates [live-whatsapp-template-open]
               span.btn__icon
                 svg
                   rect
-                  path
+                  rect
+                  rect
               span.btn__label
             button.btn.btn--primary.btn--sm.composer__send [live-inbox-send]
               span.btn__icon
@@ -491,6 +470,7 @@ div.inbox
       button.btn.btn--ghost.btn--sm.btn--icon [close-overlays]
         span.btn__icon
           svg
+            path
             path
     div.zone__body
       div.contact.contact--panel
@@ -565,16 +545,33 @@ div.inbox
                   path
                   path
               span.panel-section__text
+            div.consent__purposes
+              div.consent__purpose.consent__purpose--none
+                div.consent__purpose-text
+                  strong
+                  span
+                span.badge.badge--neutral
+                div.consent__actions
+                  button.btn.btn--primary.btn--sm [live-consent-panel]
+                    span.btn__label
+                  button.btn.btn--ghost.btn--sm [live-consent-panel]
+                    span.btn__label
+              div.consent__purpose.consent__purpose--granted
+                div.consent__purpose-text
+                  strong
+                  span
+                span.badge.badge--success
+                  span.badge__dot
+                div.consent__actions
+                  button.btn.btn--sm [live-consent-panel]
+                    span.btn__label
+                  button.btn.btn--ghost.btn--sm [live-consent-panel]
+                    span.btn__label
             ul.consent__list
               li.consent__row
                 span.badge.badge--success
                 span.consent__what
                 span.consent__source
-            div.consent__actions
-              button.btn.btn--sm [live-consent-panel]
-                span.btn__label
-              button.btn.btn--ghost.btn--sm [live-consent-panel]
-                span.btn__label
             p.field__hint
           section.panel-section.metadata
             h3.panel-section__title
@@ -590,6 +587,7 @@ div.inbox
                 button.btn.btn--ghost.btn--sm.btn--icon.metadata__remove [live-metadata-label]
                   span.btn__icon
                     svg
+                      path
                       path
             label.field
               span.field__label
@@ -615,6 +613,7 @@ div.inbox
         h3.panel-section__title
           span.section-chip.section-chip--blue
             svg
+              path
               circle
               path
               path
@@ -626,7 +625,6 @@ div.inbox
           div.routing__actions
             span.badge.badge--neutral
               svg
-                path
                 path
             button.btn.btn--sm [live-routing-open]
               span.btn__label
@@ -643,7 +641,6 @@ div.inbox
         h3.panel-section__title
           span.section-chip.section-chip--amber
             svg
-              path
               path
               path
           span.panel-section__text

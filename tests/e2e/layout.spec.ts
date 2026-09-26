@@ -264,8 +264,10 @@ test.describe('the conversation', () => {
     await page.locator('[data-act="composer-tab"][data-arg="note"]').click();
     const note = page.locator('.composer__input--note');
     await expect(note).toBeVisible();
-    const replyColour = await page.locator('.msg--out .msg__bubble').first().evaluate((element) => getComputedStyle(element).backgroundColor);
-    const noteColour = await page.locator('.composer__box--note').evaluate((element) => getComputedStyle(element).backgroundColor);
+    // Colour and gradient together: a reply is painted with the brand gradient.
+    const paint = (element: Element): string => `${getComputedStyle(element).backgroundImage} ${getComputedStyle(element).backgroundColor}`;
+    const replyColour = await page.locator('.msg--out .msg__bubble').first().evaluate(paint);
+    const noteColour = await page.locator('.composer__box--note').evaluate(paint);
     expect(noteColour).not.toBe(replyColour);
   });
 

@@ -15,6 +15,7 @@ main.app__screen
           button.btn.btn--primary.btn--sm [dialog]
             span.btn__icon
               svg
+                path
                 circle
                 path
                 path
@@ -29,8 +30,8 @@ main.app__screen
           div.admin-toolbar
             label.admin-search
               svg
-                circle
                 path
+                circle
               input.admin-search__input [user-search]
           div.tablewrap
             table.table.admin-table

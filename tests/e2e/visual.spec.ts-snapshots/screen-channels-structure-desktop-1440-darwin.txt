@@ -48,6 +48,7 @@ main.app__screen
                   span.btn__icon
                     svg
                       path
+                      path
                   span.btn__label
           article.integration.integration--not_connected
             header.integration__head
@@ -77,6 +78,7 @@ main.app__screen
               button.btn.btn--primary.btn--sm [dialog]
                 span.btn__icon
                   svg
+                    path
                     path
                     path
                     path
@@ -122,19 +124,14 @@ main.app__screen
                   span.btn__icon
                     svg
                       path
+                      path
                   span.btn__label
           article.integration.integration--not_connected
             header.integration__head
               span.channel-tile.channel-tile--web_chat.channel-tile--lg
                 svg.channel-mark.channel-mark--product.channel-mark--web_chat
-                  rect
                   path
-                  circle
-                  circle
                   path
-                  circle
-                  circle
-                  circle
               div.integration__titles
                 h3.integration__name
                 p.integration__provider
@@ -154,6 +151,7 @@ main.app__screen
               button.btn.btn--primary.btn--sm [dialog]
                 span.btn__icon
                   svg
+                    path
                     path
                     path
                     path
@@ -182,7 +180,6 @@ main.app__screen
                 svg.channel-mark.channel-mark--product.channel-mark--custom
                   path
                   path
-                  path
               div.integration__titles
                 h3.integration__name
                 p.integration__provider
@@ -202,6 +199,7 @@ main.app__screen
               button.btn.btn--primary.btn--sm [dialog]
                 span.btn__icon
                   svg
+                    path
                     path
                     path
                     path

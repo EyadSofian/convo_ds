@@ -37,7 +37,7 @@ div.auth-layout
           svg
             path
             path
-            circle
+            path
           div
             p.inline-error__title
         form.auth-form
@@ -52,7 +52,6 @@ div.auth-layout
                 span.btn__icon
                   svg
                     path
-                    circle
                     circle
           div.auth-form__meta
             a.auth-form__forgot
