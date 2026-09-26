@@ -9,7 +9,6 @@ import {
   approveCampaign,
   cloneCampaign,
   controlCampaign,
-  createCampaign,
   createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
@@ -23,7 +22,6 @@ import {
   refreshCampaignReportExport,
   retryCampaignFailures,
   testSendCampaign,
-  updateCampaign,
   validateCampaign,
 } from './campaign-actions.js';
 import { LIVE_ACTIONS } from './dispatch.js';
@@ -120,7 +118,7 @@ describe('campaign actions', () => {
     await loadCampaignsScreen(context);
     await loadCampaignRecipients(context, 'campaign-1');
     await loadCampaignReport(context);
-    expect(await createCampaign(context, INPUT)).toBe(false);
+    expect(await validateCampaign(context, 'campaign-1')).toBe(false);
     expect(await testSendCampaign(context, 'campaign-1', 'recipient-1', 1)).toBe(false);
     expect(await retryCampaignFailures(context, 'campaign-1')).toBe(false);
     expect(await createCampaignReportExport(context)).toBe(false);
@@ -452,16 +450,12 @@ describe('campaign actions', () => {
 
   it('records success only after the mutation and then reloads server state', async () => {
     const { context, state, campaigns } = setup();
-    expect(await createCampaign(context, INPUT)).toBe(true);
-    expect(campaigns.create).toHaveBeenCalledWith('tenant-1', INPUT, 'key-1');
-    expect(state.toasts.at(-1)?.text).toContain('Draft');
+    expect(await validateCampaign(context, 'campaign-1')).toBe(true);
+    expect(campaigns.validate).toHaveBeenCalledWith('tenant-1', 'campaign-1');
+    expect(state.toasts.at(-1)?.text).toContain('Audience frozen');
     expect(state.live.busy).toBeNull();
     expect(state.live.revision).toBe(1);
     expect(campaigns.list).toHaveBeenCalledOnce();
-
-    expect(await updateCampaign(context, 'campaign-1', INPUT, 1)).toBe(true);
-    expect(campaigns.update).toHaveBeenCalledWith('tenant-1', 'campaign-1', INPUT, 1, 'key-1');
-    expect(state.toasts.at(-1)?.text).toBe('Revision 1 saved');
   });
 
   it('keeps a refusal beside the campaign form and produces no success toast', async () => {
@@ -517,32 +511,14 @@ describe('campaign actions', () => {
     expect(refused.state.live.campaignRecipients).toEqual({ status: 'error', error: ERROR });
   });
 
-  it('dispatches every campaign control and clears a completed create form', async () => {
+  it('dispatches every campaign control', async () => {
     const empty = setup();
-    expect(await LIVE_ACTIONS['live-campaign-create']?.(empty.context, '')).toBe(false);
-    expect(empty.state.formErrors).toEqual({ campaignName: 'Enter a campaign name.', campaignMessage: 'Write the message.' });
-    // Named and written, but with no healthy channel to send it on, nothing is sent.
-    empty.state.dialogForm = { campaignName: 'A', campaignMessage: 'B' };
-    expect(await LIVE_ACTIONS['live-campaign-create']?.(empty.context, '')).toBe(false);
-    expect(empty.campaigns.create).not.toHaveBeenCalled();
-    // The select shows the first healthy channel until it is changed, and that is what is sent.
-    empty.state.live.connections = { status: 'ready', loadedAt: 1, value: [{ id: 'sick', status: 'degraded' }, { id: 'well', status: 'healthy' }] as ChannelConnection[] };
-    expect(await LIVE_ACTIONS['live-campaign-create']?.(empty.context, '')).toBe(true);
-    expect(vi.mocked(empty.campaigns.create).mock.calls[0]?.[1]).toMatchObject({ connectionId: 'well' });
     expect(await LIVE_ACTIONS['live-campaign-control']?.(empty.context, 'campaign-1:wrong')).toBe(false);
     expect(await LIVE_ACTIONS['live-campaign-clone']?.(empty.context, ':')).toBe(false);
-    expect(await LIVE_ACTIONS['live-campaign-update']?.(empty.context, 'missing')).toBe(false);
     expect(await LIVE_ACTIONS['live-campaign-test-send']?.(empty.context, 'missing')).toBe(false);
 
     const readyCase = setup();
-    readyCase.state.dialog = { kind: 'campaign', arg: '' };
-    readyCase.state.dialogForm = {
-      campaignName: 'Autumn intake', campaignConnection: 'channel-1',
-      campaignMessage: 'Welcome', campaignObjective: '', campaignSearch: 'Mona',
-    };
-    expect(await LIVE_ACTIONS['live-campaign-create']?.(readyCase.context, '')).toBe(true);
-    expect(readyCase.state.dialog).toBeNull();
-
+    readyCase.state.live.campaigns = { status: 'ready', loadedAt: 1, value: [CAMPAIGN] };
     readyCase.state.dialog = { kind: 'campaign-test-send', arg: 'campaign-1' };
     expect(await LIVE_ACTIONS['live-campaign-test-send']?.(readyCase.context, 'campaign-1')).toBe(false);
     readyCase.state.live.testRecipients = { status: 'ready', loadedAt: 1, value: [{
@@ -553,46 +529,6 @@ describe('campaign actions', () => {
     expect(readyCase.campaigns.testSend).toHaveBeenCalledWith('tenant-1', 'campaign-1', 'recipient-1', 1, 'key-1');
     expect(readyCase.state.dialog).toBeNull();
     expect(readyCase.state.dialogForm).toEqual({});
-    expect(vi.mocked(readyCase.campaigns.create).mock.calls[0]?.[1]).toMatchObject({
-      name: 'Autumn intake', objective: null, audienceFilter: { search: 'Mona' },
-    });
-
-    readyCase.state.dialog = { kind: 'campaign-edit', arg: 'campaign-1' };
-    readyCase.state.dialogForm = {
-      campaignName: 'Edited intake', campaignConnection: 'channel-1', campaignMessage: 'Edited welcome',
-      campaignObjective: 'Retention', campaignSearch: 'Student',
-    };
-    expect(await LIVE_ACTIONS['live-campaign-update']?.(readyCase.context, 'campaign-1')).toBe(true);
-    expect(readyCase.campaigns.update).toHaveBeenCalledWith('tenant-1', 'campaign-1', expect.objectContaining({
-      name: 'Edited intake', content: { text: 'Edited welcome' }, audienceFilter: { search: 'Student' },
-    }), 1, 'key-1');
-    expect(readyCase.state.dialog).toBeNull();
-
-    readyCase.state.dialog = { kind: 'campaign-edit', arg: 'campaign-1' };
-    readyCase.state.dialogForm = {
-      campaignName: 'No objective', campaignConnection: 'channel-1', campaignMessage: 'Welcome',
-      campaignObjective: '', campaignSearch: '',
-    };
-    expect(await LIVE_ACTIONS['live-campaign-update']?.(readyCase.context, 'campaign-1')).toBe(true);
-    expect(vi.mocked(readyCase.campaigns.update).mock.calls.at(-1)?.[2]).toMatchObject({ objective: null });
-
-    // Fields the operator never touched keep what the server holds: a rename
-    // must not clear the audience search or the objective, or refuse because the
-    // message was not retyped.
-    readyCase.state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{ ...CAMPAIGN, objective: 'Keep', audience_filter: { search: 'Mona' } }] };
-    readyCase.state.dialog = { kind: 'campaign-edit', arg: 'campaign-1' };
-    readyCase.state.dialogForm = { campaignName: 'Renamed only' };
-    expect(await LIVE_ACTIONS['live-campaign-update']?.(readyCase.context, 'campaign-1')).toBe(true);
-    expect(vi.mocked(readyCase.campaigns.update).mock.calls.at(-1)?.[2]).toMatchObject({
-      name: 'Renamed only', objective: 'Keep', connectionId: 'channel-1', content: { text: 'Hello' }, audienceFilter: { search: 'Mona' },
-    });
-    // A saved campaign whose content has no text, edited without a message, is refused before sending.
-    readyCase.state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{ ...CAMPAIGN, content: { template: 'welcome' } }] };
-    readyCase.state.dialogForm = { campaignName: '' };
-    const calls = vi.mocked(readyCase.campaigns.update).mock.calls.length;
-    expect(await LIVE_ACTIONS['live-campaign-update']?.(readyCase.context, 'campaign-1')).toBe(false);
-    expect(readyCase.state.formErrors).toEqual({ campaignName: 'Enter a campaign name.', campaignMessage: 'Write the message.' });
-    expect(vi.mocked(readyCase.campaigns.update).mock.calls).toHaveLength(calls);
 
     await LIVE_ACTIONS['live-campaign-validate']?.(readyCase.context, 'campaign-1');
     await LIVE_ACTIONS['live-campaign-approve']?.(readyCase.context, 'campaign-1');

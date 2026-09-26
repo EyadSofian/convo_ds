@@ -21,6 +21,8 @@ export interface ChannelTransportPort {
     credential: string,
     assetIdentity: string,
     facebookPageId?: string | null,
+    /** A Custom Channel's reply URL, which is what verifying it means. */
+    endpoint?: string | null,
   ): Promise<ConnectionCheck>;
   send(kind: ChannelKind, credential: string, command: SendCommand): Promise<SendOutcome>;
   /** Optional provider profile lookup. A missing name must never block inbound. */

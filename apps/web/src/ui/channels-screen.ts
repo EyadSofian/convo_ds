@@ -9,7 +9,7 @@ import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, relativeTime } from '../format.js';
 import { icon } from '../icons.js';
-import { channelPageField, channelTestIdentityField, channelTestLabelField, channelTokenField } from '../live/dispatch.js';
+import { channelOriginsField, channelOutboundField, channelPageField, channelTestIdentityField, channelTestLabelField, channelTokenField } from '../live/dispatch.js';
 import { rowsOf } from '../live/store.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
@@ -469,7 +469,7 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
                 autocomplete: 'off',
                 ...LITERAL_INPUT,
                 dir: 'ltr',
-                placeholder: t(state, 'رمز وصول جديد', 'New access token'),
+                placeholder: connection.kind === 'custom' || connection.kind === 'web_chat' ? t(state, 'مفتاح توقيع جديد', 'New signing key') : t(state, 'رمز وصول جديد', 'New access token'),
                 value: token,
                 'data-act': 'form-toggle',
                 'data-form': tokenField,
@@ -495,8 +495,71 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
               busy: live.busy === `instagram-page:${connection.id}`,
             }),
           ]) : null,
+          connection.kind === 'custom' || connection.kind === 'web_chat' ? ownChannelSetup(state, live, connection) : null,
           testRecipients(state, live, connection),
         ]),
+  ]);
+}
+
+/**
+ * How the operator's own system talks to a channel we host: where to post,
+ * how to sign, and — for a Custom Channel — where replies come back.
+ */
+function ownChannelSetup(state: AppState, live: LiveState, connection: ChannelConnection): HTMLElement {
+  const custom = connection.kind === 'custom';
+  const id = `own-${connection.id}`;
+  const receiveUrl = `${window.location.origin}/api/v1/webhooks/${custom ? 'custom' : 'web-chat'}/${connection.external_asset_id}`;
+  const originsKey = channelOriginsField(connection.id);
+  const outboundKey = channelOutboundField(connection.id);
+  const example = custom
+    ? JSON.stringify({ object: 'convo_custom', version: '1', asset_id: connection.external_asset_id, events: [{ id: 'msg-1001', from: 'customer-42', type: 'message', text: 'Hello', name: 'Mona Adel' }] }, null, 2)
+    : null;
+  return h('section', { class: 'connection__block own-setup', 'aria-labelledby': `${id}-title` }, [
+    h('h3', { class: 'connection__blocktitle', id: `${id}-title` }, [t(state, 'ربط نظامك', 'Connect your system')]),
+    h('dl', { class: 'attrgrid own-setup__facts' }, [
+      h('dt', {}, [t(state, 'أرسل رسائل العملاء إلى', 'Post customer messages to')]),
+      h('dd', {}, [h('code', { class: 'own-setup__code', dir: 'ltr' }, [receiveUrl])]),
+      h('dt', {}, [t(state, 'التوقيع', 'Signature')]),
+      h('dd', {}, [h('code', { class: 'own-setup__code', dir: 'ltr' }, ['x-convo-signature: v1=HMAC-SHA256(key, timestamp + "." + body)']), h('br', {}), h('code', { class: 'own-setup__code', dir: 'ltr' }, ['x-convo-timestamp: <unix seconds>'])]),
+      custom ? h('dt', {}, [t(state, 'الردود', 'Replies')]) : null,
+      custom
+        ? h('dd', {}, [connection.outbound_url === null || connection.outbound_url === undefined
+            ? t(state, 'لم يُحدَّد رابط بعد — لا يمكن الرد على هذه القناة.', 'No URL yet — replies on this channel cannot be sent.')
+            : h('code', { class: 'own-setup__code', dir: 'ltr' }, [connection.outbound_url])])
+        : null,
+    ]),
+    example === null ? null : h('details', { class: 'own-setup__example' }, [
+      h('summary', {}, [t(state, 'مثال على رسالة عميل', 'Example customer message')]),
+      h('pre', { class: 'own-setup__pre', dir: 'ltr' }, [example]),
+      h('p', { class: 'field__hint' }, [t(state,
+        'نرسل الردود بالشكل نفسه: {"object":"convo_custom","messages":[{"id","to","type":"text","text"}]} موقّعة بالمفتاح نفسه، وننتظر 2xx.',
+        'Replies arrive in the same shape: {"object":"convo_custom","messages":[{"id","to","type":"text","text"}]}, signed with the same key; answer 2xx.')]),
+    ]),
+    h('form', { class: 'own-setup__form', 'data-submit': 'live-channel-settings', 'data-arg': connection.id }, [
+      custom ? h('label', { class: 'field' }, [
+        h('span', { class: 'field__label' }, [t(state, 'رابط استقبال الردود', 'Reply URL')]),
+        textInput(outboundKey, state.dialogForm[outboundKey] ?? connection.outbound_url ?? '', 'https://crm.school.example/convo', { inputmode: 'url' }),
+      ]) : null,
+      h('label', { class: 'field' }, [
+        h('span', { class: 'field__label' }, [custom ? t(state, 'مصادر المتصفح المسموح بها (اختياري)', 'Allowed browser origins (optional)') : t(state, 'المصادر المسموح لها بالإرسال', 'Allowed sending origins')]),
+        h('textarea', {
+          class: 'input textarea',
+          rows: '2',
+          dir: 'ltr',
+          ...LITERAL_INPUT,
+          placeholder: 'https://school.example',
+          'data-act': 'form',
+          'data-form': originsKey,
+        }, [state.dialogForm[originsKey] ?? (connection.origins ?? []).join('\n')]),
+      ]),
+      button({
+        label: t(state, 'حفظ الإعدادات', 'Save settings'),
+        act: 'live-channel-settings',
+        arg: connection.id,
+        small: true,
+        busy: live.busy === `channel-settings:${connection.id}`,
+      }),
+    ]),
   ]);
 }
 

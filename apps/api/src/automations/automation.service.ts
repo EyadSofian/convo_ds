@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { nextScheduledAt, type AutomationStep, type AutomationWorkflow, type PermissionKey, type ScheduleDefinition, type SqlExecutor } from '@convo/domain';
+import { bindingsComplete, defineWhatsAppTemplate, filterFromConditions, nextScheduledAt, parseTemplateBindings, type AutomationStep, type AutomationWorkflow, type ConditionDocument, type PermissionKey, type ScheduleDefinition, type SqlExecutor } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import type { ApiConfig } from '../config.js';
@@ -76,6 +76,7 @@ function incomplete(message:string):ApiHttpError{return new ApiHttpError(409,'au
  */
 async function validateActivation(sql:SqlExecutor,workflow:AutomationWorkflow):Promise<void>{
   if(workflow.target.type==='label'&&!uuid(workflow.target.config['labelId']))throw incomplete('Choose the label whose contacts this automation reaches.');
+  if(workflow.target.type==='dynamic_audience')await validateAudienceTarget(sql,workflow.target.config['audienceId']);
   for(const step of workflow.steps){
     if(!EXECUTABLE_STEPS.has(step.type))throw new ApiHttpError(409,'automation_action_not_supported',`The ${step.type} step is not available yet. Remove it before activation.`);
     if(step.type==='delay'){const seconds=step.config['seconds'];if(typeof seconds!=='number'||!Number.isInteger(seconds)||seconds<1||seconds>31_536_000)throw incomplete('Set how long the delay step waits.');}
@@ -84,7 +85,25 @@ async function validateActivation(sql:SqlExecutor,workflow:AutomationWorkflow):P
     else if(step.type==='send_whatsapp_template')await validateTemplateStep(sql,step);
   }
 }
-async function validateTemplateStep(sql:SqlExecutor,step:AutomationStep):Promise<void>{const id=step.config['templateId'];if(!uuid(id))throw new ApiHttpError(409,'automation_template_required','Choose an approved WhatsApp template before activation.');const found=(await sql.query<{variables:readonly string[]}>(`SELECT variables FROM whatsapp_templates WHERE id=$1 AND status='approved'`,[id])).rows[0];if(found===undefined)throw new ApiHttpError(409,'automation_template_unavailable','The selected WhatsApp template is not approved or available.');const mapping=step.config['variableMapping'];if(typeof mapping!=='object'||mapping===null||found.variables.some((variable)=>!Object.hasOwn(mapping,variable)))throw new ApiHttpError(409,'automation_variables_incomplete','Map every required WhatsApp template variable before activation.');}
+/** A saved audience target names an active audience that a filter can express exactly. */
+async function validateAudienceTarget(sql:SqlExecutor,audienceId:unknown):Promise<void>{
+  const saved=uuid(audienceId)?(await sql.query<{conditions:ConditionDocument}>(`SELECT conditions FROM audiences WHERE id=$1 AND state='active'`,[audienceId])).rows[0]:undefined;
+  if(saved===undefined||filterFromConditions(saved.conditions)===null)throw incomplete('Choose the saved audience this automation reaches.');
+}
+/**
+ * An approved template, and a source for every one of its variables — the
+ * same bindings a broadcast uses, including a field that must still exist.
+ */
+async function validateTemplateStep(sql:SqlExecutor,step:AutomationStep):Promise<void>{
+  const id=step.config['templateId'];
+  if(!uuid(id))throw new ApiHttpError(409,'automation_template_required','Choose an approved WhatsApp template before activation.');
+  const found=(await sql.query<{components:unknown}>(`SELECT components FROM whatsapp_templates WHERE id=$1 AND status='approved'`,[id])).rows[0];
+  if(found===undefined)throw new ApiHttpError(409,'automation_template_unavailable','The selected WhatsApp template is not approved or available.');
+  const bindings=parseTemplateBindings(step.config['variableMapping']??{});
+  const fields=bindings===null?[]:Object.values(bindings).flatMap((binding)=>binding.source==='field'?[binding.fieldId!]:[]);
+  const live=fields.length===0?0:(await sql.query(`SELECT 1 FROM custom_fields WHERE id=ANY($1::uuid[]) AND target='contact' AND state='active'`,[fields])).rows.length;
+  if(bindings===null||!bindingsComplete(defineWhatsAppTemplate(found.components),bindings)||live!==new Set(fields).size)throw new ApiHttpError(409,'automation_variables_incomplete','Map every required WhatsApp template variable before activation.');
+}
 function versioned<T>(rows:readonly T[]):T{const r=rows[0];if(r===undefined)throw conflict('automation_version_conflict');return r;} function conflict(code:string):ApiHttpError{return new ApiHttpError(409,code,'The automation changed or the requested transition is not allowed.');}
 /**
  * The first instant an automation should run, or null when it is not scheduled.

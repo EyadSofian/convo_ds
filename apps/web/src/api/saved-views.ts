@@ -56,6 +56,10 @@ export class SavedViewsApi {
     return this.client.post<SavedAudience>(`/tenants/${tenantId}/audiences`, { body: input });
   }
 
+  retireAudience(tenantId: string, id: string, version: number): Promise<ApiResult<undefined>> {
+    return this.client.delete<undefined>(`/tenants/${tenantId}/audiences/${id}`, { body: { version } });
+  }
+
   retire(tenantId: string, id: string, version: number): Promise<ApiResult<undefined>> {
     return this.client.delete<undefined>(`/tenants/${tenantId}/saved-views/${id}`, { body: { version } });
   }

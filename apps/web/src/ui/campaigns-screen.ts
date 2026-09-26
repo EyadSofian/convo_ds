@@ -3,9 +3,11 @@ import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, formatNumber, relativeTime } from '../format.js';
 import { icon } from '../icons.js';
+import { filterFromConditions } from '@convo/domain';
 import { hasPermission } from '../live/ability.js';
+import { whatsappNumbers } from '../live/audience.js';
 import { rowsOf } from '../live/store.js';
-import type { LiveState } from '../live/store.js';
+import type { CampaignView, LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { CAMPAIGN_STATES, CHANNEL_NAMES, ERROR_CODES, phrase, RECIPIENT_STATES, t } from './copy.js';
 import {
@@ -16,9 +18,11 @@ import {
   inlineError,
   isolated,
   kpi,
+  notice,
   page,
   panel,
   refreshButton,
+  segmented,
   skeleton,
   toolbar,
 } from './parts.js';
@@ -83,12 +87,44 @@ export function renderBroadcasts(state: AppState): HTMLElement {
   const live = state.live;
   const can = abilities(live);
   return page('campaigns', toolbar(
-    t(state, 'أنشئ الحملات واعتمدها وتابع نتيجة كل مستلم.', 'Create, approve and follow every recipient of your campaigns.'),
+    t(state, 'بث رسائل واتساب بالقوالب المعتمدة لجمهورك، وتابع كل مستلم.', 'Broadcast approved WhatsApp templates to your audience and follow every recipient.'),
     [
       refreshButton(state, 'live-campaigns-reload', live.campaigns.status === 'loading'),
-      can.draft ? button({ label: t(state, 'حملة جديدة', 'New campaign'), icon: 'plus', act: 'live-campaign-editor', arg: '', variant: 'primary', small: true }) : null,
+      can.draft && live.campaignView === 'audiences'
+        ? button({ label: t(state, 'جمهور جديد', 'New audience'), icon: 'plus', act: 'live-audience-new', small: true })
+        : null,
+      can.draft ? button({ label: t(state, 'بث جديد', 'New broadcast'), icon: 'plus', act: 'live-campaign-editor', arg: '', variant: 'primary', small: true }) : null,
     ],
   ), body(state, live, can));
+}
+
+/** Which bucket a campaign's lifecycle state belongs in. */
+export function campaignBucket(state: Campaign['state']): Exclude<CampaignView, 'all' | 'audiences'> {
+  if (state === 'scheduled') return 'scheduled';
+  if (state === 'running' || state === 'pausing' || state === 'paused' || state === 'cancelling') return 'sending';
+  if (state === 'dispatch_completed' || state === 'cancelled' || state === 'failed') return 'completed';
+  return 'drafts';
+}
+
+function views(state: AppState, campaigns: readonly Campaign[], current: CampaignView): HTMLElement {
+  const count = (view: CampaignView): number => campaigns.filter((campaign) => view === 'all' || campaignBucket(campaign.state) === view).length;
+  const items: readonly [CampaignView, string, string][] = [
+    ['all', 'الكل', 'All'],
+    ['drafts', 'مسودات', 'Drafts'],
+    ['scheduled', 'مجدولة', 'Scheduled'],
+    ['sending', 'قيد الإرسال', 'Sending'],
+    ['completed', 'مكتملة', 'Completed'],
+  ];
+  return h('div', { class: 'campaign-views' }, [
+    segmented(items.map(([value, ar, en]) => ({ value, label: t(state, ar, en), count: count(value) })), current, 'live-campaign-view', t(state, 'تصنيف الحملات', 'Campaign status')),
+    h('button', {
+      type: 'button',
+      class: 'campaign-views__audiences',
+      'aria-pressed': String(current === 'audiences'),
+      'data-act': 'live-campaign-view',
+      'data-arg': 'audiences',
+    }, [icon('bookmark', 14), t(state, 'الجماهير المحفوظة', 'Saved audiences')]),
+  ]);
 }
 
 function body(state: AppState, live: LiveState, can: Abilities): readonly Child[] {
@@ -99,27 +135,85 @@ function body(state: AppState, live: LiveState, can: Abilities): readonly Child[
     return [errorState(state, live.campaigns.error, 'live-campaigns-reload')];
   }
   const campaigns = live.campaigns.value;
+  // Broadcasts go out from WhatsApp only; without a number there is nothing to create.
+  const noNumber = live.connections.status === 'ready' && whatsappNumbers(state).length === 0;
+  const view = live.campaignView;
+  if (view === 'audiences') {
+    return [views(state, campaigns, view), audiencesPanel(state, can)];
+  }
   if (campaigns.length === 0) {
-    return [panel(t(state, 'الحملات', 'Campaigns'), [
-      emptyState({
-        icon: 'broadcasts',
-        title: t(state, 'لا توجد حملات بعد', 'No campaigns yet'),
-        body: can.draft
-          ? t(state, 'أنشئ مسودة، ثبّت جمهورها، ثم اعتمدها وأطلقها.', 'Create a draft, freeze its audience, then approve and launch it.')
-          : t(state, 'لم تُنشأ أي حملة في مساحة العمل.', 'No campaign has been created in this workspace.'),
-        action: can.draft ? { label: t(state, 'حملة جديدة', 'New campaign'), act: 'live-campaign-editor', arg: '', primary: true } : undefined,
-      }),
+    return [panel(t(state, 'البث', 'Broadcasts'), [
+      noNumber
+        ? emptyState({
+            icon: 'plug',
+            title: t(state, 'اربط رقم واتساب للأعمال', 'Connect a WhatsApp Business number'),
+            body: t(state, 'البث يُرسل من رقم واتساب بقوالب معتمدة من Meta. اربط رقمك وزامن قوالبه لتبدأ.', 'Broadcasts go out from a WhatsApp number using templates Meta approved. Connect yours and sync its templates to start.'),
+            action: { label: t(state, 'ربط واتساب', 'Connect WhatsApp'), act: 'nav', arg: 'channels', primary: true },
+          })
+        : emptyState({
+            icon: 'broadcasts',
+            title: t(state, 'لا يوجد بث بعد', 'No broadcasts yet'),
+            body: can.draft
+              ? t(state, 'اختر قالبًا معتمدًا وجمهورًا وأرسل الآن أو جدوله لوقت لاحق.', 'Pick an approved template and an audience, then send now or schedule it.')
+              : t(state, 'لم يُنشأ أي بث في مساحة العمل.', 'No broadcast has been created in this workspace.'),
+            action: can.draft ? { label: t(state, 'بث جديد', 'New broadcast'), act: 'live-campaign-editor', arg: '', primary: true } : undefined,
+          }),
     ])];
   }
-  const selected = campaigns.find((campaign) => campaign.id === live.selectedCampaignId) ?? (campaigns[0] as Campaign);
+  const shown = campaigns.filter((campaign) => view === 'all' || campaignBucket(campaign.state) === view);
+  const selected = shown.find((campaign) => campaign.id === live.selectedCampaignId) ?? shown[0];
   return [
     summary(state, campaigns),
+    noNumber ? notice('warning', 'plug', t(state, 'لا يوجد رقم واتساب متصل: لا يمكن إرسال بث جديد حتى تربط رقمًا.', 'No WhatsApp number is connected: no new broadcast can go out until you connect one.')) : null,
     state.dialog === null ? inlineError(state, live.error) : null,
-    h('div', { class: 'split' }, [
-      panel(t(state, 'كل الحملات', 'All campaigns'), [campaignTable(state, campaigns, selected.id)], { flush: true, extraClass: 'split__list' }),
-      campaignDetail(state, live, selected, can),
-    ]),
+    views(state, campaigns, view),
+    selected === undefined
+      ? panel(t(state, 'البث', 'Broadcasts'), [emptyState({ icon: 'broadcasts', title: t(state, 'لا شيء هنا', 'Nothing here'), body: t(state, 'لا يوجد بث في هذا التصنيف.', 'No broadcast is in this group.') })])
+      : h('div', { class: 'split' }, [
+          panel(t(state, 'البث', 'Broadcasts'), [campaignTable(state, shown, selected.id)], { flush: true, extraClass: 'split__list' }),
+          campaignDetail(state, live, selected, can),
+        ]),
   ];
+}
+
+/** The saved audiences: what each one narrows to, and a way to add or retire one. */
+function audiencesPanel(state: AppState, can: Abilities): HTMLElement {
+  const audiences = state.live.audiences;
+  const labels = rowsOf(state.live.labels);
+  const labelNames = (ids: readonly string[]): string => ids.map((id) => labels.find((label) => label.id === id)?.name ?? '…').join(t(state, '، ', ', '));
+  const body = audiences.status === 'error'
+    ? errorState(state, audiences.error, 'live-campaigns-reload')
+    : audiences.status !== 'ready'
+      ? skeleton(state, 3)
+      : audiences.value.length === 0
+        ? emptyState({
+            icon: 'bookmark',
+            title: t(state, 'لا يوجد جمهور محفوظ', 'No saved audiences'),
+            body: t(state, 'احفظ مجموعة من العملاء — بتصنيف، أو من محادثات بتصنيف، أو اختيارًا يدويًا — لتستخدمها في البث والأتمتة.', 'Save a group of contacts — by label, from labelled conversations, or picked by hand — to use in broadcasts and automations.'),
+            action: can.draft ? { label: t(state, 'جمهور جديد', 'New audience'), act: 'live-audience-new', primary: true } : undefined,
+          })
+        : h('ul', { class: 'audience-cards' }, audiences.value.map((audience) => {
+            const filter = filterFromConditions(audience.conditions);
+            const parts = filter === null ? [t(state, 'شروط لا يستطيع البث تطبيقها', 'Conditions a broadcast cannot apply')] : [
+              filter.labelIds === undefined ? null : t(state, `تصنيفات: ${labelNames(filter.labelIds)}`, `Labels: ${labelNames(filter.labelIds)}`),
+              filter.conversationLabelIds === undefined ? null : t(state, `محادثات بتصنيف: ${labelNames(filter.conversationLabelIds)}`, `Conversations labelled: ${labelNames(filter.conversationLabelIds)}`),
+              filter.contactIds === undefined ? null : t(state, `${formatNumber(filter.contactIds.length, state.lang)} شخص مختار`, `${formatNumber(filter.contactIds.length, state.lang)} people picked`),
+              filter.search === undefined ? null : t(state, `الاسم يحتوي «${filter.search}»`, `Name contains “${filter.search}”`),
+            ].filter((part): part is string => part !== null);
+            return h('li', { class: 'audience-card', 'data-audience': audience.id }, [
+              h('span', { class: 'audience-card__icon', 'aria-hidden': 'true' }, [icon('users', 16)]),
+              h('div', { class: 'audience-card__text' }, [
+                h('strong', {}, [isolated(audience.name)]),
+                h('span', {}, [parts.join(' · ')]),
+              ]),
+              can.draft
+                ? button({ label: t(state, 'إزالة', 'Remove'), icon: 'trash', act: 'live-audience-retire', arg: audience.id, small: true, variant: 'ghost', busy: state.live.busy === `audience-retire:${audience.id}` })
+                : null,
+            ]);
+          }));
+  return panel(t(state, 'الجماهير المحفوظة', 'Saved audiences'), [body], {
+    description: t(state, 'يُحسب أعضاء الجمهور من جديد في كل بث أو تشغيل أتمتة.', 'An audience’s members are worked out afresh for every broadcast or automation run.'),
+  });
 }
 
 function summary(state: AppState, campaigns: readonly Campaign[]): HTMLElement {
@@ -187,6 +281,8 @@ function campaignDetail(state: AppState, live: LiveState, campaign: Campaign, ca
         h('dl', { class: 'attrgrid' }, [
           h('dt', {}, [t(state, 'القناة', 'Channel')]),
           h('dd', {}, [connection === undefined ? '—' : `${connection.display_name} · ${phrase(state, CHANNEL_NAMES, connection.kind)}`]),
+          h('dt', {}, [t(state, 'الرسالة', 'Message')]),
+          h('dd', {}, [messageOf(state, campaign)]),
           h('dt', {}, [t(state, 'المنطقة الزمنية', 'Time zone')]),
           h('dd', {}, [isolated(campaign.timezone)]),
           h('dt', {}, [t(state, 'موعد الإطلاق', 'Launch')]),
@@ -340,6 +436,20 @@ function recipientTable(state: AppState, rows: readonly CampaignRecipient[]): HT
       })),
     ]),
   ]);
+}
+
+/** What the campaign sends: its template and language, or the start of its text. */
+function messageOf(state: AppState, campaign: Campaign): Child {
+  const template = campaign.content['template'];
+  if (typeof template === 'object' && template !== null) {
+    const value = template as Record<string, unknown>;
+    return h('span', { class: 'campaign-detail__template' }, [
+      icon('template', 14),
+      isolated(`${String(value['name'] ?? '—')} · ${String(value['language'] ?? '')}`, true),
+    ]);
+  }
+  const text = campaign.content['text'];
+  return typeof text === 'string' ? h('span', { dir: 'auto' }, [text.length > 80 ? `${text.slice(0, 80)}…` : text]) : t(state, '—', '—');
 }
 
 /** The typed code inside a recipient's last error, when the ledger recorded one. */

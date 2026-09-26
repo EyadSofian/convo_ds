@@ -266,6 +266,17 @@ export class ChannelNormalizationService {
       { kind, scopeId: connectionId, externalId: inbound.peerIdentity },
       { source: 'inbound_message', providerMessageId: inbound.providerMessageId },
     );
+    // A name the channel sent with the message (a WhatsApp profile name, the
+    // operator's own system naming its customer) replaces the bare identity —
+    // and only that: a name somebody gave the contact is never overwritten.
+    const senderName = inbound.senderName;
+    if (senderName !== null) {
+      await sql.query(
+        `UPDATE contacts SET display_name=$3, search_name=$4, updated_at=now()
+          WHERE id=$1 AND display_name=$2 AND deleted_at IS NULL`,
+        [contact.contactId, inbound.peerIdentity, senderName, normalizeSearchText(senderName)],
+      );
+    }
     if (kind === 'messenger' || kind === 'instagram') {
       await sql.query(
         `INSERT INTO contact_profile_queue (tenant_id, contact_id, connection_id)

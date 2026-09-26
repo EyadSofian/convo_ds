@@ -1,5 +1,4 @@
 import type { CustomField } from '../api/metadata.js';
-import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { hasPermission } from '../live/ability.js';
 import { idList, toggled } from '../live/audience.js';
@@ -16,9 +15,8 @@ import { button, dialogShell, inlineError, isolated, sectionTitle, selectControl
  *
  * Laid out the way support tools present a new customer card: who they are
  * and where they are reached first — an explicit channel identity is the one
- * required part — then the details a team keeps on a customer, their labels,
- * and any consent the operator can vouch for. Consent is never implied by
- * creating a contact; ticking it records the operator's own statement.
+ * required part — then the details a team keeps on a customer and their
+ * labels. Consent is recorded later, on the profile, when there is evidence.
  */
 export function contactCreateDialog(state: AppState): HTMLElement {
   const live = state.live;
@@ -70,14 +68,13 @@ export function contactCreateDialog(state: AppState): HTMLElement {
         ]),
         profileSection(state),
         labelsSection(state),
-        hasPermission(live, 'consent.record') ? consentSection(state) : null,
       ]),
     ],
     [
       button({ label: t(state, 'إلغاء', 'Cancel'), act: 'close-dialog', variant: 'ghost' }),
       button({ label: t(state, 'إضافة جهة الاتصال', 'Add contact'), icon: 'userPlus', act: 'live-contact-create', variant: 'primary', busy, disabled: connections.length === 0 }),
     ],
-    { size: 'lg', description: t(state, 'الإضافة لا تسجّل أي موافقة إلا ما تختاره صراحةً بالأسفل.', 'Adding a contact records no consent beyond what you tick below.') },
+    { size: 'lg' },
   );
 }
 
@@ -174,33 +171,5 @@ function labelsSection(state: AppState): HTMLElement | null {
       isolated(label.name),
       chosen.includes(label.id) ? icon('check', 14) : null,
     ]))),
-  ]);
-}
-
-function consentSection(state: AppState): HTMLElement {
-  const option = (key: string, title: string, body: string): Child => {
-    const on = state.dialogForm[key] === 'true';
-    return h('button', {
-      type: 'button',
-      class: 'contact-new__consent',
-      role: 'checkbox',
-      'aria-checked': String(on),
-      'data-act': 'form-toggle',
-      'data-arg': `${key}:${on ? '' : 'true'}`,
-    }, [
-      h('span', { class: 'contact-new__check', 'aria-hidden': 'true' }, [on ? icon('check', 14) : null]),
-      h('span', { class: 'contact-new__consent-text' }, [h('strong', {}, [title]), h('span', {}, [body])]),
-    ]);
-  };
-  return h('section', { class: 'contact-new__section', 'aria-labelledby': 'contact-new-consent' }, [
-    sectionTitle('shield', 'green', t(state, 'الموافقة', 'Consent'), 'contact-new-consent'),
-    h('div', { class: 'contact-new__consents' }, [
-      option('newContactMarketing',
-        t(state, 'وافق على الرسائل التسويقية', 'Agreed to marketing messages'),
-        t(state, 'لديك دليل على موافقته. بدونها لا تصله الحملات.', 'You hold evidence of it. Without it, no campaign reaches them.')),
-      option('newContactService',
-        t(state, 'وافق على رسائل الخدمة', 'Agreed to service messages'),
-        t(state, 'للردود والتحديثات عن طلباته.', 'For replies and updates about their requests.')),
-    ]),
   ]);
 }

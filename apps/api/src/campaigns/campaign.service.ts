@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { CampaignState, SqlExecutor } from '@convo/domain';
-import { applyCampaignTrigger, campaignEditTarget, normalizeSearchText } from '@convo/domain';
+import { applyCampaignTrigger, bindingsComplete, campaignEditTarget, defineWhatsAppTemplate, normalizeSearchText } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import type { ApiConfig } from '../config.js';
@@ -11,7 +11,9 @@ import { IdempotencyService, type IdempotencyResult } from '../idempotency/idemp
 import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG } from '../tokens.js';
+import { fieldText, prepareTemplate } from '../channels/template-send.js';
 import { campaignCommandContent } from './campaign-dispatch.js';
+import { boundTemplateOf } from './campaign-request.js';
 import type { AudiencePreviewInput, CampaignDraftInput, CampaignTestSendInput, CampaignUpdateInput, TestRecipientInput } from './campaign-request.js';
 
 /** What a campaign on one channel would reach, before anything is frozen. */
@@ -216,6 +218,7 @@ export class CampaignService {
     }, async (sql) => {
       const principal = await this.authorization.requirePermission(sql, session, 'campaign.draft');
       await requireConnection(sql, input.connectionId, false);
+      input = await withCatalogueTemplate(sql, input);
       const campaign = await sql.query<{ id: string }>(
         `INSERT INTO campaigns (tenant_id,name,objective,connection_id,created_by_membership_id)
          VALUES ($1,$2,$3,$4,$5) RETURNING id::text`,
@@ -260,6 +263,7 @@ export class CampaignService {
       if (target === null) throw conflict('campaign_edit_locked', 'A launched campaign cannot be edited. Clone it into a new draft.');
       if (campaign.version !== input.expectedVersion) throw conflict('version_conflict', 'The campaign changed after you opened it. Reload before saving.');
       await requireConnection(sql, input.connectionId, false);
+      input = { ...await withCatalogueTemplate(sql, input), expectedVersion: input.expectedVersion };
       const hash = revisionHash(input);
       if (hash === campaign.revision_hash) {
         await sql.query(
@@ -376,24 +380,24 @@ export class CampaignService {
         throw conflict('version_conflict', 'The campaign changed after you opened it. Reload before sending a test.');
       }
       await requireConnection(sql, campaign.connection_id, true);
-      const recipient = await sql.query<{ authorization_id: string; external_id: string; display_name: string; label: string }>(
-        `SELECT tr.id::text AS authorization_id,i.external_id,c.display_name,tr.label
+      const recipient = await sql.query<{ authorization_id: string; external_id: string; label: string; rendered_variables: Readonly<Record<string, unknown>> }>(
+        `SELECT tr.id::text AS authorization_id,i.external_id,tr.label,
+                ${renderedVariables('$3::jsonb')} AS rendered_variables
            FROM channel_test_recipients tr
            JOIN contact_identities i ON i.id=tr.identity_id AND i.scope_id=tr.connection_id
            JOIN contacts c ON c.id=i.contact_id
           WHERE tr.id=$1 AND tr.connection_id=$2 AND tr.revoked_at IS NULL
             AND i.valid_to IS NULL AND c.deleted_at IS NULL`,
-        [input.testRecipientId, campaign.connection_id],
+        [input.testRecipientId, campaign.connection_id, JSON.stringify(campaign.variables)],
       );
       const target = recipient.rows[0];
       if (target === undefined) {
         throw new ApiHttpError(422, 'test_recipient_not_authorized', 'Choose an active test recipient authorized for this channel.');
       }
-      const renderedVariables = Object.fromEntries(
-        Object.keys(campaign.variables).map((key) => [key, target.display_name]),
-      );
-      const rendered = campaignCommandContent(campaign.content, renderedVariables);
-      if (rendered === null) {
+      // The test recipient is rendered exactly as a frozen audience member would be.
+      const rendered = campaignCommandContent(campaign.content, target.rendered_variables);
+      const template = rendered?.templateId === undefined ? undefined : await prepareTemplate(sql, rendered.templateId, rendered.templateValues!);
+      if (rendered === null || template === null) {
         throw new ApiHttpError(422, 'invalid_campaign_content', 'The current campaign content cannot be sent through the adapter.');
       }
       const testSendId = randomUUID();
@@ -401,10 +405,12 @@ export class CampaignService {
       await sql.query(
         `INSERT INTO outbound_messages
            (id,tenant_id,connection_id,peer_identity,author_membership,message_type,text_body,
-            template_name,template_language,client_message_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            template_name,template_language,template_provider_id,template_components,template_preview,client_message_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13)`,
         [messageId, tenantId, campaign.connection_id, target.external_id, principal.membershipId,
-          rendered.type, rendered.text, rendered.templateName, rendered.templateLanguage, `campaign-test:${testSendId}`],
+          rendered.type, rendered.text, template?.name ?? rendered.templateName, template?.language ?? rendered.templateLanguage,
+          template?.providerId ?? null, JSON.stringify(template?.components ?? []), template?.preview ?? null,
+          `campaign-test:${testSendId}`],
       );
       await sql.query(
         `INSERT INTO campaign_test_sends
@@ -430,6 +436,7 @@ export class CampaignService {
       const campaign = await locked(sql, campaignId);
       const started = transition(campaign.control_state, 'validate');
       await requireConnection(sql, campaign.connection_id, true);
+      await requireCatalogueTemplate(sql, campaign.connection_id, campaign.content);
       await sql.query(`UPDATE campaigns SET control_state=$2,version=version+1,updated_at=now() WHERE id=$1`, [campaignId, started.to]);
       const frozen = await freezeAudience(sql, tenantId, campaignId, campaign.current_revision_id,
         campaign.connection_id, campaign.audience_filter);
@@ -827,9 +834,7 @@ async function freezeAudience(
        SELECT c.id AS contact_id,i.id AS identity_id,
        ${ELIGIBILITY} AS eligibility,
        jsonb_build_object('consent',coalesce(consent.state,'missing'),'suppressed',s.id IS NOT NULL) AS reason,
-       (SELECT coalesce(jsonb_object_agg(variable.key,to_jsonb(c.display_name)),'{}'::jsonb)
-          FROM jsonb_each_text((SELECT variables FROM campaign_revisions WHERE id=$5)) variable
-         WHERE variable.value='display_name') AS rendered_variables
+       ${renderedVariables('(SELECT variables FROM campaign_revisions WHERE id=$5)')} AS rendered_variables
      ${audienceScope({ connection: '$3', search: '$6', labels: '$7', conversationLabels: '$8', contacts: '$9' })}
      ), totals AS (
        SELECT count(*)::int AS total,
@@ -850,6 +855,55 @@ async function freezeAudience(
       uuidList(filter['labelIds']), uuidList(filter['conversationLabelIds']), uuidList(filter['contactIds'])],
   );
   return requireRow(frozen.rows, 'audience freeze returned no row');
+}
+
+/**
+ * Each variable of a revision, resolved for the contact `c` on identity `i`:
+ * their name, the number the message goes to, a custom field, or fixed text.
+ * A variable the contact has no value for is left out, so the fallback the
+ * content names — or a skipped recipient — decides what happens.
+ */
+function renderedVariables(variables: string): string {
+  return `(SELECT coalesce(jsonb_object_agg(variable.key,rendered.value) FILTER (WHERE rendered.value IS NOT NULL),'{}'::jsonb)
+          FROM jsonb_each_text(${variables}) variable
+          CROSS JOIN LATERAL (SELECT CASE
+            WHEN variable.value='display_name' THEN to_jsonb(c.display_name)
+            WHEN variable.value='phone' THEN to_jsonb(i.external_id)
+            WHEN variable.value LIKE 'static:%' THEN to_jsonb(substr(variable.value,8))
+            WHEN variable.value LIKE 'field:%' THEN (SELECT to_jsonb(${fieldText('fv.value_json')})
+              FROM contact_custom_field_values fv WHERE fv.contact_id=c.id AND fv.field_id=substr(variable.value,7)::uuid)
+          END AS value) rendered)`;
+}
+
+/**
+ * A draft that names a catalogue template, checked against the catalogue: an
+ * approved template on this campaign's number, every variable given a source,
+ * and every field it reads a live contact field. The stored name and language
+ * are the catalogue's, never a client's.
+ */
+async function withCatalogueTemplate<T extends CampaignDraftInput>(sql: SqlExecutor, input: T): Promise<T> {
+  const bound = boundTemplateOf(input.content);
+  if (bound === null) return input;
+  const template = (await sql.query<{ template_name: string; language: string; components: unknown }>(
+    `SELECT template_name,language,components FROM whatsapp_templates WHERE id=$1 AND connection_id=$2 AND status='approved'`,
+    [bound.id, input.connectionId],
+  )).rows[0];
+  const fields = Object.values(bound.parameters).flatMap((binding) => (binding.source === 'field' ? [binding.fieldId!] : []));
+  const live = fields.length === 0 ? 0 : (await sql.query(
+    `SELECT 1 FROM custom_fields WHERE id=ANY($1::uuid[]) AND target='contact' AND state='active'`, [fields],
+  )).rows.length;
+  if (template === undefined || !bindingsComplete(defineWhatsAppTemplate(template.components), bound.parameters) || live !== new Set(fields).size) {
+    throw new ApiHttpError(422, 'campaign_template_invalid', 'Choose an approved template on this WhatsApp number and give every variable a value.');
+  }
+  return { ...input, content: { type: 'template', template: { id: bound.id, name: template.template_name, language: template.language, parameters: bound.parameters } } };
+}
+
+/** A catalogue template can be paused or disabled after the draft was saved. */
+async function requireCatalogueTemplate(sql: SqlExecutor, connectionId: string, content: Readonly<Record<string, unknown>>): Promise<void> {
+  const bound = boundTemplateOf(content);
+  if (bound === null) return;
+  const found = await sql.query(`SELECT 1 FROM whatsapp_templates WHERE id=$1 AND connection_id=$2 AND status='approved'`, [bound.id, connectionId]);
+  if (found.rows.length === 0) throw conflict('campaign_template_unavailable', 'The template is no longer approved on this number. Choose another before validating.');
 }
 
 async function requireConnection(sql: SqlExecutor, connectionId: string, requireHealthy: boolean): Promise<void> {

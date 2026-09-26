@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { parseConnectChannel, parseInstagramPage, parseRotateCredential } from './channel-request.js';
+import { parseConnectChannel, parseInstagramPage, parseRotateCredential, parseSettingsUpdate } from './channel-request.js';
 import { NO_PROVIDER_CODE, unconfiguredTransport } from './channel-transport.js';
 import {
   CredentialCipher,
@@ -318,6 +318,46 @@ describe('parseConnectChannel', () => {
   });
 });
 
+describe('a Custom Channel reply URL', () => {
+  const custom = { ...VALID_CONNECT, kind: 'custom', externalAssetId: 'gateway-1' };
+
+  it('keeps a public https URL, only on a Custom Channel', () => {
+    const result = parseConnectChannel({ ...custom, settings: { outboundUrl: ' https://crm.school.example/convo ' } });
+    expect(result.ok && result.value.settings.outboundUrl).toBe('https://crm.school.example/convo');
+    expect(parseConnectChannel({ ...custom, settings: { outboundUrl: null } }).ok).toBe(true);
+    const elsewhere = parseConnectChannel({ ...VALID_CONNECT, kind: 'web_chat', settings: { outboundUrl: 'https://crm.school.example/convo' } });
+    expect(!elsewhere.ok && elsewhere.details.map((detail) => detail.field)).toEqual(['settings.outboundUrl']);
+  });
+
+  it.each([
+    ['plain http', 'http://crm.school.example/convo'],
+    ['an IP literal', 'https://10.0.0.8/hook'],
+    ['an IPv6 literal', 'https://[::1]/hook'],
+    ['localhost', 'https://localhost/hook'],
+    ['an internal name', 'https://postgres.railway.internal/hook'],
+    ['a name with no domain', 'https://intranet/hook'],
+    ['credentials in the URL', 'https://user:pass@crm.school.example/hook'],
+    ['something that is not a URL', 'not a url'],
+    ['a number', 42],
+    ['an over-long URL', `https://crm.school.example/${'a'.repeat(2048)}`],
+  ])('refuses %s', (_label, outboundUrl) => {
+    const result = parseConnectChannel({ ...custom, settings: { outboundUrl } });
+    expect(!result.ok && result.details.map((detail) => detail.field)).toEqual(['settings.outboundUrl']);
+  });
+
+  it('changes only origins and the reply URL afterwards', () => {
+    expect(parseSettingsUpdate({ origins: ['https://school.example'], outboundUrl: 'https://crm.school.example/convo' })).toEqual({
+      ok: true,
+      value: { origins: ['https://school.example'], outboundUrl: 'https://crm.school.example/convo' },
+    });
+    expect(parseSettingsUpdate({ outboundUrl: null })).toEqual({ ok: true, value: { outboundUrl: null } });
+    expect(parseSettingsUpdate({})).toEqual({ ok: true, value: {} });
+    expect(parseSettingsUpdate(null).ok).toBe(false);
+    const refused = parseSettingsUpdate({ ratePerMinute: 5, origins: ['nope'] });
+    expect(!refused.ok && refused.details.map((detail) => detail.field)).toEqual(['ratePerMinute', 'settings.origins']);
+  });
+});
+
 describe('parseRotateCredential', () => {
   it('accepts a token', () => {
     const result = parseRotateCredential({ accessToken: 'EAAGnewtoken1234' });
@@ -351,7 +391,7 @@ describe('inboundRowFrom', () => {
           contentType: 'text',
           text: 'مرحبا',
           attachments: [{ type: 'image' }],
-          detail: { a: 1 },
+          detail: { a: 1, sender_name: 'Mona' },
           occurredAt: '2026-09-01T00:00:00.000Z',
         },
         FALLBACK,
@@ -364,9 +404,13 @@ describe('inboundRowFrom', () => {
       contentType: 'text',
       text: 'مرحبا',
       attachments: '[{"type":"image"}]',
-      detail: '{"a":1}',
+      detail: '{"a":1,"sender_name":"Mona"}',
+      senderName: 'Mona',
       occurredAt: new Date('2026-09-01T00:00:00.000Z'),
     });
+    // A name that is not text, or a detail that is not an object, names nobody.
+    expect(inboundRowFrom({ detail: { sender_name: 7 } }, FALLBACK).senderName).toBeNull();
+    expect(inboundRowFrom({ detail: 'odd' }, FALLBACK).senderName).toBeNull();
   });
 
   it('answers an empty object with defaults rather than throwing', () => {
@@ -382,6 +426,7 @@ describe('inboundRowFrom', () => {
       text: null,
       attachments: '[]',
       detail: '{}',
+      senderName: null,
       occurredAt: FALLBACK,
     });
   });

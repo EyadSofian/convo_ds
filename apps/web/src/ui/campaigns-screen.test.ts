@@ -6,7 +6,7 @@ import type { Campaign, CampaignRecipient } from '../api/campaigns';
 import type { ChannelConnection } from '../api/channels';
 import { createState } from '../state';
 import type { AppState } from '../state';
-import { campaignStateBadge, errorCodeOf, renderBroadcasts } from './campaigns-screen';
+import { campaignBucket, campaignStateBadge, errorCodeOf, renderBroadcasts } from './campaigns-screen';
 
 /**
  * Campaigns. Each lifecycle step is offered only from a state the server accepts
@@ -34,7 +34,7 @@ function screen(campaigns: readonly Campaign[], permissions: readonly string[] =
     memberships: [{ id: 'm', tenant: { id: 't', name: 'School', slug: 'school' }, role: { id: 'r', key: 'x', name: 'X' }, permissions }],
   };
   state.live.campaigns = { status: 'ready', loadedAt: 1, value: campaigns };
-  state.live.connections = { status: 'ready', loadedAt: 1, value: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Admissions' } as ChannelConnection] };
+  state.live.connections = { status: 'ready', loadedAt: 1, value: [{ id: 'cn-1', kind: 'whatsapp', display_name: 'Admissions', status: 'healthy', disconnected_at: null } as ChannelConnection] };
   return state;
 }
 
@@ -68,7 +68,7 @@ describe('the list', () => {
     expect(renderBroadcasts(state).textContent).toContain('r-1');
     state.live.campaigns = { status: 'ready', loadedAt: 1, value: [] };
     const empty = renderBroadcasts(state);
-    expect(empty.textContent).toContain('No campaigns yet');
+    expect(empty.textContent).toContain('No broadcasts yet');
     expect(empty.querySelector('.empty [data-act="live-campaign-editor"]')).not.toBeNull();
   });
 
@@ -76,7 +76,7 @@ describe('the list', () => {
     const state = screen([], ['campaign.read']);
     const root = renderBroadcasts(state);
     expect(root.querySelector('[data-act="live-campaign-editor"]')).toBeNull();
-    expect(root.textContent).toContain('No campaign has been created');
+    expect(root.textContent).toContain('No broadcast has been created');
   });
 
   it('summarises the list and marks the selected campaign', () => {
@@ -215,4 +215,94 @@ it('speaks Arabic by default', () => {
   const root = renderBroadcasts(screen([campaign()], ALL, 'ar'));
   expect(root.textContent).toContain('تثبيت الجمهور');
   expect(root.textContent).toContain('مسودة');
+});
+
+describe('broadcasts sorted by where they are in their life', () => {
+  it('buckets every lifecycle state', () => {
+    const buckets = (['draft', 'validating', 'ready', 'scheduled', 'running', 'pausing', 'paused', 'cancelling', 'dispatch_completed', 'cancelled', 'failed'] as const)
+      .map((state) => campaignBucket(state));
+    expect(buckets).toEqual(['drafts', 'drafts', 'drafts', 'scheduled', 'sending', 'sending', 'sending', 'sending', 'completed', 'completed', 'completed']);
+  });
+
+  it('counts each bucket, shows only the chosen one, and says when it is empty', () => {
+    const state = screen([
+      campaign({ id: 'c-1', state: 'draft' }),
+      campaign({ id: 'c-2', name: 'Sunday reminder', state: 'scheduled', content: { type: 'template', template: { id: 't-1', name: 'class_reminder', language: 'ar' } } }),
+    ]);
+    const counts = [...renderBroadcasts(state).querySelectorAll('.campaign-views .segmented__item')].map((item) => item.textContent);
+    expect(counts).toEqual(['All2', 'Drafts1', 'Scheduled1', 'Sending0', 'Completed0']);
+    state.live.campaignView = 'scheduled';
+    const scheduled = renderBroadcasts(state);
+    expect([...scheduled.querySelectorAll('[data-campaign]')].map((row) => row.getAttribute('data-campaign'))).toEqual(['c-2']);
+    // A broadcast names the template it sends.
+    expect(scheduled.querySelector('.campaign-detail__template')?.textContent).toBe('class_reminder · ar');
+    state.live.campaignView = 'completed';
+    expect(renderBroadcasts(state).textContent).toContain('No broadcast is in this group.');
+    state.live.campaignView = 'all';
+    expect(renderBroadcasts(state).querySelector('.campaign-detail')?.textContent).toContain('Hi');
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [campaign({ content: { text: 'x'.repeat(90) } })] };
+    expect(renderBroadcasts(state).querySelector('.campaign-detail')?.textContent).toContain(`${'x'.repeat(80)}…`);
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [campaign({ content: { template: { id: 't-9' } } })] };
+    expect(renderBroadcasts(state).querySelector('.campaign-detail__template')?.textContent).toBe('— · ');
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [campaign({ content: {} })] };
+    expect(renderBroadcasts(state).querySelector('.campaign-detail')?.textContent).toContain('Message—');
+  });
+
+  it('asks for a WhatsApp number before anything can be broadcast', () => {
+    const state = screen([]);
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [] };
+    const empty = renderBroadcasts(state);
+    expect(empty.textContent).toContain('Connect a WhatsApp Business number');
+    expect(empty.querySelector('.empty [data-act="nav"]')?.getAttribute('data-arg')).toBe('channels');
+    state.live.campaigns = { status: 'ready', loadedAt: 1, value: [campaign()] };
+    expect(renderBroadcasts(state).querySelector('.notice')?.textContent).toContain('No WhatsApp number is connected');
+  });
+});
+
+describe('saved audiences', () => {
+  const LABEL = '11111111-1111-4111-8111-111111111111';
+
+  it('lists what each audience narrows to, and offers to add and remove them', () => {
+    const state = screen([campaign()]);
+    state.live.campaignView = 'audiences';
+    state.live.audiences = { status: 'loading' };
+    expect(renderBroadcasts(state).querySelector('[aria-busy="true"]')).not.toBeNull();
+    state.live.audiences = { status: 'error', error: { code: 'x', message: 'x', requestId: 'r-9', status: 500, details: [] } };
+    expect(renderBroadcasts(state).textContent).toContain('r-9');
+    state.live.audiences = { status: 'ready', loadedAt: 1, value: [] };
+    const empty = renderBroadcasts(state);
+    expect(empty.textContent).toContain('No saved audiences');
+    // Offered in the header and in the empty state.
+    expect(empty.querySelectorAll('[data-act="live-audience-new"]')).toHaveLength(2);
+    expect(empty.querySelector('.empty [data-act="live-audience-new"]')).not.toBeNull();
+    state.live.labels = { status: 'ready', loadedAt: 1, value: [{ id: LABEL, name: 'VIP', color: '#2563eb', state: 'active', version: 1 }] };
+    state.live.audiences = { status: 'ready', loadedAt: 1, value: [
+      { id: 'a-1', name: 'VIPs', description: null, state: 'active', version: 1, conditions: { version: 1, root: { kind: 'group', match: 'all', conditions: [
+        { kind: 'predicate', field: 'label_id', operator: 'eq', value: LABEL },
+        { kind: 'predicate', field: 'label_id', operator: 'eq', value: 'gone' },
+        { kind: 'predicate', field: 'conversation_label_id', operator: 'in', value: [LABEL] },
+        { kind: 'predicate', field: 'contact_id', operator: 'in', value: ['c-1', 'c-2'] },
+        { kind: 'predicate', field: 'customer_name', operator: 'contains', value: 'mo' },
+      ] } } },
+      { id: 'a-2', name: 'Odd', description: null, state: 'active', version: 1, conditions: { version: 1, root: { kind: 'group', match: 'any', conditions: [] } } },
+      { id: 'a-3', name: 'Everyone', description: null, state: 'active', version: 1, conditions: { version: 1, root: { kind: 'group', match: 'all', conditions: [] } } },
+    ] };
+    state.live.busy = 'audience-retire:a-2';
+    const list = renderBroadcasts(state);
+    const cards = [...list.querySelectorAll('.audience-card')];
+    expect(cards[0]?.textContent).toContain('Labels: VIP, … · Conversations labelled: VIP · 2 people picked · Name contains “mo”');
+    expect(cards[1]?.textContent).toContain('Conditions a broadcast cannot apply');
+    expect(cards[1]?.querySelector('[data-act="live-audience-retire"]')?.getAttribute('aria-busy')).toBe('true');
+    expect(cards[2]?.querySelector('.audience-card__text > span')?.textContent).toBe('');
+    state.lang = 'ar';
+    expect(renderBroadcasts(state).querySelector('.audience-card')?.textContent).toContain('تصنيفات: VIP، …');
+    // Without the draft key, nothing can be added or removed.
+    const reader = screen([], ['campaign.read']);
+    reader.live.campaignView = 'audiences';
+    reader.live.audiences = state.live.audiences;
+    const readOnly = renderBroadcasts(reader);
+    expect(readOnly.querySelector('[data-act="live-audience-retire"]')).toBeNull();
+    reader.live.audiences = { status: 'ready', loadedAt: 1, value: [] };
+    expect(renderBroadcasts(reader).querySelector('[data-act="live-audience-new"]')).toBeNull();
+  });
 });

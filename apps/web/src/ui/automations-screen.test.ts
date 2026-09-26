@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Automation, AutomationRun, AutomationTemplate } from '../api/automations.js';
 import { createState } from '../state.js';
+import type { AppState } from '../state.js';
 import { renderAutomations } from './automations-screen.js';
 
 const NOW=new Date('2026-09-17T10:00:00Z');
@@ -29,7 +30,7 @@ describe('automation screen',()=>{
   s.live.automationNextCursor='next'; expect(renderAutomations(s).querySelector('[data-act="live-automation-load-more"]')).not.toBeNull();
  });
  it('renders the sequential builder without exposing JSON',()=>{
-  const s=state('mine'); s.route={screen:'automations',conversationId:null,params:{view:'mine',edit:'a-1'}}; s.live.whatsappTemplates={status:'ready',value:[{id:'wa-1',connectionId:'c',providerTemplateId:'p',templateName:'class_reminder',language:'en',category:'UTILITY',status:'approved',components:[],variables:['1'],lastSyncedAt:NOW.toISOString()}],loadedAt:1}; const root=renderAutomations(s); expect(root.querySelectorAll('.workflow-block').length).toBe(4); expect(root.textContent).toContain('Execution safety'); expect(root.textContent).toContain('Approved WhatsApp template'); expect(root.textContent).not.toContain('"trigger"'); expect(root.querySelector('[data-act="live-automation-add-step"]')).not.toBeNull();
+  const s=state('mine'); s.route={screen:'automations',conversationId:null,params:{view:'mine',edit:'a-1'}}; s.live.whatsappTemplates={status:'ready',value:[{id:'wa-1',connectionId:'c',providerTemplateId:'p',templateName:'class_reminder',language:'en',category:'UTILITY',status:'approved',components:[],variables:['1'],lastSyncedAt:NOW.toISOString()}],loadedAt:1}; const root=renderAutomations(s); expect(root.querySelectorAll('.workflow-block').length).toBe(4); expect(root.textContent).toContain('Execution safety'); expect(root.textContent).toContain('class_reminder'); expect(root.textContent).not.toContain('"trigger"'); expect(root.querySelector('[data-act="live-automation-add-step"]')).not.toBeNull();
  });
  it('shows run evidence, empty history and load failures',()=>{
   const s=state('runs'); let root=renderAutomations(s); expect(root.textContent).toContain('TEST'); expect(root.textContent).toContain('Delivered');
@@ -227,8 +228,9 @@ describe('run evidence at its edges', () => {
 });
 
 describe('the template picker, with and without a catalogue', () => {
-  function builder(overrides: { templates?: unknown[]; step?: Record<string, unknown>; extra?: Record<string, string> } = {}) {
+  function builder(overrides: { templates?: unknown[]; step?: Record<string, unknown>; extra?: Record<string, string>; form?: Record<string, string> } = {}) {
     const s = state('mine');
+    s.dialogForm = overrides.form ?? {};
     s.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1', ...overrides.extra } };
     s.live.automations = {
       status: 'ready',
@@ -249,24 +251,71 @@ describe('the template picker, with and without a catalogue', () => {
     expect(builder().textContent).toContain('Connect WhatsApp');
   });
 
-  it('selects the template the step already names', () => {
+  it('marks the template the step already names, and shows it in the preview', () => {
     const root = builder({ templates: [WA, { ...WA, id: 'wa-2', templateName: 'other' }], step: { templateId: 'wa-2' } });
-    expect(root.textContent).toContain('other');
+    expect(root.querySelector('.tpl-card.is-selected')?.textContent).toContain('other');
+    expect(root.querySelector('[data-act="form-toggle"][data-arg="automationTemplate_step_1:wa-1"]')).not.toBeNull();
   });
 
-  it('falls back to the first template when the step names one that is gone', () => {
+  it('asks for a choice when the step names a template that is gone', () => {
     const root = builder({ templates: [WA], step: { templateId: 'wa-missing' } });
-    expect(root.textContent).toContain('class_reminder');
+    expect(root.querySelector('.tpl-card.is-selected')).toBeNull();
+    expect(root.textContent).toContain('Choose a template to see it');
   });
 
-  it('renders a variable row for every variable the template declares', () => {
-    const root = builder({ templates: [{ ...WA, variables: ['1', '2', '3'] }] });
-    expect(root.querySelectorAll('[data-form^="automationVariable_"]').length).toBe(3);
+  it('binds every variable the template declares, from what the step stored', () => {
+    const template = { ...WA, components: [{ type: 'BODY', text: 'Hi {{1}}, {{2}} and {{3}}' }] };
+    const root = builder({ templates: [template], step: { templateId: 'wa-1', variableMapping: { 'body:2': { source: 'phone' } } } });
+    expect(root.querySelectorAll('.tpl-var')).toHaveLength(3);
+    expect((root.querySelector('[data-form="automationParam_step_1_body_2_source"]') as HTMLSelectElement).value).toBe('phone');
+    expect(root.querySelector('.wa-bubble__body')?.textContent).toBe('Hi Mona, +20 100 000 0000 and {{3}}');
   });
 
-  it('renders no variable rows for a template that declares none', () => {
-    const root = builder({ templates: [{ ...WA, variables: [] }] });
-    expect(root.querySelectorAll('[data-form^="automationVariable_"]').length).toBe(0);
+  it('starts another template from nothing, whatever the step stored for the first', () => {
+    const template = { ...WA, components: [{ type: 'BODY', text: 'Hi {{1}}' }] };
+    const root = builder({ templates: [template, { ...template, id: 'wa-2' }], step: { templateId: 'wa-1', variableMapping: { 'body:1': { source: 'phone' } } }, form: { automationTemplate_step_1: 'wa-2' } });
+    expect((root.querySelector('[data-form="automationParam_step_1_body_1_source"]') as HTMLSelectElement).value).toBe('display_name');
+  });
+
+  it('says a template without variables goes to everyone as is', () => {
+    const root = builder({ templates: [{ ...WA, components: [{ type: 'BODY', text: 'Hello' }] }], step: { templateId: 'wa-1' } });
+    expect(root.querySelector('.tpl-var')).toBeNull();
+    expect(root.textContent).toContain('This template has no variables');
+  });
+});
+
+describe('who an automation reaches', () => {
+  function target(config: Record<string, unknown>, form: Record<string, string> = {}): AppState {
+    const s = state('mine');
+    s.route = { screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1' } };
+    s.live.automations = { status: 'ready', value: [{ ...AUTOMATION, workflow: { ...WORKFLOW, target: { type: 'dynamic_audience', config } } as never }], loadedAt: 1 };
+    s.dialogForm = form;
+    return s;
+  }
+
+  it('names each target plainly, and marks the ones that cannot run yet', () => {
+    const options = [...renderAutomations(target({})).querySelectorAll('[data-form="automationTarget"] option')].map((option) => option.textContent);
+    expect(options).toEqual(['The contact who triggered it', 'A saved audience', 'Contacts with a label', 'A saved view (coming soon)', 'Course context (coming soon)', 'Contacts matching conditions (coming soon)']);
+    const arabic = target({});
+    arabic.lang = 'ar';
+    expect(renderAutomations(arabic).querySelector('[data-form="automationTarget"] option:last-child')?.textContent).toBe('من يطابق شروطًا (قريبًا)');
+  });
+
+  it('picks a saved audience, as stored or as chosen, and says when there is none', () => {
+    const s = target({ audienceId: 'aud-2' });
+    expect(renderAutomations(s).textContent).toContain('Loading audiences…');
+    s.live.audiences = { status: 'ready', loadedAt: 1, value: [] };
+    expect(renderAutomations(s).textContent).toContain('No saved audiences.');
+    s.live.audiences = { status: 'ready', loadedAt: 1, value: [
+      { id: 'aud-1', name: 'VIPs', description: null, conditions: { version: 1, root: { kind: 'group', match: 'all', conditions: [] } }, state: 'active', version: 1 },
+      { id: 'aud-2', name: 'Leads', description: null, conditions: { version: 1, root: { kind: 'group', match: 'all', conditions: [] } }, state: 'active', version: 1 },
+    ] };
+    expect((renderAutomations(s).querySelector('[data-form="automationTargetAudience"]') as HTMLSelectElement).value).toBe('aud-2');
+    s.dialogForm = { automationTargetAudience: 'aud-1' };
+    expect((renderAutomations(s).querySelector('[data-form="automationTargetAudience"]') as HTMLSelectElement).value).toBe('aud-1');
+    // Switching away from a saved audience drops the picker.
+    s.dialogForm = { automationTarget: 'label' };
+    expect(renderAutomations(s).querySelector('[data-form="automationTargetAudience"]')).toBeNull();
   });
 });
 

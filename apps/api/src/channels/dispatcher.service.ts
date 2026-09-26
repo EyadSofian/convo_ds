@@ -58,6 +58,8 @@ interface ClaimRow {
   /** Provider-side asset ID (Page ID, Instagram account ID, or phone-number ID). */
   readonly external_asset_id: string;
   readonly facebook_page_id: string | null;
+  /** A Custom Channel's reply URL. */
+  readonly outbound_url: string | null;
   readonly peer_identity: string;
   readonly conversation_id: string | null;
   readonly message_type: string;
@@ -270,7 +272,8 @@ export class ChannelDispatcherService {
             AND m.id = o.message_id
             AND c.id = m.connection_id
           RETURNING o.message_id::text, o.connection_id::text, c.external_asset_id,
-                    c.settings->>'facebook_page_id' AS facebook_page_id, o.peer_identity,
+                    c.settings->>'facebook_page_id' AS facebook_page_id,
+                    c.settings->>'outbound_url' AS outbound_url, o.peer_identity,
                     m.conversation_id::text AS conversation_id,
                     m.message_type, m.text_body, m.template_name, m.template_language, m.template_components,
                     m.dispatch_version, o.attempts,
@@ -327,9 +330,10 @@ export class ChannelDispatcherService {
       }
       // The credential is opened inside the same transaction and never leaves
       // it as a value: the plaintext goes straight into the send below.
+      // A Custom Channel signs replies with the key it signs deliveries with.
       const token = await this.credentials.withActive(
         sql,
-        { tenantId, connectionId: claim.connection_id, purpose: 'access_token' },
+        { tenantId, connectionId: claim.connection_id, purpose: claim.kind === 'custom' ? 'signing_key' : 'access_token' },
         (plaintext) => Promise.resolve(plaintext),
       );
       return { attemptId: row.id, token };
@@ -365,6 +369,7 @@ export class ChannelDispatcherService {
           : { name: claim.template_name, language: claim.template_language, components: claim.template_components },
       attachments: [],
       idempotencyKey: prepared.attemptId,
+      endpoint: claim.outbound_url,
     });
 
     return this.recordAndProject(tenantId, claim, prepared.attemptId, outcome);

@@ -14,6 +14,7 @@ import {
   previewKey,
   sourceOf,
   toggled,
+  whatsappNumbers,
 } from './audience.js';
 
 const L1 = '11111111-1111-4111-8111-111111111111';
@@ -100,7 +101,15 @@ describe('saved audiences as condition documents', () => {
 describe('the editor audience', () => {
   it('describes the campaign being edited, or a new one on the first healthy channel', () => {
     const state = createState(new Date('2026-09-26T09:00:00.000Z'));
-    state.live.connections = { status: 'ready', loadedAt: 1, value: [{ id: 'sick', status: 'degraded' }, { id: 'well', status: 'healthy' }] as never };
+    state.live.connections = { status: 'ready', loadedAt: 1, value: [
+      { id: 'sick', kind: 'whatsapp', status: 'degraded', disconnected_at: null },
+      { id: 'site', kind: 'web_chat', status: 'healthy', disconnected_at: null },
+      { id: 'gone', kind: 'whatsapp', status: 'healthy', disconnected_at: '2026-09-01T00:00:00.000Z' },
+      { id: 'well', kind: 'whatsapp', status: 'healthy', disconnected_at: null },
+    ] as never };
+    // Broadcasts go from WhatsApp, ready numbers first.
+    expect(whatsappNumbers(state).map((connection) => connection.id)).toEqual(['well', 'sick']);
+    expect(whatsappNumbers(state, 'site').map((connection) => connection.id)).toEqual(['site', 'well', 'sick']);
     state.dialog = { kind: 'campaign', arg: '' };
     expect(editorAudience(state)).toMatchObject({ connectionId: 'well', filter: {} });
     state.live.campaigns = { status: 'ready', loadedAt: 1, value: [{ id: 'c-1', connection_id: 'sick', audience_filter: { contactIds: [C1] } } as unknown as Campaign] };

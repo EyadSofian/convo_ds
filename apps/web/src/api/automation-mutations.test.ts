@@ -48,6 +48,8 @@ describe('web API mutation/query boundaries', () => {
     await api.create('tenant', input);
     await api.update('tenant', 'view-1', 2, input);
     await api.retire('tenant', 'view-1', 3);
+    await api.retireAudience('tenant', 'aud-1', 5);
+    expect(f.del).toHaveBeenCalledWith('/tenants/tenant/audiences/aud-1', { body: { version: 5 } });
     expect(f.get).toHaveBeenCalledWith('/tenants/tenant/saved-views?resource=conversations');
     expect(f.post).toHaveBeenCalledWith('/tenants/tenant/saved-views', { body: input });
     expect(f.patch).toHaveBeenCalledWith('/tenants/tenant/saved-views/view-1', { body: { ...input, version: 2 } });

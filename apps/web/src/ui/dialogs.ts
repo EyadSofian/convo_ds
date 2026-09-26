@@ -6,6 +6,7 @@ import { catalogueItem } from './channels-screen';
 import { t } from './copy';
 import { button, dialogShell, field, inlineError, LITERAL_INPUT, notice, selectControl, textInput } from './parts';
 import { channelTile } from './brand';
+import { broadcastWizard } from './broadcast-wizard';
 import { audienceSection } from './campaign-audience';
 import { contactCreateDialog } from './contact-create-dialog';
 import { renderAdminDialog } from './admin-dialogs';
@@ -27,7 +28,8 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'disconnect-channel') return disconnectChannel(state, dialog.arg);
   if (dialog.kind === 'campaign-test-send') return campaignTestSend(state, dialog.arg);
   if (dialog.kind === 'campaign-schedule') return campaignSchedule(state, dialog.arg);
-  if (dialog.kind === 'campaign' || dialog.kind === 'campaign-edit') return campaignEditor(state, dialog.kind, dialog.arg);
+  if (dialog.kind === 'campaign' || dialog.kind === 'campaign-edit') return broadcastWizard(state, dialog.kind, dialog.arg);
+  if (dialog.kind === 'audience-new') return audienceDialog(state);
   if (dialog.kind === 'contact-create') return contactCreateDialog(state);
   if (dialog.kind === 'invite') return invite(state);
   if (dialog.kind === 'change-password') return changePasswordDialog(state);
@@ -349,8 +351,18 @@ function connectChannel(state: AppState, kind: string): HTMLElement {
           h('p', { class: 'field__hint' }, [t(state, 'استخدم رمز وصول الصفحة نفسها. يتحقق الخادم من ربط الصفحة بحساب إنستجرام.', 'Use the matching Page access token. The server verifies that this Page links to the Instagram account.')]),
           fieldError(state, 'channelPage'),
         ]) : null,
+        kind === 'custom' ? h('div', { class: 'field field--wide' }, [
+          h('label', { class: 'field__label', for: 'channel-outbound' }, [t(state, 'رابط استقبال الردود', 'Reply URL')]),
+          textInput('channelOutboundUrl', form['channelOutboundUrl'] ?? '', 'https://crm.school.example/convo', { id: 'channel-outbound', inputmode: 'url' }),
+          h('p', { class: 'field__hint' }, [t(state,
+            'يرسل Convo ردود فريقك إلى هذا الرابط موقّعة بنفس المفتاح. بدونه تصل رسائل العملاء، لكن لا يمكن الرد عليها.',
+            'Convo posts your team’s replies here, signed with the same key. Without it customer messages still arrive, but nobody can answer them.')]),
+          fieldError(state, 'channelOutboundUrl'),
+        ]) : null,
         item.meta ? null : h('div', { class: 'field field--wide' }, [
-          h('label', { class: 'field__label', for: 'channel-origins' }, [t(state, 'المصادر المسموح لها بالإرسال', 'Allowed sending origins')]),
+          h('label', { class: 'field__label', for: 'channel-origins' }, [
+            kind === 'custom' ? t(state, 'مصادر المتصفح المسموح بها (اختياري)', 'Allowed browser origins (optional)') : t(state, 'المصادر المسموح لها بالإرسال', 'Allowed sending origins'),
+          ]),
           h('textarea', {
             id: 'channel-origins',
             class: 'input textarea',
@@ -361,9 +373,13 @@ function connectChannel(state: AppState, kind: string): HTMLElement {
             'data-act': 'form',
             'data-form': 'channelOrigins',
           }, [form['channelOrigins'] ?? '']),
-          h('p', { class: 'field__hint' }, [t(state,
-            'مصدر واحد في كل سطر، مثل https://school.example. أي تسليم من مصدر آخر يُرفض، لذا بدونه لا تصل أي رسالة.',
-            'One per line, e.g. https://school.example. Deliveries from anywhere else are refused, so without one no message arrives.')]),
+          h('p', { class: 'field__hint' }, [kind === 'custom'
+            ? t(state,
+              'خادمك يرسل دون مصدر ولا يحتاج شيئًا هنا. أضف مصدرًا فقط إذا كانت صفحة ويب سترسل إلينا مباشرة.',
+              'Your server posts without an Origin and needs nothing here. Add one only if a web page will post to us directly.')
+            : t(state,
+              'مصدر واحد في كل سطر، مثل https://school.example. أي تسليم من مصدر آخر يُرفض، لذا بدونه لا تصل أي رسالة.',
+              'One per line, e.g. https://school.example. Deliveries from anywhere else are refused, so without one no message arrives.')]),
           fieldError(state, 'channelOrigins'),
         ]),
         h('div', { class: 'field' }, [
@@ -639,76 +655,19 @@ function campaignSchedule(state: AppState, campaignId: string): HTMLElement {
   );
 }
 
-function campaignEditor(state: AppState, kind: string, campaignId: string): HTMLElement {
-  const live = state.live;
-  const campaign = kind === 'campaign-edit' ? rowsOf(live.campaigns).find((entry) => entry.id === campaignId) : undefined;
-  if (kind === 'campaign-edit' && campaign === undefined) {
-    return missingCampaign(state, t(state, 'تعديل الحملة', 'Edit campaign'));
-  }
-  const connections = rowsOf(live.connections).filter(
-    (connection) => connection.status === 'healthy' || connection.id === campaign?.connection_id,
-  );
-  const form = state.dialogForm;
-  const initialMessage = typeof campaign?.content['text'] === 'string' ? campaign.content['text'] : '';
-  const busy = live.busy === 'campaign-create' || (campaign !== undefined && live.busy === `campaign-update:${campaign.id}`);
+/** A saved audience made on its own, for broadcasts and automations to reuse. */
+function audienceDialog(state: AppState): HTMLElement {
   return dialogShell(
     state,
-    campaign === undefined ? t(state, 'حملة جديدة', 'New campaign') : t(state, 'تعديل الحملة', 'Edit campaign'),
+    t(state, 'جمهور جديد', 'New audience'),
     [
-      connections.length === 0
-        ? notice('warning', 'plug', t(state, 'اربط قناة سليمة أولًا لإنشاء حملة.', 'Connect a healthy channel before creating a campaign.'))
-        : null,
-      inlineError(state, live.error),
-      h('form', { class: 'form-grid', 'data-submit': campaign === undefined ? 'live-campaign-create' : 'live-campaign-update', 'data-arg': campaign?.id, novalidate: true }, [
-        h('div', { class: 'field' }, [
-          h('label', { class: 'field__label', for: 'campaign-name' }, [t(state, 'اسم الحملة', 'Campaign name')]),
-          textInput('campaignName', form['campaignName'] ?? campaign?.name ?? '', t(state, 'مثال: تذكير المحاضرة المباشرة', 'e.g. Live session reminder'), { id: 'campaign-name', required: true }),
-          fieldError(state, 'campaignName'),
-        ]),
-        h('div', { class: 'field' }, [
-          h('label', { class: 'field__label', for: 'campaign-channel' }, [t(state, 'القناة', 'Channel')]),
-          selectControl({
-            id: 'campaign-channel',
-            value: form['campaignConnection'] ?? campaign?.connection_id ?? connections[0]?.id ?? '',
-            form: 'campaignConnection',
-            options: connections.map((connection) => ({ value: connection.id, label: connection.display_name })),
-          }),
-        ]),
-        h('div', { class: 'field field--wide' }, [
-          h('label', { class: 'field__label', for: 'campaign-objective' }, [t(state, 'الهدف (اختياري)', 'Objective (optional)')]),
-          textInput('campaignObjective', form['campaignObjective'] ?? campaign?.objective ?? '', t(state, 'مثال: تأكيد التسجيل', 'e.g. Confirm enrolment'), { id: 'campaign-objective' }),
-        ]),
-        h('div', { class: 'field field--wide' }, [
-          h('label', { class: 'field__label', for: 'campaign-message' }, [t(state, 'نص الرسالة', 'Message')]),
-          h('textarea', {
-            id: 'campaign-message',
-            class: 'input textarea',
-            rows: '4',
-            dir: 'auto',
-            'data-act': 'form',
-            'data-form': 'campaignMessage',
-            placeholder: t(state, 'مرحبًا {{display_name}}، …', 'Hello {{display_name}}, …'),
-          }, [form['campaignMessage'] ?? initialMessage]),
-          h('p', { class: 'field__hint' }, [t(state, 'استخدم {{display_name}} لإدراج اسم العميل كما هو محفوظ عند تثبيت الجمهور.', 'Use {{display_name}} to insert the name frozen with the audience.')]),
-          fieldError(state, 'campaignMessage'),
-        ]),
-        audienceSection(state),
-      ]),
-      notice('info', 'shield', campaign === undefined
-        ? t(state, 'بعد الإنشاء: ثبّت الجمهور، اعتمد النسخة، ثم أطلقها.', 'After creating: freeze the audience, approve the revision, then launch.')
-        : t(state, 'تغيير الرسالة أو الجمهور ينشئ نسخة جديدة تحتاج تثبيتًا واعتمادًا من جديد.', 'Changing the message or audience creates a new revision that needs freezing and approval again.')),
+      h('p', { class: 'dialog__lead-text' }, [t(state,
+        'اختر من أين يأتي الناس ثم سمِّ الجمهور واحفظه. يمكنك استخدامه في أي بث أو أتمتة، ويُحسب أعضاؤه من جديد في كل مرة.',
+        'Choose where the people come from, then name and save it. Any broadcast or automation can use it, and its members are worked out afresh each time.')]),
+      inlineError(state, state.live.error),
+      audienceSection(state),
     ],
-    [
-      closeButton(state),
-      button({
-        label: campaign === undefined ? t(state, 'إنشاء المسودة', 'Create draft') : t(state, 'حفظ التغييرات', 'Save changes'),
-        act: campaign === undefined ? 'live-campaign-create' : 'live-campaign-update',
-        arg: campaign?.id,
-        variant: 'primary',
-        busy,
-        disabled: connections.length === 0,
-      }),
-    ],
+    [closeButton(state)],
     { size: 'lg' },
   );
 }

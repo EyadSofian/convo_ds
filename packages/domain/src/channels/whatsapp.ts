@@ -105,8 +105,16 @@ export class WhatsAppAdapter implements ChannelAdapter {
           continue;
         }
 
+        // The customer's WhatsApp profile name rides beside the messages, keyed
+        // by the same wa_id the message is from.
+        const names = new Map<string, string>();
+        for (const contact of asArray(value['contacts'])) {
+          const waId = asString(asRecord(contact)?.['wa_id']);
+          const name = asString(asRecord(asRecord(contact)?.['profile'])?.['name'])?.trim().slice(0, 200);
+          if (waId !== null && name !== undefined && name !== '') names.set(waId, name);
+        }
         for (const message of asArray(value['messages'])) {
-          const normalized = this.normalizeMessage(message, phoneNumberId, receivedAt);
+          const normalized = this.normalizeMessage(message, phoneNumberId, receivedAt, names);
           if ('reason' in normalized) {
             quarantined.push(normalized);
           } else {
@@ -133,6 +141,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
     raw: unknown,
     assetId: string | null,
     receivedAt: Date,
+    names: ReadonlyMap<string, string>,
   ): NormalizedEvent | QuarantinedElement {
     const message = asRecord(raw);
     const id = asString(message?.['id']);
@@ -150,6 +159,9 @@ export class WhatsAppAdapter implements ChannelAdapter {
     // is normalized with its payload intact and rendered as a fallback rather
     // than quarantined out of the conversation (CH-01).
     const known = text !== null || attachments.length > 0;
+    const name = names.get(from);
+    const detail: Record<string, unknown> = known ? {} : { unsupported_type: type };
+    if (name !== undefined) detail['sender_name'] = name;
     return {
       kind: known ? 'message' : 'unsupported',
       dedupeKey: `wa:msg:${id}`,
@@ -160,7 +172,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
       contentType: type,
       text,
       attachments,
-      detail: known ? {} : { unsupported_type: type },
+      detail,
       occurredAt,
       source: message,
     };

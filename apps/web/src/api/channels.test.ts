@@ -11,4 +11,11 @@ describe('channel API routes', () => {
       body: { facebookPageId: '483612954841071' },
     });
   });
+
+  it('changes our own channels’ settings on their own route', async () => {
+    const post = vi.fn().mockResolvedValue({ ok: true, data: { id: 'channel-1' } });
+    const api = new ChannelsApi({ post } as unknown as ApiClient);
+    await api.updateSettings('tenant-1', 'channel-1', { origins: [], outboundUrl: null });
+    expect(post).toHaveBeenCalledWith('/tenants/tenant-1/channels/channel-1/settings', { body: { origins: [], outboundUrl: null } });
+  });
 });

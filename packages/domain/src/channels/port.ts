@@ -155,6 +155,8 @@ export interface SendCommand {
   readonly attachments: readonly InboundAttachment[];
   /** Carried to the provider where its contract has actually been verified. */
   readonly idempotencyKey: string;
+  /** Where a Custom Channel receives replies: the operator's own URL. */
+  readonly endpoint?: string | null;
 }
 
 export interface ConnectionCheck {

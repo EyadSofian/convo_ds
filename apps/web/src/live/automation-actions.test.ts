@@ -3,7 +3,7 @@ import type { ApiError, ApiResult, PagedData } from '../api/client.js';
 import type { Automation, AutomationRun, AutomationTemplate, AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { addAutomationStep, createBlankAutomation, deleteAutomationDraft, loadAutomationPage, loadAutomationRunsPage, loadAutomationsScreen, mappingType, removeAutomationStep, saveAutomation, scheduleOf, setAutomationQuery, setAutomationRunsQuery, transitionAutomation, useAutomationTemplate } from './automation-actions.js';
+import { addAutomationStep, createBlankAutomation, deleteAutomationDraft, loadAutomationPage, loadAutomationRunsPage, loadAutomationsScreen, removeAutomationStep, saveAutomation, scheduleOf, setAutomationQuery, setAutomationRunsQuery, transitionAutomation, useAutomationTemplate } from './automation-actions.js';
 
 const WORKFLOW = { version: 1 as const, trigger: { type: 'manual', config: {} }, target: { type: 'matching_conditions', config: {} }, steps: [{ id: 'step_1', type: 'create_internal_notification', config: {} }], safety: { approvalRequired: true, duplicateWindowSeconds: 1 } };
 const AUTOMATION: Automation = { id:'a-1',name:'Welcome',description:null,templateKey:null,state:'draft',workflow:WORKFLOW,timezone:'UTC',nextRunAt:null,lastRunAt:null,version:1 };
@@ -216,70 +216,61 @@ describe('the schedule a form describes', () => {
   });
 });
 
-describe('the mapping type carried on a step', () => {
-  it('reads a stored mapping, and answers empty for anything that is not one', () => {
-    expect(mappingType({ type: 'customer_field' })).toBe('customer_field');
-    expect(mappingType({ type: 7 })).toBe('');
-    expect(mappingType({})).toBe('');
-    expect(mappingType(null)).toBe('');
-    expect(mappingType('static')).toBe('');
-    expect(mappingType(undefined)).toBe('');
-  });
-});
-
 describe('saving a step that sends a WhatsApp template', () => {
   const TEMPLATE_STEP = { id: 'send', type: 'send_whatsapp_template' as const, config: {} };
-  const WA: WhatsAppTemplate = { id: 'wa-1', connectionId: 'c-1', providerTemplateId: 'p-1', templateName: 'welcome', language: 'ar', category: 'UTILITY', status: 'approved', components: [], variables: ['1', '2'], lastSyncedAt: '2026-09-17T00:00:00Z' };
+  const FIELD = '11111111-1111-4111-8111-111111111111';
+  const WA: WhatsAppTemplate = {
+    id: 'wa-1', connectionId: 'c-1', providerTemplateId: 'p-1', templateName: 'welcome', language: 'ar', category: 'UTILITY', status: 'approved',
+    components: [{ type: 'BODY', text: 'أهلًا {{1}}، مستواك {{2}}' }], variables: ['{{1}}', '{{2}}'], lastSyncedAt: '2026-09-17T00:00:00Z',
+  };
+  const configOf = (s: ReturnType<typeof setup>) => (vi.mocked(s.api.update).mock.calls.at(-1)?.[3] as unknown as { workflow: { steps: readonly { config: Record<string, unknown> }[] } }).workflow.steps[0]?.config;
 
-  function withTemplateStep() {
+  function withTemplateStep(config: Record<string, unknown> = {}) {
     const s = setup();
-    s.state.live.automations = { status: 'ready', value: [{ ...AUTOMATION, workflow: { ...WORKFLOW, steps: [TEMPLATE_STEP] } }], loadedAt: 1 };
+    s.state.live.automations = { status: 'ready', value: [{ ...AUTOMATION, workflow: { ...WORKFLOW, steps: [{ ...TEMPLATE_STEP, config }] } }], loadedAt: 1 };
     s.state.live.whatsappTemplates = { status: 'ready', value: [WA], loadedAt: 1 };
     return s;
   }
 
-  it('carries the chosen template and a complete variable map', async () => {
+  it('carries the chosen template and where each variable comes from', async () => {
     const s = withTemplateStep();
     s.state.dialogForm = {
       automationTemplate_send: 'wa-1',
-      automationVariable_send_1: 'customer_field',
+      automationParam_send_body_1_fallback: 'there',
+      automationParam_send_body_2_source: 'field',
+      automationParam_send_body_2_field: FIELD,
     };
     expect(await saveAutomation(s.context, 'a-1')).toBe(true);
-    const input = vi.mocked(s.api.update).mock.calls[0]?.[3] as unknown as { workflow: { steps: readonly { config: Record<string, unknown> }[] } };
-    expect(input.workflow.steps[0]?.config['templateId']).toBe('wa-1');
-    // Every variable the template declares gets an entry — the one the form
-    // chose, and a default for the one it did not.
-    expect(input.workflow.steps[0]?.config['variableMapping']).toEqual({
-      '1': { type: 'customer_field' },
-      '2': { type: 'customer_field' },
+    expect(configOf(s)).toEqual({
+      templateId: 'wa-1',
+      variableMapping: { 'body:1': { source: 'display_name', fallback: 'there' }, 'body:2': { source: 'field', fieldId: FIELD } },
     });
   });
 
-  it('keeps the mapping already stored on the step when the form says nothing', async () => {
-    const s = setup();
-    s.state.live.automations = {
-      status: 'ready',
-      value: [{ ...AUTOMATION, workflow: { ...WORKFLOW, steps: [{ ...TEMPLATE_STEP, config: { templateId: 'wa-1', variableMapping: { '1': { type: 'static' } } } }] } }],
-      loadedAt: 1,
-    };
-    s.state.live.whatsappTemplates = { status: 'ready', value: [WA], loadedAt: 1 };
+  it('keeps the bindings already stored on the step when the form says nothing', async () => {
+    const stored = { 'body:1': { source: 'phone' }, 'body:2': { source: 'static', value: 'B1' } };
+    const s = withTemplateStep({ templateId: 'wa-1', variableMapping: stored });
     s.state.dialogForm = {};
     expect(await saveAutomation(s.context, 'a-1')).toBe(true);
-    const input = vi.mocked(s.api.update).mock.calls[0]?.[3] as unknown as { workflow: { steps: readonly { config: Record<string, unknown> }[] } };
-    expect(input.workflow.steps[0]?.config['variableMapping']).toEqual({
-      '1': { type: 'static' },
-      '2': { type: 'customer_field' },
-    });
+    expect(configOf(s)).toEqual({ templateId: 'wa-1', variableMapping: stored });
+    // Another template starts from nothing: the stored bindings were for the first.
+    s.state.live.automations = { status: 'ready', value: [{ ...AUTOMATION, workflow: { ...WORKFLOW, steps: [{ ...TEMPLATE_STEP, config: { templateId: 'wa-1', variableMapping: stored } }] } }], loadedAt: 1 };
+    s.state.live.whatsappTemplates = { status: 'ready', value: [WA, { ...WA, id: 'wa-2' }], loadedAt: 1 };
+    s.state.dialogForm = { automationTemplate_send: 'wa-2' };
+    await saveAutomation(s.context, 'a-1');
+    expect(configOf(s)).toEqual({ templateId: 'wa-2', variableMapping: { 'body:1': { source: 'display_name' } } });
   });
 
-  it('still saves when the chosen template is not in the loaded list', async () => {
+  it('still saves when the chosen template is not in the loaded list, and saves nothing when none is chosen', async () => {
     // The list may be stale; the server is the authority and will refuse an
     // unknown template at activation.
     const s = withTemplateStep();
     s.state.dialogForm = { automationTemplate_send: 'wa-missing' };
     expect(await saveAutomation(s.context, 'a-1')).toBe(true);
-    const input = vi.mocked(s.api.update).mock.calls[0]?.[3] as unknown as { workflow: { steps: readonly { config: Record<string, unknown> }[] } };
-    expect(input.workflow.steps[0]?.config['variableMapping']).toEqual({});
+    expect(configOf(s)).toEqual({ templateId: 'wa-missing', variableMapping: {} });
+    s.state.dialogForm = {};
+    await saveAutomation(s.context, 'a-1');
+    expect(configOf(s)).toEqual({});
   });
 });
 
@@ -301,6 +292,17 @@ describe('saving what the builder shows', () => {
     s.state.dialogForm = { automationTarget: 'label', automationTargetLabel: 'l-2' };
     await saveAutomation(s.context, 'a-1');
     expect(inputOf(s).workflow.target).toEqual({ type: 'label', config: { labelId: 'l-2' } });
+    // A saved audience target carries the audience, and keeps the stored one when untouched.
+    s.state.dialogForm = { automationTarget: 'dynamic_audience' };
+    await saveAutomation(s.context, 'a-1');
+    expect(inputOf(s).workflow.target).toEqual({ type: 'dynamic_audience', config: {} });
+    s.state.dialogForm = { automationTarget: 'dynamic_audience', automationTargetAudience: 'aud-1' };
+    await saveAutomation(s.context, 'a-1');
+    expect(inputOf(s).workflow.target).toEqual({ type: 'dynamic_audience', config: { audienceId: 'aud-1' } });
+    s.state.live.automations = { status: 'ready', value: [{ ...AUTOMATION, workflow: { ...WORKFLOW, target: { type: 'dynamic_audience', config: { audienceId: 'aud-2' } } } }], loadedAt: 1 };
+    s.state.dialogForm = {};
+    await saveAutomation(s.context, 'a-1');
+    expect(inputOf(s).workflow.target).toEqual({ type: 'dynamic_audience', config: { audienceId: 'aud-2' } });
   });
 
   it('keeps what is being typed when a neighbouring step is added or removed', async () => {
@@ -378,7 +380,7 @@ describe('the remaining form and copy paths', () => {
     s.state.dialogForm = {};
     expect(await saveAutomation(s.context, 'a-1')).toBe(true);
     const input = vi.mocked(s.api.update).mock.calls[0]?.[3] as unknown as { workflow: { steps: readonly { config: Record<string, unknown> }[] } };
-    expect(input.workflow.steps[0]?.config['templateId']).toBe('');
+    expect(input.workflow.steps[0]?.config).toEqual({});
   });
 
   it('defaults a weekly schedule to Monday when the form names no days', () => {

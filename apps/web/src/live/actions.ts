@@ -1,4 +1,4 @@
-import type { ChannelTestRecipient, ConnectChannelInput } from '../api/channels.js';
+import type { ChannelSettingsInput, ChannelTestRecipient, ConnectChannelInput } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type { Role, ScopeRef } from '../api/people.js';
 import type { AppState } from '../state.js';
@@ -390,6 +390,15 @@ export function setInstagramPage(context: LiveContext, connectionId: string, fac
     `instagram-page:${connectionId}`,
     (tenantId) => context.live.channels.setInstagramPage(tenantId, connectionId, facebookPageId),
     () => t(context.state, 'تحقق Meta من صفحة فيسبوك المرتبطة بإنستجرام', 'Meta verified the linked Facebook Page'),
+  );
+}
+
+export function updateChannelSettings(context: LiveContext, connectionId: string, settings: ChannelSettingsInput): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `channel-settings:${connectionId}`,
+    (tenantId) => context.live.channels.updateSettings(tenantId, connectionId, settings),
+    () => t(context.state, 'حُفظت الإعدادات. اضغط «التحقق من الاتصال» لتجربة رابط الردود.', 'Settings saved. Run “Verify connection” to try the reply URL.'),
   );
 }
 

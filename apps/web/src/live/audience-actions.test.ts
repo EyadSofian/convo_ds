@@ -2,6 +2,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it, vi } from 'vitest';
+import type { AutomationsApi } from '../api/automations.js';
 import type { AudiencePreview, Campaign, CampaignsApi } from '../api/campaigns.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type { ContactsApi } from '../api/contacts.js';
@@ -10,7 +11,7 @@ import type { SavedAudience, SavedViewsApi } from '../api/saved-views.js';
 import { createState } from '../state.js';
 import { renderDialog } from '../ui/dialogs.js';
 import type { LiveContext } from './actions.js';
-import { chooseAudienceSource, loadAudiences, openCampaignEditor, previewCampaignAudience, saveCampaignAudience } from './audience-actions.js';
+import { chooseAudienceSource, loadAudiences, openAudienceDialog, openCampaignEditor, previewCampaignAudience, retireAudience, saveCampaignAudience, showCampaignView } from './audience-actions.js';
 import { conditionsFromFilter } from './audience.js';
 import { LIVE_ACTIONS } from './dispatch.js';
 
@@ -39,10 +40,12 @@ function setup(options: { tenant?: string | null; lang?: 'ar' | 'en' } = {}) {
   Object.defineProperty(state.live, 'savedViewsApi', { value: views });
   Object.defineProperty(state.live, 'metadataApi', { value: metadata });
   Object.defineProperty(state.live, 'contactsApi', { value: contacts });
+  const automations = { whatsappTemplates: vi.fn().mockResolvedValue(ok([])) } as unknown as AutomationsApi;
+  Object.defineProperty(state.live, 'automationsApi', { value: automations });
   const context: LiveContext = {
     state, live: state.live, refresh: vi.fn(), now: () => NOW.getTime(), newKey: () => 'key-1', endSession: vi.fn(), switchWorkspace: vi.fn(),
   };
-  return { state, context, campaigns, views, metadata, contacts };
+  return { state, context, campaigns, views, metadata, contacts, automations };
 }
 
 describe('the campaign editor’s audience', () => {
@@ -170,14 +173,6 @@ describe('the campaign editor’s audience', () => {
     expect(arabic.state.toasts.at(-1)?.text).toBe('حُفظ الجمهور «م».');
   });
 
-  it('refuses to create a campaign whose audience names nobody yet', async () => {
-    const { state, context } = setup();
-    state.dialog = { kind: 'campaign', arg: '' };
-    state.dialogForm = { campaignName: 'A', campaignMessage: 'B', campaignConnection: 'channel-1', campaignAudienceSource: 'labels' };
-    expect(await LIVE_ACTIONS['live-campaign-create']?.(context, '')).toBe(false);
-    expect(state.formErrors).toEqual({ campaignAudience: 'Choose at least one label.' });
-  });
-
   it('searches the directory for the hand-picked list through the server', async () => {
     const { state, context, contacts } = setup();
     state.dialogForm = { campaignContactQuery: ' Mona ' };
@@ -186,5 +181,68 @@ describe('the campaign editor’s audience', () => {
     expect(contacts.list).toHaveBeenCalledWith('tenant-1', expect.objectContaining({ query: 'Mona' }));
     expect(await LIVE_ACTIONS['live-campaign-editor']?.(context, '')).toBe(true);
     expect(renderDialog(state)).not.toBeNull();
+  });
+});
+
+describe('the broadcast editor’s catalogues', () => {
+  it('fetches the approved templates once, and reports a refusal', async () => {
+    const { state, context, automations } = setup();
+    await openCampaignEditor(context, '');
+    expect(automations.whatsappTemplates).toHaveBeenCalledWith('tenant-1');
+    expect(state.live.whatsappTemplates).toMatchObject({ status: 'ready', value: [] });
+    await openCampaignEditor(context, '');
+    expect(automations.whatsappTemplates).toHaveBeenCalledTimes(1);
+    const refused = setup();
+    vi.mocked(refused.automations.whatsappTemplates).mockResolvedValueOnce(fail());
+    await openCampaignEditor(refused.context, '');
+    expect(refused.state.live.whatsappTemplates).toEqual({ status: 'error', error: ERROR });
+  });
+});
+
+describe('saved audiences on their own', () => {
+  it('opens a new audience on labels, with the catalogues it picks from', async () => {
+    const { state, context, views } = setup();
+    state.live.audiencePreview = { key: 'old', result: { status: 'ready', value: PREVIEW, loadedAt: 1 } };
+    expect(await openAudienceDialog(context)).toBe(true);
+    expect(state.dialog).toEqual({ kind: 'audience-new', arg: '' });
+    expect(state.dialogForm).toEqual({ campaignAudienceSource: 'labels' });
+    expect(state.live.audiencePreview).toBeNull();
+    expect(views.audiences).toHaveBeenCalledTimes(1);
+    expect(await LIVE_ACTIONS['live-audience-new']?.(context, '')).toBe(true);
+    // Saved on its own, the dialog closes: there is nothing more to do in it.
+    state.dialogForm = { campaignAudienceSource: 'labels', campaignLabelIds: LABEL, campaignAudienceName: 'VIPs' };
+    expect(await saveCampaignAudience(context)).toBe(true);
+    expect(state.dialog).toBeNull();
+    expect(state.dialogForm).toEqual({});
+  });
+
+  it('switches the campaign list between buckets and the audiences', async () => {
+    const { state, context, views } = setup();
+    expect(await showCampaignView(context, 'sideways')).toBe(false);
+    expect(await LIVE_ACTIONS['live-campaign-view']?.(context, 'scheduled')).toBe(true);
+    expect(state.live.campaignView).toBe('scheduled');
+    expect(views.audiences).not.toHaveBeenCalled();
+    expect(await showCampaignView(context, 'audiences')).toBe(true);
+    expect(views.audiences).toHaveBeenCalledTimes(1);
+  });
+
+  it('retires an audience, and keeps it when the server refuses', async () => {
+    const { state, context, views } = setup();
+    Object.assign(views, { retireAudience: vi.fn().mockResolvedValueOnce(fail()).mockResolvedValueOnce(ok(undefined)) });
+    state.live.audiences = { status: 'ready', loadedAt: 1, value: [SAVED] };
+    expect(await retireAudience(context, 'missing')).toBe(false);
+    expect(await LIVE_ACTIONS['live-audience-retire']?.(context, 'aud-1')).toBe(false);
+    expect(state.toasts.at(-1)).toMatchObject({ text: 'Server refused', tone: 'danger' });
+    expect(state.live.audiences).toMatchObject({ value: [SAVED] });
+    expect(await retireAudience(context, 'aud-1')).toBe(true);
+    expect(views.retireAudience).toHaveBeenLastCalledWith('tenant-1', 'aud-1', 1);
+    expect(state.live.audiences).toMatchObject({ value: [] });
+    expect(state.toasts.at(-1)?.text).toBe('Audience “Interested” removed.');
+    expect(state.live.busy).toBeNull();
+    const arabic = setup({ lang: 'ar' });
+    Object.assign(arabic.views, { retireAudience: vi.fn().mockResolvedValue(ok(undefined)) });
+    arabic.state.live.audiences = { status: 'ready', loadedAt: 1, value: [SAVED] };
+    await retireAudience(arabic.context, 'aud-1');
+    expect(arabic.state.toasts.at(-1)?.text).toBe('أُزيل الجمهور «Interested».');
   });
 });

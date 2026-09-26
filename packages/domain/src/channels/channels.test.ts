@@ -379,6 +379,27 @@ describe('WhatsAppAdapter.normalize', () => {
     expect(batch.events[0]?.source).toMatchObject({ id: 'wamid.1' });
   });
 
+  it('carries the sender’s profile name from the contacts beside the messages', () => {
+    const batch = adapter.normalize(
+      delivery({
+        metadata,
+        contacts: [
+          { wa_id: '1', profile: { name: ' Mona ' } },
+          { wa_id: '2', profile: { name: '' } },
+          { profile: { name: 'Nobody' } },
+          'broken',
+        ],
+        messages: [textIn('wamid.n1'), { ...textIn('wamid.n2'), from: '2' }, { ...textIn('wamid.n3'), from: '3', type: 'sticker' }],
+      }),
+      NOW,
+    );
+    expect(batch.events.map((event) => event.detail)).toEqual([
+      { sender_name: 'Mona' },
+      {},
+      { unsupported_type: 'sticker' },
+    ]);
+  });
+
   it('normalizes a media message into an attachment', () => {
     const batch = adapter.normalize(
       delivery({

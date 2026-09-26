@@ -48,9 +48,10 @@ import {
 import { createAndAssignLabel, createField, createLabel, retireLabel, setEntityLabel, setFieldValue, updateLabel } from './metadata-actions.js';
 import { rowsOf } from './store.js';
 import { hasPermission } from './ability.js';
-import { editorAudience, idList } from './audience.js';
+import { idList } from './audience.js';
 import { newContactFields } from './contact-profile.js';
-import { audienceProblem, chooseAudienceSource, openCampaignEditor, previewCampaignAudience, saveCampaignAudience } from './audience-actions.js';
+import { chooseAudienceSource, openAudienceDialog, openCampaignEditor, previewCampaignAudience, retireAudience, saveCampaignAudience, showCampaignView } from './audience-actions.js';
+import { goToBroadcastStep, submitBroadcast } from './broadcast.js';
 import { setSimpleFilter } from './inbox-query.js';
 import { INBOX_FILTER_CATALOGUE, INBOX_SORTS, type InboxFilter, type InboxSort } from '@convo/domain';
 import { applySavedView, retireSavedView, saveCurrentInboxView } from './saved-view-actions.js';
@@ -58,7 +59,6 @@ import {
   approveCampaign,
   cloneCampaign,
   controlCampaign,
-  createCampaign,
   createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
@@ -68,7 +68,6 @@ import {
   refreshCampaignReportExport,
   retryCampaignFailures,
   testSendCampaign,
-  updateCampaign,
   validateCampaign,
 } from './campaign-actions.js';
 import {
@@ -113,6 +112,7 @@ import {
   renameTeam,
   rotateChannelCredential,
   setInstagramPage,
+  updateChannelSettings,
   saveRoleGrants,
   revokeInvitation,
   revokeTestRecipient,
@@ -348,25 +348,6 @@ function edited(context: LiveContext, key: string, saved: string): string {
   return context.state.dialogForm[key] === undefined ? saved : form(context, key);
 }
 
-function campaignErrors(
-  context: LiveContext,
-  values: { readonly campaignName: string; readonly campaignMessage: string },
-): Record<string, string> {
-  const audience = audienceProblem(context);
-  return {
-    ...(values.campaignName === '' ? { campaignName: text(context, 'أدخل اسم الحملة.', 'Enter a campaign name.') } : {}),
-    ...(values.campaignMessage === '' ? { campaignMessage: text(context, 'اكتب نص الرسالة.', 'Write the message.') } : {}),
-    ...(audience === null ? {} : { campaignAudience: audience }),
-  };
-}
-
-/** Everything the campaign editor writes into the form, cleared once a save lands. */
-const CAMPAIGN_FORM_KEYS: readonly string[] = [
-  'campaignName', 'campaignConnection', 'campaignMessage', 'campaignObjective', 'campaignSearch',
-  'campaignAudienceSource', 'campaignLabelIds', 'campaignConversationLabelIds', 'campaignContactIds',
-  'campaignSavedAudience', 'campaignAudienceName', 'campaignContactQuery',
-];
-
 /** Clears the fields a form owns once the server has accepted it. */
 function clearForm(context: LiveContext, keys: readonly string[]): void {
   const next = { ...context.state.dialogForm };
@@ -447,6 +428,27 @@ export function channelPageField(connectionId: string): string {
   return `channelPage_${connectionId}`;
 }
 
+export function channelOriginsField(connectionId: string): string {
+  return `channelOrigins_${connectionId}`;
+}
+
+export function channelOutboundField(connectionId: string): string {
+  return `channelOutbound_${connectionId}`;
+}
+
+const ORIGIN = /^https?:\/\/[A-Za-z0-9.-]{1,253}(:\d{1,5})?$/;
+
+/** Origins typed one per line (or space-separated), and whether they are all whole origins. */
+export function originsFrom(typed: string): { readonly origins: readonly string[]; readonly valid: boolean } {
+  const origins = [...new Set(typed.split(/\s+/).filter((entry) => entry !== ''))];
+  return { origins, valid: origins.length <= 20 && origins.every((entry) => ORIGIN.test(entry)) };
+}
+
+/** A reply URL the server will accept: https, on a public name. The server has the final word. */
+export function replyUrlValid(typed: string): boolean {
+  return /^https:\/\/[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+(:\d{1,5})?(\/\S*)?$/.test(typed);
+}
+
 export function channelTestIdentityField(connectionId: string): string {
   return `channelTestIdentity_${connectionId}`;
 }
@@ -482,7 +484,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     const result = await context.live.api.requestRecovery(email);
     context.live.busy = null;
     if (!result.ok) context.live.error = result.error;
-    else context.state.authFlowComplete = 'recovery-request';
+    else backToSignIn(context, 'recovery-request');
     context.refresh(); return result.ok;
   },
 
@@ -514,6 +516,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       return false;
     }
     const signedIn = await signIn(context, email, password);
+    if (signedIn) state.authFlowComplete = null;
     // The password never stays in state after the attempt, whatever the answer.
     clearForm(context, ['signinPassword']);
     state.passwordVisible = false;
@@ -607,69 +610,11 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   }),
   'live-automation-runs-load-more': async (context) => loadAutomationRunsPage(context, false),
 
-  'live-campaign-create': async (context) => {
-    const name = form(context, 'campaignName');
-    // The channel select shows the first healthy connection until it is changed.
-    const connectionId = form(context, 'campaignConnection') || (rowsOf(context.live.connections).find((connection) => connection.status === 'healthy')?.id ?? '');
-    const message = form(context, 'campaignMessage');
-    const audience = editorAudience(context.state);
-    if (invalid(context, campaignErrors(context, { campaignName: name, campaignMessage: message }))) return false;
-    // The create button is disabled without a healthy connection; the server
-    // refuses a draft without one either way.
-    if (connectionId === '') return false;
-    const created = await createCampaign(context, {
-      name,
-      objective: form(context, 'campaignObjective') || null,
-      connectionId,
-      content: { text: message },
-      variables: { display_name: 'display_name' },
-      // campaignErrors refused any audience that names no filter.
-      audienceFilter: audience.filter!,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      budgetAmountMinor: 0,
-      budgetCurrency: 'USD',
-    });
-    if (created) {
-      context.state.dialog = null;
-      clearForm(context, CAMPAIGN_FORM_KEYS);
-      context.refresh();
-    }
-    return created;
-  },
-
-  'live-campaign-update': async (context, arg) => {
-    const campaign = rowsOf(context.live.campaigns).find((entry) => entry.id === arg);
-    if (campaign === undefined) return false;
-    // The editor shows the saved values until they are changed, so an untouched
-    // field means "keep what the server has". Reading an untouched field as
-    // empty used to clear the audience search and the objective on a rename —
-    // turning a cosmetic edit into a new revision — and silently refused any
-    // save that did not retype the message.
-    const savedText = typeof campaign.content['text'] === 'string' ? campaign.content['text'] : '';
-    const name = edited(context, 'campaignName', campaign.name);
-    const message = edited(context, 'campaignMessage', savedText);
-    const audience = editorAudience(context.state);
-    if (invalid(context, campaignErrors(context, { campaignName: name, campaignMessage: message }))) return false;
-    const updated = await updateCampaign(context, arg, {
-      name,
-      objective: edited(context, 'campaignObjective', campaign.objective ?? '') || null,
-      connectionId: edited(context, 'campaignConnection', campaign.connection_id),
-      content: { ...campaign.content, text: message },
-      variables: campaign.variables,
-      audienceFilter: audience.filter!,
-      timezone: campaign.timezone,
-      expiresAt: campaign.expires_at,
-      budgetAmountMinor: Number(campaign.budget_amount_minor),
-      budgetCurrency: campaign.budget_currency,
-    }, campaign.version);
-    if (updated) {
-      context.state.dialog = null;
-      clearForm(context, CAMPAIGN_FORM_KEYS);
-      context.refresh();
-    }
-    return updated;
-  },
-
+  'live-broadcast-step': async (context, arg) => goToBroadcastStep(context, arg),
+  'live-broadcast-submit': async (context, arg) => submitBroadcast(context, arg),
+  'live-campaign-view': async (context, arg) => showCampaignView(context, arg),
+  'live-audience-new': async (context) => openAudienceDialog(context),
+  'live-audience-retire': async (context, arg) => retireAudience(context, arg),
   'live-campaign-editor': async (context, arg) => openCampaignEditor(context, arg),
   'live-campaign-audience-source': async (context, arg) => chooseAudienceSource(context, arg),
   'live-campaign-audience-preview': async (context) => previewCampaignAudience(context),
@@ -1089,17 +1034,12 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       ...profile.errors,
     };
     if (invalid(context, errors)) return false;
-    const channel = connection!.kind;
     return createContact(context, {
       displayName: form(context, 'contactCreateName'),
       connectionId,
       externalId: form(context, 'contactCreateExternalId'),
       fields: profile.fields,
       labelIds: idList(state.dialogForm['newContactLabels'] ?? ''),
-      consents: [
-        ...(state.dialogForm['newContactMarketing'] === 'true' ? [{ purpose: 'marketing' as const, channel }] : []),
-        ...(state.dialogForm['newContactService'] === 'true' ? [{ purpose: 'service' as const, channel }] : []),
-      ],
     });
   },
 
@@ -1291,13 +1231,20 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     const selectedKind = state.dialog?.kind === 'connect-channel' ? state.dialog.arg : '';
     if (!['whatsapp', 'messenger', 'instagram', 'web_chat', 'custom'].includes(selectedKind)) return false;
     const meta = ['whatsapp', 'messenger', 'instagram'].includes(selectedKind);
-    // Our own channels accept deliveries only from origins named here; one
-    // saved without any would refuse every message it is ever sent.
-    const origins = [...new Set(form(context, 'channelOrigins').split(/\s+/).filter((entry) => entry !== ''))];
-    const originsValid = origins.length > 0 && origins.length <= 20 && origins.every((entry) => /^https?:\/\/[A-Za-z0-9.-]{1,253}(:\d{1,5})?$/.test(entry));
+    // A website widget posts from a browser, so it needs the origins it may
+    // post from. A Custom Channel is the operator's server, which sends no
+    // Origin at all: its origins are optional, and its reply URL is what lets
+    // agents answer.
+    const { origins, valid } = originsFrom(form(context, 'channelOrigins'));
+    const originsValid = valid && (selectedKind !== 'web_chat' || origins.length > 0);
+    const outboundUrl = form(context, 'channelOutboundUrl');
     const errors = {
       ...(!meta && !originsValid
-        ? { channelOrigins: text(context, 'أدخل مصدرًا كاملًا واحدًا على الأقل، مثل https://school.example، دون مسار.', 'Enter at least one whole origin such as https://school.example, without a path.') } : {}),
+        ? { channelOrigins: selectedKind === 'web_chat'
+            ? text(context, 'أدخل مصدرًا كاملًا واحدًا على الأقل، مثل https://school.example، دون مسار.', 'Enter at least one whole origin such as https://school.example, without a path.')
+            : text(context, 'كل مصدر يكون كاملًا، مثل https://school.example، دون مسار.', 'Each origin must be whole, such as https://school.example, without a path.') } : {}),
+      ...(selectedKind === 'custom' && outboundUrl !== '' && !replyUrlValid(outboundUrl)
+        ? { channelOutboundUrl: text(context, 'أدخل رابط https عامًا على نطاقك، مثل https://crm.school.example/convo.', 'Enter a public https URL on your domain, such as https://crm.school.example/convo.') } : {}),
       ...(meta && form(context, 'channelProviderApp') === '' ? { channelProviderApp: text(context, 'أدخل معرّف تطبيق Meta.', 'Enter the Meta App ID.') } : {}),
       ...(form(context, 'channelAsset') === '' ? { channelAsset: text(context, 'أدخل معرّف الأصل.', 'Enter the asset ID.') } : {}),
       ...(form(context, 'channelName') === '' ? { channelName: text(context, 'أدخل اسمًا للعرض.', 'Enter a display name.') } : {}),
@@ -1313,7 +1260,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       accessToken: form(context, 'channelToken'),
       providerAppId: meta ? form(context, 'channelProviderApp') : null,
       ...(selectedKind === 'instagram' ? { settings: { facebookPageId: form(context, 'channelPage') } } : {}),
-      ...(meta ? {} : { settings: { origins } }),
+      ...(meta ? {} : { settings: { origins, ...(selectedKind === 'custom' && outboundUrl !== '' ? { outboundUrl } : {}) } }),
     });
     // The token is dropped from state whatever the answer was — a credential
     // left in a form field is a credential in a screenshot. The rest is kept on a
@@ -1355,6 +1302,29 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     }
     const saved = await setInstagramPage(context, arg, value);
     if (saved) clearForm(context, [channelPageField(arg)]);
+    return saved;
+  },
+
+  'live-channel-settings': async (context, arg) => {
+    const connection = rowsOf(context.live.connections).find((entry) => entry.id === arg);
+    if (connection === undefined) return false;
+    // A field nobody touched still holds what is saved.
+    const typed = (key: string, saved: string): string => (key in context.state.dialogForm ? form(context, key) : saved);
+    const { origins, valid } = originsFrom(typed(channelOriginsField(arg), (connection.origins ?? []).join('\n')));
+    const custom = connection.kind === 'custom';
+    const outboundUrl = typed(channelOutboundField(arg), connection.outbound_url ?? '');
+    const problem = !valid || (!custom && origins.length === 0)
+      ? text(context, 'كل مصدر يكون كاملًا، مثل https://school.example، دون مسار.', 'Each origin must be whole, such as https://school.example, without a path.')
+      : custom && outboundUrl !== '' && !replyUrlValid(outboundUrl)
+        ? text(context, 'أدخل رابط https عامًا على نطاقك، مثل https://crm.school.example/convo.', 'Enter a public https URL on your domain, such as https://crm.school.example/convo.')
+        : null;
+    if (problem !== null) {
+      context.live.error = { status: 400, code: 'invalid_input', message: problem, requestId: null, details: [] };
+      context.refresh();
+      return false;
+    }
+    const saved = await updateChannelSettings(context, arg, { origins, ...(custom ? { outboundUrl: outboundUrl === '' ? null : outboundUrl } : {}) });
+    if (saved) clearForm(context, [channelOriginsField(arg), channelOutboundField(arg)]);
     return saved;
   },
 
@@ -1611,8 +1581,21 @@ async function submitCredentialFlow(context: LiveContext, kind: 'invitation' | '
   context.live.busy = null;
   context.state.dialogForm = {};
   if (!result.ok) context.live.error = result.error;
-  else context.state.authFlowComplete = kind;
+  else backToSignIn(context, kind);
   context.refresh(); return result.ok;
+}
+
+/**
+ * A finished credential flow goes straight to sign-in, which says what just
+ * happened. The email the reset was asked for is kept, so it is already typed.
+ */
+function backToSignIn(context: LiveContext, done: 'invitation' | 'recovery-request' | 'recovery'): void {
+  const { state } = context;
+  state.authFlowComplete = done;
+  const email = state.dialogForm['recoveryEmail'];
+  state.dialogForm = email === undefined ? {} : { signinEmail: email };
+  state.formErrors = {};
+  state.route = { screen: 'inbox', conversationId: null, params: {} };
 }
 
 /** Runs a `live-*` action, or reports that the name is not one. */

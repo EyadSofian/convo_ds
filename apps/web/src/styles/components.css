@@ -548,6 +548,15 @@
     color: var(--danger);
   }
 
+  .notice--success {
+    background: var(--success-soft);
+    color: var(--text);
+  }
+
+  .notice--success .notice__icon {
+    color: var(--success);
+  }
+
   /* -------------------------------------------------------------- fields -- */
 
   /* Label, control, hint from the top: a neighbour's longer hint never pushes this control down. */

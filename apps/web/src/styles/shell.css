@@ -318,6 +318,22 @@
     gap: var(--space-2);
   }
 
+  /* What a finished reset or invitation says above the sign-in form. */
+  .auth-notice {
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-sm);
+  }
+
+  .auth-notice .notice__text {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .auth-notice .notice__text > span {
+    color: var(--text-secondary);
+    line-height: var(--leading-relaxed);
+  }
+
   .auth-card__title {
     font-size: var(--text-2xl);
     font-weight: var(--weight-semibold);
@@ -1612,7 +1628,6 @@
 
   @media (max-height: 760px) and (min-width: 761px) {
     .auth-visual { padding-block: var(--space-6) var(--space-5); }
-    .auth-visual__copy { margin-block-start: var(--space-8); }
     .auth-visual__copy h2 { font-size: clamp(36px, 3.5vw, 52px); }
     .auth-visual__copy > p:last-child { margin-block-start: var(--space-3); }
     .auth-visual__foot { padding-block-start: var(--space-3); }

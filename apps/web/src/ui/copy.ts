@@ -85,6 +85,9 @@ export const ERROR_CODES: Readonly<Record<string, Phrase>> = {
   suppressed: { ar: 'العميل ألغى الاشتراك', en: 'Recipient opted out' },
   window_closed: { ar: 'نافذة الرد مغلقة', en: 'Reply window closed' },
   unspecified: { ar: 'سبب غير محدد', en: 'Unspecified' },
+  custom_endpoint_missing: { ar: 'لم يُحدَّد رابط استقبال الردود في نظامك.', en: 'No reply URL is set for your system.' },
+  provider_unreachable: { ar: 'تعذّر الوصول إلى النظام المستقبِل.', en: 'The receiving system could not be reached.' },
+  provider_timeout: { ar: 'لم يردّ النظام المستقبِل في الوقت المحدد.', en: 'The receiving system did not answer in time.' },
 };
 
 export interface ErrorCopy {

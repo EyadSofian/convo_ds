@@ -29,6 +29,7 @@ import { BrokerRelayService } from './broker/relay.service.js';
 import { ChannelController } from './channels/channel.controller.js';
 import { ChannelService } from './channels/channel.service.js';
 import { unconfiguredTransport } from './channels/channel-transport.js';
+import { withOwnChannels } from './channels/custom-channel.transport.js';
 import { MetaWhatsAppTransport } from './channels/meta-whatsapp.transport.js';
 import type { ChannelTransportPort } from './channels/channel-transport.js';
 import { ChannelCredentialService } from './channels/credential.service.js';
@@ -277,5 +278,5 @@ export function emailProviderFor(config: ApiConfig): EmailProviderPort {
  * the choice of adapter itself.
  */
 export function channelTransportFor(config: ApiConfig): ChannelTransportPort {
-  return config.channelTransport === 'meta' ? new MetaWhatsAppTransport() : unconfiguredTransport;
+  return withOwnChannels(config.channelTransport === 'meta' ? new MetaWhatsAppTransport() : unconfiguredTransport);
 }

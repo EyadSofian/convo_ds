@@ -2,8 +2,10 @@ import type { Automation, AutomationInput, AutomationListQuery, AutomationRun, A
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { forTenant, fromResult, LOADING, refetching, rowsOf } from './store.js';
-import { stepConfigFrom } from './automation-steps.js';
+import { loadAudiences } from './audience-actions.js';
+import { automationPrefix, stepConfigFrom } from './automation-steps.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
+import { bindingsFromForm, storedBindings, templateDefinition } from './template-binding.js';
 
 function copy(context: LiveContext, ar: string, en: string): string {
   return context.state.lang === 'ar' ? ar : en;
@@ -15,7 +17,8 @@ export async function loadAutomationsScreen(context: LiveContext): Promise<void>
     await loadAutomationPage(context, true);
     if (context.state.route.params['edit'] !== undefined) {
       // The step editors pick labels and fields from the company's catalogue.
-      await Promise.all([loadWhatsAppTemplates(context), context.live.labels.status === 'idle' ? loadMetadataCatalog(context) : null]);
+      // A saved-audience target picks from the saved audiences.
+      await Promise.all([loadWhatsAppTemplates(context), context.live.labels.status === 'idle' ? loadMetadataCatalog(context) : null, loadAudiences(context)]);
     }
     return;
   }
@@ -158,6 +161,7 @@ export async function saveAutomation(context: LiveContext, automationId: string)
   const targetType = (form['automationTarget'] || automation.workflow.target.type) as Automation['workflow']['target']['type'];
   const ownTarget = targetType === automation.workflow.target.type ? automation.workflow.target.config : {};
   const targetLabel = form['automationTargetLabel'] ?? (typeof ownTarget['labelId'] === 'string' ? ownTarget['labelId'] : '');
+  const targetAudience = form['automationTargetAudience'] ?? (typeof ownTarget['audienceId'] === 'string' ? ownTarget['audienceId'] : '');
   const schedule = triggerType === 'schedule'
     ? scheduleOf(form, automation.workflow.schedule, context.now())
     : automation.workflow.schedule;
@@ -168,7 +172,12 @@ export async function saveAutomation(context: LiveContext, automationId: string)
     workflow: {
       ...automation.workflow,
       trigger: { ...automation.workflow.trigger, type: triggerType },
-      target: { type: targetType, config: targetType === 'label' ? (targetLabel === '' ? {} : { labelId: targetLabel }) : ownTarget },
+      target: {
+        type: targetType,
+        config: targetType === 'label' ? (targetLabel === '' ? {} : { labelId: targetLabel })
+          : targetType === 'dynamic_audience' ? (targetAudience === '' ? {} : { audienceId: targetAudience })
+            : ownTarget,
+      },
       steps,
       ...(schedule === undefined ? {} : { schedule }),
     },
@@ -187,11 +196,14 @@ export function stepsFromForm(context: LiveContext, automation: Automation): Aut
   return automation.workflow.steps.map((step) => {
     const type=(form[`automationStep_${step.id}`]||step.type) as AutomationStep['type'];
     if(type!=='send_whatsapp_template')return{...step,type,config:stepConfigFrom(form,step,type,fields)};
-    const templateId=form[`automationTemplate_${step.id}`]||String(step.config['templateId']??'');
+    // The same bindings a broadcast uses: each variable of the chosen template
+    // names where its value comes from for each recipient.
+    const savedId=typeof step.config['templateId']==='string'?step.config['templateId']:'';
+    const templateId=form[`automationTemplate_${step.id}`]||savedId;
     const template=rowsOf(context.live.whatsappTemplates).find((entry)=>entry.id===templateId);
-    const previous=typeof step.config['variableMapping']==='object'&&step.config['variableMapping']!==null?step.config['variableMapping'] as Readonly<Record<string,unknown>>:{};
-    const variableMapping=Object.fromEntries((template?.variables??[]).map((variable)=>[variable,{type:form[`automationVariable_${step.id}_${variable}`]||mappingType(previous[variable])||'customer_field'}]));
-    return{...step,type,config:{...step.config,templateId,variableMapping}};
+    const stored=templateId===savedId?storedBindings(step.config['variableMapping']):{};
+    const variableMapping=template===undefined?stored:bindingsFromForm(form,automationPrefix(step.id),templateDefinition(template),stored).bindings;
+    return{...step,type,config:templateId===''?{}:{templateId,variableMapping}};
   });
 }
 
@@ -205,7 +217,6 @@ export function scheduleOf(form:Readonly<Record<string,string>>,previous:Readonl
   if(kind==='relative')return{kind,offsetMinutes:Number(form['automationScheduleOffset']||previous?.['offsetMinutes']||-60)};
   return{kind:'daily',time};
 }
-export function mappingType(value:unknown):string{if(typeof value!=='object'||value===null)return'';const type=(value as Record<string,unknown>)['type'];return typeof type==='string'?type:'';}
 
 export async function addAutomationStep(context: LiveContext, automationId: string): Promise<boolean> {
   const automation = rowsOf(context.live.automations).find((entry) => entry.id === automationId);

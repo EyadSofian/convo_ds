@@ -32,7 +32,9 @@ The schedule contract supports one-time, daily, weekly, monthly, bounded custom 
 
 ## WhatsApp templates
 
-`whatsapp_templates` stores the provider id, name, language, category, status, components, variables and last synchronization time per connected asset. The automation API returns only synchronized `approved` templates. The builder selects by database id and creates a mapping for every provider variable. Activation re-checks both approval and mapping completeness in PostgreSQL-backed service code.
+`whatsapp_templates` stores the provider id, name, language, category, status, components, variables and last synchronization time per connected asset. The automation API returns only synchronized `approved` templates. The builder selects by database id and binds every template parameter to a source — the contact's name, their WhatsApp number, a contact field or fixed text, with an optional fallback — the same bindings a broadcast uses (see `CAMPAIGN_ENGINE.md`). Activation re-checks approval, that every parameter is bound and that every field still exists. The executor fills the template for each recipient when it runs, builds Meta's components and stores them with a preview; a recipient the template cannot be filled for fails on its own.
+
+A `dynamic_audience` target names a saved audience. Each run resolves its members afresh — contacts narrowed by name, labels, labelled conversations or a hand-picked list — so a scheduled automation ("every day at 17:00, send this template to the audience called VIPs") always reaches who matches at that moment. A retired audience, or one whose conditions a filter cannot express exactly, fails the run rather than reaching an approximation of it.
 
 The manual synchronization endpoint resolves the WABA from the configured phone-number asset, follows Meta pagination, upserts the remote catalogue, and disables templates removed remotely. Provider synchronization and live send verification remain dependent on authorized Meta assets. An empty library is shown as a configuration requirement; it is never filled with fabricated provider templates.
 
@@ -52,6 +54,6 @@ Every tenant content table has forced RLS and tenant-qualified foreign keys. Per
 
 ## Current completion boundary
 
-Implemented: workflow validation, 19 draft presets, lifecycle/version fencing, approved-template validation, manual Meta catalogue sync, variable mapping UI, event ingestion, idempotent run creation, restart-safe schedule materialization, contact/label recipient planning, durable ordered actions, delay resume, WhatsApp outbox enqueue, label and custom-field actions, outbound receipt reconciliation, run list, and the full three-view browser surface.
+Implemented: workflow validation, 19 draft presets, lifecycle/version fencing, approved-template validation, manual Meta catalogue sync, template variable bindings with preview, event ingestion, idempotent run creation, restart-safe schedule materialization, contact/label/saved-audience recipient planning, durable ordered actions, delay resume, WhatsApp outbox enqueue, label and custom-field actions, outbound receipt reconciliation, run list, and the full three-view browser surface.
 
-Explicit boundary: dynamic/saved/course audiences, assignment, internal-notification and webhook actions, automation test-recipient execution, recipient/log detail endpoints, and an optional approval queue are not implemented. Those shapes fail visibly if they reach the executor. Live Meta verification still requires the customer’s authorized app and WhatsApp assets.
+Explicit boundary: saved-view and course audiences, assignment, internal-notification and webhook actions, automation test-recipient execution, recipient/log detail endpoints, and an optional approval queue are not implemented. Those shapes fail visibly if they reach the executor. Live Meta verification still requires the customer’s authorized app and WhatsApp assets.
