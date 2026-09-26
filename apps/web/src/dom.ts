@@ -72,7 +72,7 @@ export function svgIcon(paths: string, size = 16, attrs: Attrs = {}): SVGElement
     height: size,
     fill: 'none',
     stroke: 'currentColor',
-    'stroke-width': 1.7,
+    'stroke-width': 1.9,
     'stroke-linecap': 'round',
     'stroke-linejoin': 'round',
     'aria-hidden': 'true',
