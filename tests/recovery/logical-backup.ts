@@ -100,6 +100,7 @@ export const RESTORE_ORDER: readonly string[] = [
   "contacts",
   "contact_identities",
   "contact_custom_field_values",
+  "contact_profile_queue",
   "consents",
   "labels",
   "contact_labels",
@@ -139,6 +140,7 @@ export const RESTORE_ORDER: readonly string[] = [
   "campaign_report_rows",
   "campaign_report_exports",
   "campaign_report_export_queue",
+  "campaign_conversation_attributions",
   "budget_reservations",
   // Automations.
   "automations",
@@ -151,6 +153,9 @@ export const RESTORE_ORDER: readonly string[] = [
   "automation_work_queue",
   // Realtime and broker.
   "realtime_events",
+  "notifications",
+  "notification_devices",
+  "notification_push_queue",
   "broker_outbox",
   "broker_deliveries",
   "broker_dead_letters",
