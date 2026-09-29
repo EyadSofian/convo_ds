@@ -28,6 +28,8 @@ jobs:
     # Visual baselines are captured on macOS; Linux would have no matching snapshots.
     runs-on: macos-latest
     timeout-minutes: 120
+    env:
+      TZ: Africa/Cairo
     steps:
       - uses: actions/checkout@v4
         with:
