@@ -6,6 +6,7 @@ import {
   freezeClock,
   fullyVisibleCount,
   MATRIX,
+  motionSettled,
   openAutomationBuilder,
   openInbox,
   openScreen,
@@ -136,6 +137,7 @@ test('contact custom fields keep Save aligned with the input in the details pane
   await page.goto(`/#/inbox/${CONVERSATION}`);
   const fields = page.locator('[data-metadata="contact"] .metadata__field');
   await expect(fields).toHaveCount(2);
+  await motionSettled(page);
   for (const row of await fields.all()) {
     const input = await box(row.locator('.input'));
     const save = await box(row.locator('.btn'));

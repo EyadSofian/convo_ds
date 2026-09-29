@@ -51,6 +51,9 @@ export default defineConfig({
   },
   use: {
     baseURL: previewUrl,
+    // Browser timezone must be explicit: runner/Node TZ does not control
+    // Chromium's Intl formatting reliably across macOS CI machines.
+    timezoneId: 'Africa/Cairo',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
