@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
-import { CONNECTION, installApi, MEMBERSHIP } from './support/api';
+import { CONNECTION, CONVERSATION, installApi, MEMBERSHIP } from './support/api';
 import {
   box,
   freezeClock,
@@ -125,6 +125,26 @@ test.describe('the shell', () => {
     await expect(page.locator('body')).not.toContainText('digital-school');
     await expect(page.locator('body')).not.toContainText('workspace.');
   });
+});
+
+test('contact custom fields keep Save aligned with the input in the details panel', async ({ page }) => {
+  await freezeClock(page);
+  await installApi(page, { customFields: [
+    { id: 'field-about', target: 'contact', key: 'about', name: 'About', type: 'text', options: [], state: 'active', version: 1 },
+    { id: 'field-city', target: 'contact', key: 'city', name: 'City', type: 'text', options: [], state: 'active', version: 1 },
+  ] });
+  await page.goto(`/#/inbox/${CONVERSATION}`);
+  const fields = page.locator('[data-metadata="contact"] .metadata__field');
+  await expect(fields).toHaveCount(2);
+  for (const row of await fields.all()) {
+    const input = await box(row.locator('.input'));
+    const save = await box(row.locator('.btn'));
+    expect(Math.abs((input.y + input.height) - (save.y + save.height))).toBeLessThanOrEqual(2);
+    expect(input.width).toBeGreaterThan(100);
+    expect(save.width).toBeGreaterThan(40);
+  }
+  await expect(page.locator('[data-metadata="contact"] .field__hint')).toHaveCount(0);
+  expect(await overflowsHorizontally(page)).toBe(false);
 });
 
 test.describe('the navigation drawer below 960px', () => {

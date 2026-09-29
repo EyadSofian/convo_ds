@@ -15,6 +15,9 @@ describe('typed metadata inputs', () => {
     const root = metadataSection(state, state.live, 'contact', { id: 'contact-1', labels: [], customFields: [] });
     expect(root.querySelector('input[type="email"]')).not.toBeNull();
     expect(root.querySelector('input[type="tel"]')).not.toBeNull();
+    expect(root.querySelectorAll('.metadata__field > .field')).toHaveLength(2);
+    expect(root.querySelectorAll('.metadata__field > .btn')).toHaveLength(2);
+    expect(root.querySelector('.metadata__fields')?.textContent).not.toContain('phone');
   });
 
   it('keeps historical labels visible but removes every metadata mutation in a read-only lens', () => {

@@ -86,11 +86,10 @@ export function metadataSection(
           const key = metadataFieldValue(target, entity.id, definition.id);
           return h('div', { class: 'metadata__field' }, [
             readOnly
-              ? field(definition.name, h('p', { class: 'field__hint' }, [current === '' ? '—' : current]), definition.key)
+              ? field(definition.name, h('p', { class: 'metadata__value' }, [current === '' ? '—' : current]))
               : field(
                   definition.name,
                   fieldControl(state, definition.type, definition.options, key, state.dialogForm[key] ?? current),
-                  definition.key,
                 ),
             readOnly ? null : button({
               label: t(state, 'حفظ', 'Save'),

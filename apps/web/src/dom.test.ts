@@ -11,6 +11,7 @@ import {
   frag,
   h,
   replace,
+  reconcile,
   setAttr,
   svgIcon,
 } from './dom';
@@ -76,6 +77,37 @@ describe('append, replace and frag', () => {
   it('returns the parent it was given', () => {
     const parent = document.createElement('div');
     expect(append(parent, ['x'])).toBe(parent);
+  });
+});
+
+describe('reconcile', () => {
+  it('patches a fragment with an overlay without unmounting the screen', () => {
+    const screen = h('main', {}, ['Dashboard']);
+    const parent = h('div', {}, [screen]);
+    reconcile(parent, frag([h('main', {}, ['Dashboard']), h('div', { 'data-trap': 'dialog' }, ['Settings'])]));
+    expect(parent.firstChild).toBe(screen);
+    expect(parent.querySelector('[data-trap="dialog"]')?.textContent).toBe('Settings');
+  });
+
+  it('keeps unchanged controls mounted while updating their busy state', () => {
+    const parent = h('div', {}, [h('main', {}, [h('button', { 'data-act': 'reload' }, ['Refresh'])])]);
+    const main = parent.querySelector('main');
+    const button = parent.querySelector('button');
+    reconcile(parent, h('main', {}, [h('button', { 'data-act': 'reload', disabled: true, 'aria-busy': 'true' }, ['Refreshing'])]));
+    expect(parent.firstChild).toBe(main);
+    expect(parent.querySelector('button')).toBe(button);
+    expect(button?.textContent).toBe('Refreshing');
+    expect(button?.getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('replaces controls when their action changes and updates form values', () => {
+    const input = h('input', { 'data-act': 'form', 'data-form': 'name', value: 'old' });
+    const parent = h('div', {}, [h('section', {}, [input, h('button', { 'data-act': 'old' }, ['Old'])])]);
+    const oldButton = parent.querySelector('button');
+    reconcile(parent, h('section', {}, [h('input', { 'data-act': 'form', 'data-form': 'name', value: 'new' }), h('button', { 'data-act': 'new' }, ['New'])]));
+    expect(parent.querySelector('input')).toBe(input);
+    expect(input.value).toBe('new');
+    expect(parent.querySelector('button')).not.toBe(oldButton);
   });
 });
 

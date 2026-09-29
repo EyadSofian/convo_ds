@@ -55,6 +55,7 @@ test.describe('a Refresh in flight', () => {
       // The arrows stay still in their slot; no spinner replaces or shifts them.
       await expect(control.locator('.btn__icon--refreshing svg')).toBeVisible();
       await expect(control.locator('.spinner')).toHaveCount(0);
+      await expect(control.locator('.btn__icon--refreshing svg')).toHaveCSS('animation-name', 'none');
       expect(await geometry(page, control)).toEqual(before);
       // The rows stay: a refresh somebody asked for blanks nothing.
       await expect(page.locator('.skeleton')).toHaveCount(0);

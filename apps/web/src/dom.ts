@@ -56,6 +56,65 @@ export function replace<T extends Element>(parent: T, children: readonly Child[]
   return append(parent, children);
 }
 
+/** Update a rendered tree in place so unchanged controls and animations keep their DOM identity. */
+export function reconcile(parent: Element, next: Node): void {
+  const children = next.nodeType === 11 ? Array.from(next.childNodes) : [next];
+  for (let index = 0; index < children.length; index += 1) {
+    const current = parent.childNodes[index];
+    if (current === undefined) parent.appendChild(children[index]!);
+    else patchNode(current, children[index]!);
+  }
+  while (parent.childNodes.length > children.length) parent.removeChild(parent.lastChild!);
+}
+
+const IDENTITY_ATTRS = ['id', 'data-act', 'data-arg', 'data-form', 'data-scroll', 'data-scroll-key', 'data-overlay', 'data-trap'];
+
+function sameIdentity(current: Node, next: Node): boolean {
+  if (current.nodeType !== next.nodeType || current.nodeName !== next.nodeName) return false;
+  if (!(current instanceof Element) || !(next instanceof Element)) return true;
+  if (current.namespaceURI !== next.namespaceURI) return false;
+  if (current.classList.contains('page') && next.classList.contains('page') && current.className !== next.className) return false;
+  return IDENTITY_ATTRS.every((name) => current.getAttribute(name) === next.getAttribute(name));
+}
+
+function patchNode(current: Node, next: Node): void {
+  if (!sameIdentity(current, next)) {
+    current.parentNode?.replaceChild(next, current);
+    return;
+  }
+  // A route-driven selection change must not emit a spurious change event.
+  // Keep the live control mounted when the operator chose its current value.
+  if (current instanceof HTMLSelectElement && next instanceof HTMLSelectElement && current.value !== next.value) {
+    current.parentNode?.replaceChild(next, current);
+    return;
+  }
+  if (current.isEqualNode(next)) return;
+  if (current.nodeType === Node.TEXT_NODE) {
+    if (current.textContent !== next.textContent) current.textContent = next.textContent;
+    return;
+  }
+  if (!(current instanceof Element) || !(next instanceof Element)) return;
+  for (const attr of Array.from(current.attributes)) {
+    if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
+  }
+  for (const attr of Array.from(next.attributes)) {
+    if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
+  }
+  const children = Array.from(next.childNodes);
+  for (let index = 0; index < children.length; index += 1) {
+    const existing = current.childNodes[index];
+    if (existing === undefined) current.appendChild(children[index]!);
+    else patchNode(existing, children[index]!);
+  }
+  while (current.childNodes.length > children.length) current.removeChild(current.lastChild!);
+  if (current instanceof HTMLInputElement && next instanceof HTMLInputElement) {
+    if (current.value !== next.value) current.value = next.value;
+    if (current.checked !== next.checked) current.checked = next.checked;
+  } else if (current instanceof HTMLTextAreaElement && next instanceof HTMLTextAreaElement) {
+    if (current.value !== next.value) current.value = next.value;
+  }
+}
+
 export function frag(children: readonly Child[]): DocumentFragment {
   return append(document.createDocumentFragment(), children);
 }

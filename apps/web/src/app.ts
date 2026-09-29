@@ -37,7 +37,7 @@ import { runLiveAction } from './live/dispatch';
 import { refreshNotificationCount, runNotificationAction } from './live/notification-actions';
 import { createLiveState, renewLiveState, rowsOf } from './live/store';
 import type { LiveState } from './live/store';
-import { attrOf, closestWithAttr, replace } from './dom';
+import { attrOf, closestWithAttr, reconcile } from './dom';
 import { lockLoops } from './loops';
 import type { PreferenceStore } from './preferences';
 import { browserStore, readPreferences, writePreferences } from './preferences';
@@ -572,7 +572,7 @@ export function mount(options: MountOptions): AppHandle {
     applyMotion(root, motion, 'view', keys.view, state.clock.getTime());
     applyMotion(root, motion, 'detail', keys.detail, state.clock.getTime());
     applyMotion(root, motion, 'tool', keys.tool, state.clock.getTime());
-    replace(root, [renderApp(state)]);
+    reconcile(root, renderApp(state));
     lockLoops(root.ownerDocument);
     growComposer(root);
     restoreScroll(root, scroll);
@@ -937,7 +937,12 @@ export function mount(options: MountOptions): AppHandle {
     if (act !== null) dispatch(act, form.getAttribute('data-arg') ?? '');
   };
 
+  const lastImportFile = new WeakMap<HTMLInputElement, File>();
+  const handledInputEvents = new WeakSet<Event>();
   const onInput = (event: Event): void => {
+    // A synchronous reconcile can reattach a bubbling control in some DOM
+    // implementations. One native event must still produce one action.
+    if (handledInputEvents.has(event)) return;
     const target = event.target;
     if (
       !(target instanceof HTMLInputElement) &&
@@ -946,11 +951,21 @@ export function mount(options: MountOptions): AppHandle {
     ) {
       return;
     }
+    // Browsers fire both input and change for a checkbox or select. With
+    // mounted controls preserved, handling both would toggle an action twice.
+    const onChange = target instanceof HTMLSelectElement ||
+      (target instanceof HTMLInputElement && ['checkbox', 'radio'].includes(target.type));
+    // File pickers differ across browsers: some dispatch input, others only
+    // change. Accept either, but ignore the duplicate event for the same file.
+    if (!(target instanceof HTMLInputElement && target.type === 'file') && event.type !== (onChange ? 'change' : 'input')) return;
+    handledInputEvents.add(event);
     const act = target.getAttribute('data-act');
     if (act === null) return;
     if (target instanceof HTMLInputElement && target.type === 'file' && act === 'live-contact-import-file') {
       const file = target.files?.[0];
       if (file === undefined) return;
+      if (lastImportFile.get(target) === file) return;
+      lastImportFile.set(target, file);
       if (file.size > 1_000_000) {
         state.dialogForm = { ...state.dialogForm, contactImportCsv: '', contactImportFileName: '', contactImportError: 'size' };
         refresh();

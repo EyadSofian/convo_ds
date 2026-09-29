@@ -37,6 +37,7 @@ export function renderUsers(state: AppState): HTMLElement {
     button({ label: t(state, 'دعوة مستخدم', 'Invite User'), icon: 'userPlus', act: 'dialog', arg: 'invite', small: true, variant: 'primary' }),
   ]), [
     state.dialog === null ? inlineError(state, live.error) : null,
+    missingOwnScopeNotice(state, live),
     ownershipOffers(state, live),
     routeTabs(state, t(state, 'أقسام المستخدمين', 'User sections'), 'people', [
       { id: 'users', label: t(state, 'المستخدمون', 'Users'), count: live.people.status === 'ready' ? live.people.value.length : undefined, params: {} },
@@ -46,6 +47,18 @@ export function renderUsers(state: AppState): HTMLElement {
       tab === 'users' ? usersPanel(state, live) : invitationsPanel(state, live),
     ]),
   ]);
+}
+
+/** A role name is not a scope: explain why a workspace-wide grant would fail. */
+function missingOwnScopeNotice(state: AppState, live: LiveState): HTMLElement | null {
+  if (live.people.status !== 'ready') return null;
+  const actor = live.people.value.find((person) => person.email === openSession(live).email);
+  if (actor === undefined || actor.role.key !== 'owner' || actor.scopes.some((scope) => scope.type === 'tenant')) return null;
+  return notice('warning', 'shield',
+    t(state,
+      'حسابك ليس له نطاق مساحة العمل. اطلب من مالك لديه نطاق مساحة العمل منحه لك؛ دور Owner وحده لا يسمح بمنح نطاق أوسع من نطاقك.',
+      'Your account has no workspace scope. Ask an Owner with whole-workspace scope to grant it to you; the Owner role alone cannot grant access wider than your own.'),
+  );
 }
 
 /* ------------------------------------------------------------------ users -- */
@@ -101,10 +114,12 @@ export function memberMenu(state: AppState, live: LiveState, person: Person): HT
   const self = person.email === openSession(live).email;
   const id = person.membership_id;
   const busy = live.busy !== null && live.busy.endsWith(id);
+  const actor = rowsOf(live.people).find((entry) => entry.email === openSession(live).email);
+  const canGrantWorkspace = actor === undefined || actor.scopes.some((scope) => scope.type === 'tenant');
   return rowMenu(state, `member:${id}`, t(state, `إجراءات ${person.email}`, `Actions for ${person.email}`), [
     live.roles.status === 'ready' ? { label: t(state, 'تغيير الدور', 'Change role'), icon: 'shieldUser', act: 'dialog', arg: `member-role:${id}` } : null,
     live.teams.status === 'ready' ? { label: t(state, 'إدارة الفرق', 'Manage teams'), icon: 'team', act: 'dialog', arg: `member-teams:${id}` } : null,
-    person.scopes.some((scope) => scope.type === 'tenant')
+    person.scopes.some((scope) => scope.type === 'tenant') || !canGrantWorkspace
       ? null
       : { label: t(state, 'منح نطاق مساحة العمل', 'Grant workspace scope'), icon: 'target', act: 'live-scope-tenant', arg: id, disabled: busy },
     person.status === 'active'

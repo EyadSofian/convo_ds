@@ -559,6 +559,21 @@ describe('what the user-management screens show before and instead of an answer'
 /* ------------------------------------------------------------------ users -- */
 
 describe('the Users screen', () => {
+  it('explains an unscoped Owner and does not offer a workspace grant it cannot make', async () => {
+    const api = signedInApi().on(`GET /tenants/${TENANT}/people`, {
+      status: 200,
+      body: { data: [
+        person({ membership_id: 'own-membership', email: 'owner@digital-school.example', role: { id: 'owner-role', key: 'owner', name: 'Owner' } }),
+        person(),
+      ] },
+    });
+    const { root } = start(api);
+    await settle();
+    expect(text(root)).toContain('Your account has no workspace scope.');
+    openMenu(root, `member:${MEMBERSHIP}`);
+    expect(root.querySelector(`[data-act="live-scope-tenant"][data-arg="${MEMBERSHIP}"]`)).toBeNull();
+  });
+
   it('lists members with role, teams, status and scope, and filters them', async () => {
     const api = signedInApi()
       .on(`GET /tenants/${TENANT}/people`, {

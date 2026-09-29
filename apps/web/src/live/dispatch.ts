@@ -1100,6 +1100,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-contact-filter': async (context, arg) => {
     const { id, value } = splitArg(arg);
     if (!['labelId', 'fieldId'].includes(id)) return false;
+    if (context.live.contactFilters[id as 'labelId' | 'fieldId'] === value) return true;
     context.live.contactFilters = {
       ...context.live.contactFilters,
       [id]: value,

@@ -539,6 +539,7 @@ function paged(rows: readonly unknown[]): unknown {
 export interface ApiOptions {
   /** Whether the browser starts with a session. Sign-in and sign-out change it. */
   readonly signedIn?: boolean;
+  readonly customFields?: readonly Record<string, unknown>[];
   readonly notifications?: readonly {
     readonly id: string;
     readonly kind: string;
@@ -646,7 +647,7 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
       return json(route, { data: { total: 214, eligible: 187, excluded: 27, reasons: { suppressed: 4, no_consent: 21, identity_inactive: 2 }, sample: ['منى خليل', 'سارة أحمد'] }, request_id: 'e2e' });
     }
     if (path.endsWith('/custom-fields')) {
-      return json(route, paged([]));
+      return json(route, paged(options.customFields ?? []));
     }
     // The Inbox always asks for server-backed saved views alongside its first
     // page. Keep this explicit so a new request remains visible as a 404,

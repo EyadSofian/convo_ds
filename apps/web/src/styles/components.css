@@ -171,10 +171,10 @@
     block-size: 100%;
   }
 
-  /* The arrows turn while the list is read again, on the shared loop clock,
-     and settle upright the moment it lands. */
+  /* Keep refresh arrows stationary. Rotating the asymmetric two-arrow glyph
+     appears off-centre in narrow controls and redraws; aria-busy and the
+     disabled state still report progress without visual drift. */
   .btn__icon--refreshing > svg {
-    animation: convo-spin 1s linear infinite;
     color: var(--accent-text);
   }
 
