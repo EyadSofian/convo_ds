@@ -590,9 +590,12 @@ describe('the contacts directory', () => {
     await settle();
     choose(root, '[data-form="contactImportConnection"]', 'cn-1');
     const input = root.querySelector('input[data-act="live-contact-import-file"]') as HTMLInputElement;
-    Object.defineProperty(input, 'files', { value: [{ name: 'leads.csv', size: 66, text: async () => 'display_name,external_id\r\nSara,201\r\nMona,202\r\n' }] });
+    const readFile = vi.fn(async () => 'display_name,external_id\r\nSara,201\r\nMona,202\r\n');
+    Object.defineProperty(input, 'files', { value: [{ name: 'leads.csv', size: 66, text: readFile }] });
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    input.dispatchEvent(new window.Event('change', { bubbles: true }));
     await settle();
+    expect(readFile).toHaveBeenCalledTimes(1);
     expect(text(root)).toContain('جهة جاهزة للاستيراد');
     click(root, '[data-act="live-contacts-import"]');
     await settle();
@@ -602,6 +605,29 @@ describe('the contacts directory', () => {
     });
     expect(text(root)).toContain('لم تُسجّل موافقات تسويقية');
     expect(root.querySelector('#contacts-tool-import')).toBeNull();
+  });
+
+  it('ignores non-canonical control events after an in-place render', async () => {
+    const { app, root } = await open(contactsApi());
+    const label = document.createElement('select');
+    label.setAttribute('data-act', 'live-contact-filter');
+    label.setAttribute('data-form', 'labelId');
+    const option = document.createElement('option');
+    option.value = LABEL;
+    option.textContent = 'VIP';
+    label.appendChild(option);
+    label.value = LABEL;
+    root.appendChild(label);
+    label.dispatchEvent(new window.Event('input', { bubbles: true }));
+    expect(app.state.live.contactFilters.labelId).toBe('');
+
+    const query = document.createElement('input');
+    query.setAttribute('data-act', 'form');
+    query.setAttribute('data-form', 'contactQuery');
+    query.value = 'Sara';
+    root.appendChild(query);
+    query.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(app.state.dialogForm['contactQuery']).toBeUndefined();
   });
 
   it('shows a bounded size error and a malformed CSV preview without submitting', async () => {

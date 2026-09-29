@@ -938,11 +938,7 @@ export function mount(options: MountOptions): AppHandle {
   };
 
   const lastImportFile = new WeakMap<HTMLInputElement, File>();
-  const handledInputEvents = new WeakSet<Event>();
   const onInput = (event: Event): void => {
-    // A synchronous reconcile can reattach a bubbling control in some DOM
-    // implementations. One native event must still produce one action.
-    if (handledInputEvents.has(event)) return;
     const target = event.target;
     if (
       !(target instanceof HTMLInputElement) &&
@@ -958,7 +954,6 @@ export function mount(options: MountOptions): AppHandle {
     // File pickers differ across browsers: some dispatch input, others only
     // change. Accept either, but ignore the duplicate event for the same file.
     if (!(target instanceof HTMLInputElement && target.type === 'file') && event.type !== (onChange ? 'change' : 'input')) return;
-    handledInputEvents.add(event);
     const act = target.getAttribute('data-act');
     if (act === null) return;
     if (target instanceof HTMLInputElement && target.type === 'file' && act === 'live-contact-import-file') {

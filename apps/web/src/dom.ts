@@ -93,25 +93,29 @@ function patchNode(current: Node, next: Node): void {
     if (current.textContent !== next.textContent) current.textContent = next.textContent;
     return;
   }
-  if (!(current instanceof Element) || !(next instanceof Element)) return;
-  for (const attr of Array.from(current.attributes)) {
-    if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
+  if (!(current instanceof Element)) {
+    if (current.textContent !== next.textContent) current.textContent = next.textContent;
+    return;
   }
-  for (const attr of Array.from(next.attributes)) {
+  // sameIdentity already established that both nodes have the same element kind.
+  const nextElement = next as Element;
+  for (const attr of Array.from(current.attributes)) {
+    if (!nextElement.hasAttribute(attr.name)) current.removeAttribute(attr.name);
+  }
+  for (const attr of Array.from(nextElement.attributes)) {
     if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
   }
-  const children = Array.from(next.childNodes);
+  const children = Array.from(nextElement.childNodes);
   for (let index = 0; index < children.length; index += 1) {
     const existing = current.childNodes[index];
     if (existing === undefined) current.appendChild(children[index]!);
     else patchNode(existing, children[index]!);
   }
   while (current.childNodes.length > children.length) current.removeChild(current.lastChild!);
-  if (current instanceof HTMLInputElement && next instanceof HTMLInputElement) {
-    if (current.value !== next.value) current.value = next.value;
-    if (current.checked !== next.checked) current.checked = next.checked;
-  } else if (current instanceof HTMLTextAreaElement && next instanceof HTMLTextAreaElement) {
-    if (current.value !== next.value) current.value = next.value;
+  if (current instanceof HTMLInputElement && nextElement instanceof HTMLInputElement) {
+    if (current.value !== nextElement.value) current.value = nextElement.value;
+  } else if (current instanceof HTMLTextAreaElement && nextElement instanceof HTMLTextAreaElement) {
+    if (current.value !== nextElement.value) current.value = nextElement.value;
   }
 }
 

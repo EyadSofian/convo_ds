@@ -81,6 +81,25 @@ describe('append, replace and frag', () => {
 });
 
 describe('reconcile', () => {
+  it('does not reuse a same-named element from another namespace', () => {
+    const current = document.createElementNS('urn:old', 'thing');
+    const parent = h('div', {}, [current]);
+    reconcile(parent, document.createElementNS('urn:new', 'thing'));
+    expect(parent.firstChild).not.toBe(current);
+    expect((parent.firstChild as Element).namespaceURI).toBe('urn:new');
+  });
+
+  it('replaces changed comments and updates checked controls', () => {
+    const comment = document.createComment('old');
+    const checkbox = h('input', { type: 'checkbox', 'data-form': 'selected' });
+    const parent = h('div', {}, [h('section', {}, [comment, checkbox])]);
+    reconcile(parent, h('section', {}, [document.createComment('new'), h('input', { type: 'checkbox', 'data-form': 'selected', checked: true })]));
+    expect(parent.querySelector('section')?.firstChild).toBe(comment);
+    expect(comment.textContent).toBe('new');
+    expect((parent.querySelector('input') as HTMLInputElement)).toBe(checkbox);
+    expect(checkbox.checked).toBe(true);
+  });
+
   it('patches a fragment with an overlay without unmounting the screen', () => {
     const screen = h('main', {}, ['Dashboard']);
     const parent = h('div', {}, [screen]);
