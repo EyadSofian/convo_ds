@@ -25,7 +25,8 @@ concurrency:
 
 jobs:
   immutable-release:
-    runs-on: ubuntu-latest
+    # Visual baselines are captured on macOS; Linux would have no matching snapshots.
+    runs-on: macos-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -78,7 +79,7 @@ jobs:
         run: pnpm build
 
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: End-to-end tests
         run: pnpm test:e2e
