@@ -281,9 +281,15 @@ test.describe('workspace screen baselines', () => {
     await openScreen(page, 'channels');
     await page.locator('[data-act="channel-manage"][data-arg="instagram:cn-instagram-01"]').click();
     await expect(page.locator('[data-connection="cn-instagram-01"] .connection__details')).toBeVisible();
+    const connections = page.locator('.connections');
+    // The channels page scroll container intentionally tucks the workspace
+    // header on downward scroll. This visual baseline is only for the channel
+    // panel, so keep the shell header fixed while positioning the panel; the
+    // header's own scroll behavior is covered by its interaction tests.
+    await page.locator('.page--channels').evaluate((pageRegion) => pageRegion.removeAttribute('data-scroll'));
+    await connections.scrollIntoViewIfNeeded();
     await motionSettled(page);
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await expect(page.locator('.connections')).toHaveScreenshot('channels-connection-open.png');
+    await expect(connections).toHaveScreenshot('channels-connection-open.png');
   });
 
   for (const theme of ['light', 'dark'] as const) {
