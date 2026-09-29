@@ -3,6 +3,7 @@ import { CUSTOM_ROLE, installApi } from './support/api';
 import {
   fontsReady,
   freezeClock,
+  motionSettled,
   MATRIX,
   openAutomationBuilder,
   openInbox,
@@ -280,6 +281,8 @@ test.describe('workspace screen baselines', () => {
     await openScreen(page, 'channels');
     await page.locator('[data-act="channel-manage"][data-arg="instagram:cn-instagram-01"]').click();
     await expect(page.locator('[data-connection="cn-instagram-01"] .connection__details')).toBeVisible();
+    await motionSettled(page);
+    await page.evaluate(() => window.scrollTo(0, 0));
     await expect(page.locator('.connections')).toHaveScreenshot('channels-connection-open.png');
   });
 
