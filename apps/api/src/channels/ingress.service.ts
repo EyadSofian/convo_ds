@@ -7,6 +7,7 @@ import type { ApiConfig } from '../config.js';
 import { ApiHttpError } from '../http-error.js';
 import { API_CONFIG, API_POOL } from '../tokens.js';
 import { adapterClaiming, META_KINDS } from './adapters.js';
+import { setUpCipher } from './credential-cipher.js';
 import { journalBatch, writeReceipt } from './ingress-journal.js';
 import { assetFingerprint, nodeChannelCrypto, sha256BytesHex } from './node-crypto.js';
 
@@ -45,7 +46,13 @@ export interface IngressDelivery {
 interface AppRow {
   readonly id: string;
   readonly provider: string;
-  readonly secret_ref: string;
+  readonly tenant_id: string | null;
+  readonly secret_ref: string | null;
+  readonly secret_ciphertext: Buffer | null;
+  readonly secret_iv: Buffer | null;
+  readonly secret_auth_tag: Buffer | null;
+  readonly secret_key_version: string | null;
+  readonly secret_fingerprint: string;
   readonly verify_token_hash: string;
   readonly status: string;
 }
@@ -90,7 +97,7 @@ export class ChannelIngressService {
    */
   async receive(delivery: IngressDelivery): Promise<IngressOutcome> {
     const app = await this.loadApp(delivery.routeKey);
-    const secret = this.config.channelSecrets[app.secret_ref];
+    const secret = this.secretFor(app);
     const bodySha = sha256BytesHex(delivery.rawBody);
 
     if (secret === undefined) {
@@ -270,7 +277,9 @@ export class ChannelIngressService {
 
   private async loadApp(routeKey: string): Promise<AppRow> {
     const rows = await asExecutor(this.pool).query<AppRow>(
-      `SELECT id::text, provider, secret_ref, verify_token_hash, status
+      `SELECT id::text, provider, tenant_id::text, secret_ref, secret_fingerprint,
+              secret_ciphertext, secret_iv, secret_auth_tag, secret_key_version,
+              verify_token_hash, status
          FROM channel_apps WHERE id::text = $1 AND status = 'active'`,
       [UUID_PATTERN.test(routeKey) ? routeKey : '00000000-0000-4000-8000-000000000000'],
     );
@@ -281,6 +290,27 @@ export class ChannelIngressService {
       throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
     }
     return row;
+  }
+
+  private secretFor(app: AppRow): string | undefined {
+    if (app.tenant_id === null) {
+      return app.secret_ref === null ? undefined : this.config.channelSecrets[app.secret_ref];
+    }
+    if (app.secret_ciphertext === null || app.secret_iv === null || app.secret_auth_tag === null
+      || app.secret_key_version === null) return undefined;
+    const setup = setUpCipher(this.config.secrets.credentialKeys, this.config.secrets.authHash);
+    if (!setup.ok) return undefined;
+    try {
+      return setup.cipher.open({
+        ciphertext: app.secret_ciphertext,
+        iv: app.secret_iv,
+        authTag: app.secret_auth_tag,
+        keyVersion: app.secret_key_version,
+        fingerprint: app.secret_fingerprint,
+      }, { tenantId: app.tenant_id, connectionId: app.id, purpose: 'meta_app_secret' });
+    } catch {
+      return undefined;
+    }
   }
 
 }

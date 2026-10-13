@@ -31,7 +31,7 @@ export interface ChannelTransportPort {
   fetchTemplates?(
     kind: ChannelKind,
     credential: string,
-    assetIdentity: string,
+    wabaId: string,
   ): Promise<TemplateFetchResult>;
 }
 

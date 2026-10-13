@@ -241,14 +241,10 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     };
   }
 
-  /** Fetches every Meta template page after resolving the WABA from the phone number. */
-  async fetchTemplates(kind: ChannelKind, credential: string, assetIdentity: string): Promise<TemplateFetchResult> {
+  /** Templates belong to a WABA, not a phone. The WABA ID is supplied at setup. */
+  async fetchTemplates(kind: ChannelKind, credential: string, wabaId: string): Promise<TemplateFetchResult> {
     if (kind !== 'whatsapp') return { ok: false, code: 'channel_not_supported', message: 'Templates are available for WhatsApp only.', retryable: false };
-    const waba = await this.graphGet(`${encodeURIComponent(assetIdentity)}?fields=whatsapp_business_account`, credential);
-    if (!waba.ok) return waba;
-    const account = record(record(waba.body)?.['whatsapp_business_account']);
-    const wabaId = typeof account?.['id'] === 'string' ? account['id'] : null;
-    if (wabaId === null) return { ok: false, code: 'waba_not_found', message: 'Meta did not return the WhatsApp Business Account for this phone number.', retryable: false };
+    if (!/^[0-9]{1,32}$/.test(wabaId)) return { ok: false, code: 'waba_not_configured', message: 'Enter the WhatsApp Business Account ID for this number before syncing templates.', retryable: false };
     const templates: ProviderTemplate[] = [];
     let after: string | null = null;
     for (let page = 0; page < 20; page += 1) {

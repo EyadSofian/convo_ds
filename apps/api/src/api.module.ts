@@ -27,6 +27,8 @@ import { unconfiguredBroker } from './broker/broker.port.js';
 import type { BrokerPort } from './broker/broker.port.js';
 import { BrokerRelayService } from './broker/relay.service.js';
 import { ChannelController } from './channels/channel.controller.js';
+import { ChannelAppController } from './channels/channel-app.controller.js';
+import { ChannelAppService } from './channels/channel-app.service.js';
 import { ChannelService } from './channels/channel.service.js';
 import { unconfiguredTransport } from './channels/channel-transport.js';
 import { withOwnChannels } from './channels/custom-channel.transport.js';
@@ -141,6 +143,7 @@ export class ApiModule {
         InvitationController,
         PeopleController,
         ChannelController,
+        ChannelAppController,
         ChannelIngressController,
         OutboundController,
         ConversationController,
@@ -197,6 +200,7 @@ export class ApiModule {
         PeopleService,
         ChannelCredentialService,
         ChannelService,
+        ChannelAppService,
         ChannelIngressService,
         SelfHostedIngressService,
         BrokerRelayService,

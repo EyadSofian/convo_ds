@@ -243,6 +243,7 @@ function channelDelivery(overrides: Record<string, unknown> = {}): Record<string
 function channelApi(): FakeApi {
   return signedInApi()
     .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [channelDelivery()] } })
+    .on(`GET /tenants/${TENANT}/channel-apps/meta`, { status: 200, body: { data: [] } })
     .on(`GET /tenants/${TENANT}/channels/cn-1/test-recipients`, { status: 200, body: { data: [] } })
     .on(`GET /tenants/${TENANT}/channels/cn-2/test-recipients`, { status: 200, body: { data: [] } })
     .on(`GET /tenants/${TENANT}/channels/catalogue`, {
@@ -1842,6 +1843,28 @@ describe('the Channels screen', () => {
     for (const [id, value] of Object.entries(fields)) type(root, `#${id}`, value);
   }
 
+  it('registers a workspace Meta app in the dashboard without retaining its secret', async () => {
+    const api = channelApi().on(`POST /tenants/${TENANT}/channel-apps/meta`, {
+      status: 201,
+      body: { data: { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', external_app_id: '200000000000001',
+        scope: 'workspace', status: 'active', secret_held: true, created_at: NOW.toISOString(), verify_token: 'one-time-verify-token' } },
+    });
+    const { app, root } = openChannels(api);
+    await settle();
+    type(root, '[data-form="metaSetupAppId"]', '200000000000001');
+    type(root, '[data-form="metaSetupSecret"]', '0123456789abcdef0123456789abcdef');
+    click(root, '[data-act="live-create-meta-app"]');
+    await settle();
+
+    const post = api.calls.find((call) => call.method === 'POST' && call.path.endsWith('/channel-apps/meta'));
+    expect(post?.body).toEqual({ externalAppId: '200000000000001', appSecret: '0123456789abcdef0123456789abcdef' });
+    expect(app.state.dialogForm['metaSetupSecret']).toBeUndefined();
+    expect((find(root, '[data-form="metaSetupSecret"]') as HTMLInputElement).value).toBe('');
+    expect(text(root)).toContain('one-time-verify-token');
+    expect(text(root)).toContain('/api/v1/webhooks/meta/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    expect(text(root)).not.toContain('0123456789abcdef0123456789abcdef');
+  });
+
   it('loads connections, the catalogue and the test allowlist, and only those', async () => {
     const api = channelApi();
     const { root } = openChannels(api);
@@ -1854,6 +1877,7 @@ describe('the Channels screen', () => {
     expect(api.calls.map((call) => call.path).slice(2)).toEqual([
       `/tenants/${TENANT}/channels`,
       `/tenants/${TENANT}/channels/catalogue`,
+      `/tenants/${TENANT}/channel-apps/meta`,
       `/tenants/${TENANT}/channels/cn-1/test-recipients`,
       `/tenants/${TENANT}/notifications/unread-count`,
     ]);
@@ -2080,6 +2104,7 @@ describe('the Channels screen', () => {
     expect(text(dialog)).toContain('Phone Number ID');
     fillConnect(root, {
       'channel-app': '100000000000001',
+      'channel-waba': '1635676328136908',
       'channel-asset': 'phone-2',
       'channel-name': 'Support line',
       'channel-token': 'EAAGtoken0001',
@@ -2099,6 +2124,7 @@ describe('the Channels screen', () => {
       displayName: 'Support line',
       accessToken: 'EAAGtoken0001',
       providerAppId: '100000000000001',
+      settings: { wabaId: '1635676328136908' },
     });
     expect(post?.headers['idempotency-key']).toBe('key-1');
     expect(post?.headers['x-csrf-token']).toBe('csrf-token');
@@ -2122,6 +2148,7 @@ describe('the Channels screen', () => {
 
     const dialog = text(find(root, '.dialog'));
     expect(dialog).toContain('Enter the Meta App ID.');
+    expect(dialog).toContain('Enter the numeric WABA ID.');
     expect(dialog).toContain('Enter the asset ID.');
     expect(dialog).toContain('Enter a display name.');
     expect(dialog).toContain('Enter at least 8 characters.');
@@ -2141,6 +2168,7 @@ describe('the Channels screen', () => {
     click(root, '[data-arg="connect-channel:whatsapp"]');
     fillConnect(root, {
       'channel-app': '100000000000001',
+      'channel-waba': '1635676328136908',
       'channel-asset': 'phone-taken',
       'channel-name': 'Taken',
       'channel-token': 'EAAGtoken0002',
@@ -2175,6 +2203,7 @@ describe('the Channels screen', () => {
     click(root, '[data-arg="connect-channel:whatsapp"]');
     fillConnect(root, {
       'channel-app': '100000000000001',
+      'channel-waba': '1635676328136908',
       'channel-asset': 'nope',
       'channel-name': 'Bad',
       'channel-token': 'EAAGtoken0003',

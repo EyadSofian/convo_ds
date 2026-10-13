@@ -124,6 +124,8 @@ describe('pinned OpenAPI contract', () => {
       "queueOutboundMessage",
       "syncWhatsAppTemplates",
       "testChannelConnection",
+      "listWorkspaceMetaApps",
+      "createWorkspaceMetaApp",
       "listChannelCatalogue",
       "listContacts",
       "createContact",

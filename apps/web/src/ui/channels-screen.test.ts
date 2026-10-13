@@ -27,7 +27,7 @@ function matrix(kind: string, overrides: Partial<CapabilityMatrix> = {}): Capabi
 function connection(overrides: Partial<ChannelConnection> = {}): ChannelConnection {
   return {
     id: 'cn-1', kind: 'whatsapp', provider: 'meta', display_name: 'Admissions', external_asset_id: '109876543210',
-    facebook_page_id: null,
+    facebook_page_id: null, waba_id: '12345',
     provider_app_id: '123456789012345', status: 'healthy', capabilities: matrix('whatsapp'),
     evidence: [
       { kind: 'asset_verified', satisfied: true, observed_at: '2026-09-09T08:00:00.000Z' },

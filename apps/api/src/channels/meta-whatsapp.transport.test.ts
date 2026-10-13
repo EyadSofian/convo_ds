@@ -425,9 +425,8 @@ describe('the connection test', () => {
 });
 
 describe('template synchronization', () => {
-  it('resolves the WABA, follows cursors, normalizes statuses and variables', async () => {
+  it('uses the configured WABA, follows cursors, normalizes statuses and variables', async () => {
     const { adapter, calls } = transport((call) => {
-      if (call.url.includes('whatsapp_business_account')) return json(200, { whatsapp_business_account: { id: 'waba-1' } });
       if (call.url.includes('after=page-2')) return json(200, { data: [
         { id: 't-3', name: 'paused', language: 'en', category: 'MARKETING', status: 'PAUSED', components: [] },
         { id: 't-4', name: 'unknown', language: 'en', category: 'UTILITY', status: 'DISABLED_BY_META', components: [] },
@@ -439,7 +438,7 @@ describe('template synchronization', () => {
         { id: 't-2', name: 'pending', language: 'en', category: 'AUTHENTICATION', status: 'IN_APPEAL', components: [] },
       ], paging: { cursors: { after: 'page-2' } } });
     });
-    const result = await adapter.fetchTemplates('whatsapp', TOKEN, 'phone-1');
+    const result = await adapter.fetchTemplates('whatsapp', TOKEN, '12345');
     expect(result).toMatchObject({ ok: true, templates: [
       { providerId: 't-1', status: 'approved', category: 'utility', variables: ['{{1}}', '{{2}}'] },
       { providerId: 't-2', status: 'pending' },
@@ -447,30 +446,27 @@ describe('template synchronization', () => {
       { providerId: 't-4', status: 'disabled' },
       { providerId: 't-5', status: 'rejected' },
     ] });
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(2);
+    expect(calls.every((call) => call.url.includes('/12345/message_templates?'))).toBe(true);
     expect(calls.every((call) => call.headers.authorization === `Bearer ${TOKEN}`)).toBe(true);
   });
 
-  it('fails safely for unsupported channels, missing WABAs, bad pages and Graph failures', async () => {
+  it('fails safely for unsupported channels, missing WABA IDs, bad pages and Graph failures', async () => {
     const unsupported = transport(() => json(200, {})).adapter;
     expect(await unsupported.fetchTemplates('instagram', TOKEN, 'x')).toMatchObject({ ok: false, code: 'channel_not_supported' });
-    expect(await transport(() => json(200, {})).adapter.fetchTemplates('whatsapp', TOKEN, 'x')).toMatchObject({ ok: false, code: 'waba_not_found' });
-    const malformed = transport((call) => call.url.includes('whatsapp_business_account')
-      ? json(200, { whatsapp_business_account: { id: 'w' } }) : json(200, { data: null })).adapter;
-    expect(await malformed.fetchTemplates('whatsapp', TOKEN, 'x')).toMatchObject({ ok: false, code: 'provider_response_unusable' });
-    expect(await transport(() => graphError(401, 190)).adapter.fetchTemplates('whatsapp', TOKEN, 'x')).toMatchObject({ ok: false, code: 'credential_rejected' });
-    expect(await transport(() => new TypeError('offline')).adapter.fetchTemplates('whatsapp', TOKEN, 'x')).toMatchObject({ ok: false, code: 'provider_unreachable' });
-    expect(await transport(() => new DOMException('late', 'TimeoutError')).adapter.fetchTemplates('whatsapp', TOKEN, 'x')).toMatchObject({ ok: false, code: 'provider_timeout' });
-    const pageFailure = transport((call) => call.url.includes('whatsapp_business_account')
-      ? json(200, { whatsapp_business_account: { id: 'w' } }) : graphError(503, 2)).adapter;
-    expect(await pageFailure.fetchTemplates('whatsapp', TOKEN, 'x')).toMatchObject({ ok: false, retryable: true });
+    expect(await transport(() => json(200, {})).adapter.fetchTemplates('whatsapp', TOKEN, 'x')).toMatchObject({ ok: false, code: 'waba_not_configured' });
+    const malformed = transport(() => json(200, { data: null })).adapter;
+    expect(await malformed.fetchTemplates('whatsapp', TOKEN, '12345')).toMatchObject({ ok: false, code: 'provider_response_unusable' });
+    expect(await transport(() => graphError(401, 190)).adapter.fetchTemplates('whatsapp', TOKEN, '12345')).toMatchObject({ ok: false, code: 'credential_rejected' });
+    expect(await transport(() => new TypeError('offline')).adapter.fetchTemplates('whatsapp', TOKEN, '12345')).toMatchObject({ ok: false, code: 'provider_unreachable' });
+    expect(await transport(() => new DOMException('late', 'TimeoutError')).adapter.fetchTemplates('whatsapp', TOKEN, '12345')).toMatchObject({ ok: false, code: 'provider_timeout' });
+    const pageFailure = transport(() => graphError(503, 2)).adapter;
+    expect(await pageFailure.fetchTemplates('whatsapp', TOKEN, '12345')).toMatchObject({ ok: false, retryable: true });
   });
 
   it('caps pagination rather than looping forever', async () => {
-    const { adapter, calls } = transport((call) => call.url.includes('whatsapp_business_account')
-      ? json(200, { whatsapp_business_account: { id: 'w' } })
-      : json(200, { data: [], paging: { cursors: { after: 'again' } } }));
-    expect(await adapter.fetchTemplates('whatsapp', TOKEN, 'x')).toMatchObject({ ok: false, code: 'provider_pagination_limit' });
-    expect(calls).toHaveLength(21);
+    const { adapter, calls } = transport(() => json(200, { data: [], paging: { cursors: { after: 'again' } } }));
+    expect(await adapter.fetchTemplates('whatsapp', TOKEN, '12345')).toMatchObject({ ok: false, code: 'provider_pagination_limit' });
+    expect(calls).toHaveLength(20);
   });
 });

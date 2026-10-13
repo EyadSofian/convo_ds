@@ -49,11 +49,11 @@ export interface ApiConfig extends InstallationConfig {
     readonly credentialKeys: readonly string[];
   };
   /**
-   * Provider app secrets, by the reference name stored on `channel_apps`.
+   * Legacy installation-managed provider app secrets, by reference name.
    *
-   * They live in configuration, never in a column: an app secret belongs to the
-   * installation, and rotating it should be an operations act rather than a
-   * database write. Read from `CONVO_CHANNEL_SECRET_<REF>`.
+   * Workspace-managed Meta apps instead seal their secret with the configured
+   * credential key and store ciphertext in `channel_apps`. These environment
+   * values remain for existing installation-wide registrations.
    */
   readonly channelSecrets: Readonly<Record<string, string>>;
   /** Web Push is optional and independent of notification persistence. */

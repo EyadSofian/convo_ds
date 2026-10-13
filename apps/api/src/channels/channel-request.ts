@@ -38,6 +38,8 @@ export interface ConnectChannelRequest {
 }
 
 export interface ChannelSettings {
+  /** One WABA can own several WhatsApp phone-number connections. */
+  readonly wabaId?: string | undefined;
   /** Facebook Login for Instagram sends through this linked Page, not the IG account ID. */
   readonly facebookPageId?: string | undefined;
   /**
@@ -53,6 +55,7 @@ export interface ChannelSettings {
 }
 
 export interface ChannelSettingsUpdate {
+  readonly wabaId?: string;
   readonly origins?: readonly string[];
   readonly outboundUrl?: string | null;
 }
@@ -184,6 +187,9 @@ export function parseConnectChannel(input: unknown): ParseResult<ConnectChannelR
   if (kind !== 'instagram' && settings.facebookPageId !== undefined) {
     details.push({ field: 'settings.facebookPageId', code: 'unsupported', message: 'A Facebook Page ID is only used for Instagram.' });
   }
+  if (kind !== 'whatsapp' && settings.wabaId !== undefined) {
+    details.push({ field: 'settings.wabaId', code: 'unsupported', message: 'A WABA ID is only used for WhatsApp.' });
+  }
   if (kind !== 'custom' && typeof settings.outboundUrl === 'string') {
     details.push({ field: 'settings.outboundUrl', code: 'unsupported', message: 'A reply URL is only used by a Custom Channel.' });
   }
@@ -217,12 +223,22 @@ function parseSettings(raw: unknown, details: ErrorDetail[]): ChannelSettings {
     return {};
   }
   const settings: {
+    wabaId?: string;
     facebookPageId?: string;
     origins?: readonly string[];
     ratePerMinute?: number;
     declaredTypes?: readonly string[];
     outboundUrl?: string | null;
   } = {};
+
+  if ('wabaId' in record) {
+    const wabaId = record['wabaId'];
+    if (typeof wabaId !== 'string' || !/^[0-9]{1,32}$/.test(wabaId)) {
+      details.push({ field: 'settings.wabaId', code: 'malformed', message: 'Provide the numeric WhatsApp Business Account ID.' });
+    } else {
+      settings.wabaId = wabaId;
+    }
+  }
 
   if ('facebookPageId' in record) {
     const pageId = record['facebookPageId'];
@@ -319,13 +335,14 @@ export function parseSettingsUpdate(input: unknown): ParseResult<ChannelSettings
   const record = asRecord(input);
   if (record === null) return malformedBody();
   const details: ErrorDetail[] = Object.keys(record)
-    .filter((key) => key !== 'origins' && key !== 'outboundUrl')
-    .map((key) => ({ field: key, code: 'unsupported', message: 'Only origins and outboundUrl can be changed here.' }));
+    .filter((key) => key !== 'origins' && key !== 'outboundUrl' && key !== 'wabaId')
+    .map((key) => ({ field: key, code: 'unsupported', message: 'Only origins, outboundUrl and wabaId can be changed here.' }));
   const settings = parseSettings(record, details);
   if (details.length > 0) return { ok: false, details };
   return {
     ok: true,
     value: {
+      ...(settings.wabaId === undefined ? {} : { wabaId: settings.wabaId }),
       ...(settings.origins === undefined ? {} : { origins: settings.origins }),
       ...(settings.outboundUrl === undefined ? {} : { outboundUrl: settings.outboundUrl }),
     },

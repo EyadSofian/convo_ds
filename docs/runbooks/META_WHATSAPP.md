@@ -10,12 +10,10 @@ The transport is implemented and unit-tested against a scripted Graph API
 (`apps/api/src/channels/meta-whatsapp.transport.test.ts`, scripted Graph tests
 covering every outcome branch).
 
-**It has never been run against live Meta assets.** No authorized App ID, App
-Secret, access token or phone number id exists for this installation, so no
-inbound or outbound message has been exchanged with Meta. Everything below the
-"Connecting" heading is written from the API contract, not from an observed
-production send. That gate is `BLOCKED_EXTERNAL` in the readiness report and must
-not be reported as passing until a real send has been made and evidenced.
+Scripted tests do not prove that a particular production Meta asset is ready.
+Keep live evidence per connection: Meta subscription, a real inbound event, an
+accepted outbound send and its provider message ID. Never infer those from a
+successful form submission or webhook challenge alone.
 
 ## What is supported
 
@@ -92,39 +90,46 @@ projection so the composer can become writable without a browser refresh.
    professional account (plus the Page read/manage permissions needed for
    discovery and webhook setup); and, if
    applicable, a System User token with `whatsapp_business_messaging`.
-3. Register the Meta application as an installation-level `channel_apps` row
-   using the approved database/migration-admin procedure. Its `secret_ref`
-   must name the Railway variable suffix, and its verify token must be stored
-   only as the row's SHA-256 hash. The API runtime intentionally cannot create
-   this privileged row.
-4. Set the app secret as a Railway secret named
-   `CONVO_CHANNEL_SECRET_<REF>`, where `<REF>` matches the `secret_ref` stored on
-   the `channel_apps` row. App secrets live in configuration, never in a column:
-   rotating one is an operations act, not a database write.
+3. Set `CONVO_CREDENTIAL_KEYS=v1:<base64 32 bytes>` on every process that
+   handles Meta configuration or ingress. Without it, the app secret or asset
+   token cannot be sealed or opened.
+4. In **Channels → Workspace Meta app setup**, enter the public App ID and App
+   Secret. This requires both channel management and credential-rotation
+   permission. The secret is AES-256-GCM encrypted under
+   `CONVO_CREDENTIAL_KEYS`, bound to tenant and app ID, and never returned by the
+   API. Copy the one-time Verify Token and Callback URL shown after saving into
+   Meta Webhooks. The API retains only a SHA-256 hash of the Verify Token.
+   An existing installation-managed app remains usable: its App Secret stays
+   in `CONVO_CHANNEL_SECRET_<REF>` and is not copied into a workspace row.
 5. Set `CONVO_CHANNEL_TRANSPORT=meta` on `convo-api` and every worker that
    dispatches (`convo-worker-interactive`, `convo-worker-campaign`).
-6. Set `CONVO_CREDENTIAL_KEYS=v1:<base64 32 bytes>`. Without it the credential
-   service refuses to seal the access token and the connection cannot be saved.
-7. Create the channel connection in the product: Messenger uses its **Page ID**;
+6. Create the channel connection in the product: Messenger uses its **Page ID**;
    Instagram uses its **Instagram professional account ID plus the linked
-   Facebook Page ID**; WhatsApp uses its **Phone Number ID**. Select the
-   registered public App ID and supply that channel's access token. For
+   Facebook Page ID**; WhatsApp uses its **Phone Number ID** and the owning
+   **WABA ID**. Reuse the registered public App ID for multiple WhatsApp numbers
+   and other Meta assets; never create an app merely because a second number
+   was added. Supply that asset's access token. For
    Instagram Facebook Login, the token must belong to the linked Page, not an
    Instagram Login token. It
    is sealed with AES-256-GCM, bound to tenant + connection + purpose, and is
    opened only inside the dispatch transaction.
-8. Point the Meta webhook at
+7. Point the Meta webhook at
    `https://<public origin>/api/v1/webhooks/meta/<appConnectionId>` and use the
    verify token the app was configured with.
-9. Run the connection test. It reads the asset back from Graph, so it fails
+8. Run the connection test. It reads the asset back from Graph, so it fails
    with `asset_mismatch` when a token is valid but belongs to a different Page,
    linked Instagram account or phone number — the most common
    misconfiguration. Existing Instagram connections without a Page ID show
    `instagram_page_required`; use **Verify & save** to bind the correct Page
    only after its stored credential passes Page + Instagram identity checks.
-10. Subscribe only the fields required for the connected products. Run one
-    controlled inbound and one controlled agent reply per channel, then record
-    the provider message ID and the delivery/read status where Meta exposes it.
+9. Subscribe only the fields required for the connected products. For WhatsApp,
+   subscribe the app once per WABA with a management-scoped System User token;
+   that WABA subscription covers all phone numbers beneath it. Template sync
+   reads `/{WABA-ID}/message_templates`, not a nonexistent WABA field on the
+   phone node. The supplied token needs `whatsapp_business_management` for
+   template reads in addition to messaging permission for sends. Run one
+   controlled inbound and one controlled agent reply per channel, then record
+   the provider message ID and the delivery/read status where Meta exposes it.
 
 The Channels tile says **Send unverified** while the first outbound evidence is
 missing, even if inbound transport is healthy. The underlying `healthy`

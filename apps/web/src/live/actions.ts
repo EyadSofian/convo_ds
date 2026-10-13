@@ -277,17 +277,20 @@ export async function loadChannelsScreen(context: LiveContext, keep = false): Pr
     return;
   }
   live.connections = reloading(live.connections, keep);
+  live.metaApps = reloading(live.metaApps, keep);
   live.catalogue = reloading(live.catalogue, keep);
   live.testRecipients = reloading(live.testRecipients, keep);
   context.refresh();
 
-  const [connections, catalogue] = await Promise.all([
+  const [connections, catalogue, metaApps] = await Promise.all([
     live.channels.connections(tenantId),
     live.channels.catalogue(tenantId),
+    live.channels.metaApps(tenantId),
   ]);
   const now = context.now();
   live.connections = fromResult(connections, now);
   live.catalogue = fromResult(catalogue, now);
+  live.metaApps = fromResult(metaApps, now);
   if (!connections.ok) {
     live.testRecipients = { status: 'error', error: connections.error };
   } else {

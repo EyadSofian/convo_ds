@@ -1011,7 +1011,7 @@
       "post": {
         "operationId": "syncWhatsAppTemplates",
         "summary": "Synchronize the WhatsApp template catalogue from Meta",
-        "description": "Fetches all pages from the connected WhatsApp Business Account, upserts current templates, and disables templates no longer returned. Requires channel.manage and CSRF.",
+        "description": "Fetches /{WABA-ID}/message_templates using the configured WABA ID, upserts current templates, and disables templates no longer returned. The stored token needs whatsapp_business_management. Requires channel.manage and CSRF.",
         "security": [{ "SessionCookie": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/RequestId" },
@@ -1093,6 +1093,47 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
+        }
+      }
+    },
+    "/tenants/{tenantId}/channel-apps/meta": {
+      "get": {
+        "operationId": "listWorkspaceMetaApps",
+        "summary": "List Meta apps available to this workspace",
+        "description": "Returns public app IDs and configuration scope, never App Secrets or Verify Tokens. Requires channel.manage.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }],
+        "responses": {
+          "200": { "description": "Available Meta apps." },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "operationId": "createWorkspaceMetaApp",
+        "summary": "Register one Meta app for multiple channel assets",
+        "description": "Requires channel.manage, credential.rotate and CSRF. Encrypts the App Secret and returns a random Verify Token exactly once; only its hash is stored.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }, { "$ref": "#/components/parameters/CsrfToken" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "additionalProperties": false,
+            "required": ["externalAppId", "appSecret"],
+            "properties": {
+              "externalAppId": { "type": "string", "pattern": "^[0-9]{1,32}$" },
+              "appSecret": { "type": "string", "minLength": 16, "maxLength": 256, "writeOnly": true }
+            }
+          } } }
+        },
+        "responses": {
+          "201": { "description": "App registered; response includes a one-time Verify Token and public app UUID for the callback URL." },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -7673,6 +7714,7 @@
           "display_name",
           "external_asset_id",
           "facebook_page_id",
+          "waba_id",
           "provider_app_id",
           "status",
           "capabilities",
@@ -7713,6 +7755,10 @@
           "facebook_page_id": {
             "type": ["string", "null"],
             "description": "Linked Facebook Page ID for an Instagram connection using Facebook Login; null for other channels or an unconfigured legacy connection."
+          },
+          "waba_id": {
+            "type": ["string", "null"],
+            "description": "WhatsApp Business Account ID shared by one or more phone-number connections; null on other channels or legacy connections."
           },
           "status": {
             "$ref": "#/components/schemas/ChannelReadiness"
@@ -7882,8 +7928,9 @@
       "ChannelSettings": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Per-connection configuration. facebookPageId is required for Instagram Facebook Login; other fields configure self-hosted channels.",
+        "description": "Per-connection configuration. wabaId identifies the owning WhatsApp Business Account; facebookPageId is required for Instagram Facebook Login; other fields configure self-hosted channels.",
         "properties": {
+          "wabaId": { "type": "string", "pattern": "^[0-9]{1,32}$", "description": "WABA ID for WhatsApp template synchronization; one WABA may contain multiple numbers." },
           "facebookPageId": {
             "type": "string",
             "pattern": "^[0-9]{1,32}$",
@@ -7985,7 +8032,7 @@
             ],
             "minLength": 1,
             "maxLength": 128,
-            "description": "The provider-facing Meta App ID shown in Meta Business. It must already be registered in the server installation; the browser never receives the App Secret."
+            "description": "The provider-facing Meta App ID shown in Meta Business. Register it once in Workspace Meta app setup, then reuse it for multiple phone numbers and Meta assets. The browser never receives the stored App Secret."
           }
         }
       },
@@ -7993,6 +8040,7 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "wabaId": { "type": "string", "pattern": "^[0-9]{1,32}$", "description": "Set or correct the WABA ID on a WhatsApp connection." },
           "origins": { "type": "array", "maxItems": 20, "items": { "type": "string", "example": "https://school.example" } },
           "outboundUrl": { "type": ["string", "null"], "format": "uri", "maxLength": 2048, "description": "Public https URL on the operator's own domain. IP literals and internal names are refused." }
         }

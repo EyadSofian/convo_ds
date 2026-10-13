@@ -68,7 +68,7 @@ pnpm db:migrate
 
 `bootstrap` establishes the least-privileged migration/runtime roles. `migrate`
 applies forward-only migrations under an advisory lock. At this release the
-expected final file is `0043_conversation_removal.sql`.
+expected final file is `0044_managed_meta_apps.sql`.
 
 ## Run without Docker
 

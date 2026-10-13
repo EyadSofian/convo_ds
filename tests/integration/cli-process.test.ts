@@ -134,6 +134,7 @@ describe('convo-db entry point', () => {
       'applied 0041_meta_contact_profile_queue.sql',
       'applied 0042_meta_profile_tenant_backfill.sql',
       'applied 0043_conversation_removal.sql',
+      'applied 0044_managed_meta_apps.sql',
     ]);
 
     const second = await runBin(['migrate'], env);

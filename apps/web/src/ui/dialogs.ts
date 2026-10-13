@@ -337,10 +337,16 @@ function connectChannel(state: AppState, kind: string): HTMLElement {
           ? h('div', { class: 'field' }, [
               h('label', { class: 'field__label', for: 'channel-app' }, [t(state, 'معرّف تطبيق Meta', 'Meta App ID')]),
               textInput('channelProviderApp', form['channelProviderApp'] ?? '', '123456789012345', { id: 'channel-app', inputmode: 'numeric', required: true }),
-              h('p', { class: 'field__hint' }, [t(state, 'تطبيق مسجّل مسبقًا على الخادم.', 'An app already registered on the server.')]),
+              h('p', { class: 'field__hint' }, [t(state, 'استخدم تطبيق Meta نفسه لكل أرقام واتساب والصفحات المرتبطة به؛ لا تنشئ تطبيقًا لكل رقم.', 'Reuse this Meta app for its WhatsApp numbers and linked Pages; do not create one app per number.')]),
               fieldError(state, 'channelProviderApp'),
             ])
           : null,
+        kind === 'whatsapp' ? h('div', { class: 'field' }, [
+          h('label', { class: 'field__label', for: 'channel-waba' }, [t(state, 'معرّف حساب واتساب للأعمال (WABA ID)', 'WhatsApp Business Account ID (WABA ID)')]),
+          textInput('channelWaba', form['channelWaba'] ?? '', '1635676328136908', { id: 'channel-waba', inputmode: 'numeric', required: true }),
+          h('p', { class: 'field__hint' }, [t(state, 'الحساب الواحد قد يضم عدة أرقام. نستخدم هذا المعرّف للقوالب والاشتراك في الأحداث.', 'One account may own multiple numbers. This ID identifies its templates and webhook subscription.')]),
+          fieldError(state, 'channelWaba'),
+        ]) : null,
         h('div', { class: 'field' }, [
           h('label', { class: 'field__label', for: 'channel-asset' }, [t(state, item.asset.ar, item.asset.en)]),
           textInput('channelAsset', form['channelAsset'] ?? '', '', { id: 'channel-asset', required: true }),

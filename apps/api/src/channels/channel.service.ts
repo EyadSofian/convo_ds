@@ -44,6 +44,7 @@ export interface ChannelConnectionSummary {
   readonly display_name: string;
   readonly external_asset_id: string;
   readonly facebook_page_id: string | null;
+  readonly waba_id: string | null;
   readonly provider_app_id: string | null;
   readonly status: Readiness;
   readonly capabilities: CapabilityMatrix;
@@ -82,6 +83,7 @@ interface ConnectionRow {
   readonly display_name: string;
   readonly external_asset_id: string;
   readonly facebook_page_id: string | null;
+  readonly waba_id: string | null;
   readonly provider_app_id: string | null;
   readonly capabilities: unknown;
   readonly asset_verified_at: Date | null;
@@ -116,6 +118,9 @@ function credentialPurpose(kind: ChannelKind): 'access_token' | 'signing_key' {
 
 /** Only the channels we own store settings; the rest have nothing to put there. */
 function settingsColumn(request: ConnectChannelRequest): Record<string, unknown> {
+  if (request.kind === 'whatsapp') {
+    return request.settings.wabaId === undefined ? {} : { waba_id: request.settings.wabaId };
+  }
   if (request.kind === 'instagram') {
     return { facebook_page_id: request.settings.facebookPageId };
   }
@@ -331,7 +336,7 @@ export class ChannelService {
       const fetched = await this.credentials.withActive(
         sql,
         { tenantId, connectionId, purpose: 'access_token' },
-        (token) => this.transport.fetchTemplates!('whatsapp', token, connection.external_asset_id),
+        (token) => this.transport.fetchTemplates!('whatsapp', token, connection.waba_id ?? ''),
       );
       if (fetched === null) throw new ApiHttpError(409, 'credential_missing', 'The connection has no active credential.');
       if (!fetched.ok) {
@@ -453,10 +458,14 @@ export class ChannelService {
         throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
       }
       const own = connection.kind === 'web_chat' || connection.kind === 'custom';
-      if (!own || (connection.kind !== 'custom' && parsed.value.outboundUrl !== undefined)) {
+      const whatsapp = connection.kind === 'whatsapp';
+      if ((!own && !whatsapp) || (connection.kind !== 'custom' && parsed.value.outboundUrl !== undefined)
+        || (!own && parsed.value.origins !== undefined) || (!whatsapp && parsed.value.wabaId !== undefined)
+        || (whatsapp && parsed.value.wabaId === undefined)) {
         throw new ApiHttpError(422, 'channel_settings_unsupported', 'This channel has no settings of that kind.');
       }
       const patch: Record<string, unknown> = {};
+      if (parsed.value.wabaId !== undefined) patch['waba_id'] = parsed.value.wabaId;
       if (parsed.value.origins !== undefined) patch['origins'] = parsed.value.origins;
       if (typeof parsed.value.outboundUrl === 'string') patch['outbound_url'] = parsed.value.outboundUrl;
       await sql.query(
@@ -508,6 +517,7 @@ async function requireConnection(sql: SqlExecutor, connectionId: string): Promis
   const rows = await sql.query<ConnectionRow>(
     `SELECT c.id::text, c.kind, c.display_name, c.external_asset_id,
             c.settings->>'facebook_page_id' AS facebook_page_id,
+            c.settings->>'waba_id' AS waba_id,
             app.external_app_id AS provider_app_id, c.capabilities,
             c.asset_verified_at, c.credential_verified_at, c.webhook_subscribed_at,
             c.first_inbound_at, c.first_outbound_at, c.last_error_code, c.last_error_at,
@@ -542,6 +552,7 @@ async function recordError(sql: SqlExecutor, connectionId: string, code: string)
 export async function refreshStatus(sql: SqlExecutor, connectionId: string): Promise<void> {
   const rows = await sql.query<ConnectionRow>(
     `SELECT id::text, kind, display_name, external_asset_id, settings->>'facebook_page_id' AS facebook_page_id,
+            settings->>'waba_id' AS waba_id,
             NULL::text AS provider_app_id, capabilities,
             asset_verified_at, credential_verified_at, webhook_subscribed_at,
             first_inbound_at, first_outbound_at, last_error_code, last_error_at,
@@ -582,6 +593,7 @@ async function readConnections(
   const rows = await sql.query<ConnectionRow>(
     `SELECT c.id::text, c.kind, c.display_name, c.external_asset_id,
             c.settings->>'facebook_page_id' AS facebook_page_id,
+            c.settings->>'waba_id' AS waba_id,
             app.external_app_id AS provider_app_id, c.capabilities,
             c.asset_verified_at, c.credential_verified_at, c.webhook_subscribed_at,
             c.first_inbound_at, c.first_outbound_at, c.last_error_code, c.last_error_at,
@@ -604,6 +616,7 @@ async function readConnections(
       display_name: row.display_name,
       external_asset_id: row.external_asset_id,
       facebook_page_id: row.facebook_page_id,
+      waba_id: row.waba_id,
       provider_app_id: row.provider_app_id,
       status: statusOf(row),
       capabilities: capabilitiesFor(row.kind),
@@ -643,6 +656,7 @@ async function resolveChannelApp(
   const rows = await sql.query<{ id: string }>(
     `SELECT id::text FROM channel_apps
       WHERE provider = $1 AND status = 'active'
+        AND (tenant_id = app_current_tenant() OR tenant_id IS NULL)
         AND (CASE WHEN $2::boolean THEN external_app_id = $3 ELSE id = $3::uuid END)`,
     [provider, byExternal, reference],
   );

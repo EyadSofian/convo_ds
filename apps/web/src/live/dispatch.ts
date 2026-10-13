@@ -47,7 +47,7 @@ import {
   settleHandoff,
 } from './routing-actions.js';
 import { createAndAssignLabel, createField, createLabel, retireLabel, setEntityLabel, setFieldValue, updateLabel } from './metadata-actions.js';
-import { rowsOf } from './store.js';
+import { currentTenantId, rowsOf } from './store.js';
 import { hasPermission } from './ability.js';
 import { idList } from './audience.js';
 import { derivedChannelId, newContactFields, standardFieldKey } from './contact-profile.js';
@@ -1256,6 +1256,34 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
    * step is to verify it, and the screen puts that step in front of the
    * operator rather than a success badge the server has not earned.
    */
+  'live-create-meta-app': async (context) => {
+    const appId = form(context, 'metaSetupAppId');
+    const secret = form(context, 'metaSetupSecret');
+    if (invalid(context, {
+      ...(!/^[0-9]{1,32}$/.test(appId) ? { metaSetupAppId: text(context, 'أدخل Meta App ID بالأرقام.', 'Enter the numeric Meta App ID.') } : {}),
+      ...(secret.length < 16 || secret.length > 256 || /\s/.test(secret) ? { metaSetupSecret: text(context, 'أدخل App Secret صحيحًا بدون مسافات.', 'Enter a valid App Secret without spaces.') } : {}),
+    })) return false;
+    const tenantId = currentTenantId(context.live);
+    if (tenantId === null) return false;
+    context.live.busy = 'create-meta-app';
+    context.live.error = null;
+    context.refresh();
+    const result = await context.live.channels.createMetaApp(tenantId, appId, secret);
+    context.live.busy = null;
+    clearForm(context, ['metaSetupSecret']);
+    if (!result.ok) {
+      context.live.error = result.error;
+      context.refresh();
+      return false;
+    }
+    context.live.createdMetaApp = result.data;
+    pushToast(context.state, text(context, 'حُفظ تطبيق Meta. انسخ رابط الـWebhook ورمز التحقق.', 'Meta app saved. Copy the webhook URL and verify token.'));
+    const listed = await context.live.channels.metaApps(tenantId);
+    if (listed.ok) context.live.metaApps = { status: 'ready', value: listed.data, loadedAt: context.now() };
+    context.refresh();
+    return true;
+  },
+
   'live-connect-channel': async (context) => {
     const { state } = context;
     const selectedKind = state.dialog?.kind === 'connect-channel' ? state.dialog.arg : '';
@@ -1276,6 +1304,8 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       ...(selectedKind === 'custom' && outboundUrl !== '' && !replyUrlValid(outboundUrl)
         ? { channelOutboundUrl: text(context, 'أدخل رابط https عامًا على نطاقك، مثل https://crm.school.example/convo.', 'Enter a public https URL on your domain, such as https://crm.school.example/convo.') } : {}),
       ...(meta && form(context, 'channelProviderApp') === '' ? { channelProviderApp: text(context, 'أدخل معرّف تطبيق Meta.', 'Enter the Meta App ID.') } : {}),
+      ...(selectedKind === 'whatsapp' && !/^[0-9]{1,32}$/.test(form(context, 'channelWaba'))
+        ? { channelWaba: text(context, 'أدخل معرّف حساب واتساب للأعمال بالأرقام.', 'Enter the numeric WABA ID.') } : {}),
       ...(form(context, 'channelAsset') === '' ? { channelAsset: text(context, 'أدخل معرّف الأصل.', 'Enter the asset ID.') } : {}),
       ...(form(context, 'channelName') === '' ? { channelName: text(context, 'أدخل اسمًا للعرض.', 'Enter a display name.') } : {}),
       ...(form(context, 'channelToken').length < 8 ? { channelToken: text(context, 'أدخل رمزًا من 8 أحرف على الأقل.', 'Enter at least 8 characters.') } : {}),
@@ -1290,6 +1320,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       accessToken: form(context, 'channelToken'),
       providerAppId: meta ? form(context, 'channelProviderApp') : null,
       ...(selectedKind === 'instagram' ? { settings: { facebookPageId: form(context, 'channelPage') } } : {}),
+      ...(selectedKind === 'whatsapp' ? { settings: { wabaId: form(context, 'channelWaba') } } : {}),
       ...(meta ? {} : { settings: { origins, ...(selectedKind === 'custom' && outboundUrl !== '' ? { outboundUrl } : {}) } }),
     });
     // The token is dropped from state whatever the answer was — a credential
@@ -1333,6 +1364,16 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     const saved = await setInstagramPage(context, arg, value);
     if (saved) clearForm(context, [channelPageField(arg)]);
     return saved;
+  },
+
+  'live-whatsapp-waba': async (context, arg) => {
+    const value = form(context, `channelWaba:${arg}`);
+    if (!/^[0-9]{1,32}$/.test(value)) {
+      context.live.error = { status: 400, code: 'invalid_input', message: text(context, 'أدخل WABA ID بالأرقام.', 'Enter a numeric WABA ID.'), requestId: null, details: [] };
+      context.refresh();
+      return false;
+    }
+    return updateChannelSettings(context, arg, { wabaId: value });
   },
 
   'live-channel-settings': async (context, arg) => {

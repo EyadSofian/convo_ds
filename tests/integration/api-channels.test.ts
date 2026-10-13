@@ -112,10 +112,8 @@ async function createHarness(adapters: ApiAdapters = {}): Promise<Harness> {
   expect(bootstrap.statusCode).toBe(201);
   const tenantId = (bootstrap.json() as { data: { tenantId: string } }).data.tenantId;
 
-  // The provider app is installation configuration. It is seeded through the
-  // schema owner, not the runtime role, because the runtime role has only
-  // SELECT on it — registering an app is an operations act, and the grants say
-  // so rather than a comment saying so.
+  // Preserve coverage for the legacy installation-managed app path alongside
+  // the newer workspace-managed, encrypted setup path.
   const admin = scratchMigrationPool(names);
   let appId: string;
   try {
@@ -289,6 +287,62 @@ describe('channel connections', () => {
 
   afterAll(async () => {
     await api.app.close();
+  });
+
+  it('registers one workspace Meta app securely and reuses it for two WhatsApp numbers', async () => {
+    const appSecret = 'a'.repeat(32);
+    const created = await send(api, owner, 'POST', '/channel-apps/meta', {
+      externalAppId: '200000000000001', appSecret,
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const app = (created.json() as { data: { id: string; verify_token: string } }).data;
+    expect(app.verify_token.length).toBeGreaterThan(30);
+    expect(created.body).not.toContain(appSecret);
+
+    const row = await api.pool.query<{ tenant_id: string; secret_ciphertext: Buffer; secret_ref: string | null }>(
+      `SELECT tenant_id::text, secret_ciphertext, secret_ref FROM channel_apps WHERE id = $1`, [app.id],
+    );
+    expect(row.rows[0]?.tenant_id).toBe(api.tenantId);
+    expect(row.rows[0]?.secret_ref).toBeNull();
+    expect(row.rows[0]?.secret_ciphertext.toString('utf8')).not.toContain(appSecret);
+
+    const challenge = await api.server.inject({
+      method: 'GET',
+      url: `/api/v1/webhooks/meta/${app.id}?hub.mode=subscribe&hub.verify_token=${app.verify_token}&hub.challenge=ready`,
+    });
+    expect(challenge.statusCode).toBe(200);
+    expect(challenge.body).toBe('ready');
+
+    for (const phoneId of ['1400059329852066', '1400059329852067']) {
+      const connected = await send(api, owner, 'POST', '/channels', {
+        kind: 'whatsapp', externalAssetId: phoneId, displayName: `Line ${phoneId}`,
+        accessToken: 'EAAGtestaccesstoken0001', providerAppId: '200000000000001',
+        settings: { wabaId: '1635676328136908' },
+      });
+      expect(connected.statusCode, connected.body).toBe(201);
+      expect(connected.json()).toMatchObject({ data: { provider_app_id: '200000000000001', waba_id: '1635676328136908' } });
+    }
+
+    const delivery = JSON.stringify(messageDelivery([textMessage('managed-app-msg-1', 'hello')], '1400059329852066'));
+    const received = await api.server.inject({
+      method: 'POST', url: `/api/v1/webhooks/meta/${app.id}`,
+      headers: { 'content-type': 'application/json',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', appSecret).update(delivery).digest('hex')}` },
+      payload: delivery,
+    });
+    expect(received.statusCode, received.body).toBe(200);
+    const forged = await api.server.inject({
+      method: 'POST', url: `/api/v1/webhooks/meta/${app.id}`,
+      headers: { 'content-type': 'application/json',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', 'not-the-secret').update(delivery).digest('hex')}` },
+      payload: delivery,
+    });
+    expect(forged.statusCode).toBe(401);
+
+    const listed = await send(api, owner, 'GET', '/channel-apps/meta');
+    expect(listed.statusCode).toBe(200);
+    expect(JSON.stringify(listed.json())).not.toContain(app.verify_token);
+    expect(JSON.stringify(listed.json())).not.toContain(appSecret);
   });
 
   it('lists the catalogue before anything is connected, saying what is implemented', async () => {

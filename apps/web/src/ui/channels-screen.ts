@@ -112,6 +112,11 @@ export function catalogueItem(kind: string): CatalogueItem | undefined {
   return CATALOGUE.find((item) => item.kind === kind);
 }
 
+function fieldError(state: AppState, key: string): HTMLElement | null {
+  const message = state.formErrors[key];
+  return message === undefined ? null : h('p', { class: 'field__error' }, [message]);
+}
+
 export type IntegrationStatus = 'connected' | 'send_unverified' | 'connecting' | 'attention' | 'permission_expired' | 'disconnected' | 'not_connected' | 'unavailable';
 
 export interface IntegrationSummary {
@@ -205,12 +210,59 @@ function catalogueBody(state: AppState, live: LiveState): readonly Child[] {
   const server = live.catalogue.value;
   const connections = rowsOf(live.connections);
   return [
+    metaAppSetup(state, live),
     h('section', { class: 'integrations', 'aria-labelledby': 'catalogue-title' }, [
       h('h2', { class: 'section-title', id: 'catalogue-title' }, [t(state, 'التكاملات المتاحة', 'Integrations')]),
       h('div', { class: 'integration-grid' }, CATALOGUE.map((item) => integrationCard(state, item, server.find((entry) => entry.kind === item.kind), connections))),
     ]),
     connectedSection(state, live, connections),
   ];
+}
+
+/** One workspace app can authenticate all of its WhatsApp numbers and Meta assets. */
+function metaAppSetup(state: AppState, live: LiveState): HTMLElement {
+  const created = live.createdMetaApp;
+  const apps = live.metaApps.status === 'ready' ? live.metaApps.value : [];
+  return panel(t(state, 'إعداد تطبيق Meta للـWorkspace', 'Workspace Meta app setup'), [
+    h('p', { class: 'field__hint' }, [t(state,
+      'أضف تطبيق Meta مرة واحدة، ثم اربط تحته أرقام واتساب متعددة وصفحات ماسنجر وحسابات إنستجرام. لكل أصل اتصال واعتماد مستقل؛ لا تنشئ تطبيقًا لكل رقم.',
+      'Add a Meta app once, then connect multiple WhatsApp numbers, Messenger Pages and Instagram accounts beneath it. Each asset has its own connection and credential; one app per number is not needed.')]),
+    apps.length === 0 ? null : h('ul', { class: 'checklist', 'aria-label': t(state, 'تطبيقات Meta المسجلة', 'Registered Meta apps') }, apps.map((app) =>
+      h('li', { class: 'checklist__item' }, [
+        h('span', { class: 'checklist__label' }, [
+          isolated(app.external_app_id, true),
+          ' · ',
+          app.scope === 'workspace' ? t(state, 'التطبيق للـWorkspace', 'Workspace app') : t(state, 'إعداد الخادم الحالي', 'Existing server app'),
+        ]),
+        h('code', { dir: 'ltr' }, [`${window.location.origin}/api/v1/webhooks/meta/${app.id}`]),
+      ]))),
+    live.busy === 'create-meta-app' || live.error === null ? null : inlineError(state, live.error),
+    created === null ? null : h('div', { class: 'connection__block', role: 'status' }, [
+      h('h3', { class: 'connection__blocktitle' }, [t(state, 'التطبيق اتسجل — انسخ بيانات Webhook الآن', 'App registered — copy the webhook setup now')]),
+      h('dl', { class: 'attrgrid' }, [
+        h('dt', {}, ['Meta App ID']), h('dd', {}, [isolated(created.external_app_id, true)]),
+        h('dt', {}, ['Callback URL']),
+        h('dd', {}, [h('code', { dir: 'ltr' }, [`${window.location.origin}/api/v1/webhooks/meta/${created.id}`])]),
+        h('dt', {}, ['Verify Token']), h('dd', {}, [h('code', { dir: 'ltr' }, [created.verify_token])]),
+      ]),
+      h('p', { class: 'field__hint' }, [t(state, 'رمز التحقق يظهر هنا مرة واحدة؛ انسخه إلى إعداد Webhooks في Meta. سر التطبيق لا يُعرض بعد الحفظ.', 'The verify token is shown once; copy it into Meta Webhooks. The App Secret is never displayed after saving.')]),
+    ]),
+    h('form', { class: 'form-grid', 'data-submit': 'live-create-meta-app', novalidate: true }, [
+      h('label', { class: 'field' }, [
+        h('span', { class: 'field__label' }, ['Meta App ID']),
+        textInput('metaSetupAppId', state.dialogForm['metaSetupAppId'] ?? '', '1660798022160319', { inputmode: 'numeric', required: true }),
+        fieldError(state, 'metaSetupAppId'),
+      ]),
+      h('label', { class: 'field' }, [
+        h('span', { class: 'field__label' }, ['App Secret']),
+        h('input', { class: 'input', type: 'password', autocomplete: 'off', dir: 'ltr', required: true,
+          ...LITERAL_INPUT, value: state.dialogForm['metaSetupSecret'] ?? '', 'data-act': 'form', 'data-form': 'metaSetupSecret' }),
+        fieldError(state, 'metaSetupSecret'),
+      ]),
+      button({ label: t(state, 'حفظ تطبيق Meta', 'Save Meta app'), act: 'live-create-meta-app', icon: 'plug',
+        busy: live.busy === 'create-meta-app', small: true }),
+    ]),
+  ]);
 }
 
 function integrationCard(
@@ -417,6 +469,8 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
           h('dd', {}, [isolated(connection.external_asset_id, true)]),
           connection.provider_app_id === null ? null : h('dt', {}, [t(state, 'تطبيق Meta', 'Meta app')]),
           connection.provider_app_id === null ? null : h('dd', {}, [isolated(connection.provider_app_id, true)]),
+          connection.kind === 'whatsapp' ? h('dt', {}, [t(state, 'حساب واتساب للأعمال', 'WhatsApp Business Account')]) : null,
+          connection.kind === 'whatsapp' ? h('dd', {}, [connection.waba_id ?? t(state, 'غير محدد — مزامنة القوالب غير متاحة', 'Not set — template sync unavailable')]) : null,
           connection.kind === 'instagram' ? h('dt', {}, [t(state, 'صفحة فيسبوك المرتبطة', 'Linked Facebook Page')]) : null,
           connection.kind === 'instagram' ? h('dd', {}, [connection.facebook_page_id ?? t(state, 'غير محددة', 'Not configured')]) : null,
           h('dt', {}, [t(state, 'بيانات الاعتماد', 'Credential')]),
@@ -494,6 +548,13 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
               act: 'live-instagram-page', arg: connection.id, small: true,
               busy: live.busy === `instagram-page:${connection.id}`,
             }),
+          ]) : null,
+          connection.kind === 'whatsapp' ? h('form', { class: 'inline-form', 'data-submit': 'live-whatsapp-waba', 'data-arg': connection.id }, [
+            h('label', { class: 'field' }, [
+              h('span', { class: 'field__label' }, [t(state, 'حساب واتساب للأعمال (WABA ID)', 'WhatsApp Business Account ID (WABA ID)')]),
+              textInput(`channelWaba:${connection.id}`, state.dialogForm[`channelWaba:${connection.id}`] ?? connection.waba_id ?? '', '', { inputmode: 'numeric', required: true }),
+            ]),
+            button({ label: t(state, 'حفظ الحساب', 'Save account'), act: 'live-whatsapp-waba', arg: connection.id, small: true, busy: live.busy === `channel-settings:${connection.id}` }),
           ]) : null,
           connection.kind === 'custom' || connection.kind === 'web_chat' ? ownChannelSetup(state, live, connection) : null,
           testRecipients(state, live, connection),

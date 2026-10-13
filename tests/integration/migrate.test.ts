@@ -91,6 +91,7 @@ describe('migrate', () => {
       '0041_meta_contact_profile_queue.sql',
       '0042_meta_profile_tenant_backfill.sql',
       '0043_conversation_removal.sql',
+      '0044_managed_meta_apps.sql',
     ]);
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);

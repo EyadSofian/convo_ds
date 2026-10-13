@@ -51,6 +51,7 @@ export interface ChannelConnection {
   readonly display_name: string;
   readonly external_asset_id: string;
   readonly facebook_page_id: string | null;
+  readonly waba_id: string | null;
   readonly provider_app_id: string | null;
   readonly status: ChannelReadiness;
   readonly capabilities: CapabilityMatrix;
@@ -69,6 +70,7 @@ export interface ChannelConnection {
 }
 
 export interface ChannelSettingsInput {
+  readonly wabaId?: string;
   readonly origins?: readonly string[];
   readonly outboundUrl?: string | null;
 }
@@ -87,6 +89,20 @@ export interface TemplateSyncResult {
   readonly synced_at: string;
 }
 
+export interface MetaAppSummary {
+  readonly id: string;
+  readonly external_app_id: string;
+  readonly scope: 'workspace' | 'installation';
+  readonly status: string;
+  readonly secret_held: boolean;
+  readonly created_at: string;
+}
+
+export interface CreatedMetaApp extends MetaAppSummary {
+  /** Shown exactly once after creation; never included in later reads. */
+  readonly verify_token: string;
+}
+
 export interface ChannelTestRecipient {
   readonly id: string;
   readonly connection_id: string;
@@ -103,11 +119,21 @@ export interface ConnectChannelInput {
   readonly displayName: string;
   readonly accessToken: string;
   readonly providerAppId: string | null;
-  readonly settings?: { readonly facebookPageId: string } | { readonly origins: readonly string[]; readonly outboundUrl?: string };
+  readonly settings?: { readonly facebookPageId: string } | { readonly wabaId: string } | { readonly origins: readonly string[]; readonly outboundUrl?: string };
 }
 
 export class ChannelsApi {
   constructor(private readonly client: ApiClient) {}
+
+  metaApps(tenantId: string): Promise<ApiResult<readonly MetaAppSummary[]>> {
+    return this.client.get<readonly MetaAppSummary[]>(`/tenants/${tenantId}/channel-apps/meta`);
+  }
+
+  createMetaApp(tenantId: string, externalAppId: string, appSecret: string): Promise<ApiResult<CreatedMetaApp>> {
+    return this.client.post<CreatedMetaApp>(`/tenants/${tenantId}/channel-apps/meta`, {
+      body: { externalAppId, appSecret },
+    });
+  }
 
   connections(tenantId: string): Promise<ApiResult<readonly ChannelConnection[]>> {
     return this.client.get<readonly ChannelConnection[]>(`/tenants/${tenantId}/channels`);

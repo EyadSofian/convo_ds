@@ -1,4 +1,4 @@
-import type { ChannelCatalogueEntry, ChannelConnection, ChannelTestRecipient, ChannelsApi } from '../api/channels.js';
+import type { ChannelCatalogueEntry, ChannelConnection, ChannelTestRecipient, ChannelsApi, CreatedMetaApp, MetaAppSummary } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type {
   Collaborator,
@@ -148,6 +148,8 @@ export interface LiveState {
   permissions: Resource<readonly Permission[]>;
   transfers: Resource<readonly OwnershipTransfer[]>;
   connections: Resource<readonly ChannelConnection[]>;
+  metaApps: Resource<readonly MetaAppSummary[]>;
+  createdMetaApp: CreatedMetaApp | null;
   catalogue: Resource<readonly ChannelCatalogueEntry[]>;
   testRecipients: Resource<readonly ChannelTestRecipient[]>;
   /**
@@ -346,6 +348,8 @@ export function createLiveState(
     permissions: IDLE,
     transfers: IDLE,
     connections: IDLE,
+    metaApps: IDLE,
+    createdMetaApp: null,
     catalogue: IDLE,
     testRecipients: IDLE,
     unassigned: IDLE,

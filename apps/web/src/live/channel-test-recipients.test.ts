@@ -11,7 +11,7 @@ const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 const fail = <T>(): ApiResult<T> => ({ ok: false, error: ERROR });
 const CONNECTION: ChannelConnection = {
   id: 'channel-1', kind: 'whatsapp', provider: 'meta', display_name: 'Courses', external_asset_id: 'phone-1',
-  facebook_page_id: null,
+  facebook_page_id: null, waba_id: '12345',
   provider_app_id: 'app-1', status: 'healthy', capabilities: {
     kind: 'whatsapp', version: 'v21.0', host: 'graph.facebook.com', inboundEvents: [], outboundTypes: ['text','template'],
     attachmentTypes: [], textLimit: { characters: 4096, bytes: 4096 }, windowHours: 24,
@@ -30,6 +30,7 @@ function setup() {
   state.live.session = { status: 'signed_in', email: 'owner@test.local', memberships: [], tenantId: 'tenant-1' };
   const channels = {
     connections: vi.fn().mockResolvedValue(ok([CONNECTION])),
+    metaApps: vi.fn().mockResolvedValue(ok([])),
     catalogue: vi.fn().mockResolvedValue(ok([])),
     testRecipients: vi.fn().mockResolvedValue(ok([RECIPIENT])),
     syncWhatsAppTemplates: vi.fn().mockResolvedValue(ok({ connection_id: 'channel-1', imported: 3, disabled: 1, synced_at: NOW.toISOString() })),

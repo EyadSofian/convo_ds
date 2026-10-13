@@ -287,6 +287,7 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
       setInstagramPage,
       connections: vi.fn().mockResolvedValue({ ok: true, data: [] }),
       catalogue: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      metaApps: vi.fn().mockResolvedValue({ ok: true, data: [] }),
     } });
     state.dialogForm = { channelPage_ig1: 'not-numeric' };
     expect(await LIVE_ACTIONS['live-instagram-page']?.(context, 'ig1')).toBe(false);
@@ -309,6 +310,7 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
       updateSettings,
       connections: vi.fn().mockResolvedValue({ ok: true, data: saved }),
       catalogue: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      metaApps: vi.fn().mockResolvedValue({ ok: true, data: [] }),
       testRecipients: vi.fn().mockResolvedValue({ ok: true, data: [] }),
     } });
     state.live.connections = { status: 'ready', loadedAt: 1, value: saved as never };
@@ -349,6 +351,7 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
       connect,
       connections: vi.fn().mockResolvedValue({ ok: true, data: [] }),
       catalogue: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      metaApps: vi.fn().mockResolvedValue({ ok: true, data: [] }),
     } });
     state.dialog = { kind: 'connect-channel', arg: 'instagram' };
     state.dialogForm = { channelProviderApp: '123', channelAsset: '456', channelName: 'Test channel', channelToken: 'test-token' };

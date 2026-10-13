@@ -55,7 +55,7 @@ function setup(permissions: readonly string[] = ['campaign.draft', 'campaign.app
     list: vi.fn().mockResolvedValue(ok([running])),
     previewAudience: vi.fn().mockResolvedValue(ok(PREVIEW)),
   };
-  const channels = { connections: vi.fn().mockResolvedValue(ok([])), testRecipients: vi.fn().mockResolvedValue(ok([])) } as unknown as ChannelsApi;
+  const channels = { connections: vi.fn().mockResolvedValue(ok([])), metaApps: vi.fn().mockResolvedValue(ok([])), testRecipients: vi.fn().mockResolvedValue(ok([])) } as unknown as ChannelsApi;
   Object.defineProperty(state.live, 'campaignsApi', { value: api as unknown as CampaignsApi });
   Object.defineProperty(state.live, 'channels', { value: channels });
   const context: LiveContext = { state, live: state.live, refresh: vi.fn(), now: () => NOW.getTime(), newKey: () => 'key-1', endSession: vi.fn(), switchWorkspace: vi.fn() };
