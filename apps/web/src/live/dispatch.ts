@@ -432,6 +432,10 @@ export function channelPageField(connectionId: string): string {
   return `channelPage_${connectionId}`;
 }
 
+export function channelWabaField(connectionId: string): string {
+  return `channelWaba_${connectionId}`;
+}
+
 export function channelOriginsField(connectionId: string): string {
   return `channelOrigins_${connectionId}`;
 }
@@ -1367,7 +1371,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-whatsapp-waba': async (context, arg) => {
-    const value = form(context, `channelWaba:${arg}`);
+    const value = form(context, channelWabaField(arg));
     if (!/^[0-9]{1,32}$/.test(value)) {
       context.live.error = { status: 400, code: 'invalid_input', message: text(context, 'أدخل WABA ID بالأرقام.', 'Enter a numeric WABA ID.'), requestId: null, details: [] };
       context.refresh();

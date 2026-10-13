@@ -344,6 +344,21 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     expect(context.live.error?.message).toContain('https');
   });
 
+  it('saves an existing WhatsApp connection’s WABA ID from its per-connection form field', async () => {
+    const { state, context } = active();
+    const updateSettings = vi.fn().mockResolvedValue({ ok: true, data: { id: 'wa-1' } });
+    Object.defineProperty(context.live, 'channels', { value: {
+      updateSettings,
+      connections: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      catalogue: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      metaApps: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      testRecipients: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+    } });
+    state.dialogForm = { 'channelWaba_wa-1': '1635676328136908' };
+    expect(await LIVE_ACTIONS['live-whatsapp-waba']?.(context, 'wa-1')).toBe(true);
+    expect(updateSettings).toHaveBeenCalledWith('tenant-1', 'wa-1', { wabaId: '1635676328136908' });
+  });
+
   it('requires a linked Page for Instagram and carries it only for that connection kind', async () => {
     const { state, context } = active();
     const connect = vi.fn().mockResolvedValue({ ok: true, data: { id: 'new-channel', display_name: 'Test channel' } });

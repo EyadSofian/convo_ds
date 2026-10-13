@@ -209,6 +209,7 @@ describe('connected integrations', () => {
     expect((details.querySelector('[data-act="live-authorize-test-recipient"]') as HTMLButtonElement).disabled).toBe(true);
     // The credential goes out as a password and is never shown back.
     expect(details.querySelector('input[type="password"]')?.getAttribute('autocomplete')).toBe('off');
+    expect((details.querySelector('[data-form="channelWaba_cn-1"]') as HTMLInputElement).value).toBe('12345');
   });
 
   it('shows and edits the linked Page for an Instagram connection', () => {

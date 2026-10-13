@@ -9,7 +9,7 @@ import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, relativeTime } from '../format.js';
 import { icon } from '../icons.js';
-import { channelOriginsField, channelOutboundField, channelPageField, channelTestIdentityField, channelTestLabelField, channelTokenField } from '../live/dispatch.js';
+import { channelOriginsField, channelOutboundField, channelPageField, channelTestIdentityField, channelTestLabelField, channelTokenField, channelWabaField } from '../live/dispatch.js';
 import { rowsOf } from '../live/store.js';
 import type { LiveState } from '../live/store.js';
 import type { AppState } from '../state.js';
@@ -552,7 +552,7 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
           connection.kind === 'whatsapp' ? h('form', { class: 'inline-form', 'data-submit': 'live-whatsapp-waba', 'data-arg': connection.id }, [
             h('label', { class: 'field' }, [
               h('span', { class: 'field__label' }, [t(state, 'حساب واتساب للأعمال (WABA ID)', 'WhatsApp Business Account ID (WABA ID)')]),
-              textInput(`channelWaba:${connection.id}`, state.dialogForm[`channelWaba:${connection.id}`] ?? connection.waba_id ?? '', '', { inputmode: 'numeric', required: true }),
+              textInput(channelWabaField(connection.id), state.dialogForm[channelWabaField(connection.id)] ?? connection.waba_id ?? '', '', { inputmode: 'numeric', required: true }),
             ]),
             button({ label: t(state, 'حفظ الحساب', 'Save account'), act: 'live-whatsapp-waba', arg: connection.id, small: true, busy: live.busy === `channel-settings:${connection.id}` }),
           ]) : null,
