@@ -1195,6 +1195,8 @@ describe('with a stubbed provider transport', () => {
   let answer: ConnectionCheck;
   let checkedInstagramPageId: string | null | undefined;
   let templatesAnswer: TemplateFetchResult = { ok: true, templates: [] };
+  let subscriptionAnswer: { ok: true } | { ok: false; code: string; message: string; retryable: boolean } = { ok: true };
+  const subscribedWabas: string[] = [];
 
   beforeAll(async () => {
     api = await createHarness({
@@ -1205,6 +1207,10 @@ describe('with a stubbed provider transport', () => {
           return Promise.resolve(answer);
         },
         fetchTemplates: () => Promise.resolve(templatesAnswer),
+        subscribeWhatsAppWaba: (_credential, wabaId) => {
+          subscribedWabas.push(wabaId);
+          return Promise.resolve(subscriptionAnswer);
+        },
         send: () =>
           Promise.resolve({
             status: 'definitely_rejected' as const,
@@ -1219,6 +1225,32 @@ describe('with a stubbed provider transport', () => {
 
   afterAll(async () => {
     await api.app.close();
+  });
+
+  it('records a confirmed subscription for numbers in the same WABA and app only', async () => {
+    const wabaId = '1635676328136908';
+    const ids: string[] = [];
+    for (const phoneId of ['1400059329852066', '1400059329852067']) {
+      const created = await send(api, owner, 'POST', '/channels', {
+        kind: 'whatsapp', externalAssetId: phoneId, displayName: phoneId,
+        accessToken: 'EAAGtestaccesstoken0001', appId: api.appId, settings: { wabaId },
+      });
+      expect(created.statusCode, created.body).toBe(201);
+      ids.push((created.json() as { data: { id: string } }).data.id);
+    }
+    subscriptionAnswer = { ok: false, code: 'credential_rejected', message: 'Denied', retryable: false };
+    const refused = await send(api, owner, 'POST', `/channels/${ids[0]}/webhook/subscribe`);
+    expect(refused.statusCode).toBe(422);
+    subscriptionAnswer = { ok: true };
+    const accepted = await send(api, owner, 'POST', `/channels/${ids[0]}/webhook/subscribe`);
+    expect(accepted.statusCode, accepted.body).toBe(201);
+    expect(accepted.json()).toMatchObject({ data: { waba_id: wabaId, updated_connections: 2 } });
+    expect(subscribedWabas).toEqual([wabaId, wabaId]);
+    const listed = await send(api, owner, 'GET', '/channels');
+    const connections = (listed.json() as { data: Array<{ id: string; evidence: Array<{ kind: string; satisfied: boolean }> }> }).data;
+    for (const id of ids) {
+      expect(connections.find((row) => row.id === id)?.evidence).toContainEqual(expect.objectContaining({ kind: 'webhook_subscribed', satisfied: true }));
+    }
   });
 
   it('records credential verification only when the provider says yes', async () => {

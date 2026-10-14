@@ -204,12 +204,23 @@ describe('connected integrations', () => {
     expect(details.textContent).toContain('Meta app');
     expect(details.querySelector('[data-act="live-test-channel"]')).not.toBeNull();
     expect(details.querySelector('[data-act="live-sync-channel-templates"]')?.getAttribute('data-arg')).toBe('cn-1');
+    expect((details.querySelector('[data-act="live-subscribe-channel-webhook"]') as HTMLButtonElement).disabled).toBe(false);
     expect((details.querySelector('[data-act="live-rotate-channel"]') as HTMLButtonElement).disabled).toBe(true);
     expect(details.querySelectorAll('.recipient')).toHaveLength(1);
     expect((details.querySelector('[data-act="live-authorize-test-recipient"]') as HTMLButtonElement).disabled).toBe(true);
     // The credential goes out as a password and is never shown back.
     expect(details.querySelector('input[type="password"]')?.getAttribute('autocomplete')).toBe('off');
     expect((details.querySelector('[data-form="channelWaba_cn-1"]') as HTMLInputElement).value).toBe('12345');
+  });
+
+  it('does not offer to resubscribe a WABA after Meta confirmation', () => {
+    const existing = connection();
+    const { state, element } = screen([connection({ evidence: [
+      ...existing.evidence,
+      { kind: 'webhook_subscribed', satisfied: true, observed_at: NOW.toISOString() },
+    ] })]);
+    state.expandedConnection = 'cn-1';
+    expect((element().querySelector('[data-act="live-subscribe-channel-webhook"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('shows and edits the linked Page for an Instagram connection', () => {

@@ -369,6 +369,19 @@ export function syncWhatsAppTemplates(context: LiveContext, connectionId: string
   );
 }
 
+export function subscribeWhatsAppWebhook(context: LiveContext, connectionId: string): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `subscribe-channel-webhook:${connectionId}`,
+    (tenantId) => context.live.channels.subscribeWhatsAppWebhook(tenantId, connectionId),
+    (result) => t(
+      context.state,
+      `أكدت Meta اشتراك حساب واتساب في الأحداث لـ ${String(result.updated_connections)} اتصال. وصول الرسائل الحقيقية يحتاج نشر تطبيق Meta.`,
+      `Meta confirmed the WABA webhook subscription for ${String(result.updated_connections)} connection(s). Live delivery still requires publishing the Meta app.`,
+    ),
+  );
+}
+
 export function rotateChannelCredential(
   context: LiveContext,
   connectionId: string,

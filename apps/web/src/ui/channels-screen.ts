@@ -496,6 +496,17 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
                   busy: live.busy === `sync-channel-templates:${connection.id}`,
                 })
               : null,
+            connection.kind === 'whatsapp' && connection.waba_id !== null && connection.provider_app_id !== null
+              ? button({
+                  label: t(state, 'اشتراك أحداث واتساب', 'Subscribe WhatsApp events'),
+                  icon: 'plug',
+                  act: 'live-subscribe-channel-webhook',
+                  arg: connection.id,
+                  small: true,
+                  busy: live.busy === `subscribe-channel-webhook:${connection.id}`,
+                  disabled: connection.evidence.some((item) => item.kind === 'webhook_subscribed' && item.satisfied),
+                })
+              : null,
             button({
               label: t(state, 'التحقق من الاتصال', 'Verify connection'),
               icon: 'shield',

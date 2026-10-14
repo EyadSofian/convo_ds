@@ -89,6 +89,11 @@ export interface TemplateSyncResult {
   readonly synced_at: string;
 }
 
+export interface WebhookSubscriptionResult {
+  readonly waba_id: string;
+  readonly updated_connections: number;
+}
+
 export interface MetaAppSummary {
   readonly id: string;
   readonly external_app_id: string;
@@ -170,6 +175,10 @@ export class ChannelsApi {
 
   syncWhatsAppTemplates(tenantId: string, connectionId: string): Promise<ApiResult<TemplateSyncResult>> {
     return this.client.post<TemplateSyncResult>(`/tenants/${tenantId}/channels/${connectionId}/templates/sync`);
+  }
+
+  subscribeWhatsAppWebhook(tenantId: string, connectionId: string): Promise<ApiResult<WebhookSubscriptionResult>> {
+    return this.client.post<WebhookSubscriptionResult>(`/tenants/${tenantId}/channels/${connectionId}/webhook/subscribe`);
   }
 
   rotate(

@@ -109,6 +109,7 @@ import {
   loadSettingsScreen,
   revokeSession,
   syncWhatsAppTemplates,
+  subscribeWhatsAppWebhook,
   switchTenant,
   offerOwnership,
   removeTeamMember,
@@ -1344,6 +1345,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
 
   'live-test-channel': async (context, arg) => testChannel(context, arg),
   'live-sync-channel-templates': async (context, arg) => syncWhatsAppTemplates(context, arg),
+  'live-subscribe-channel-webhook': async (context, arg) => subscribeWhatsAppWebhook(context, arg),
 
   'live-rotate-channel': async (context, arg) => {
     const rotated = await rotateChannelCredential(

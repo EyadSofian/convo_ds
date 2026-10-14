@@ -77,6 +77,11 @@ export interface TemplateSyncSummary {
   readonly synced_at: string;
 }
 
+export interface WebhookSubscriptionSummary {
+  readonly waba_id: string;
+  readonly updated_connections: number;
+}
+
 interface ConnectionRow {
   readonly id: string;
   readonly kind: ChannelKind;
@@ -359,6 +364,54 @@ export class ChannelService {
       const disabled = await sql.query<{ count: string }>(`SELECT count(*)::text AS count FROM whatsapp_templates WHERE connection_id=$1 AND status='disabled'`, [connectionId]);
       await sql.query(`UPDATE channel_connections SET last_error_code=NULL,last_error_at=NULL WHERE id=$1`, [connectionId]);
       return { summary: { connection_id: connectionId, imported: fetched.templates.length, disabled: Number(disabled.rows[0]!.count), synced_at: syncedAt.toISOString() } } as const;
+    });
+    if ('summary' in outcome) return outcome.summary;
+    await this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) => {
+      await requireConnection(sql, connectionId);
+      await recordError(sql, connectionId, outcome.failure.code);
+    });
+    throw new ApiHttpError(outcome.failure.retryable ? 503 : 422, outcome.failure.code, outcome.failure.message);
+  }
+
+  async subscribeWhatsAppWebhook(
+    session: AuthenticatedSession,
+    tenantId: string,
+    connectionId: string,
+  ): Promise<WebhookSubscriptionSummary> {
+    const outcome = await this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) => {
+      const connection = await requireConnection(sql, connectionId);
+      if (connection.disconnected_at !== null) {
+        throw new ApiHttpError(409, 'channel_disconnected', 'This channel is disconnected.');
+      }
+      if (connection.kind !== 'whatsapp' || this.transport.subscribeWhatsAppWaba === undefined) {
+        throw new ApiHttpError(422, 'webhook_subscription_unavailable', 'This connection does not support WhatsApp webhook subscription.');
+      }
+      if (!connection.provider_app_id) {
+        throw new ApiHttpError(422, 'meta_app_not_configured', 'Register a Meta app for this connection first.');
+      }
+      const wabaId = connection.waba_id ?? '';
+      const subscribed = await this.credentials.withActive(
+        sql,
+        { tenantId, connectionId, purpose: 'access_token' },
+        (token) => this.transport.subscribeWhatsAppWaba!(token, wabaId),
+      );
+      if (subscribed === null) throw new ApiHttpError(409, 'credential_missing', 'The connection has no active credential.');
+      if (!subscribed.ok) return { failure: subscribed } as const;
+      // One Meta subscription covers every live number in this WABA using the
+      // same app. Never mark another tenant, WABA or Meta app as subscribed.
+      const updated = await sql.query<{ id: string }>(
+        `UPDATE channel_connections c
+            SET webhook_subscribed_at = coalesce(c.webhook_subscribed_at, now()),
+                last_error_code = CASE WHEN c.id = $3 THEN NULL ELSE c.last_error_code END,
+                last_error_at = CASE WHEN c.id = $3 THEN NULL ELSE c.last_error_at END
+          WHERE c.tenant_id = $1 AND c.kind = 'whatsapp' AND c.disconnected_at IS NULL
+            AND c.settings->>'waba_id' = $2
+            AND c.app_id = (SELECT app_id FROM channel_connections WHERE id = $3)
+          RETURNING c.id::text`,
+        [tenantId, wabaId, connectionId],
+      );
+      for (const row of updated.rows) await refreshStatus(sql, row.id);
+      return { summary: { waba_id: wabaId, updated_connections: updated.rows.length } } as const;
     });
     if ('summary' in outcome) return outcome.summary;
     await this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) => {

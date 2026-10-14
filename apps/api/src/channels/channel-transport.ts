@@ -33,7 +33,13 @@ export interface ChannelTransportPort {
     credential: string,
     wabaId: string,
   ): Promise<TemplateFetchResult>;
+  /** Subscribe this token's Meta app to a WABA; never unsubscribe other apps. */
+  subscribeWhatsAppWaba?(credential: string, wabaId: string): Promise<ProviderMutationResult>;
 }
+
+export type ProviderMutationResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly code: string; readonly message: string; readonly retryable: boolean };
 
 export interface ProviderTemplate {
   readonly providerId: string;

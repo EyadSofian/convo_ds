@@ -1,6 +1,6 @@
 import type { ChannelKind, ConnectionCheck, SendCommand, SendOutcome } from '@convo/domain';
 import { PINNED_GRAPH_VERSION } from '@convo/domain';
-import type { ChannelTransportPort, ProviderTemplate, TemplateFetchResult } from './channel-transport.js';
+import type { ChannelTransportPort, ProviderMutationResult, ProviderTemplate, TemplateFetchResult } from './channel-transport.js';
 
 /**
  * The WhatsApp Cloud API transport.
@@ -260,6 +260,32 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       after = next;
     }
     return { ok: false, code: 'provider_pagination_limit', message: 'Meta returned more than 2000 templates; synchronization stopped safely.', retryable: true };
+  }
+
+  /** A successful Graph response is the evidence of subscription, not a saved form. */
+  async subscribeWhatsAppWaba(credential: string, wabaId: string): Promise<ProviderMutationResult> {
+    if (!/^[0-9]{1,32}$/.test(wabaId)) {
+      return { ok: false, code: 'waba_not_configured', message: 'Configure the WhatsApp Business Account ID first.', retryable: false };
+    }
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.graphBase}/${encodeURIComponent(wabaId)}/subscribed_apps`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${credential}` },
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (error) {
+      return { ok: false, code: isTimeout(error) ? 'provider_timeout' : 'provider_unreachable', message: 'The WhatsApp Cloud API could not be reached.', retryable: true };
+    }
+    const body = await readJson(response);
+    if (!response.ok) {
+      const failure = classify(response.status, record(body)?.['error'] as GraphError | undefined);
+      return { ok: false, ...failure };
+    }
+    if (record(body)?.['success'] !== true && record(body)?.['success'] !== 'true') {
+      return { ok: false, code: 'provider_response_unusable', message: 'Meta did not confirm the WABA subscription.', retryable: true };
+    }
+    return { ok: true };
   }
 
   private async graphGet(path: string, credential: string): Promise<

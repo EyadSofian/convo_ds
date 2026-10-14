@@ -123,7 +123,11 @@ projection so the composer can become writable without a browser refresh.
    `instagram_page_required`; use **Verify & save** to bind the correct Page
    only after its stored credential passes Page + Instagram identity checks.
 9. Subscribe only the fields required for the connected products. For WhatsApp,
-   subscribe the app once per WABA with a management-scoped System User token;
+   use **Subscribe WhatsApp events** on the Channels connection to subscribe
+   the app once per WABA with the connection's encrypted, management-scoped
+   System User token. The button records evidence only after Meta confirms the
+   subscription; it does not publish the Meta app. A Meta app left unpublished
+   will not deliver real customer webhooks even when the WABA is subscribed.
    that WABA subscription covers all phone numbers beneath it. Template sync
    reads `/{WABA-ID}/message_templates`, not a nonexistent WABA field on the
    phone node. The supplied token needs `whatsapp_business_management` for

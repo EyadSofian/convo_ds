@@ -64,6 +64,31 @@ const ACCEPTED = json(200, {
   messages: [{ id: 'wamid.ABC123' }],
 });
 
+describe('WhatsApp WABA webhook subscription', () => {
+  it('subscribes only the supplied WABA using the stored credential', async () => {
+    const { adapter, calls } = transport(() => json(200, { success: true }));
+    expect(await adapter.subscribeWhatsAppWaba(TOKEN, '12345')).toEqual({ ok: true });
+    expect(calls).toEqual([expect.objectContaining({
+      url: `${GRAPH}/12345/subscribed_apps`,
+      method: 'POST',
+      headers: expect.objectContaining({ authorization: `Bearer ${TOKEN}` }),
+      body: null,
+    })]);
+  });
+
+  it('does not claim success without Meta confirmation', async () => {
+    const { adapter } = transport(() => json(200, {}));
+    expect(await adapter.subscribeWhatsAppWaba(TOKEN, '12345')).toMatchObject({ ok: false, code: 'provider_response_unusable' });
+  });
+
+  it('rejects missing WABA and classifies provider refusal', async () => {
+    const { adapter, calls } = transport(() => graphError(403, 200));
+    expect(await adapter.subscribeWhatsAppWaba(TOKEN, '')).toMatchObject({ ok: false, code: 'waba_not_configured' });
+    expect(calls).toHaveLength(0);
+    expect(await adapter.subscribeWhatsAppWaba(TOKEN, '12345')).toMatchObject({ ok: false });
+  });
+});
+
 describe('sending a text message', () => {
   it('accepts, and reports the provider message id', async () => {
     const { adapter } = transport(() => ACCEPTED);
