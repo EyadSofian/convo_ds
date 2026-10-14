@@ -4,6 +4,7 @@ import * as database from './index.js';
 describe('@convo/database public surface', () => {
   it('exports exactly the documented runtime members', () => {
     expect(Object.keys(database).sort()).toEqual([
+      'CHANNEL_APP_PROVIDERS',
       'CREDENTIAL_SETTINGS',
       'EXIT_FAILED',
       'EXIT_OK',
@@ -14,10 +15,14 @@ describe('@convo/database public surface', () => {
       'bootstrapCluster',
       'enableInstallationContext',
       'migrate',
+      'parseRegisterChannelApp',
       'productionDeps',
+      'registerChannelApp',
       'runCli',
+      'secretVariableOf',
       'setTenantContext',
       'tenantTransaction',
+      'verifyTokenVariableOf',
       'withCredentialResolvedTenant',
       'withTenant',
     ]);

@@ -2316,10 +2316,96 @@ describe('durable member notifications', () => {
     expect(list.statusCode).toBe(200);
     const matching = (list.json() as { data: { kind: string; targetId: string; messagePreview: string | null }[] }).data
       .filter((entry) => entry.targetId === conversation.id);
-    expect(matching.map((entry) => entry.kind).sort()).toEqual(['assignment', 'new_message']);
-    expect(matching.find((entry) => entry.kind === 'new_message')?.messagePreview).toBe('private customer words');
+    // Three records, not two. The opening message arrived unassigned and now
+    // reaches the agents who could claim it; the second arrived assigned and
+    // reaches its assignee. Both are `new_message`, keyed on their own inbound
+    // event, so neither suppresses the other.
+    expect(matching.map((entry) => entry.kind).sort()).toEqual(['assignment', 'new_message', 'new_message']);
+    const previews = matching.filter((entry) => entry.kind === 'new_message').map((entry) => entry.messagePreview);
+    expect(previews.sort()).toEqual(['opening message', 'private customer words']);
+    // The Owner holds `conversation.claim` at `tenant`, and is deliberately
+    // not told: this inbox has scoped claimants, so paging the Owner for every
+    // message in a staffed queue would make their notifications useless.
     const ownerList = await send(api, owner, 'GET', '/notifications?limit=25');
     expect(ownerList.payload).not.toContain(conversation.id);
+  });
+
+  /**
+   * The arrival that used to notify nobody.
+   *
+   * A customer writing in for the first time has no assignee, and the only
+   * recipient the code could name was an assignee — so the single most
+   * important event in a shared inbox produced no record for any member.
+   */
+  it('tells every scoped claimant about an unclaimed arrival, and no one else', async () => {
+    const peer = '15557000991';
+    await customerWrites(INBOX_A, peer, 'nobody owns me yet', 'wamid.rt-notify-fanout');
+    const row = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      'SELECT id::text FROM conversations WHERE peer_identity=$1', [peer],
+    ));
+    const conversationId = row.rows[0]!.id;
+
+    const recordsFor = async (who: Browser) => {
+      const list = await send(api, who, 'GET', '/notifications?limit=25');
+      expect(list.statusCode, list.payload).toBe(200);
+      return (list.json() as { data: { kind: string; targetId: string; messagePreview: string | null }[] }).data
+        .filter((entry) => entry.targetId === conversationId);
+    };
+
+    // Both agents hold this inbox, and so does the supervisor. All three could
+    // take the conversation, so all three are told.
+    for (const who of [agentA, secondAgentA, supervisor]) {
+      const records = await recordsFor(who);
+      expect(records.map((entry) => entry.kind)).toEqual(['new_message']);
+      expect(records[0]?.messagePreview).toBe('nobody owns me yet');
+    }
+
+    // Scoped to the other inbox, so this is not theirs to claim.
+    expect(await recordsFor(agentB)).toEqual([]);
+    expect(await recordsFor(owner)).toEqual([]);
+
+    // One record each, and one push row per enabled device — a fan-out that
+    // duplicated per recipient would be invisible until a redelivery.
+    const stored = await withTenant(api.pool, api.tenantId, (client) => client.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM notifications
+        WHERE target_id=$1 AND kind='new_message'`, [conversationId],
+    ));
+    expect(Number(stored.rows[0]?.count)).toBeGreaterThanOrEqual(3);
+  });
+
+  /**
+   * The guarantee behind the fallback.
+   *
+   * A queue with no scoped claimant must not be silent, or a message into an
+   * inbox nobody has been granted yet would arrive with nobody informed. The
+   * connection id here is one no membership holds a scope for, which is what
+   * an unstaffed inbox looks like to this query.
+   */
+  it('falls back to tenant-wide claimants when a queue has no scoped claimant', async () => {
+    const notifications = api.app.get(NotificationService);
+    const targetId = randomUUID();
+    await withTenant(api.pool, api.tenantId, (client) => notifications.notifyClaimants(
+      asExecutor(client), api.tenantId, {
+        conversationId: targetId,
+        connectionId: randomUUID(),
+        teamId: null,
+        kind: 'new_message',
+        dedupeKey: `fallback:${targetId}`,
+      },
+    ));
+
+    const recipients = await withTenant(api.pool, api.tenantId, (client) => client.query<{ role: string }>(
+      `SELECT r.key AS role
+         FROM notifications n
+         JOIN memberships m ON m.tenant_id=n.tenant_id AND m.id=n.recipient_membership_id
+         JOIN roles r ON r.tenant_id=m.tenant_id AND r.id=m.role_id
+        WHERE n.target_id=$1`, [targetId],
+    ));
+    const roles = new Set(recipients.rows.map((entry) => entry.role));
+    // Owner and Admin hold `conversation.claim` at `tenant`; nobody holds a
+    // scope for this connection, so the fallback is the only audience left.
+    expect(roles.has('owner')).toBe(true);
+    expect(roles.has('agent')).toBe(false);
   });
 
   it('dedupes records, isolates recipients, and synchronizes read state over SSE', async () => {

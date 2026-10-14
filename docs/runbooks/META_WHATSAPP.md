@@ -92,15 +92,58 @@ projection so the composer can become writable without a browser refresh.
    professional account (plus the Page read/manage permissions needed for
    discovery and webhook setup); and, if
    applicable, a System User token with `whatsapp_business_messaging`.
-3. Register the Meta application as an installation-level `channel_apps` row
-   using the approved database/migration-admin procedure. Its `secret_ref`
-   must name the Railway variable suffix, and its verify token must be stored
-   only as the row's SHA-256 hash. The API runtime intentionally cannot create
-   this privileged row.
-4. Set the app secret as a Railway secret named
-   `CONVO_CHANNEL_SECRET_<REF>`, where `<REF>` matches the `secret_ref` stored on
-   the `channel_apps` row. App secrets live in configuration, never in a column:
-   rotating one is an operations act, not a database write.
+3. Choose a reference name for the app, e.g. `META_APP`, and set both of these
+   wherever the `database` role runs, as secrets:
+
+   ```bash
+   CONVO_CHANNEL_SECRET_META_APP=<the App Secret from step 2>
+   CONVO_CHANNEL_VERIFY_TOKEN_META_APP=<a verify token you invent, 32+ random characters>
+   ```
+
+   The verify token is yours to choose; you enter the same value in Meta in
+   step 8. Generate one with `openssl rand -hex 32`.
+
+4. Register the application as an installation-level `channel_apps` row. From a
+   checkout, with the same `.env` the `database` step uses:
+
+   ```bash
+   pnpm db:register-channel-app --external-app-id <numeric Meta App ID> --secret-ref META_APP
+   ```
+
+   Inside the release image — a one-off exec against the `database` service, or
+   any container built from the same image:
+
+   ```bash
+   node packages/database/dist/bin.js register-channel-app --external-app-id <numeric Meta App ID> --secret-ref META_APP
+   ```
+
+   This runs as the migration role, which owns the schema. **The API runtime
+   intentionally cannot create this row** — it holds `SELECT` on `channel_apps`
+   and nothing more, so a runtime that was compromised could not point
+   signature verification at a secret of its own choosing.
+
+   The command reads both values from the environment rather than from
+   arguments, which are visible to any other process on the host through `ps`.
+   It fails if `CONVO_CHANNEL_SECRET_<REF>` is unset, which is deliberate: the
+   row would otherwise name a configuration key nobody had configured, and the
+   first real webhook would answer `503 channel_secret_unavailable`.
+
+   It prints the row id and the webhook path built from it:
+
+   ```
+   registered channel app 7f1d2c3b-4a59-4e6f-8b7c-0d1e2f3a4b5c
+   provider=meta external_app_id=123456789012345 secret_ref=META_APP graph_version=v21.0
+   webhook path: /api/v1/webhooks/meta/7f1d2c3b-4a59-4e6f-8b7c-0d1e2f3a4b5c
+   ```
+
+   Keep that path; step 8 needs it. Until this row exists, connecting any Meta
+   channel is refused with `422 channel_app_not_configured`.
+
+   **Rotating** the app secret or the verify token is the same command again
+   with the new values in the environment. It updates the row in place and
+   keeps its id, so the webhook URL already configured in Meta keeps working.
+   App secrets live in configuration, never in a column: the row stores only a
+   SHA-256 fingerprint of the secret and a SHA-256 hash of the verify token.
 5. Set `CONVO_CHANNEL_TRANSPORT=meta` on `convo-api` and every worker that
    dispatches (`convo-worker-interactive`, `convo-worker-campaign`).
 6. Set `CONVO_CREDENTIAL_KEYS=v1:<base64 32 bytes>`. Without it the credential
@@ -114,8 +157,12 @@ projection so the composer can become writable without a browser refresh.
    is sealed with AES-256-GCM, bound to tenant + connection + purpose, and is
    opened only inside the dispatch transaction.
 8. Point the Meta webhook at
-   `https://<public origin>/api/v1/webhooks/meta/<appConnectionId>` and use the
-   verify token the app was configured with.
+   `https://<public origin>` plus the webhook path step 4 printed, and use the
+   value you set as `CONVO_CHANNEL_VERIFY_TOKEN_<REF>` as the verify token.
+   Meta's GET handshake answers only when the token hashes to the one stored on
+   the row; a wrong token, a wrong mode and a missing challenge all answer the
+   same 403, so there is nothing to probe and nothing to read into which one it
+   was.
 9. Run the connection test. It reads the asset back from Graph, so it fails
    with `asset_mismatch` when a token is valid but belongs to a different Page,
    linked Instagram account or phone number — the most common

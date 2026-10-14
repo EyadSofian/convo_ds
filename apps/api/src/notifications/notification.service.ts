@@ -92,6 +92,111 @@ export class NotificationService {
     }
   }
 
+  /**
+   * Tells the people who could pick up an unclaimed conversation that it moved.
+   *
+   * ## Why this exists
+   *
+   * `create` needs a recipient, and an unassigned conversation has none. The
+   * result was that the single most important arrival in a shared inbox — a
+   * customer writing in for the first time, before anybody owns the thread —
+   * notified nobody at all, while a message into an already-claimed
+   * conversation notified its assignee. The queue that most needs an alert was
+   * the only one that was silent.
+   *
+   * ## Who is told
+   *
+   * Exactly the memberships that `authorize(principal, 'conversation.claim',
+   * resourceOf(conversation))` would allow, expressed as a set instead of one
+   * principal at a time:
+   *
+   * - the membership and the company must both be active — a suspended
+   *   membership is not a smaller one, it is none (ADR term 1);
+   * - the role must grant `conversation.claim`. `own` is excluded because it
+   *   cannot reach an unassigned conversation: "own" means assignment or
+   *   participation, and there is no assignee to match;
+   * - a `scoped` grant must hold a tenant-wide scope, this conversation's
+   *   inbox, or its team. Either of the latter two is enough, which is the
+   *   domain's own rule — requiring both would hide a conversation from
+   *   somebody granted its inbox but not its team.
+   *
+   * ## Why tenant-wide claimants are a fallback and not a recipient
+   *
+   * An owner and an admin hold `conversation.claim` at `tenant`, so a literal
+   * reading would page them for every message in every queue in the company.
+   * They are therefore told only when the queue has no scoped claimant at all.
+   * That keeps the guarantee that matters — a message can never arrive with
+   * nobody informed — without making the owner's notifications useless in an
+   * installation that has staffed its queues. An owner still sees the
+   * conversation arrive live on the inbox either way; this is about the bell
+   * and the device, not visibility.
+   *
+   * The caller's transaction owns all of it, so the records, their push work
+   * and the SSE invalidations commit with the message or not at all.
+   */
+  async notifyClaimants(sql: SqlExecutor, tenantId: string, input: {
+    readonly conversationId: string;
+    readonly connectionId: string;
+    readonly teamId: string | null;
+    readonly kind: NotificationKind;
+    readonly dedupeKey: string;
+  }): Promise<void> {
+    const inserted = await sql.query<{ id: string; recipient_membership_id: string }>(
+      `WITH claimant AS (
+         SELECT m.id, rp.scope_level
+           FROM memberships m
+           JOIN tenants t ON t.id = m.tenant_id
+           JOIN role_permissions rp ON rp.tenant_id = m.tenant_id AND rp.role_id = m.role_id
+                                   AND rp.permission_key = 'conversation.claim'
+          WHERE m.tenant_id = $1
+            AND m.status = 'active'
+            AND t.status = 'active'
+            AND (
+              rp.scope_level = 'tenant'
+              OR (rp.scope_level = 'scoped' AND EXISTS (
+                    SELECT 1 FROM membership_scopes s
+                     WHERE s.tenant_id = m.tenant_id AND s.membership_id = m.id
+                       AND (s.scope_type = 'tenant'
+                            OR (s.scope_type = 'inbox' AND s.scope_id = $4::uuid)
+                            OR (s.scope_type = 'team' AND s.scope_id = $5::uuid))
+                 ))
+            )
+       ),
+       recipient AS (
+         SELECT id FROM claimant
+          WHERE scope_level = 'scoped'
+             OR NOT EXISTS (SELECT 1 FROM claimant WHERE scope_level = 'scoped')
+       )
+       INSERT INTO notifications
+         (tenant_id, recipient_membership_id, kind, target_type, target_id, dedupe_key)
+       SELECT $1, recipient.id, $6, 'conversation', $2, $3 FROM recipient
+       ON CONFLICT (tenant_id, recipient_membership_id, dedupe_key) DO NOTHING
+       RETURNING id::text, recipient_membership_id::text`,
+      [tenantId, input.conversationId, input.dedupeKey, input.connectionId, input.teamId, input.kind],
+    );
+    const rows = inserted.rows;
+    if (rows.length === 0) {
+      return;
+    }
+    // One statement for every recipient's devices, rather than one per
+    // recipient: this is the inbound hot path. A redelivered provider event
+    // inserts no notification above, so it enqueues no second push either.
+    await sql.query(
+      `INSERT INTO notification_push_queue (tenant_id, notification_id, device_id)
+       SELECT $1, n.id, d.id
+         FROM notifications n
+         JOIN notification_devices d
+           ON d.tenant_id = n.tenant_id AND d.membership_id = n.recipient_membership_id
+        WHERE n.tenant_id = $1 AND n.id = ANY($2::uuid[])
+          AND d.platform = 'web_push' AND d.enabled = true`,
+      [tenantId, rows.map((row) => row.id)],
+    );
+    await this.realtime.emitNotifications(sql, tenantId, rows.map((row) => ({
+      membershipId: row.recipient_membership_id,
+      notificationId: row.id,
+    })));
+  }
+
   async list(session: AuthenticatedSession, tenantId: string, cursorRaw: string | undefined, limitRaw: string | undefined) {
     const cursor = decodeCursor(cursorRaw);
     const limit = limitRaw === undefined ? 25 : Number(limitRaw);

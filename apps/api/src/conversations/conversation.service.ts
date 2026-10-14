@@ -222,15 +222,39 @@ export class ConversationService {
         waitingSinceAt: row.waitingSince?.toISOString() ?? null,
       },
     });
+    // Who is told depends on who owns the thread, and both halves matter.
+    //
+    // An assigned conversation belongs to its assignee, and telling the rest of
+    // the queue about a message somebody is already handling is how a shared
+    // inbox trains its agents to ignore notifications.
+    //
+    // An unassigned one belongs to nobody, which used to mean it was announced
+    // to nobody — the arrival that most needs an alert was the only one that
+    // produced none. It now reaches whoever could claim it; `notifyClaimants`
+    // states the rule and why tenant-wide claimants are a fallback.
+    //
+    // The dedupe key is the inbound event either way, so a provider that
+    // redelivers the same message cannot notify twice, and a conversation that
+    // is claimed between two deliveries simply moves from one audience to the
+    // other.
+    const dedupeKey = `inbound:${inbound.inboundEventId}`;
     if (conversation.assigneeMembershipId !== null) {
       await this.notifications.create(sql, tenantId, {
         recipientMembershipId: conversation.assigneeMembershipId,
         kind: 'new_message',
         targetType: 'conversation',
         targetId: conversation.id,
-        dedupeKey: `inbound:${inbound.inboundEventId}`,
+        dedupeKey,
       });
+      return;
     }
+    await this.notifications.notifyClaimants(sql, tenantId, {
+      conversationId: conversation.id,
+      connectionId: conversation.connectionId,
+      teamId: conversation.teamId,
+      kind: 'new_message',
+      dedupeKey,
+    });
   }
 
   /**

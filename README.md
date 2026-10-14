@@ -294,10 +294,23 @@ All channels are connected from **Channels** in the app. Each needs `CONVO_CREDE
 
 - **WhatsApp, Messenger and Instagram.** Follow [`docs/runbooks/META_WHATSAPP.md`](docs/runbooks/META_WHATSAPP.md).
   1. Create or reuse a Meta app.
-  2. Put its app secret in `CONVO_CHANNEL_SECRET_<REF>`.
-  3. Set `CONVO_CHANNEL_TRANSPORT=meta`.
-  4. Connect the number, page or account in the app.
-  5. Point Meta's webhook at `https://<your domain>/api/v1/webhooks/meta/<app connection id>`.
+  2. Put its app secret in `CONVO_CHANNEL_SECRET_<REF>` and a verify token you
+     choose in `CONVO_CHANNEL_VERIFY_TOKEN_<REF>`.
+  3. Register the app once, as the migration role. It prints the webhook path
+     step 6 needs:
+
+     ```bash
+     pnpm db:register-channel-app --external-app-id <numeric Meta App ID> --secret-ref <REF>
+     ```
+
+     The API cannot create this registration itself — it may only read it — so
+     until this runs, connecting a Meta channel is refused with
+     `channel_app_not_configured`. Re-run it with new values to rotate the
+     secret or the verify token; the row and its webhook path stay the same.
+  4. Set `CONVO_CHANNEL_TRANSPORT=meta`.
+  5. Connect the number, page or account in the app.
+  6. Point Meta's webhook at `https://<your domain>` plus the path step 3
+     printed, using the same verify token.
 - **Website chat.** Create the channel, then have your site's server post visitors' messages to the address shown on the channel, signed with its key.
 - **Custom API channel.** Connect your own system with signed HTTP in both directions. The protocol is in [`docs/CUSTOM_CHANNEL.md`](docs/CUSTOM_CHANNEL.md).
 
@@ -333,6 +346,13 @@ CONVO_RESEND_API_KEY=...
 **Browser push.** Generate a VAPID pair with `npx web-push generate-vapid-keys`.
 - Give the public key to the API.
 - Give all three push variables to `worker-integration`.
+- `CONVO_CREDENTIAL_KEYS` must also be set: a browser's subscription is sealed
+  with the same key as a channel credential.
+- With any of them missing, device notifications are **off and silent**:
+  the notification drawer offers only "unavailable", registering a device
+  answers `503 push_unconfigured`, and `worker-integration` drains none of its
+  push queue. In-app notifications and the unread badge are unaffected — only
+  the lock-screen alert is absent.
 
 ---
 

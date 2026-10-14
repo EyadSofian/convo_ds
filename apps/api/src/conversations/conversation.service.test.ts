@@ -100,3 +100,81 @@ describe('ConversationService Inbox boundaries', () => {
     await expect(service.supervisorWorkload({ userId: 'user' } as never, tenantId, member)).rejects.toThrow('supervisor workload returned no row');
   });
 });
+
+describe('who an inbound message notifies', () => {
+  const team = '66666666-6666-4666-8666-666666666666';
+  const conversationId = '77777777-7777-4777-8777-777777777777';
+  const inboundEventId = '88888888-8888-4888-8888-888888888888';
+
+  function inboundHarness(assigneeMembershipId: string | null, teamId: string | null = null) {
+    const sql = { query: vi.fn(async (text: string) => text.includes('FROM channel_connections')
+      ? { rows: [{ display_name: 'Admissions', kind: 'whatsapp' }], rowCount: 1 }
+      : { rows: [], rowCount: 0 }) } as unknown as SqlExecutor;
+    const realtime = { emit: vi.fn(async () => 1) } as never;
+    const lifecycle = { noteCustomerInbound: vi.fn(async () => ({
+      version: 2, status: 'open', outcome: { from: 'open', effects: [] }, waitingSince: null,
+    })) } as never;
+    type Notify = (sql: unknown, tenantId: string, input: Record<string, unknown>) => Promise<void>;
+    const notifications = {
+      create: vi.fn<Notify>(async () => undefined),
+      notifyClaimants: vi.fn<Notify>(async () => undefined),
+    };
+    const service = new ConversationService(
+      {} as never, config, {} as never, realtime, lifecycle, {} as never, notifications as never,
+    );
+    const conversation = {
+      id: conversationId, connectionId: connection, peerIdentity: '15550000000',
+      teamId, assigneeMembershipId, priority: 'normal',
+    } as never;
+    const note = () => service.noteInbound(sql, tenantId, conversation, {
+      inboundEventId, occurredAt: new Date('2026-10-14T09:00:00Z'), payload: {}, contactId: idB,
+    });
+    return { note, notifications };
+  }
+
+  it('tells the assignee alone when somebody already owns the thread', async () => {
+    const { note, notifications } = inboundHarness(member);
+    await note();
+    expect(notifications.create).toHaveBeenCalledTimes(1);
+    expect(notifications.create.mock.calls[0]?.[2]).toEqual({
+      recipientMembershipId: member, kind: 'new_message', targetType: 'conversation',
+      targetId: conversationId, dedupeKey: `inbound:${inboundEventId}`,
+    });
+    // Announcing a claimed conversation to the rest of the queue is how a
+    // shared inbox teaches its agents to ignore notifications.
+    expect(notifications.notifyClaimants).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The case that used to notify nobody.
+   *
+   * A customer writing in for the first time produced no notification for any
+   * member, because the only recipient the code knew how to name was an
+   * assignee that an unclaimed conversation does not have.
+   */
+  it('tells everyone who could claim it when nobody owns the thread yet', async () => {
+    const { note, notifications } = inboundHarness(null, team);
+    await note();
+    expect(notifications.create).not.toHaveBeenCalled();
+    expect(notifications.notifyClaimants).toHaveBeenCalledTimes(1);
+    expect(notifications.notifyClaimants.mock.calls[0]?.[2]).toEqual({
+      conversationId, connectionId: connection, teamId: team,
+      kind: 'new_message', dedupeKey: `inbound:${inboundEventId}`,
+    });
+  });
+
+  it('passes a null team through, so an unrouted conversation still reaches its inbox', async () => {
+    const { note, notifications } = inboundHarness(null, null);
+    await note();
+    expect(notifications.notifyClaimants.mock.calls[0]?.[2]).toMatchObject({ teamId: null });
+  });
+
+  it('keys both audiences on the inbound event, so a redelivery cannot notify twice', async () => {
+    const assigned = inboundHarness(member);
+    await assigned.note();
+    const unassigned = inboundHarness(null);
+    await unassigned.note();
+    expect(assigned.notifications.create.mock.calls[0]?.[2]).toMatchObject({ dedupeKey: `inbound:${inboundEventId}` });
+    expect(unassigned.notifications.notifyClaimants.mock.calls[0]?.[2]).toMatchObject({ dedupeKey: `inbound:${inboundEventId}` });
+  });
+});

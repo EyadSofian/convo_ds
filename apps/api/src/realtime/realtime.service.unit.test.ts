@@ -39,3 +39,49 @@ describe('realtime feed defensive scope boundary', () => {
     expect(client.release).toHaveBeenCalled();
   });
 });
+
+describe('batched notification invalidation', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111';
+  const service = () => new RealtimeService({} as unknown as Pool, {} as unknown as AuthorizationService);
+
+  it('advances the counter once for the whole batch and numbers the rows in order', async () => {
+    // The counter returns the highest number the batch owns, so three
+    // recipients allocated against a counter now reading 12 hold 10, 11, 12.
+    const query = vi.fn().mockResolvedValue({ rows: [{ next_seq: '12' }] });
+    await service().emitNotifications({ query } as never, tenantId, [
+      { membershipId: 'm1', notificationId: 'n1' },
+      { membershipId: 'm2', notificationId: 'n2' },
+      { membershipId: 'm3', notificationId: 'n3' },
+    ]);
+
+    expect(query).toHaveBeenCalledTimes(2);
+    const [allocate, insert] = query.mock.calls as [[string, unknown[]], [string, unknown[]]];
+    expect(allocate[0]).toContain('next_seq = tenant_event_sequences.next_seq + $2');
+    expect(allocate[1]).toEqual([tenantId, 3]);
+    // First seq is 12 - (3 - 1) = 10, and the insert walks upwards from it.
+    expect(insert[1]?.[1]).toBe(10);
+    expect(insert[0]).toContain('$2::bigint + entry.row_index - 1');
+    expect(insert[0]).toContain("'notification.changed'");
+    expect(insert[1]?.[3]).toEqual(['n1', 'n2', 'n3']);
+    expect(insert[1]?.[4]).toEqual(['m1', 'm2', 'm3']);
+  });
+
+  it('keeps the arithmetic true for a single recipient', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ next_seq: '7' }] });
+    await service().emitNotifications({ query } as never, tenantId, [{ membershipId: 'm', notificationId: 'n' }]);
+    expect(query.mock.calls[1]?.[1]?.[1]).toBe(7);
+  });
+
+  it('touches nothing at all for an empty batch', async () => {
+    const query = vi.fn();
+    await service().emitNotifications({ query } as never, tenantId, []);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refuses to invent a sequence when the counter returns no row', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    await expect(service().emitNotifications({ query } as never, tenantId, [
+      { membershipId: 'm', notificationId: 'n' },
+    ])).rejects.toThrow(/event sequence returned no row/);
+  });
+});

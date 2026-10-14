@@ -2,6 +2,18 @@ export { bootstrapCluster } from './bootstrap.js';
 export { MIGRATIONS_DIR, migrate } from './migrate.js';
 export type { MigrateOptions } from './migrate.js';
 export {
+  CHANNEL_APP_PROVIDERS,
+  parseRegisterChannelApp,
+  registerChannelApp,
+  secretVariableOf,
+  verifyTokenVariableOf,
+} from './channel-app.js';
+export type {
+  ChannelAppProvider,
+  RegisteredChannelApp,
+  RegisterChannelAppInput,
+} from './channel-app.js';
+export {
   CREDENTIAL_SETTINGS,
   TenantContextError,
   withCredentialResolvedTenant,

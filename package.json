@@ -12,6 +12,7 @@
     "build": "tsc -b --pretty false && pnpm --filter @convo/web build",
     "db:bootstrap": "tsx packages/database/src/bin.ts bootstrap",
     "db:migrate": "tsx packages/database/src/bin.ts migrate",
+    "db:register-channel-app": "tsx packages/database/src/bin.ts register-channel-app",
     "start:api": "node apps/api/dist/main.js",
     "start:web": "pnpm --filter @convo/web dev",
     "test:unit": "vitest run --project unit",

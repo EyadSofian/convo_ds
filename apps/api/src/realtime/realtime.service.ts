@@ -155,6 +155,56 @@ export class RealtimeService {
     );
   }
 
+  /**
+   * The same invalidation for many members, in two statements.
+   *
+   * A queue notification fans out to everybody who could claim the
+   * conversation, and this runs inside the inbound transaction — the hot path
+   * of every customer message. Calling `emitNotification` in a loop would
+   * allocate the sequence once per recipient, so a twenty-agent team would pay
+   * forty round trips to deliver one message. The counter is therefore advanced
+   * by the whole batch at once and the numbers below the returned value are
+   * handed out in order, which is the same contract a caller gets from one
+   * allocation at a time: numbers unique within the company and increasing in
+   * commit order.
+   */
+  async emitNotifications(
+    sql: SqlExecutor,
+    tenantId: string,
+    recipients: readonly { readonly membershipId: string; readonly notificationId: string }[],
+  ): Promise<void> {
+    if (recipients.length === 0) {
+      return;
+    }
+    const allocated = await sql.query<{ next_seq: string }>(
+      `INSERT INTO tenant_event_sequences (tenant_id, next_seq) VALUES ($1, $2)
+       ON CONFLICT (tenant_id) DO UPDATE SET next_seq = tenant_event_sequences.next_seq + $2
+       RETURNING next_seq::text`,
+      [tenantId, recipients.length],
+    );
+    const last = Number(requireRow(allocated.rows, 'the event sequence returned no row').next_seq);
+    // `last` is the highest number this batch owns, so the first recipient gets
+    // `last - (n - 1)`. On a company's very first event the row is inserted
+    // with `next_seq = n`, which keeps the same arithmetic true.
+    const first = last - (recipients.length - 1);
+    await sql.query(
+      `INSERT INTO realtime_events
+         (tenant_id, seq, schema_version, type, entity_type, entity_id, entity_version,
+          recipient_membership_id, payload)
+       SELECT $1, $2::bigint + entry.row_index - 1, $3, 'notification.changed', 'notification',
+              entry.notification_id::uuid, 1, entry.membership_id::uuid, '{}'::jsonb
+         FROM unnest($4::text[], $5::text[]) WITH ORDINALITY
+                AS entry(notification_id, membership_id, row_index)`,
+      [
+        tenantId,
+        first,
+        REALTIME_SCHEMA_VERSION,
+        recipients.map((entry) => entry.notificationId),
+        recipients.map((entry) => entry.membershipId),
+      ],
+    );
+  }
+
   /** The digest a cursor is stamped with, so a permission change invalidates it. */
   authorityOf(principal: Principal): string {
     return createHash('sha256').update(canonicalAuthority(principal), 'utf8').digest('hex').slice(0, 32);
