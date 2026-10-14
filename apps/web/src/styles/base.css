@@ -214,9 +214,9 @@
     border: 0;
   }
 
-  /* A ring on a faint track. Every infinite loop is started at the document
-     timeline's origin (loops.ts), so a spinner rebuilt by a render carries on
-     at the same angle instead of stuttering back. */
+  /* Static busy mark. Rotating this ring appeared to jump off-centre when the
+     dashboard reconciled a button during refresh. aria-busy and the disabled
+     control still communicate progress without a moving reload glyph. */
   .spinner {
     display: inline-block;
     box-sizing: border-box;
@@ -225,7 +225,6 @@
     border-radius: var(--radius-full);
     border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
     border-block-start-color: currentColor;
-    animation: convo-spin 0.7s linear infinite;
     flex: none;
   }
 
@@ -233,12 +232,6 @@
     inline-size: 22px;
     block-size: 22px;
     color: var(--accent-text);
-  }
-
-  @keyframes convo-spin {
-    to {
-      rotate: 1turn;
-    }
   }
 
   @keyframes convo-pulse {
