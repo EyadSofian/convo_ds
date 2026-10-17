@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { ApiClient, csrfFromCookie, LOGIN_PATH } from './client.js';
+import { describe, expect, it, vi } from 'vitest';
+import { ApiClient, csrfFromCookie, LOGIN_PATH, READ_TIMEOUT_MS } from './client.js';
 import type { FetchLike } from './client.js';
 
 /**
@@ -154,6 +154,48 @@ describe('describing a failure', () => {
     const controller = new AbortController();
     await client.request('GET', '/things', { signal: controller.signal });
     expect(seen[0]?.signal).toBe(controller.signal);
+  });
+
+  it('gives reads a finite timeout when no caller signal is supplied', async () => {
+    let readSignal: AbortSignal | null | undefined;
+    let writeSignal: AbortSignal | null | undefined;
+    const client = new ApiClient({
+      baseUrl: '/api/v1',
+      fetch: (_url, init) => {
+        if (init.method === 'GET') readSignal = init.signal;
+        else writeSignal = init.signal;
+        return Promise.resolve(new Response('{}', { status: 200 }));
+      },
+      readCsrfToken: () => null,
+    });
+    await client.get('/things');
+    await client.post('/things');
+    expect(READ_TIMEOUT_MS).toBe(30_000);
+    expect(readSignal).toBeInstanceOf(AbortSignal);
+    expect(writeSignal).toBeUndefined();
+  });
+
+  it('reports a timed-out read as a retryable failure', async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+    try {
+      const client = new ApiClient({
+        baseUrl: '/api/v1',
+        fetch: (_url, init) => new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+        }),
+        readCsrfToken: () => null,
+      });
+      const pending = client.get('/things');
+      controller.abort(new DOMException('Read timed out', 'TimeoutError'));
+      const result = await pending;
+      expect(!result.ok && result.error).toMatchObject({
+        code: 'timeout',
+        message: 'The request timed out. Try refreshing again.',
+      });
+    } finally {
+      timeout.mockRestore();
+    }
   });
 });
 

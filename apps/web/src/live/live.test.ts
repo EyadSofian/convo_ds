@@ -516,7 +516,7 @@ describe('what the user-management screens show before and instead of an answer'
     expect(reads).not.toContain('/auth/session');
   });
 
-  it('keeps the rows and Refresh glyph steady during a requested refresh', async () => {
+  it('keeps the rows and Refresh label steady during a requested refresh', async () => {
     const api = signedInApi();
     const { app, root } = start(api);
     await settle();
@@ -529,7 +529,8 @@ describe('what the user-management screens show before and instead of an answer'
     expect(root.querySelector('.skeleton')).toBeNull();
     const control = find(root, '.pagebar [data-act="live-reload"]');
     expect(control.getAttribute('aria-busy')).toBe('true');
-    expect(control.querySelector('.btn__icon--refreshing svg')).not.toBeNull();
+    expect(control.textContent).toContain('Refresh');
+    expect(control.querySelector('svg, .spinner')).toBeNull();
     expect(app.state.live.refreshing).toBe('live-reload');
 
     release({ status: 200, body: { data: [person(), person({ membership_id: 'm-2', email: 'nadia@digital-school.example' })] } });

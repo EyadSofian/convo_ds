@@ -85,6 +85,9 @@ const CSRF_COOKIE = 'convo_csrf';
 /** The one request whose 401 is about credentials rather than a session. */
 export const LOGIN_PATH = '/auth/login';
 
+/** A read must eventually settle so its Refresh control cannot remain busy forever. */
+export const READ_TIMEOUT_MS = 30_000;
+
 /** Reads the CSRF cookie from a `document.cookie` string. */
 export function csrfFromCookie(cookie: string): string | null {
   const match = cookie
@@ -154,6 +157,7 @@ export class ApiClient {
       headers['idempotency-key'] = options.idempotencyKey;
     }
 
+    const signal = method === 'GET' ? options.signal ?? AbortSignal.timeout(READ_TIMEOUT_MS) : options.signal;
     let response: Response;
     try {
       response = await this.options.fetch(`${this.options.baseUrl}${path}`, {
@@ -161,16 +165,18 @@ export class ApiClient {
         headers,
         credentials: 'same-origin',
         ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        ...(signal === undefined ? {} : { signal }),
       });
     } catch (cause) {
       // The request never reached the server, or the connection died. That is a
       // different situation from a rejection, and the screen says so.
+      const timedOut = signal?.aborted === true &&
+        (signal.reason as { name?: string } | undefined)?.name === 'TimeoutError';
       return {
         ok: false,
         error: {
-          code: 'network',
-          message: messageOf(cause),
+          code: timedOut ? 'timeout' : 'network',
+          message: timedOut ? 'The request timed out. Try refreshing again.' : messageOf(cause),
           requestId: null,
           status: null,
           details: [],

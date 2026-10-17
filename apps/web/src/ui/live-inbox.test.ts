@@ -54,13 +54,15 @@ describe('Inbox list controls', () => {
     let refresh = renderInbox(app).querySelector('.inbox-refresh-trigger') as HTMLButtonElement;
     expect(refresh.hasAttribute('aria-busy')).toBe(false);
     expect(refresh.disabled).toBe(false);
-    expect(refresh.querySelector('.btn__icon--refreshing')).toBeNull();
+    expect(refresh.textContent).toContain('Refresh');
+    expect(refresh.querySelector('svg, .spinner')).toBeNull();
 
     app.live.refreshing = 'live-inbox-reload';
     refresh = renderInbox(app).querySelector('.inbox-refresh-trigger') as HTMLButtonElement;
     expect(refresh.getAttribute('aria-busy')).toBe('true');
     expect(refresh.disabled).toBe(true);
-    expect(refresh.querySelector('.btn__icon--refreshing svg')).not.toBeNull();
+    expect(refresh.textContent).toContain('Refresh');
+    expect(refresh.querySelector('svg, .spinner')).toBeNull();
   });
 
   it('renders supervisor picker states and a zero-safe workload banner', () => {

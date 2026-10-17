@@ -4,13 +4,7 @@ main.app__screen
       div.pagebar
         p.pagebar__lede
         div.pagebar__actions
-          button.btn.btn--sm.btn--refresh [live-campaigns-reload]
-            span.btn__icon
-              svg
-                path
-                path
-                path
-                path
+          button.btn.btn--sm [live-campaigns-reload]
             span.btn__label
           button.btn.btn--primary.btn--sm [live-campaign-editor]
             span.btn__icon

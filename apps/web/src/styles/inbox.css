@@ -71,22 +71,22 @@
     margin-inline-start: auto;
   }
 
-  /* Keep the inbox refresh mark visually inside its own circular target. */
-  .inbox-refresh-trigger.btn--icon {
-    inline-size: var(--control-height);
+  /* A steady text control: no offset circular glyph or moving busy mark. */
+  .inbox-refresh-trigger {
+    inline-size: auto;
     block-size: var(--control-height);
-    padding: 0;
+    padding-inline: var(--space-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-full);
     background: var(--surface-1);
   }
 
-  .inbox-refresh-trigger.btn--icon:hover:not([disabled]) {
+  .inbox-refresh-trigger:hover:not([disabled]) {
     border-color: var(--border-strong);
     background: var(--surface-hover);
   }
 
-  .inbox-refresh-trigger.btn--icon:focus-visible,
+  .inbox-refresh-trigger:focus-visible,
   .inbox-supervisor-trigger.btn--icon:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;

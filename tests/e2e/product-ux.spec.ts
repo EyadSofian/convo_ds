@@ -155,7 +155,7 @@ test.describe('focused product UX repairs', () => {
     await expect(page.locator('.toast')).toContainText(/Other sessions have been signed out|سُجّلت الجلسات الأخرى/);
   });
 
-  test('inbox refresh and supervisor actions are circular, clear, and fit a phone viewport', async ({ page }) => {
+  test('inbox refresh text and supervisor action fit a phone viewport', async ({ page }) => {
     await openInbox(page);
     for (const width of [1440, 430, 390]) {
       await page.setViewportSize({ width, height: 844 });
@@ -169,10 +169,10 @@ test.describe('focused product UX repairs', () => {
       await expect(supervisor).toHaveAccessibleName(/Supervisor view for an agent|عرض إشرافي للوكيل/);
       const geometry = await refresh.evaluate((element) => {
         const box = element.getBoundingClientRect();
-        const icon = element.querySelector('svg')?.getBoundingClientRect();
+        const label = element.querySelector('.btn__label')?.getBoundingClientRect();
         return {
           radius: getComputedStyle(element).borderRadius,
-          contained: icon !== undefined && icon !== null && icon.left >= box.left && icon.right <= box.right && icon.top >= box.top && icon.bottom <= box.bottom,
+          contained: label !== undefined && label !== null && label.left >= box.left && label.right <= box.right && label.top >= box.top && label.bottom <= box.bottom,
         };
       });
       expect(geometry.radius).toBe('999px');

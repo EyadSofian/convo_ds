@@ -34,7 +34,6 @@ async function geometry(page: Page, control: Locator): Promise<Record<string, nu
   return {
     button: await rect(control),
     label: await rect(control.locator('.btn__label')),
-    icon: await rect(control.locator('.btn__icon')),
     toolbar: await rect(page.locator('.pagebar')),
     header: await rect(page.locator('.header')),
   };
@@ -42,7 +41,7 @@ async function geometry(page: Page, control: Locator): Promise<Record<string, nu
 
 test.describe('a Refresh in flight', () => {
   for (const direction of ['ltr', 'rtl'] as const) {
-    test(`keeps the button, its label, its icon and the toolbar exactly in place — ${direction}`, async ({ page }) => {
+    test(`keeps the button, its label and the toolbar exactly in place — ${direction}`, async ({ page }) => {
       await openScreen(page, 'people');
       await setDirection(page, direction);
       const control = page.locator('.pagebar [data-act="live-reload"]');
@@ -52,10 +51,8 @@ test.describe('a Refresh in flight', () => {
       const release = await hold(page, '**/api/v1/tenants/*/people');
       await control.click();
       await expect(control).toHaveAttribute('aria-busy', 'true');
-      // The arrows stay still in their slot; no spinner replaces or shifts them.
-      await expect(control.locator('.btn__icon--refreshing svg')).toBeVisible();
-      await expect(control.locator('.spinner')).toHaveCount(0);
-      await expect(control.locator('.btn__icon--refreshing svg')).toHaveCSS('animation-name', 'none');
+      // There is no circular glyph or spinner to jump above the button.
+      await expect(control.locator('svg, .spinner')).toHaveCount(0);
       expect(await geometry(page, control)).toEqual(before);
       // The rows stay: a refresh somebody asked for blanks nothing.
       await expect(page.locator('.skeleton')).toHaveCount(0);

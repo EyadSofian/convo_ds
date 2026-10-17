@@ -28,6 +28,8 @@ export interface ButtonOptions {
   readonly disabled?: boolean | undefined;
   /** Shows progress on the control that started the work, and refuses a second press. */
   readonly busy?: boolean | undefined;
+  /** Refresh uses a steady text label instead of a moving progress mark. */
+  readonly busyIndicator?: boolean | undefined;
   readonly title?: string | undefined;
   readonly ariaLabel?: string | undefined;
   readonly extraClass?: string | undefined;
@@ -64,14 +66,16 @@ export function button(options: ButtonOptions): HTMLButtonElement {
   const size = options.small === true ? 14 : 16;
   return h('button', attrs, [
     options.icon === undefined ? null : iconSlot(options.icon, size, busy),
-    busy && options.icon === undefined ? h('span', { class: 'btn__busy', 'aria-hidden': 'true' }, [spinner()]) : null,
+    busy && options.icon === undefined && options.busyIndicator !== false
+      ? h('span', { class: 'btn__busy', 'aria-hidden': 'true' }, [spinner()]) : null,
     options.label === undefined ? null : h('span', { class: 'btn__label' }, [options.label]),
   ]);
 }
 
 /**
- * The one Refresh control. Initial and background list loads do not animate
- * its glyph; only the refresh the operator requested reports busy.
+ * The one Refresh control. A fixed text label replaces the asymmetric circular
+ * arrows entirely; requested work is announced through aria-busy without a
+ * drifting or permanently spinning glyph.
  */
 export function refreshButton(
   state: AppState,
@@ -82,13 +86,13 @@ export function refreshButton(
 ): HTMLButtonElement {
   const label = t(state, 'تحديث', 'Refresh');
   return button({
-    label: iconOnly ? undefined : label,
+    label,
     title: iconOnly ? label : undefined,
     variant: iconOnly ? 'ghost' : undefined,
-    icon: 'refresh',
     act,
     small: true,
     busy: state.live.refreshing === act,
+    busyIndicator: false,
     disabled: loading,
     extraClass,
   });

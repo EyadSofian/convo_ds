@@ -4,13 +4,7 @@ main.app__screen
       div.pagebar
         p.pagebar__lede
         div.pagebar__actions
-          button.btn.btn--sm.btn--refresh [live-automations-reload]
-            span.btn__icon
-              svg
-                path
-                path
-                path
-                path
+          button.btn.btn--sm [live-automations-reload]
             span.btn__label
       nav.automation-tabs
         a.automation-tabs__item
