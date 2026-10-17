@@ -94,6 +94,21 @@ describe('summarize', () => {
 });
 
 describe('the catalogue', () => {
+  it('shows workspace and server Meta apps with their distinct webhook URLs, and one-time setup details', () => {
+    const { state, element } = screen([]);
+    state.live.metaApps = { status: 'ready', loadedAt: 1, value: [
+      { id: 'workspace-app', external_app_id: '123', scope: 'workspace', status: 'active', secret_held: true, created_at: NOW.toISOString() },
+      { id: 'server-app', external_app_id: '456', scope: 'installation', status: 'active', secret_held: true, created_at: NOW.toISOString() },
+    ] };
+    state.live.createdMetaApp = { id: 'workspace-app', external_app_id: '123', scope: 'workspace', status: 'active', secret_held: true, created_at: NOW.toISOString(), verify_token: 'one-time-token' };
+    const root = element();
+    expect(root.textContent).toContain('Workspace app');
+    expect(root.textContent).toContain('Existing server app');
+    expect(root.textContent).toContain('/api/v1/webhooks/meta/workspace-app');
+    expect(root.textContent).toContain('/api/v1/webhooks/meta/server-app');
+    expect(root.textContent).toContain('one-time-token');
+    expect(root.querySelector('input[type="password"]')).not.toBeNull();
+  });
   it('shows Telegram as coming soon, with no way to connect it', () => {
     const root = screen([]).element();
     const telegram = card(root, 'telegram');

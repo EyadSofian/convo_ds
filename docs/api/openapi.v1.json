@@ -1030,6 +1030,30 @@
         }
       }
     },
+    "/tenants/{tenantId}/channels/{connectionId}/webhook/subscribe": {
+      "post": {
+        "operationId": "subscribeWhatsAppWebhook",
+        "summary": "Subscribe the workspace WhatsApp account to Meta webhook events",
+        "description": "Subscribes the WhatsApp Business Account associated with this connection to the configured Meta app webhook. Requires channel.manage, a session and CSRF. Other WhatsApp Business Accounts are not modified.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "responses": {
+          "201": { "description": "Webhook subscription result returned." },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/channels/{connectionId}/test": {
       "post": {
         "operationId": "testChannelConnection",

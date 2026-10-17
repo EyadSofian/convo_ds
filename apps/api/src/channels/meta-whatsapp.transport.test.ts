@@ -87,6 +87,13 @@ describe('WhatsApp WABA webhook subscription', () => {
     expect(calls).toHaveLength(0);
     expect(await adapter.subscribeWhatsAppWaba(TOKEN, '12345')).toMatchObject({ ok: false });
   });
+
+  it('reports a network failure without claiming webhook subscription', async () => {
+    const { adapter } = transport(() => new Error('network down'));
+    expect(await adapter.subscribeWhatsAppWaba(TOKEN, '12345')).toMatchObject({ ok: false, code: 'provider_unreachable' });
+    const timedOut = transport(() => new DOMException('late', 'TimeoutError'));
+    expect(await timedOut.adapter.subscribeWhatsAppWaba(TOKEN, '12345')).toMatchObject({ ok: false, code: 'provider_timeout' });
+  });
 });
 
 describe('sending a text message', () => {

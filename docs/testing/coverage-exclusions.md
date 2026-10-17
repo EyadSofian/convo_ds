@@ -41,7 +41,7 @@ Standard. Measuring a suite against itself is meaningless.
 
 ## 2. Files reported as `0%` that are not exclusions
 
-`packages/database/src/types.ts` and `packages/domain/src/ports/sql.ts` appear in the report at `0%`. They contain only `interface` and `type` declarations, which erase at compile time: zero executable statements, zero functions, zero branches. They contribute nothing to any total (the `All files` row is 100%). They are deliberately left **in** the include glob so that adding a runtime statement to either one starts being measured immediately.
+`packages/database/src/types.ts`, `packages/domain/src/ports/sql.ts`, and `packages/domain/src/channels/crypto.ts` contain only `interface` and `type` declarations, which erase at compile time. They are excluded explicitly because V8 now counts their comments as uncovered runtime statements under `all: true`, even though there is no executable code. If runtime code is added to any of these files, this exclusion must be removed and that code tested.
 
 ## 3. Not excluded, though it would have been convenient
 

@@ -10,6 +10,8 @@ import {
 } from './credential-cipher.js';
 import { adapterClaiming, adapterFor, implementedKinds, META_KINDS } from './adapters.js';
 import { ChannelCredentialService } from './credential.service.js';
+import { ChannelAppService } from './channel-app.service.js';
+import { ChannelIngressService } from './ingress.service.js';
 import { inboundRowFrom } from './inbound-projection.js';
 import { parseSendMessage } from './outbound-request.js';
 import { assetFingerprint, nodeChannelCrypto, sha256BytesHex } from './node-crypto.js';
@@ -272,6 +274,17 @@ describe('parseConnectChannel', () => {
     expect(result.value.providerAppId).toBe('100000000000009');
   });
 
+  it('accepts a numeric WABA only for WhatsApp', () => {
+    const valid = parseConnectChannel({ ...VALID_CONNECT, settings: { wabaId: '1635676328136908' } });
+    expect(valid.ok && valid.value.settings.wabaId).toBe('1635676328136908');
+    const malformed = parseConnectChannel({ ...VALID_CONNECT, settings: { wabaId: 'not-a-waba' } });
+    expect(!malformed.ok && malformed.details.map((detail) => detail.field)).toContain('settings.wabaId');
+    const otherChannel = parseConnectChannel({ ...VALID_CONNECT, kind: 'messenger', settings: { wabaId: '123' } });
+    expect(!otherChannel.ok && otherChannel.details.map((detail) => detail.field)).toContain('settings.wabaId');
+    expect(parseSettingsUpdate({ wabaId: '123' })).toEqual({ ok: true, value: { wabaId: '123' } });
+    expect(parseSettingsUpdate({ wabaId: 'bad' }).ok).toBe(false);
+  });
+
   it.each([
     ['a non-object body', ['nope'], ['body']],
     ['an unknown kind', { ...VALID_CONNECT, kind: 'telegram' }, ['kind']],
@@ -496,6 +509,41 @@ describe('ChannelCredentialService without usable keys', () => {
 
   it('is available with a usable key', () => {
     expect(serviceWith([KEY]).available).toBe(true);
+  });
+});
+
+describe('ChannelAppService credential storage guard', () => {
+  it('refuses Meta app registration when no encryption key is configured', async () => {
+    const config = { secrets: { credentialKeys: [], authHash: 'fingerprint-secret' } };
+    const service = new ChannelAppService(config as never, {} as never);
+    await expect(service.create({} as never, 'tenant', {
+      externalAppId: '200000000000001', appSecret: 'a'.repeat(32),
+    })).rejects.toMatchObject({ code: 'credential_storage_unavailable' });
+  });
+});
+
+describe('ChannelIngressService app-secret isolation', () => {
+  it('refuses absent or tampered secrets without exposing a plaintext fallback', () => {
+    const tenantId = '11111111-1111-4111-8111-111111111111';
+    const appId = '22222222-2222-4222-8222-222222222222';
+    const binding: CredentialBinding = { tenantId, connectionId: appId, purpose: 'meta_app_secret' };
+    const sealed = new CredentialCipher([parseCipherKey(KEY)], 'fingerprint-secret').seal('a'.repeat(32), binding);
+    const managed = { id: appId, tenant_id: tenantId, secret_ref: null,
+      secret_ciphertext: sealed.ciphertext, secret_iv: sealed.iv, secret_auth_tag: sealed.authTag,
+      secret_key_version: sealed.keyVersion, secret_fingerprint: sealed.fingerprint };
+    const secretFor = (config: object, app: object): string | undefined => {
+      const service = new ChannelIngressService({} as never, config as never);
+      return (service as unknown as { secretFor(row: unknown): string | undefined }).secretFor(app);
+    };
+    const configured = { channelSecrets: {}, secrets: { credentialKeys: [KEY], authHash: 'fingerprint-secret' } };
+    expect(secretFor(configured, { ...managed, tenant_id: null, secret_ref: null })).toBeUndefined();
+    expect(secretFor(configured, { ...managed, secret_ciphertext: null })).toBeUndefined();
+    expect(secretFor(configured, { ...managed, secret_iv: null })).toBeUndefined();
+    expect(secretFor(configured, { ...managed, secret_auth_tag: null })).toBeUndefined();
+    expect(secretFor(configured, { ...managed, secret_key_version: null })).toBeUndefined();
+    expect(secretFor({ ...configured, secrets: { ...configured.secrets, credentialKeys: [] } }, managed)).toBeUndefined();
+    expect(secretFor(configured, { ...managed, secret_auth_tag: Buffer.alloc(16) })).toBeUndefined();
+    expect(secretFor(configured, managed)).toBe('a'.repeat(32));
   });
 });
 

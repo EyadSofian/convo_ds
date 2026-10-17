@@ -1694,6 +1694,8 @@ describe('the transport the browser actually gets', () => {
     const { app } = start(api);
     await settle();
     const before = api.calls.length;
+    app.state.dialogForm['metaSetupAppId'] = '200000000000001';
+    app.state.dialogForm['metaSetupSecret'] = 'a'.repeat(32);
 
     // A control that reaches the server is never rendered while signed out, so
     // this is the stale-click case: it must resolve to nothing, not to a
@@ -1702,6 +1704,7 @@ describe('the transport the browser actually gets', () => {
     app.dispatch('live-test-channel', 'cn-1');
     app.dispatch('live-reload');
     app.dispatch('live-channels-reload');
+    app.dispatch('live-create-meta-app');
     app.dispatch('live-sessions-reload');
     await settle();
     expect(api.calls.length).toBe(before);
@@ -1863,6 +1866,53 @@ describe('the Channels screen', () => {
     expect(text(root)).toContain('one-time-verify-token');
     expect(text(root)).toContain('/api/v1/webhooks/meta/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
     expect(text(root)).not.toContain('0123456789abcdef0123456789abcdef');
+  });
+
+  it('subscribes the selected WhatsApp WABA and reports Meta confirmation', async () => {
+    const api = channelApi().on(`POST /tenants/${TENANT}/channels/cn-1/webhook/subscribe`, {
+      status: 201, body: { data: { waba_id: '12345', updated_connections: 2 } },
+    });
+    const { app, root } = openChannels(api);
+    await settle();
+    click(root, '[data-act="connection-toggle"][data-arg="cn-1"]');
+    click(root, '[data-act="live-subscribe-channel-webhook"]');
+    await settle();
+    expect(api.calls.some((call) => call.method === 'POST' && call.path.endsWith('/channels/cn-1/webhook/subscribe'))).toBe(true);
+    expect(toasts(app)).toContain('Meta confirmed the WABA webhook subscription for 2 connection(s). Live delivery still requires publishing the Meta app.');
+  });
+
+  it('rejects a non-numeric WABA ID in the connection editor before calling the API', async () => {
+    const api = channelApi();
+    const { root } = openChannels(api);
+    await settle();
+    expand(root);
+    type(root, '[data-form="channelWaba_cn-1"]', 'not-a-waba');
+    click(root, '[data-act="live-whatsapp-waba"]');
+    await settle();
+    expect(text(root)).toContain('Enter a numeric WABA ID.');
+    expect(api.calls.some((call) => call.method === 'POST' && call.path.endsWith('/channels/cn-1/settings'))).toBe(false);
+  });
+
+  it('validates Meta app setup locally and clears the secret after a server refusal', async () => {
+    const api = channelApi().on(`POST /tenants/${TENANT}/channel-apps/meta`, {
+      status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } },
+    });
+    const { app, root } = openChannels(api);
+    await settle();
+    type(root, '[data-form="metaSetupAppId"]', 'bad');
+    type(root, '[data-form="metaSetupSecret"]', 'short');
+    click(root, '[data-act="live-create-meta-app"]');
+    await settle();
+    expect(api.calls.filter((call) => call.path.endsWith('/channel-apps/meta') && call.method === 'POST')).toHaveLength(0);
+    expect(text(root)).toContain('Enter the numeric Meta App ID.');
+    expect(text(root)).toContain('Enter a valid App Secret without spaces.');
+
+    type(root, '[data-form="metaSetupAppId"]', '200000000000001');
+    type(root, '[data-form="metaSetupSecret"]', '0123456789abcdef0123456789abcdef');
+    click(root, '[data-act="live-create-meta-app"]');
+    await settle();
+    expect(app.state.dialogForm['metaSetupSecret']).toBeUndefined();
+    expect(text(root)).toContain('You don’t have permission for this');
   });
 
   it('loads connections, the catalogue and the test allowlist, and only those', async () => {

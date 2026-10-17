@@ -123,6 +123,7 @@ describe('pinned OpenAPI contract', () => {
       "listOutboundMessages",
       "queueOutboundMessage",
       "syncWhatsAppTemplates",
+      "subscribeWhatsAppWebhook",
       "testChannelConnection",
       "listWorkspaceMetaApps",
       "createWorkspaceMetaApp",
