@@ -390,6 +390,9 @@ export class ChannelService {
         throw new ApiHttpError(422, 'meta_app_not_configured', 'Register a Meta app for this connection first.');
       }
       const wabaId = connection.waba_id ?? '';
+      if (!/^[0-9]{1,32}$/.test(wabaId)) {
+        throw new ApiHttpError(422, 'waba_not_configured', 'Configure the WhatsApp Business Account ID first.');
+      }
       const subscribed = await this.credentials.withActive(
         sql,
         { tenantId, connectionId, purpose: 'access_token' },

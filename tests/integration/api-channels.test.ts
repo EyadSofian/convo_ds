@@ -345,6 +345,22 @@ describe('channel connections', () => {
     expect(JSON.stringify(listed.json())).not.toContain(appSecret);
   });
 
+  it('rejects malformed Meta app setup and duplicate registration without exposing secrets', async () => {
+    for (const payload of [null, [], {}, { externalAppId: 'not-numeric', appSecret: 'short' },
+      { externalAppId: 'not-numeric', appSecret: 'a'.repeat(32) },
+      { externalAppId: '200000000000001', appSecret: 123 }]) {
+      const rejected = await send(api, owner, 'POST', '/channel-apps/meta', payload as Record<string, unknown>);
+      expect(rejected.statusCode, rejected.body).toBe(400);
+      expect(rejected.json()).toMatchObject({ error: { code: 'invalid_input' } });
+    }
+    const duplicate = await send(api, owner, 'POST', '/channel-apps/meta', {
+      externalAppId: '200000000000001', appSecret: 'different-secret-value-123456789',
+    });
+    expect(duplicate.statusCode).toBe(409);
+    expect(duplicate.json()).toMatchObject({ error: { code: 'meta_app_already_registered' } });
+    expect(duplicate.body).not.toContain('different-secret-value-123456789');
+  });
+
   it('lists the catalogue before anything is connected, saying what is implemented', async () => {
     const response = await send(api, owner, 'GET', '/channels/catalogue');
     expect(response.statusCode).toBe(200);
@@ -1241,16 +1257,51 @@ describe('with a stubbed provider transport', () => {
     subscriptionAnswer = { ok: false, code: 'credential_rejected', message: 'Denied', retryable: false };
     const refused = await send(api, owner, 'POST', `/channels/${ids[0]}/webhook/subscribe`);
     expect(refused.statusCode).toBe(422);
+    subscriptionAnswer = { ok: false, code: 'provider_unreachable', message: 'Try again', retryable: true };
+    expect((await send(api, owner, 'POST', `/channels/${ids[0]}/webhook/subscribe`)).statusCode).toBe(503);
     subscriptionAnswer = { ok: true };
     const accepted = await send(api, owner, 'POST', `/channels/${ids[0]}/webhook/subscribe`);
     expect(accepted.statusCode, accepted.body).toBe(201);
     expect(accepted.json()).toMatchObject({ data: { waba_id: wabaId, updated_connections: 2 } });
-    expect(subscribedWabas).toEqual([wabaId, wabaId]);
+    expect(subscribedWabas).toEqual([wabaId, wabaId, wabaId]);
     const listed = await send(api, owner, 'GET', '/channels');
     const connections = (listed.json() as { data: Array<{ id: string; evidence: Array<{ kind: string; satisfied: boolean }> }> }).data;
     for (const id of ids) {
       expect(connections.find((row) => row.id === id)?.evidence).toContainEqual(expect.objectContaining({ kind: 'webhook_subscribed', satisfied: true }));
     }
+  });
+
+  it('refuses subscriptions without a live WhatsApp app, WABA, or active credential', async () => {
+    const messenger = await send(api, owner, 'POST', '/channels', {
+      kind: 'messenger', externalAssetId: `subscription-page-${randomUUID()}`,
+      displayName: 'Messenger page', accessToken: 'EAAGtestaccesstoken0001', appId: api.appId,
+    });
+    expect(messenger.statusCode, messenger.body).toBe(201);
+    const messengerId = (messenger.json() as { data: { id: string } }).data.id;
+    expect((await send(api, owner, 'POST', `/channels/${messengerId}/webhook/subscribe`)).json())
+      .toMatchObject({ error: { code: 'webhook_subscription_unavailable' } });
+
+    const created = await connect(api, owner, `subscription-guard-${randomUUID()}`);
+    const id = (created.json() as { data: { id: string } }).data.id;
+    const subscribe = () => send(api, owner, 'POST', `/channels/${id}/webhook/subscribe`);
+
+    expect((await subscribe()).json()).toMatchObject({ error: { code: 'waba_not_configured' } });
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE channel_connections SET settings = settings || '{"waba_id":"12345"}'::jsonb WHERE id = $1`, [id],
+    ));
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE channel_connections SET app_id = NULL WHERE id = $1`, [id],
+    ));
+    expect((await subscribe()).json()).toMatchObject({ error: { code: 'meta_app_not_configured' } });
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE channel_connections SET app_id = $2 WHERE id = $1`, [id, api.appId],
+    ));
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `UPDATE channel_credentials SET status = 'revoked', revoked_at = now() WHERE connection_id = $1 AND status = 'active'`, [id],
+    ));
+    expect((await subscribe()).json()).toMatchObject({ error: { code: 'credential_missing' } });
+    expect((await send(api, owner, 'DELETE', `/channels/${id}`)).statusCode).toBe(204);
+    expect((await subscribe()).json()).toMatchObject({ error: { code: 'channel_disconnected' } });
   });
 
   it('records credential verification only when the provider says yes', async () => {
@@ -3119,6 +3170,12 @@ describe('the channels beyond WhatsApp', () => {
     expect((origins.json() as { data: { origins: string[] } }).data.origins).toEqual(['https://school.example', 'https://www.school.example']);
     const page = await connectKind('messenger', 'page-settings-1', 'EAAGpagetoken00009');
     expect((await send(api, owner, 'POST', `/channels/${page}/settings`, { origins: [] })).statusCode).toBe(422);
+    const whatsapp = await connectKind('whatsapp', 'phone-settings-1', 'EAAGwhatsapptoken00009');
+    expect((await send(api, owner, 'POST', `/channels/${whatsapp}/settings`, { origins: [] })).statusCode).toBe(422);
+    expect((await send(api, owner, 'POST', `/channels/${whatsapp}/settings`, {})).statusCode).toBe(422);
+    const waba = await send(api, owner, 'POST', `/channels/${whatsapp}/settings`, { wabaId: '1635676328136908' });
+    expect(waba.statusCode, waba.body).toBe(201);
+    expect(waba.json()).toMatchObject({ data: { waba_id: '1635676328136908' } });
     await send(api, owner, 'DELETE', `/channels/${widget}`);
     expect((await send(api, owner, 'POST', `/channels/${widget}/settings`, { origins: [] })).statusCode).toBe(404);
   });

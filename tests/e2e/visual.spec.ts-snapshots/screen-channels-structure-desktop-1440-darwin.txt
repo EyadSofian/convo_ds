@@ -12,6 +12,27 @@ main.app__screen
                 path
                 path
             span.btn__label
+      section.panel
+        header.panel__header
+          div.panel__titles
+            h2.panel__title
+        div.panel__body
+          p.field__hint
+          form.form-grid
+            label.field
+              span.field__label
+              input.input [form]
+            label.field
+              span.field__label
+              input.input [form]
+            button.btn.btn--sm [live-create-meta-app]
+              span.btn__icon
+                svg
+                  path
+                  path
+                  path
+                  path
+              span.btn__label
       section.integrations
         h2.section-title
         div.integration-grid

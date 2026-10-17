@@ -25,6 +25,11 @@ export default defineConfig({
         // The built file is spawned by tests/integration/api-boot.test.ts.
         // Recorded in docs/testing/coverage-exclusions.md.
         'apps/api/src/main.ts',
+        // Type-only ports disappear at runtime; V8 reports their comments as
+        // uncovered statements when all:true is enabled.
+        'packages/database/src/types.ts',
+        'packages/domain/src/ports/sql.ts',
+        'packages/domain/src/channels/crypto.ts',
       ],
       // Gates from docs/testing/strategy.md. Lowering a threshold to make a run
       // pass is forbidden by that document.

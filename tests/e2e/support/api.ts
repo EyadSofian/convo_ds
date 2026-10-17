@@ -658,6 +658,9 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     if (path.endsWith('/channels/catalogue')) {
       return json(route, paged(channelCatalogue()));
     }
+    if (path.endsWith('/channel-apps/meta') && method === 'GET') {
+      return json(route, { data: [], request_id: 'e2e' });
+    }
     if (path.endsWith('/test-recipients')) {
       return json(route, paged(path.includes(CONNECTION) ? testRecipients() : []));
     }
