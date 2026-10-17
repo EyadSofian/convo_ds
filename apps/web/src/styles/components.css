@@ -666,8 +666,9 @@
 
   .input-affix__button {
     position: absolute;
-    inset-block-start: 2px;
+    inset-block-start: 50%;
     inset-inline-end: 2px;
+    transform: translateY(-50%);
   }
 
   .inline-form {

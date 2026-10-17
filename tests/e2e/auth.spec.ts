@@ -15,6 +15,18 @@ import { fontsReady, freezeClock, openInbox, openSignedOut } from './support/wor
 const PROTECTED = '.app:not(.app--pending), .nav, .header, .inbox, .page, [data-act="nav"], .header__tenant';
 
 test.describe('without a session', () => {
+  test('centres the password visibility control inside its input', async ({ page }) => {
+    await openSignedOut(page, '#/inbox?lang=en');
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const input = await page.locator('#signin-password').boundingBox();
+      const toggle = await page.locator('[data-act="password-visibility"]').boundingBox();
+      expect(input).not.toBeNull();
+      expect(toggle).not.toBeNull();
+      expect(Math.abs((input!.y + input!.height / 2) - (toggle!.y + toggle!.height / 2))).toBeLessThanOrEqual(1);
+    }
+  });
+
   test('keeps DS Omnichannel sign-in legible from desktop through phone widths', async ({ page }) => {
     await openSignedOut(page, '#/inbox?lang=en');
     for (const width of [1440, 1024, 768, 430, 390]) {
