@@ -28,7 +28,7 @@ export interface ButtonOptions {
   readonly disabled?: boolean | undefined;
   /** Shows progress on the control that started the work, and refuses a second press. */
   readonly busy?: boolean | undefined;
-  /** Refresh uses a steady text label instead of a moving progress mark. */
+  /** Suppress the progress mark when a text label already explains the action. */
   readonly busyIndicator?: boolean | undefined;
   readonly title?: string | undefined;
   readonly ariaLabel?: string | undefined;
@@ -39,6 +39,10 @@ export interface ButtonOptions {
 }
 
 export function button(options: ButtonOptions): HTMLButtonElement {
+  // Every labelled refresh/retry action is text-only. The old circular-arrow
+  // glyph was still emitted by callers outside refreshButton, so removing it
+  // here keeps every dashboard consistent, including busy and error states.
+  const displayIcon = options.icon === 'refresh' && options.label !== undefined ? undefined : options.icon;
   const iconOnly = options.label === undefined;
   const classes = ['btn'];
   if (options.variant !== undefined && options.variant !== 'default') {
@@ -46,7 +50,7 @@ export function button(options: ButtonOptions): HTMLButtonElement {
   }
   if (options.small === true) classes.push('btn--sm');
   if (iconOnly) classes.push('btn--icon');
-  if (options.icon === 'refresh') classes.push('btn--refresh');
+  if (displayIcon === 'refresh') classes.push('btn--refresh');
   if (options.extraClass !== undefined) classes.push(options.extraClass);
   const busy = options.busy === true;
   const attrs: Attrs = {
@@ -65,8 +69,8 @@ export function button(options: ButtonOptions): HTMLButtonElement {
   };
   const size = options.small === true ? 14 : 16;
   return h('button', attrs, [
-    options.icon === undefined ? null : iconSlot(options.icon, size, busy),
-    busy && options.icon === undefined && options.busyIndicator !== false
+    displayIcon === undefined ? null : iconSlot(displayIcon, size, busy),
+    busy && displayIcon === undefined && options.icon !== 'refresh' && options.busyIndicator !== false
       ? h('span', { class: 'btn__busy', 'aria-hidden': 'true' }, [spinner()]) : null,
     options.label === undefined ? null : h('span', { class: 'btn__label' }, [options.label]),
   ]);

@@ -69,6 +69,16 @@ describe('button', () => {
     expect(plain.querySelector('svg')).toBeNull();
     expect(button({ label: 'Go', icon: 'plus', act: 'go' }).querySelector('svg')?.getAttribute('width')).toBe('16');
   });
+
+  it('keeps labelled refresh and retry controls text-only, even while busy', () => {
+    for (const busy of [false, true]) {
+      const control = button({ label: 'Sync templates', icon: 'refresh', act: 'sync', busy });
+      expect(control.textContent).toBe('Sync templates');
+      expect(control.querySelector('svg, .spinner')).toBeNull();
+      expect(control.classList.contains('btn--refresh')).toBe(false);
+      expect(control.getAttribute('aria-busy')).toBe(busy ? 'true' : null);
+    }
+  });
 });
 
 describe('section titles', () => {
