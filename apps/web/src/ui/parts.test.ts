@@ -79,6 +79,14 @@ describe('button', () => {
       expect(control.getAttribute('aria-busy')).toBe(busy ? 'true' : null);
     }
   });
+
+  it('keeps an explicitly icon-only refresh accessible and steady while busy', () => {
+    const control = button({ icon: 'refresh', title: 'Refresh', act: 'refresh', busy: true });
+    expect(control.getAttribute('aria-label')).toBe('Refresh');
+    expect(control.classList.contains('btn--refresh')).toBe(true);
+    expect(control.querySelector('.btn__icon--refreshing svg')).not.toBeNull();
+    expect(control.querySelector('.spinner')).toBeNull();
+  });
 });
 
 describe('section titles', () => {
