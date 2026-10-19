@@ -36,7 +36,7 @@ function state(lang: 'ar' | 'en' = 'en'): AppState {
 const OPTIONS = { prefix: 'p_', pick: 'pick', stored: {}, sample: { name: 'Mona', phone: '+20 100' }, sender: 'Digital School' } as const;
 
 describe('the template list', () => {
-  it('marks the chosen template, names each category, and refuses media templates', () => {
+  it('marks the chosen template, names each category, and offers media templates', () => {
     const s = state();
     const templates = [
       template(),
@@ -48,19 +48,31 @@ describe('the template list', () => {
     const cards = [...root.querySelectorAll('.tpl-card')] as HTMLButtonElement[];
     expect(cards.map((card) => card.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false', 'false']);
     expect(cards[0]?.getAttribute('data-arg')).toBe('pick:wa-1');
-    expect(cards.map((card) => card.querySelector('.tpl-card__meta')?.textContent)).toEqual(['enMarketing4 variables', 'enUtility', 'enAuthentication', 'enSERVICE']);
-    expect(cards[3]?.disabled).toBe(true);
-    expect(cards[3]?.textContent).toContain('Media templates cannot be broadcast yet');
+    expect(cards.map((card) => card.querySelector('.tpl-card__meta')?.textContent)).toEqual(['enMarketing4 variables', 'enUtility', 'enAuthentication', 'enSERVICE1 variables']);
+    expect(cards[3]?.disabled).toBe(false);
+    expect(cards[3]?.textContent).not.toContain('Media templates cannot be broadcast yet');
     expect(root.querySelector('.tpl-composer--compact')).toBeNull();
     const arabic = templateComposer(state('ar'), { ...OPTIONS, templates, selectedId: '', compact: true });
     expect(arabic.classList.contains('tpl-composer--compact')).toBe(true);
-    expect([...arabic.querySelectorAll('.tpl-card__meta')].map((meta) => meta.textContent)).toEqual(['enتسويقي4 متغير', 'enخدمي', 'enتحقق', 'enSERVICE']);
+    expect([...arabic.querySelectorAll('.tpl-card__meta')].map((meta) => meta.textContent)).toEqual(['enتسويقي4 متغير', 'enخدمي', 'enتحقق', 'enSERVICE1 متغير']);
   });
 
   it('asks for a choice before showing variables', () => {
     const root = templateComposer(state(), { ...OPTIONS, templates: [template()], selectedId: '' });
     expect(root.textContent).toContain('Choose a template to see it');
     expect(root.querySelector('.wa-bubble--empty')?.textContent).toBe('Your message appears here');
+  });
+
+  it('lets the text-only Arabic course update be selected for a broadcast', () => {
+    const course = template({
+      templateName: 'course_inquiry_update_ar', language: 'ar', category: 'UTILITY',
+      components: [{ type: 'BODY', text: 'مرحبًا {{first_name}}، حالة طلبك للاستفسار عن كورس {{course_name}} الآن: {{status}}.' }],
+    });
+    const root = templateComposer(state('ar'), { ...OPTIONS, templates: [course], selectedId: '' });
+    const card = root.querySelector('.tpl-card') as HTMLButtonElement;
+    expect(card.disabled).toBe(false);
+    expect(card.getAttribute('data-arg')).toBe('pick:wa-1');
+    expect(card.querySelector('.tpl-card__warning')).toBeNull();
   });
 });
 

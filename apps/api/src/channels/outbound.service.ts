@@ -7,6 +7,7 @@ import type {
   ResourceRef,
   SqlExecutor,
   WhatsAppTemplateDefinition,
+  WhatsAppTemplateSendComponent,
 } from '@convo/domain';
 import { authorize, buildWhatsAppTemplateComponents, defineWhatsAppTemplate, renderWhatsAppTemplatePreview, capabilitiesFor, ownershipPermits, permitSend } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
@@ -205,7 +206,7 @@ export class OutboundService {
         let templateName: string | null = request.template?.name ?? null;
         let templateLanguage: string | null = request.template?.language ?? null;
         let templateProviderId: string | null = null;
-        let templateComponents: readonly { readonly type: 'header' | 'body' | 'button'; readonly subType?: 'url'; readonly index?: string; readonly parameters: readonly { readonly type: 'text'; readonly text: string }[] }[] = [];
+        let templateComponents: readonly WhatsAppTemplateSendComponent[] = [];
         let templatePreview: string | null = null;
         if ((request.messageType === 'template') !== (request.template !== null)) {
           throw new ApiHttpError(400, 'invalid_input', 'A template message must select a WhatsApp catalogue entry.');

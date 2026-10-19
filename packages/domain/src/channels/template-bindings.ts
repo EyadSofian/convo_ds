@@ -29,7 +29,7 @@ export type TemplateBindings = Readonly<Record<string, TemplateBinding>>;
 
 export const TEMPLATE_BINDING_SOURCES: readonly TemplateBindingSource[] = ['display_name', 'phone', 'field', 'static'];
 
-const PARAMETER_KEY = /^(?:(?:header|body):\d{1,2}|button:\d{1,2}:\d{1,2})$/;
+const PARAMETER_KEY = /^(?:header:0|(?:header|body):(?:[1-9]\d{0,2}|[a-z][a-z0-9_]{0,63})|button:\d{1,2}:[1-9]\d?)$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_TEXT = 1024;
 

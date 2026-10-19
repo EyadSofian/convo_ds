@@ -101,7 +101,7 @@ describe('moving between steps', () => {
 
   it('refuses a template that cannot be broadcast, and counts the audience on reaching the review', async () => {
     const { state, context, api } = setup(undefined, 'ar');
-    state.live.whatsappTemplates = { status: 'ready', loadedAt: 1, value: [{ ...TEMPLATE, components: [{ type: 'HEADER', format: 'IMAGE' }] }] };
+    state.live.whatsappTemplates = { status: 'ready', loadedAt: 1, value: [{ ...TEMPLATE, components: [{ type: 'BUTTONS', buttons: [{ type: 'FLOW', text: 'Continue' }] }] }] };
     state.dialogForm = { campaignName: 'A', campaignTemplate: 'wa-1' };
     expect(stepProblems(context, 1)).toEqual({ campaignTemplate: 'هذا القالب لا يمكن بثه بعد. اختر غيره.' });
     expect(stepProblems(context, 3)).toEqual({});

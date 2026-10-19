@@ -118,6 +118,11 @@ export interface ChannelTestRecipient {
   readonly authorized_at: string;
 }
 
+export interface QueuedContactMessage {
+  readonly id: string;
+  readonly command_state: string;
+}
+
 export interface ConnectChannelInput {
   readonly kind: ChannelKind;
   readonly externalAssetId: string;
@@ -175,6 +180,12 @@ export class ChannelsApi {
 
   syncWhatsAppTemplates(tenantId: string, connectionId: string): Promise<ApiResult<TemplateSyncResult>> {
     return this.client.post<TemplateSyncResult>(`/tenants/${tenantId}/channels/${connectionId}/templates/sync`);
+  }
+
+  sendContactTemplate(tenantId: string, connectionId: string, peerIdentity: string, templateId: string, parameters: Readonly<Record<string, string>>, clientMessageId: string): Promise<ApiResult<QueuedContactMessage>> {
+    return this.client.post<QueuedContactMessage>(`/tenants/${tenantId}/channels/${connectionId}/messages`, {
+      body: { peerIdentity, messageType: 'template', text: '', template: { id: templateId, parameters }, clientMessageId, trafficClass: 'interactive' },
+    });
   }
 
   subscribeWhatsAppWebhook(tenantId: string, connectionId: string): Promise<ApiResult<WebhookSubscriptionResult>> {

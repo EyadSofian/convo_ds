@@ -1,6 +1,7 @@
 import type { Child } from '../dom';
 import { h } from '../dom';
 import { rowsOf } from '../live/store';
+import { templateDefinition } from '../live/template-binding';
 import type { AppState } from '../state';
 import { catalogueItem } from './channels-screen';
 import { t } from './copy';
@@ -41,6 +42,7 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'inline-label') return inlineLabel(state, dialog.arg);
   if (dialog.kind === 'automation-delete') return automationDelete(state, dialog.arg);
   if (dialog.kind === 'whatsapp-template') return whatsappTemplatePicker(state);
+  if (dialog.kind === 'contact-template') return contactTemplatePicker(state, dialog.arg);
   const admin = renderAdminDialog(state, dialog.kind, dialog.arg);
   if (admin !== null) return admin;
   return dialogShell(
@@ -101,13 +103,14 @@ function whatsappTemplatePicker(state: AppState): HTMLElement {
               ...selected.components.filter((component) => component.type !== 'buttons').map((component) => component.text === null ? null : h('p', { class: `wa-template-preview__${component.type}` }, templatePreviewChildren(component.text, component.type, parameterValues))),
               ...selected.components.filter((component) => component.type === 'buttons').flatMap((component) => component.buttons.map((buttonInfo) => h('span', { class: 'wa-template-preview__button', 'aria-hidden': 'true' }, [buttonInfo.text]))),
             ]),
-            selected.components.some((component) => component.type === 'header' && component.format !== null && component.format !== 'TEXT')
-              ? notice('warning', 'alert', t(state, 'رأس الوسائط غير مدعوم حاليًا؛ لن يُرسل القالب.', 'Media header is not supported yet; this template cannot be sent.')) : null,
+            selected.parameters.some((parameter) => parameter.mediaFormat !== undefined)
+              ? notice('info', 'info', t(state, 'أدخل رابط HTTPS عام ومباشر لوسائط القالب.', 'Enter a public direct HTTPS URL for the template media.')) : null,
             selected.sendSupported ? null : h('p', { class: 'field__error', role: 'status' }, [selected.unsupportedReason ?? t(state, 'هذا القالب غير مدعوم للإرسال.', 'This template is not supported for sending.')]),
             ...selected.parameters.map((parameter) => {
               const key = whatsappParameterKey(parameter.key);
-              const label = parameter.example ? `${parameter.component === 'body' ? t(state, 'النص', 'Body') : parameter.component} · ${parameter.position} (${parameter.example})` : `${parameter.component === 'button' ? t(state, 'زر', 'Button') : parameter.component === 'header' ? t(state, 'الرأس', 'Header') : t(state, 'النص', 'Body')} · ${t(state, 'متغير', 'Variable')} ${parameter.position}`;
-              return h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [label]), h('input', { class: 'input', maxlength: 1024, value: state.dialogForm[key] ?? '', dir: 'auto', required: true, 'data-act': 'form', 'data-form': key, 'data-wa-parameter': parameter.key })]);
+              const token = parameter.name ?? String(parameter.position);
+              const label = parameter.mediaFormat !== undefined ? t(state, 'رابط وسائط HTTPS', 'HTTPS media URL') : parameter.example ? `${parameter.component === 'body' ? t(state, 'النص', 'Body') : parameter.component} · ${token} (${parameter.example})` : `${parameter.component === 'button' ? t(state, 'زر', 'Button') : parameter.component === 'header' ? t(state, 'الرأس', 'Header') : t(state, 'النص', 'Body')} · ${t(state, 'متغير', 'Variable')} ${token}`;
+              return h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [label]), h('input', { class: 'input', type: parameter.mediaFormat !== undefined ? 'url' : 'text', maxlength: 1024, value: state.dialogForm[key] ?? '', dir: 'auto', required: true, 'data-act': 'form', 'data-form': key, 'data-wa-parameter': parameter.key })]);
             }),
           ]),
     ]),
@@ -117,11 +120,42 @@ function whatsappTemplatePicker(state: AppState): HTMLElement {
   ], { size: 'lg', description: t(state, 'يُرسل كقالب Meta معتمد، ولا يتحول إلى رسالة نصية عادية.', 'Sent as an approved Meta template, never converted into ordinary free-form text.') });
 }
 
+function contactTemplatePicker(state: AppState, contactId: string): HTMLElement {
+  const contact = state.live.selectedContact.status === 'ready' && state.live.selectedContact.value.id === contactId ? state.live.selectedContact.value : null;
+  const identities = contact?.identities.filter((identity) => identity.kind === 'whatsapp' && identity.validTo === null && rowsOf(state.live.connections).some((connection) => connection.id === identity.scopeId && connection.status === 'healthy')) ?? [];
+  const identityId = state.dialogForm['contactTemplateIdentity'] ?? identities[0]?.id ?? '';
+  const identity = identities.find((entry) => entry.id === identityId);
+  const templates = rowsOf(state.live.whatsappTemplates).filter((template) => template.connectionId === identity?.scopeId);
+  const templateId = state.dialogForm['contactTemplateId'] ?? '';
+  const selected = templates.find((entry) => entry.id === templateId);
+  const definition = selected === undefined ? null : templateDefinition(selected);
+  return dialogShell(state, t(state, 'إرسال قالب للعميل', 'Send template to contact'), [
+    contact === null ? notice('warning', 'alert', t(state, 'ملف العميل غير متاح. أعد فتحه.', 'Contact no longer available. Reopen it.')) : null,
+    contact?.suppressed.includes('whatsapp') ? notice('warning', 'alert', t(state, 'ألغى العميل الاشتراك في واتساب؛ لا ترسل له.', 'This contact opted out of WhatsApp; do not send.')) : null,
+    identities.length === 0 ? notice('warning', 'alert', t(state, 'لا يوجد رقم واتساب متصل لهذا العميل.', 'No connected WhatsApp identity for this contact.')) : null,
+    identities.length > 0 ? selectControl({ act: 'form-toggle', form: 'contactTemplateIdentity', value: identityId, ariaLabel: t(state, 'رقم العميل', 'Contact number'), options: identities.map((entry) => ({ value: entry.id, label: entry.externalId })) }) : null,
+    state.live.whatsappTemplates.status === 'loading' ? h('p', { role: 'status' }, [t(state, 'جارٍ تحميل القوالب…', 'Loading templates…')]) : null,
+    state.live.whatsappTemplates.status === 'error' ? notice('warning', 'alert', state.live.whatsappTemplates.error.message) : null,
+    templates.length === 0 && state.live.whatsappTemplates.status === 'ready' ? notice('info', 'info', t(state, 'لا توجد قوالب معتمدة لهذا الرقم. زامنها من القنوات.', 'No approved templates on this number. Sync them from Channels.')) : null,
+    templates.length > 0 ? selectControl({ act: 'form-toggle', form: 'contactTemplateId', value: templateId, ariaLabel: t(state, 'القالب', 'Template'), options: [{ value: '', label: t(state, 'اختر قالبًا', 'Choose a template') }, ...templates.map((entry) => ({ value: entry.id, label: `${entry.templateName} · ${entry.language}${templateDefinition(entry).sendSupported ? '' : ' (unsupported)'}` }))] }) : null,
+    definition !== null && !definition.sendSupported ? notice('warning', 'alert', definition.unsupportedReason ?? 'Unsupported template') : null,
+    state.formErrors['contactTemplate'] ? notice('warning', 'alert', state.formErrors['contactTemplate']) : null,
+    ...(definition?.parameters ?? []).map((parameter) => h('label', { class: 'field' }, [
+      h('span', { class: 'field__label' }, [parameter.mediaFormat === undefined ? `${parameter.component} {{${parameter.name ?? String(parameter.position)}}}` : t(state, 'رابط وسائط HTTPS', 'HTTPS media URL')]),
+      h('input', { class: 'input', type: parameter.mediaFormat === undefined ? 'text' : 'url', maxlength: 1024, value: state.dialogForm[`contactTemplateParam_${parameter.key.replaceAll(':', '_')}`] ?? '', placeholder: parameter.example ?? (parameter.mediaFormat === undefined ? '' : 'https://example.com/media.jpg'), 'data-act': 'form', 'data-form': `contactTemplateParam_${parameter.key.replaceAll(':', '_')}` }),
+    ])),
+    state.live.error === null ? null : inlineError(state, state.live.error),
+  ], [
+    closeButton(state),
+    button({ label: t(state, 'إرسال القالب', 'Send template'), icon: 'send', act: 'live-contact-template-send', variant: 'primary', busy: state.live.busy === 'contact-template-send', disabled: contact === null || contact.suppressed.includes('whatsapp') || identity === undefined || definition === null || !definition.sendSupported }),
+  ], { description: t(state, 'يُرسل كقالب معتمد فقط، وتظهر نتيجة التسليم بعد رد Meta.', 'Queued as an approved template; delivery status follows Meta’s response.') });
+}
+
 function whatsappParameterKey(key: string): string { return `whatsappTemplateParameter_${key.replaceAll(':', '_')}`; }
 function templatePreviewChildren(text: string, component: string, values: Readonly<Record<string, string>>): Child[] {
   const result: Child[] = [];
   let cursor = 0;
-  for (const match of text.matchAll(/\{\{(\d+)\}\}/g)) {
+  for (const match of text.matchAll(/\{\{([^}]+)\}\}/g)) {
     const at = match.index!;
     const token = match[0];
     const position = match[1]!;

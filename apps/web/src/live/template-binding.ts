@@ -5,7 +5,7 @@ import type {
   WhatsAppTemplateDefinition,
   WhatsAppTemplateParameterDefinition,
 } from '@convo/domain';
-import { defineWhatsAppTemplate, parseTemplateBindings, TEMPLATE_BINDING_SOURCES } from '@convo/domain';
+import { defineWhatsAppTemplate, isPublicHttpsTemplateMediaUrl, parseTemplateBindings, TEMPLATE_BINDING_SOURCES } from '@convo/domain';
 import type { WhatsAppTemplate } from '../api/automations.js';
 import type { CustomField } from '../api/metadata.js';
 
@@ -28,6 +28,7 @@ export function bindingKey(prefix: string, parameter: string, part: BindingPart)
 
 /** The first header or body variable is usually a name; anything else is text the operator types. */
 export function defaultSource(parameter: WhatsAppTemplateParameterDefinition): TemplateBindingSource {
+  if (parameter.mediaFormat !== undefined) return 'static';
   return parameter.component !== 'button' && parameter.position === 1 ? 'display_name' : 'static';
 }
 
@@ -65,7 +66,7 @@ export function bindingsFromForm(
     const saved = stored[parameter.key];
     const typed = (part: BindingPart): string | undefined => form[bindingKey(prefix, parameter.key, part)];
     const chosen = typed('source') ?? saved?.source;
-    const source = (TEMPLATE_BINDING_SOURCES as readonly (string | undefined)[]).includes(chosen) ? chosen as TemplateBindingSource : defaultSource(parameter);
+    const source = parameter.mediaFormat !== undefined ? 'static' : (TEMPLATE_BINDING_SOURCES as readonly (string | undefined)[]).includes(chosen) ? chosen as TemplateBindingSource : defaultSource(parameter);
     sources[parameter.key] = source;
     const fallback = (typed('fallback') ?? saved?.fallback ?? '').trim();
     const extra = fallback === '' ? {} : { fallback };
@@ -75,7 +76,7 @@ export function bindingsFromForm(
       else bindings[parameter.key] = { source, fieldId, ...extra };
     } else if (source === 'static') {
       const value = (typed('value') ?? saved?.value ?? '').trim();
-      if (value === '') missing.push(parameter.key);
+      if (value === '' || (parameter.mediaFormat !== undefined && !isPublicHttpsTemplateMediaUrl(value))) missing.push(parameter.key);
       else bindings[parameter.key] = { source, value };
     } else {
       bindings[parameter.key] = { source, ...extra };
@@ -98,7 +99,7 @@ export function sampleValues(
 ): Readonly<Record<string, string>> {
   return Object.fromEntries(definition.parameters.map((parameter) => {
     const binding = bindings[parameter.key];
-    const value = binding === undefined ? `{{${String(parameter.position)}}}`
+    const value = binding === undefined ? `{{${parameter.name ?? String(parameter.position)}}}`
       : binding.source === 'display_name' ? sample.name
         : binding.source === 'phone' ? sample.phone
           : binding.source === 'static' ? binding.value!
@@ -118,7 +119,7 @@ export function templateSegments(
 ): readonly TemplateSegment[] {
   const segments: TemplateSegment[] = [];
   let last = 0;
-  for (const match of text.matchAll(/\{\{(\d+)\}\}/g)) {
+  for (const match of text.matchAll(/\{\{([^}]+)\}\}/g)) {
     if (match.index > last) segments.push({ text: text.slice(last, match.index) });
     const key = `${component}:${match[1]!}`;
     segments.push({ key, value: values[key] ?? match[0] });

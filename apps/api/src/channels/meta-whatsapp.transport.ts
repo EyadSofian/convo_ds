@@ -347,7 +347,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
                 type: component.type,
                 ...(component.subType === undefined ? {} : { sub_type: component.subType }),
                 ...(component.index === undefined ? {} : { index: component.index }),
-                parameters: component.parameters.map((parameter) => ({ type: parameter.type, text: parameter.text })),
+                parameters: component.parameters,
               })) }),
         },
       };
@@ -369,7 +369,7 @@ function normalizeTemplate(value: unknown): ProviderTemplate[] {
   const components = item?.['components'];
   if (typeof providerId !== 'string' || typeof name !== 'string' || typeof language !== 'string' || typeof category !== 'string' || typeof rawStatus !== 'string' || !Array.isArray(components)) return [];
   const status = templateStatus(rawStatus);
-  const variables = Array.from(new Set(JSON.stringify(components).match(/\{\{\d+\}\}/g) ?? [])).sort();
+  const variables = Array.from(new Set(JSON.stringify(components).match(/\{\{(?:[1-9]\d{0,2}|[a-z][a-z0-9_]{0,63})\}\}/g) ?? [])).sort();
   return [{ providerId, name, language, category: category.toLowerCase(), status, components, variables }];
 }
 

@@ -88,7 +88,7 @@ describe('WhatsApp template picker', () => {
     expect(picker.querySelector('[data-act="live-whatsapp-template-send"]')?.hasAttribute('disabled')).toBe(false);
   });
 
-  it('marks unsupported media and stale statuses non-sendable, with English content remaining LTR', () => {
+  it('marks stale statuses non-sendable, with English content remaining LTR', () => {
     const state = base();
     const media: WhatsAppTemplateCatalogueItem = {
       id: 'template-media', providerTemplateId: 'meta-media', name: 'receipt', language: 'en', category: 'utility', status: 'paused',
@@ -99,7 +99,7 @@ describe('WhatsApp template picker', () => {
     state.dialogForm = { whatsappTemplateId: media.id };
     const picker = open(state, 'whatsapp-template', 'conversation-1');
     expect(picker.querySelector('.wa-template-preview')?.getAttribute('dir')).toBe('ltr');
-    expect(picker.textContent).toContain('Media header is not supported yet');
+    expect(picker.textContent).not.toContain('Media header is not supported yet');
     expect((picker.querySelector('[data-act="live-whatsapp-template-send"]') as HTMLButtonElement).disabled).toBe(true);
   });
 

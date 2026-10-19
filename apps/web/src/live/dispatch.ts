@@ -10,9 +10,11 @@ import {
   loadContactConnections,
   loadContactsScreen,
   openContact,
+  openContactTemplate,
   openNewContact,
   recordConsent,
   saveContact,
+  sendContactTemplate,
 } from './contact-actions.js';
 import {
   claimConversation,
@@ -1220,6 +1222,8 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-contact-open': async (context, arg) => openContact(context, arg),
+  'live-contact-template-open': async (context, arg) => openContactTemplate(context, arg),
+  'live-contact-template-send': async (context) => sendContactTemplate(context),
 
   'live-contact-save-panel': async (context, arg) => saveContactName(context, arg),
   'live-contact-save-screen': async (context, arg) => saveContactName(context, arg),

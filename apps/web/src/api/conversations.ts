@@ -171,6 +171,8 @@ export interface WhatsAppTemplateParameterDefinition {
   readonly index: number | null;
   readonly position: number;
   readonly example: string | null;
+  readonly name?: string;
+  readonly mediaFormat?: 'IMAGE' | 'VIDEO' | 'DOCUMENT';
 }
 export interface WhatsAppTemplateCatalogueItem {
   readonly id: string;

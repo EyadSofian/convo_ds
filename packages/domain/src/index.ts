@@ -110,7 +110,7 @@ export type {
   Readiness,
   ReadinessInput,
 } from './channels/kinds.js';
-export { buildWhatsAppTemplateComponents, defineWhatsAppTemplate, renderWhatsAppTemplatePreview } from './channels/whatsapp-template.js';
+export { buildWhatsAppTemplateComponents, defineWhatsAppTemplate, isPublicHttpsTemplateMediaUrl, renderWhatsAppTemplatePreview } from './channels/whatsapp-template.js';
 export {
   bindingsComplete,
   bindingVariable,

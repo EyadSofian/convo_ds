@@ -6,12 +6,15 @@ export interface WhatsAppTemplateParameterDefinition {
   readonly index: number | null;
   readonly position: number;
   readonly example: string | null;
+  readonly name?: string;
+  readonly mediaFormat?: 'IMAGE' | 'VIDEO' | 'DOCUMENT';
 }
 
-export interface WhatsAppTemplateParameter {
-  readonly type: 'text';
-  readonly text: string;
-}
+export type WhatsAppTemplateParameter =
+  | { readonly type: 'text'; readonly text: string; readonly parameter_name?: string }
+  | { readonly type: 'image'; readonly image: { readonly link: string } }
+  | { readonly type: 'video'; readonly video: { readonly link: string } }
+  | { readonly type: 'document'; readonly document: { readonly link: string } };
 
 export interface WhatsAppTemplateSendComponent {
   readonly type: 'header' | 'body' | 'button';
@@ -36,9 +39,9 @@ export interface WhatsAppTemplateDefinition {
 
 /**
  * Derives a deliberately bounded, display-safe and send-safe model from Meta's
- * component metadata. We currently support positional text placeholders in
- * text HEADER/BODY and dynamic URL buttons. Media uploads, named parameters,
- * flows and other button parameter forms remain visible but cannot be sent.
+ * component metadata. Text HEADER/BODY support positional and named placeholders;
+ * HTTPS media headers and dynamic URL buttons are supported too. Flows and
+ * specialized buttons remain visible but cannot be sent from this editor.
  */
 export function defineWhatsAppTemplate(raw: unknown): WhatsAppTemplateDefinition {
   if (!Array.isArray(raw)) return unsupported('Template components are unavailable.');
@@ -53,11 +56,19 @@ export function defineWhatsAppTemplate(raw: unknown): WhatsAppTemplateDefinition
     if (rawType === 'HEADER' || rawType === 'BODY') {
       const kind = rawType.toLowerCase() as 'header' | 'body';
       components.push({ type: kind, text, format, buttons: [] });
-      if (kind === 'header' && format !== null && format !== 'TEXT') unsupportedReason ??= 'Media headers require a media upload and are not supported yet.';
+      if (kind === 'header' && format !== null && format !== 'TEXT') {
+        if (format === 'IMAGE' || format === 'VIDEO' || format === 'DOCUMENT') {
+          parameters.push({ key: 'header:0', component: 'header', index: null, position: 0, example: null, mediaFormat: format });
+        } else unsupportedReason ??= `Header format ${format} is not supported yet.`;
+      }
       if (text !== null) {
-        const found = placeholders(text);
-        if (found === null) unsupportedReason ??= 'Named or malformed template parameters are not supported yet.';
-        else for (const position of found) parameters.push({ key: `${kind}:${position}`, component: kind, index: null, position, example: exampleFor(component!, position, kind) });
+        const found = textPlaceholders(text);
+        if (found === null) unsupportedReason ??= 'Malformed or mixed template parameters are not supported.';
+        else found.forEach((token, index) => {
+          const name = /^\d+$/.test(token) ? undefined : token;
+          const position = name === undefined ? Number(token) : index + 1;
+          parameters.push({ key: `${kind}:${token}`, component: kind, index: null, position, example: exampleFor(component!, position, kind, name), ...(name === undefined ? {} : { name }) });
+        });
       }
       continue;
     }
@@ -102,10 +113,22 @@ export function buildWhatsAppTemplateComponents(
   if (Object.keys(supplied).some((key) => !expected.has(key)) || definition.parameters.some((entry) => {
     const value = supplied[entry.key]; return value === undefined || value.trim() === '' || value.length > 1024;
   })) return null;
+  const media = definition.parameters.find((entry) => entry.mediaFormat !== undefined);
+  if (media !== undefined && !isPublicHttpsTemplateMediaUrl(supplied[media.key]!)) return null;
   const result: WhatsAppTemplateSendComponent[] = [];
   for (const component of definition.components) {
+    if (component.type === 'header' && media !== undefined) {
+      const link = supplied[media.key]!;
+      const parameter: WhatsAppTemplateParameter = media.mediaFormat === 'IMAGE'
+        ? { type: 'image', image: { link } }
+        : media.mediaFormat === 'VIDEO'
+          ? { type: 'video', video: { link } }
+          : { type: 'document', document: { link } };
+      result.push({ type: 'header', parameters: [parameter] });
+      continue;
+    }
     if ((component.type === 'body' || component.type === 'header') && definition.parameters.some((entry) => entry.component === component.type)) {
-      result.push({ type: component.type, parameters: definition.parameters.filter((entry) => entry.component === component.type).map((entry) => ({ type: 'text', text: supplied[entry.key]! })) });
+      result.push({ type: component.type, parameters: definition.parameters.filter((entry) => entry.component === component.type && entry.mediaFormat === undefined).map((entry) => ({ type: 'text', text: supplied[entry.key]!, ...(entry.name === undefined ? {} : { parameter_name: entry.name }) })) });
     }
   }
   for (const index of new Set(definition.parameters.filter((entry) => entry.component === 'button').map((entry) => entry.index).filter((value): value is number => value !== null))) {
@@ -114,12 +137,34 @@ export function buildWhatsAppTemplateComponents(
   return result;
 }
 
+export function isPublicHttpsTemplateMediaUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || host === 'localhost' || host.endsWith('.localhost')) return false;
+    if (/^(?:127\.|10\.|192\.168\.|169\.254\.|0\.|::1$|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:|fe[89ab][0-9a-f]:)/.test(host)) return false;
+    const ipv4 = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) ? host.split('.').map(Number) : null;
+    return ipv4 === null || !(ipv4[0] === 172 && ipv4[1]! >= 16 && ipv4[1]! <= 31);
+  } catch { return false; }
+}
+
 export function renderWhatsAppTemplatePreview(
   definition: WhatsAppTemplateDefinition,
   supplied: Readonly<Record<string, string>>,
 ): string {
   const body = definition.components.find((component) => component.type === 'body')?.text ?? '';
-  return body.replace(/\{\{(\d+)\}\}/g, (match, number: string) => supplied[`body:${number}`] ?? match);
+  return body.replace(/\{\{([^}]+)\}\}/g, (match, token: string) => supplied[`body:${token}`] ?? match);
+}
+
+function textPlaceholders(text: string): string[] | null {
+  const tokens = [...text.matchAll(/\{\{([^}]+)\}\}/g)];
+  const residue = text.replace(/\{\{[^}]+\}\}/g, '');
+  if (residue.includes('{{') || residue.includes('}}')) return null;
+  const values = [...new Set(tokens.map((token) => token[1]!))];
+  const positional = values.every((value) => /^[1-9]\d{0,2}$/.test(value));
+  const named = values.every((value) => /^[a-z][a-z0-9_]{0,63}$/.test(value));
+  if (!positional && !named) return null;
+  return positional ? values.sort((a, b) => Number(a) - Number(b)) : values;
 }
 
 function placeholders(text: string): number[] | null {
@@ -131,8 +176,13 @@ function placeholders(text: string): number[] | null {
   if (tokens.some((token) => !/^\d+$/.test(token[1]!))) return null;
   return [...new Set(tokens.map((token) => Number(token[1])))].sort((a, b) => a - b);
 }
-function exampleFor(component: Record<string, unknown>, position: number, kind: 'header' | 'body'): string | null {
+function exampleFor(component: Record<string, unknown>, position: number, kind: 'header' | 'body', name?: string): string | null {
   const example = object(component['example']);
+  if (name !== undefined) {
+    const named = example?.[kind === 'header' ? 'header_text_named_params' : 'body_text_named_params'];
+    const matched = Array.isArray(named) ? named.map(object).find((entry) => entry?.['param_name'] === name) : null;
+    if (typeof matched?.['example'] === 'string') return matched['example'];
+  }
   const samples = example?.[kind === 'header' ? 'header_text' : 'body_text'];
   const value = Array.isArray(samples) ? samples[0] : null;
   if (typeof value === 'string') return value;

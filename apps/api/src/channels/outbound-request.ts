@@ -96,7 +96,7 @@ export function parseSendMessage(input: unknown): ParseResult<SendMessageRequest
       const rawParameters = asRecord(raw?.['parameters']);
       const parameters: Record<string, string> = {};
       const invalid = !UUID.test(id) || rawParameters === null || Object.entries(rawParameters).some(([key, value]) => {
-        if (!/^(header|body):[1-9][0-9]{0,2}$|^button:(?:0|[1-9][0-9]{0,2}):[1-9][0-9]{0,2}$/.test(key) || typeof value !== 'string' || value.length > 1024) return true;
+        if (!/^(?:header:0|(?:header|body):(?:[1-9][0-9]{0,2}|[a-z][a-z0-9_]{0,63})|button:(?:0|[1-9][0-9]{0,2}):[1-9][0-9]{0,2})$/.test(key) || typeof value !== 'string' || value.length > 1024) return true;
         parameters[key] = value;
         return false;
       });

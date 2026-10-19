@@ -4,6 +4,9 @@ import type { LiveContext } from './actions.js';
 import type { NewContactField } from './contact-profile.js';
 import { forTenant, fromResult, LOADING, ready, refetching, rowsOf } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
+import { loadWhatsAppTemplates } from './audience-actions.js';
+import { templateDefinition } from './template-binding.js';
+import { buildWhatsAppTemplateComponents } from '@convo/domain';
 
 /**
  * Contacts, against the real API.
@@ -267,6 +270,61 @@ export async function openContact(context: LiveContext, contactId: string): Prom
     const result = await live.contactsApi.read(tenantId, contactId);
     live.selectedContact = fromResult(result, context.now());
     context.refresh();
+  });
+}
+
+/** Start a new WhatsApp conversation from a contact using an approved template. */
+export async function openContactTemplate(context: LiveContext, contactId: string): Promise<boolean> {
+  if (context.live.selectedContact.status !== 'ready' || context.live.selectedContact.value.id !== contactId) return false;
+  context.state.dialog = { kind: 'contact-template', arg: contactId };
+  context.state.dialogForm = {};
+  context.state.formErrors = {};
+  context.live.error = null;
+  context.refresh();
+  await Promise.all([
+    context.live.connections.status === 'ready' ? null : loadContactConnections(context),
+    context.live.whatsappTemplates.status === 'ready' ? null : loadWhatsAppTemplates(context),
+  ]);
+  return true;
+}
+
+export async function sendContactTemplate(context: LiveContext): Promise<boolean> {
+  const { live, state } = context;
+  if (state.dialog?.kind !== 'contact-template' || live.selectedContact.status !== 'ready' || live.selectedContact.value.id !== state.dialog.arg) return false;
+  const contact = live.selectedContact.value;
+  if (contact.suppressed.includes('whatsapp')) return false;
+  const identities = contact.identities.filter((entry) => entry.kind === 'whatsapp' && entry.validTo === null && rowsOf(live.connections).some((connection) => connection.id === entry.scopeId && connection.kind === 'whatsapp' && connection.status === 'healthy'));
+  const identity = identities.find((entry) => entry.id === (state.dialogForm['contactTemplateIdentity'] ?? identities[0]?.id));
+  if (identity === undefined) return false;
+  const template = rowsOf(live.whatsappTemplates).find((entry) => entry.id === state.dialogForm['contactTemplateId'] && entry.connectionId === identity.scopeId && entry.status === 'approved');
+  if (template === undefined) return false;
+  const definition = templateDefinition(template);
+  const parameters = Object.fromEntries(definition.parameters.map((entry) => [entry.key, (state.dialogForm[`contactTemplateParam_${entry.key.replaceAll(':', '_')}`] ?? '').trim()]));
+  if (buildWhatsAppTemplateComponents(definition, parameters) === null) {
+    state.formErrors = { contactTemplate: t(context, 'أكمل قيم القالب الصحيحة قبل الإرسال.', 'Fill in valid template values before sending.') };
+    context.refresh();
+    return false;
+  }
+  return forTenant(context, false, async (tenantId) => {
+    live.busy = 'contact-template-send';
+    live.error = null;
+    context.refresh();
+    const signature = JSON.stringify([identity.scopeId, identity.externalId, template.id, parameters]);
+    const clientMessageId = state.dialogForm['contactTemplateSignature'] === signature && state.dialogForm['contactTemplateMessageId']
+      ? state.dialogForm['contactTemplateMessageId']! : context.newKey();
+    state.dialogForm = { ...state.dialogForm, contactTemplateSignature: signature, contactTemplateMessageId: clientMessageId };
+    const result = await live.channels.sendContactTemplate(tenantId, identity.scopeId, identity.externalId, template.id, parameters, clientMessageId);
+    live.busy = null;
+    if (!result.ok) {
+      live.error = result.error;
+      context.refresh();
+      return false;
+    }
+    state.dialog = null;
+    state.dialogForm = {};
+    pushToast(state, t(context, 'أُضيف القالب إلى قائمة الإرسال؛ انتظر حالة التسليم من Meta.', 'Template queued; check Meta delivery status.'));
+    context.refresh();
+    return true;
   });
 }
 

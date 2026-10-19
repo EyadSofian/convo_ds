@@ -159,6 +159,21 @@ describe('sending a text message', () => {
     });
   });
 
+  it('preserves a media header object when sending an approved media template', async () => {
+    const { adapter, calls } = transport(() => ACCEPTED);
+    await adapter.send('whatsapp', TOKEN, {
+      ...TEXT, messageType: 'template', text: null,
+      template: { name: 'image_update', language: 'ar', components: [
+        { type: 'header', parameters: [{ type: 'image', image: { link: 'https://example.com/class.jpg' } }] },
+        { type: 'body', parameters: [{ type: 'text', text: 'Eyad' }] },
+      ] },
+    });
+    expect(calls[0]?.body).toMatchObject({ template: { components: [
+      { type: 'header', parameters: [{ type: 'image', image: { link: 'https://example.com/class.jpg' } }] },
+      { type: 'body', parameters: [{ type: 'text', text: 'Eyad' }] },
+    ] } });
+  });
+
   it('refuses a message type it cannot actually send, rather than dropping content', async () => {
     const { adapter, calls } = transport(() => ACCEPTED);
     const outcome = await adapter.send('whatsapp', TOKEN, {

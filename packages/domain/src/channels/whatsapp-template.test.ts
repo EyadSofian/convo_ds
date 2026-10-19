@@ -9,6 +9,16 @@ describe('WhatsApp template definition', () => {
     expect(buildWhatsAppTemplateComponents(definition, {})).toEqual([]);
   });
 
+  it('does not misclassify a text-only course update as media', () => {
+    const definition = defineWhatsAppTemplate([{ type: 'BODY', text: 'مرحبًا {{1}}، طلبك للاستفسار عن كورس {{2}} حالته {{3}}.' }]);
+    expect(definition.sendSupported).toBe(true);
+    expect(definition.parameters.map((parameter) => parameter.key)).toEqual(['body:1', 'body:2', 'body:3']);
+    expect(definition.parameters.some((parameter) => parameter.mediaFormat !== undefined)).toBe(false);
+    expect(buildWhatsAppTemplateComponents(definition, { 'body:1': 'Eyad', 'body:2': 'English', 'body:3': 'open' })).toEqual([
+      { type: 'body', parameters: [{ type: 'text', text: 'Eyad' }, { type: 'text', text: 'English' }, { type: 'text', text: 'open' }] },
+    ]);
+  });
+
   it('derives positional body and header text parameters and renders a local preview', () => {
     const definition = defineWhatsAppTemplate([
       { type: 'HEADER', format: 'TEXT', text: 'Hello {{1}}' },
@@ -85,14 +95,35 @@ describe('WhatsApp template definition', () => {
     expect(buildWhatsAppTemplateComponents(definition, { 'body:1': 'A', 'body:2': 'B'.repeat(1025) })).toBeNull();
   });
 
-  it('does not send media, named placeholders or specialized button types', () => {
+  it('supports media headers with direct HTTPS URLs, but not specialized buttons', () => {
     const media = defineWhatsAppTemplate([{ type: 'HEADER', format: 'IMAGE', example: { header_handle: ['meta-media-id'] } }, { type: 'BODY', text: 'Hello' }]);
-    const named = defineWhatsAppTemplate([{ type: 'BODY', text: 'Hello {{first_name}}' }]);
     const flow = defineWhatsAppTemplate([{ type: 'BUTTONS', buttons: [{ type: 'FLOW', text: 'Continue' }] }]);
-    expect(media.sendSupported).toBe(false);
-    expect(named.sendSupported).toBe(false);
+    expect(media.sendSupported).toBe(true);
+    expect(media.parameters).toMatchObject([{ key: 'header:0', mediaFormat: 'IMAGE' }]);
     expect(flow.sendSupported).toBe(false);
     expect(buildWhatsAppTemplateComponents(media, {})).toBeNull();
-    expect(buildWhatsAppTemplateComponents(named, {})).toBeNull();
+    expect(buildWhatsAppTemplateComponents(media, { 'header:0': 'http://example.com/image.jpg' })).toBeNull();
+    expect(buildWhatsAppTemplateComponents(media, { 'header:0': 'https://example.com/image.jpg' })).toEqual([
+      { type: 'header', parameters: [{ type: 'image', image: { link: 'https://example.com/image.jpg' } }] },
+    ]);
+  });
+
+  it('supports named text parameters using Meta parameter_name, not a media fallback', () => {
+    const definition = defineWhatsAppTemplate([{ type: 'BODY', text: 'Hello {{first_name}}, your course is {{course_name}}.', example: { body_text_named_params: [{ param_name: 'first_name', example: 'Sara' }] } }]);
+    expect(definition.sendSupported).toBe(true);
+    expect(definition.parameters).toMatchObject([{ key: 'body:first_name', name: 'first_name', example: 'Sara' }, { key: 'body:course_name', name: 'course_name' }]);
+    expect(buildWhatsAppTemplateComponents(definition, { 'body:first_name': 'Eyad', 'body:course_name': 'English' })).toEqual([
+      { type: 'body', parameters: [{ type: 'text', text: 'Eyad', parameter_name: 'first_name' }, { type: 'text', text: 'English', parameter_name: 'course_name' }] },
+    ]);
+    expect(renderWhatsAppTemplatePreview(definition, { 'body:first_name': 'Eyad' })).toBe('Hello Eyad, your course is {{course_name}}.');
+    expect(defineWhatsAppTemplate([{ type: 'BODY', text: '{{1}} {{name}}' }]).sendSupported).toBe(false);
+  });
+
+  it.each(['VIDEO', 'DOCUMENT'] as const)('builds a %s media header with the matching Meta parameter', (format) => {
+    const definition = defineWhatsAppTemplate([{ type: 'HEADER', format }, { type: 'BODY', text: 'Details' }]);
+    const link = 'https://example.com/file';
+    expect(buildWhatsAppTemplateComponents(definition, { 'header:0': link })).toEqual([
+      { type: 'header', parameters: [{ type: format.toLowerCase(), [format.toLowerCase()]: { link } }] },
+    ]);
   });
 });

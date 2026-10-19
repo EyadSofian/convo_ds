@@ -63,6 +63,7 @@ describe('whether a template is fully bound', () => {
 describe('the frozen form of a binding', () => {
   it('names the source in one string, and reads it back', () => {
     expect(variableKeyOf('button:0:1')).toBe('button_0_1');
+    expect(parseTemplateBindings({ 'body:first_name': { source: 'display_name' } })).toEqual({ 'body:first_name': { source: 'display_name' } });
     expect(bindingVariable({ source: 'display_name' })).toBe('display_name');
     expect(bindingVariable({ source: 'phone' })).toBe('phone');
     expect(bindingVariable({ source: 'field', fieldId: FIELD })).toBe(`field:${FIELD}`);

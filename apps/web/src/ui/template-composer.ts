@@ -64,7 +64,7 @@ export function templateComposer(state: AppState, options: ComposerOptions): HTM
             own.parameters.length === 0 ? null : h('span', { class: 'tpl-card__vars' }, [t(state, `${String(own.parameters.length)} متغير`, `${String(own.parameters.length)} variables`)]),
           ]),
           h('span', { class: 'tpl-card__body', dir: 'auto' }, [body]),
-          own.sendSupported ? null : h('span', { class: 'tpl-card__warning' }, [icon('alert', 12), t(state, 'قالب بوسائط لا يدعمه الإرسال الجماعي بعد', 'Media templates cannot be broadcast yet')]),
+          own.sendSupported ? null : h('span', { class: 'tpl-card__warning' }, [icon('alert', 12), own.unsupportedReason ?? t(state, 'القالب غير مدعوم', 'Template not supported')]),
         ]);
       })),
     ]),
@@ -87,6 +87,7 @@ function categoryLabel(state: AppState, category: string): string {
 
 /** Where in the template a parameter sits. */
 function parameterPlace(state: AppState, parameter: WhatsAppTemplateParameterDefinition): string {
+  if (parameter.mediaFormat !== undefined) return t(state, 'رابط وسائط الرأس', 'Header media URL');
   if (parameter.component === 'header') return t(state, 'العنوان', 'Header');
   if (parameter.component === 'body') return t(state, 'النص', 'Body');
   // A button parameter always belongs to one button.
@@ -113,9 +114,17 @@ function variablesEditor(
       const source = draft.sources[parameter.key]!;
       // Asking for what is missing waits until the operator tried to go on.
       const unfilled = showMissing && draft.missing.includes(parameter.key);
+      if (parameter.mediaFormat !== undefined) return h('div', { class: `tpl-var${unfilled ? ' tpl-var--missing' : ''}`, 'data-parameter': parameter.key }, [
+        h('label', { class: 'field' }, [
+          h('span', { class: 'field__label' }, [parameterPlace(state, parameter)]),
+          h('input', { class: 'input', type: 'url', value: binding?.value ?? state.dialogForm[key('value')] ?? '', placeholder: 'https://example.com/media.jpg', 'aria-label': parameterPlace(state, parameter), 'data-act': 'form', 'data-form': key('value') }),
+        ]),
+        h('p', { class: 'field__hint' }, [t(state, 'استخدم رابط HTTPS عام ومباشر للملف؛ معاينة Meta ليست رابط إرسال.', 'Use a public direct HTTPS file URL; Meta’s example media is not a sendable link.')]),
+        unfilled ? h('p', { class: 'field__error' }, [t(state, 'أدخل رابط وسائط HTTPS.', 'Enter an HTTPS media URL.')]) : null,
+      ]);
       return h('div', { class: `tpl-var${unfilled ? ' tpl-var--missing' : ''}`, 'data-parameter': parameter.key }, [
         h('span', { class: 'tpl-var__label' }, [
-          h('code', { class: 'tpl-var__token', dir: 'ltr' }, [`{{${String(parameter.position)}}}`]),
+          h('code', { class: 'tpl-var__token', dir: 'ltr' }, [`{{${parameter.name ?? String(parameter.position)}}}`]),
           h('span', { class: 'tpl-var__place' }, [parameterPlace(state, parameter)]),
         ]),
         selectControl({
@@ -205,7 +214,9 @@ export function whatsappPreview(
       definition === null
         ? h('div', { class: 'wa-bubble wa-bubble--empty' }, [t(state, 'ستظهر رسالتك هنا', 'Your message appears here')])
         : h('div', { class: 'wa-bubble', dir: language.toLowerCase().startsWith('ar') ? 'rtl' : 'ltr' }, [
-            header?.text === null || header === undefined ? null : h('p', { class: 'wa-bubble__header' }, segments(header.text, 'header')),
+            header === undefined ? null : header.format !== null && header.format !== 'TEXT'
+              ? h('p', { class: 'wa-bubble__header' }, [t(state, `وسائط ${header.format}`, `${header.format} media`), ' · ', values['header:0'] ?? '—'])
+              : header.text === null ? null : h('p', { class: 'wa-bubble__header' }, segments(header.text, 'header')),
             body?.text === null || body === undefined ? null : h('p', { class: 'wa-bubble__body' }, segments(body.text, 'body')),
             footer?.text === null || footer === undefined ? null : h('p', { class: 'wa-bubble__footer' }, [footer.text]),
             h('span', { class: 'wa-bubble__time', dir: 'ltr' }, ['12:00']),

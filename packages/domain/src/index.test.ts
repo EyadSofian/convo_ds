@@ -115,6 +115,7 @@ describe('@convo/domain public surface', () => {
       "isLiveHandoff",
       "isOwnerState",
       "isPermissionKey",
+      "isPublicHttpsTemplateMediaUrl",
       "isRealtimeEventType",
       "maskIdentity",
       "mayAutoRetry",
