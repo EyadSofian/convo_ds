@@ -19,6 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Hostinger deployment safety checks
+        run: |
+          bash -n deploy/hostinger-receive.sh
+          python3 scripts/test-hostinger-deploy.py
+
       - uses: pnpm/action-setup@v4
         with:
           version: 9.12.0
