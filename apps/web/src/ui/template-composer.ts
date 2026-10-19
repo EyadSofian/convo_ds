@@ -64,7 +64,7 @@ export function templateComposer(state: AppState, options: ComposerOptions): HTM
             own.parameters.length === 0 ? null : h('span', { class: 'tpl-card__vars' }, [t(state, `${String(own.parameters.length)} متغير`, `${String(own.parameters.length)} variables`)]),
           ]),
           h('span', { class: 'tpl-card__body', dir: 'auto' }, [body]),
-          own.sendSupported ? null : h('span', { class: 'tpl-card__warning' }, [icon('alert', 12), own.unsupportedReason ?? t(state, 'القالب غير مدعوم', 'Template not supported')]),
+          own.sendSupported ? null : h('span', { class: 'tpl-card__warning' }, [icon('alert', 12), own.unsupportedReason!]),
         ]);
       })),
     ]),
@@ -215,7 +215,7 @@ export function whatsappPreview(
         ? h('div', { class: 'wa-bubble wa-bubble--empty' }, [t(state, 'ستظهر رسالتك هنا', 'Your message appears here')])
         : h('div', { class: 'wa-bubble', dir: language.toLowerCase().startsWith('ar') ? 'rtl' : 'ltr' }, [
             header === undefined ? null : header.format !== null && header.format !== 'TEXT'
-              ? h('p', { class: 'wa-bubble__header' }, [t(state, `وسائط ${header.format}`, `${header.format} media`), ' · ', values['header:0'] ?? '—'])
+              ? h('p', { class: 'wa-bubble__header' }, [t(state, `وسائط ${header.format}`, `${header.format} media`), ' · ', values['header:0']!])
               : header.text === null ? null : h('p', { class: 'wa-bubble__header' }, segments(header.text, 'header')),
             body?.text === null || body === undefined ? null : h('p', { class: 'wa-bubble__body' }, segments(body.text, 'body')),
             footer?.text === null || footer === undefined ? null : h('p', { class: 'wa-bubble__footer' }, [footer.text]),

@@ -119,7 +119,7 @@ export function contactBody(state: AppState, contact: Contact, live: LiveState, 
               )),
         ]),
       ]),
-      where === 'screen' && hasPermission(live, 'conversation.reply') && hasPermission(live, 'automation.read') && hasPermission(live, 'channel.manage') && liveIdentities.some((identity) => identity.kind === 'whatsapp')
+      where === 'screen' && hasPermission(live, 'conversation.reply') && hasPermission(live, 'automation.read') && hasPermission(live, 'channel.manage') && !contact.suppressed.includes('whatsapp') && liveIdentities.some((identity) => identity.kind === 'whatsapp')
         ? button({ label: t(state, 'إرسال قالب واتساب', 'Send WhatsApp template'), icon: 'send', act: 'live-contact-template-open', arg: contact.id, small: true })
         : null,
       contact.suppressed.length === 0

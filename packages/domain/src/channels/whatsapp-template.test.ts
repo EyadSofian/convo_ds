@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildWhatsAppTemplateComponents, defineWhatsAppTemplate, renderWhatsAppTemplatePreview } from './whatsapp-template.js';
+import { buildWhatsAppTemplateComponents, defineWhatsAppTemplate, isPublicHttpsTemplateMediaUrl, renderWhatsAppTemplatePreview } from './whatsapp-template.js';
 
 describe('WhatsApp template definition', () => {
   it('supports a parameter-free text template', () => {
@@ -125,5 +125,26 @@ describe('WhatsApp template definition', () => {
     expect(buildWhatsAppTemplateComponents(definition, { 'header:0': link })).toEqual([
       { type: 'header', parameters: [{ type: format.toLowerCase(), [format.toLowerCase()]: { link } }] },
     ]);
+  });
+
+  it('identifies unsupported header formats and malformed button URLs precisely', () => {
+    expect(defineWhatsAppTemplate([{ type: 'HEADER', format: 'LOCATION' }]).unsupportedReason).toBe('Header format LOCATION is not supported yet.');
+    expect(defineWhatsAppTemplate([{ type: 'BUTTONS', buttons: [{ type: 'URL', url: 'https://example.com/{{1' }] }]).sendSupported).toBe(false);
+  });
+
+  it('rejects private and invalid media destinations while allowing public HTTPS links', () => {
+    expect(isPublicHttpsTemplateMediaUrl('https://127.0.0.1/image.jpg')).toBe(false);
+    expect(isPublicHttpsTemplateMediaUrl('https://172.16.0.1/image.jpg')).toBe(false);
+    expect(isPublicHttpsTemplateMediaUrl('https://8.8.8.8/image.jpg')).toBe(true);
+    expect(isPublicHttpsTemplateMediaUrl('https://media.example.com/image.jpg')).toBe(true);
+    expect(isPublicHttpsTemplateMediaUrl('not a URL')).toBe(false);
+  });
+
+  it('reads named header examples and ignores malformed named examples', () => {
+    const header = defineWhatsAppTemplate([{ type: 'HEADER', format: 'TEXT', text: 'Hello {{first_name}}', example: { header_text_named_params: [{ param_name: 'first_name', example: 'Sara' }] } }]);
+    expect(header.parameters[0]?.example).toBe('Sara');
+    const malformed = defineWhatsAppTemplate([{ type: 'BODY', text: 'Hi {{first_name}}', example: { body_text_named_params: [null] } }]);
+    expect(malformed.parameters[0]?.example).toBeNull();
+    expect(defineWhatsAppTemplate([{ type: 'BODY', text: 'Hi {{first_name}}' }]).parameters[0]?.example).toBeNull();
   });
 });

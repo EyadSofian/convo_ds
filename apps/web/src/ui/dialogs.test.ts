@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import type { Campaign } from '../api/campaigns';
 import type { ChannelConnection } from '../api/channels';
 import type { WhatsAppTemplateCatalogueItem } from '../api/conversations';
+import type { Contact } from '../api/contacts';
+import type { WhatsAppTemplate } from '../api/automations';
 import { createState } from '../state';
 import { ready } from '../live/store';
 import type { AppState } from '../state';
@@ -103,6 +105,22 @@ describe('WhatsApp template picker', () => {
     expect((picker.querySelector('[data-act="live-whatsapp-template-send"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('accepts a media header URL and named text values in the inbox template picker', () => {
+    const state = base();
+    const item: WhatsAppTemplateCatalogueItem = {
+      id: 'template-media', providerTemplateId: 'meta-media', name: 'course_update', language: 'ar', category: 'utility', status: 'approved',
+      components: [{ type: 'header', text: null, format: 'IMAGE', buttons: [] }, { type: 'body', text: 'مرحبًا {{first_name}}', format: null, buttons: [] }],
+      parameters: [{ key: 'header:0', component: 'header', index: null, position: 0, example: null, mediaFormat: 'IMAGE' }, { key: 'body:first_name', component: 'body', index: null, position: 1, name: 'first_name', example: 'Mona' }],
+      sendSupported: true, unsupportedReason: null, lastSyncedAt: NOW.toISOString(),
+    };
+    state.live.conversationTemplates = ready([item], 1);
+    state.dialogForm = { whatsappTemplateId: item.id, whatsappTemplateParameter_header_0: 'https://example.com/photo.jpg', whatsappTemplateParameter_body_first_name: 'Mona' };
+    const picker = open(state, 'whatsapp-template', 'conversation-1');
+    expect(picker.textContent).toContain('public direct HTTPS URL');
+    expect(picker.querySelector('input[type="url"]')).not.toBeNull();
+    expect(picker.textContent).toContain('first_name');
+  });
+
   it('renders loading, error, empty, pagination, missing-preview and invalid-variable states', () => {
     const state = base();
     state.live.conversationTemplates = { status: 'loading' };
@@ -154,6 +172,74 @@ describe('WhatsApp template picker', () => {
     expect(picker.querySelector('[data-template-preview-key="header:1"]')?.textContent).toBe('{{1}}');
     expect(picker.textContent).toContain('SaraHello!');
     expect(picker.querySelector('.wa-template-preview__button')?.textContent).toBe('Okay');
+  });
+});
+
+describe('contact WhatsApp template picker', () => {
+  const contact: Contact = {
+    id: 'contact-1', displayName: 'Mona', attributes: {}, version: 1, labels: [], customFields: [], createdAt: NOW.toISOString(),
+    identities: [{ id: 'identity-1', kind: 'whatsapp', scopeId: 'cn-1', externalId: '201500000000', validFrom: NOW.toISOString(), validTo: null }],
+    consent: [], suppressed: [],
+  };
+  const template: WhatsAppTemplate = {
+    id: 'template-1', connectionId: 'cn-1', providerTemplateId: 'meta-1', templateName: 'course_update', language: 'ar', category: 'UTILITY', status: 'approved',
+    components: [{ type: 'BODY', text: 'مرحبًا {{first_name}}' }], variables: [], lastSyncedAt: NOW.toISOString(),
+  };
+
+  it('offers a connected contact an approved text template and named variable', () => {
+    const state = base();
+    state.live.selectedContact = ready(contact, 1);
+    state.live.connections = ready([{ ...healthy(), kind: 'whatsapp' }] as ChannelConnection[], 1);
+    state.live.whatsappTemplates = ready([template], 1);
+    state.dialogForm = { contactTemplateId: template.id };
+    const picker = open(state, 'contact-template', contact.id);
+    expect(picker.textContent).toContain('Send template to contact');
+    expect(picker.querySelector('[data-form="contactTemplateParam_body_first_name"]')).not.toBeNull();
+    expect((picker.querySelector('[data-act="live-contact-template-send"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('shows loading, no channel, missing contact, opt-out and catalogue errors without offering send', () => {
+    const state = base();
+    state.live.selectedContact = ready({ ...contact, suppressed: ['whatsapp'] }, 1);
+    state.live.connections = ready([], 1);
+    state.live.whatsappTemplates = { status: 'loading' };
+    let picker = open(state, 'contact-template', contact.id);
+    expect(picker.textContent).toContain('Loading templates');
+    expect(picker.textContent).toContain('opted out');
+    expect(picker.textContent).toContain('No connected WhatsApp identity');
+    expect((picker.querySelector('[data-act="live-contact-template-send"]') as HTMLButtonElement).disabled).toBe(true);
+    state.live.whatsappTemplates = { status: 'error', error: { code: 'unavailable', message: 'Catalog failed', requestId: null, status: 503, details: [] } };
+    expect(open(state, 'contact-template', contact.id).textContent).toContain('Catalog failed');
+    state.live.whatsappTemplates = ready([], 1);
+    expect(open(state, 'contact-template', contact.id).textContent).toContain('No approved templates');
+    state.live.selectedContact = { status: 'idle' };
+    picker = open(state, 'contact-template', contact.id);
+    expect(picker.textContent).toContain('Contact no longer available');
+  });
+
+  it('explains unsupported templates and renders media URL inputs', () => {
+    const state = base();
+    state.live.selectedContact = ready(contact, 1);
+    state.live.connections = ready([{ ...healthy(), kind: 'whatsapp' }] as ChannelConnection[], 1);
+    state.live.whatsappTemplates = ready([{ ...template, components: [{ type: 'BUTTONS', buttons: [{ type: 'FLOW', text: 'Start' }] }] }], 1);
+    state.dialogForm = { contactTemplateId: template.id };
+    expect(open(state, 'contact-template', contact.id).textContent).toContain('button type is not supported');
+    state.live.whatsappTemplates = ready([{ ...template, components: [{ type: 'HEADER', format: 'IMAGE' }, { type: 'BODY', text: 'Look' }] }], 1);
+    expect(open(state, 'contact-template', contact.id).querySelector('input[type="url"]')).not.toBeNull();
+  });
+
+  it('shows form and API send errors, and labels a positional body variable', () => {
+    const state = base();
+    state.live.selectedContact = ready(contact, 1);
+    state.live.connections = ready([{ ...healthy(), kind: 'whatsapp' }] as ChannelConnection[], 1);
+    state.live.whatsappTemplates = ready([{ ...template, components: [{ type: 'BODY', text: 'Hello {{1}}' }] }], 1);
+    state.dialogForm = { contactTemplateId: template.id };
+    state.formErrors = { contactTemplate: 'Fill in the field.' };
+    state.live.error = { code: 'send_failed', message: 'Provider refused', requestId: null, status: 422, details: [] };
+    const picker = open(state, 'contact-template', contact.id);
+    expect(picker.textContent).toContain('Fill in the field.');
+    expect(picker.textContent).toContain('Provider refused');
+    expect(picker.textContent).toContain('body {{1}}');
   });
 });
 

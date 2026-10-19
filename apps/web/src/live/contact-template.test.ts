@@ -6,6 +6,7 @@ import type { AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { openContactTemplate, sendContactTemplate } from './contact-actions.js';
+import { LIVE_ACTIONS } from './dispatch.js';
 import { ready } from './store.js';
 
 const contact: Contact = {
@@ -56,5 +57,50 @@ describe('contact WhatsApp template send', () => {
     missing.state.dialogForm = { contactTemplateId: template.id, contactTemplateParam_body_1: 'منى' };
     expect(await sendContactTemplate(missing.context)).toBe(false);
     expect(missing.send).not.toHaveBeenCalled();
+  });
+
+  it('refuses stale contact selection and loads channel and template catalogues when needed', async () => {
+    const { state, context } = setup();
+    state.live.selectedContact = { status: 'idle' };
+    expect(await openContactTemplate(context, contact.id)).toBe(false);
+    state.live.selectedContact = ready(contact, 1);
+    expect(await openContactTemplate(context, 'somebody-else')).toBe(false);
+    state.live.connections = { status: 'idle' };
+    state.live.whatsappTemplates = { status: 'idle' };
+    expect(await LIVE_ACTIONS['live-contact-template-open']?.(context, contact.id)).toBe(true);
+    expect(state.live.connections.status).toBe('ready');
+    expect(state.live.whatsappTemplates.status).toBe('ready');
+  });
+
+  it('refuses missing dialog, identity or approved template', async () => {
+    const { state, context, send } = setup();
+    expect(await sendContactTemplate(context)).toBe(false);
+    await openContactTemplate(context, contact.id);
+    state.live.selectedContact = { status: 'idle' };
+    expect(await sendContactTemplate(context)).toBe(false);
+    state.live.selectedContact = ready(contact, 1);
+    state.dialog = { kind: 'contact-template', arg: 'wrong-contact' };
+    expect(await sendContactTemplate(context)).toBe(false);
+    state.dialog = { kind: 'contact-template', arg: contact.id };
+    state.live.selectedContact = ready({ ...contact, identities: [] }, 1);
+    expect(await sendContactTemplate(context)).toBe(false);
+    state.live.selectedContact = ready(contact, 1);
+    state.dialogForm = { contactTemplateIdentity: 'missing-identity', contactTemplateId: template.id };
+    expect(await sendContactTemplate(context)).toBe(false);
+    state.dialogForm = { contactTemplateId: 'missing-template' };
+    expect(await sendContactTemplate(context)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('keeps the idempotency key on a failed send and lets the operator retry', async () => {
+    const { state, context, send } = setup();
+    const error = { code: 'provider_unavailable', message: 'Try again', status: 503, requestId: 'req', details: [] };
+    send.mockResolvedValueOnce({ ok: false, error });
+    await openContactTemplate(context, contact.id);
+    state.dialogForm = { contactTemplateId: template.id, contactTemplateParam_body_1: 'منى', contactTemplateParam_body_2: 'مفتوح' };
+    expect(await LIVE_ACTIONS['live-contact-template-send']?.(context, '')).toBe(false);
+    expect(state.live.error).toEqual(error);
+    expect(await sendContactTemplate(context)).toBe(true);
+    expect(send.mock.calls[0]?.at(-1)).toBe(send.mock.calls[1]?.at(-1));
   });
 });

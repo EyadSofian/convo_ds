@@ -99,7 +99,7 @@ export function sampleValues(
 ): Readonly<Record<string, string>> {
   return Object.fromEntries(definition.parameters.map((parameter) => {
     const binding = bindings[parameter.key];
-    const value = binding === undefined ? `{{${parameter.name ?? String(parameter.position)}}}`
+    const value = binding === undefined ? (parameter.mediaFormat === undefined ? `{{${parameter.name ?? String(parameter.position)}}}` : '—')
       : binding.source === 'display_name' ? sample.name
         : binding.source === 'phone' ? sample.phone
           : binding.source === 'static' ? binding.value!

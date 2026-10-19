@@ -138,7 +138,7 @@ function contactTemplatePicker(state: AppState, contactId: string): HTMLElement 
     state.live.whatsappTemplates.status === 'error' ? notice('warning', 'alert', state.live.whatsappTemplates.error.message) : null,
     templates.length === 0 && state.live.whatsappTemplates.status === 'ready' ? notice('info', 'info', t(state, 'لا توجد قوالب معتمدة لهذا الرقم. زامنها من القنوات.', 'No approved templates on this number. Sync them from Channels.')) : null,
     templates.length > 0 ? selectControl({ act: 'form-toggle', form: 'contactTemplateId', value: templateId, ariaLabel: t(state, 'القالب', 'Template'), options: [{ value: '', label: t(state, 'اختر قالبًا', 'Choose a template') }, ...templates.map((entry) => ({ value: entry.id, label: `${entry.templateName} · ${entry.language}${templateDefinition(entry).sendSupported ? '' : ' (unsupported)'}` }))] }) : null,
-    definition !== null && !definition.sendSupported ? notice('warning', 'alert', definition.unsupportedReason ?? 'Unsupported template') : null,
+    definition !== null && !definition.sendSupported ? notice('warning', 'alert', definition.unsupportedReason!) : null,
     state.formErrors['contactTemplate'] ? notice('warning', 'alert', state.formErrors['contactTemplate']) : null,
     ...(definition?.parameters ?? []).map((parameter) => h('label', { class: 'field' }, [
       h('span', { class: 'field__label' }, [parameter.mediaFormat === undefined ? `${parameter.component} {{${parameter.name ?? String(parameter.position)}}}` : t(state, 'رابط وسائط HTTPS', 'HTTPS media URL')]),

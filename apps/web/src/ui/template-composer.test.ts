@@ -74,6 +74,27 @@ describe('the template list', () => {
     expect(card.getAttribute('data-arg')).toBe('pick:wa-1');
     expect(card.querySelector('.tpl-card__warning')).toBeNull();
   });
+
+  it('shows an HTTPS input and preview for media, while explaining unsupported button flows', () => {
+    const media = template({ id: 'wa-media', components: [{ type: 'HEADER', format: 'IMAGE' }, { type: 'BODY', text: 'Look' }] });
+    const flow = template({ id: 'wa-flow', components: [{ type: 'BUTTONS', buttons: [{ type: 'FLOW', text: 'Continue' }] }] });
+    const s = state();
+    s.dialogForm = { p_header_0_value: 'https://example.com/media.jpg' };
+    const root = templateComposer(s, { ...OPTIONS, templates: [media, flow], selectedId: media.id });
+    const cards = [...root.querySelectorAll('.tpl-card')] as HTMLButtonElement[];
+    expect(cards[0]?.disabled).toBe(false);
+    expect(cards[1]?.disabled).toBe(true);
+    expect(cards[1]?.querySelector('.tpl-card__warning')?.textContent).toContain('button type is not supported');
+    expect(root.querySelector('.tpl-var[data-parameter="header:0"] input[type="url"]')).not.toBeNull();
+    expect(root.querySelector('.wa-bubble__header')?.textContent).toContain('https://example.com/media.jpg');
+    const missing = templateComposer(state(), { ...OPTIONS, templates: [media], selectedId: media.id, showMissing: true });
+    expect(missing.querySelector('.tpl-var--missing .field__error')?.textContent).toContain('HTTPS media URL');
+    expect(missing.querySelector('.wa-bubble__header')?.textContent).toContain('—');
+    const fromForm = state();
+    fromForm.dialogForm = { p_header_0_value: 'https://example.com/form.jpg' };
+    const withValue = templateComposer(fromForm, { ...OPTIONS, templates: [media], selectedId: media.id });
+    expect((withValue.querySelector('.tpl-var input[type="url"]') as HTMLInputElement).value).toBe('https://example.com/form.jpg');
+  });
 });
 
 describe('binding each variable', () => {

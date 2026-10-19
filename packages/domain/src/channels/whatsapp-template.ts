@@ -180,7 +180,7 @@ function exampleFor(component: Record<string, unknown>, position: number, kind: 
   const example = object(component['example']);
   if (name !== undefined) {
     const named = example?.[kind === 'header' ? 'header_text_named_params' : 'body_text_named_params'];
-    const matched = Array.isArray(named) ? named.map(object).find((entry) => entry?.['param_name'] === name) : null;
+    const matched = Array.isArray(named) ? named.map(object).find((entry) => entry?.['param_name'] === name) : undefined;
     if (typeof matched?.['example'] === 'string') return matched['example'];
   }
   const samples = example?.[kind === 'header' ? 'header_text' : 'body_text'];

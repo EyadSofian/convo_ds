@@ -45,6 +45,15 @@ describe('the bindings on screen', () => {
     expect(bindingsFromForm({}, 'p_', DEFINITION, { 'body:1': { source: 'field', fieldId: FIELD }, 'button:0:1': { source: 'phone' } }).bindings)
       .toMatchObject({ 'body:1': { source: 'field', fieldId: FIELD }, 'button:0:1': { source: 'phone' } });
   });
+
+  it('requires a direct public HTTPS URL for a media header and keeps its binding static', () => {
+    const definition = templateDefinition({ ...TEMPLATE, components: [{ type: 'HEADER', format: 'IMAGE' }, { type: 'BODY', text: 'Look' }] });
+    const key = bindingKey('p_', 'header:0', 'value');
+    expect(defaultSource(definition.parameters[0]!)).toBe('static');
+    expect(bindingsFromForm({ [key]: 'http://example.com/image.jpg' }, 'p_', definition, {}).missing).toEqual(['header:0']);
+    expect(bindingsFromForm({ [key]: 'https://example.com/image.jpg' }, 'p_', definition, {}).bindings).toEqual({ 'header:0': { source: 'static', value: 'https://example.com/image.jpg' } });
+    expect(bindingsFromForm({ [key]: 'https://example.com/image.jpg', p_header_0_source: 'phone' }, 'p_', definition, {}).sources).toEqual({ 'header:0': 'static' });
+  });
 });
 
 describe('the preview', () => {
