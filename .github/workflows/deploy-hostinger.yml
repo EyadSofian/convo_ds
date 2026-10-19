@@ -1,0 +1,95 @@
+name: Deploy Hostinger
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hostinger-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # workflow_run can also fire for PR runs. Never give those code or secrets
+    # a production deployment, even when their branch is called main.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: hostinger-production
+      url: https://omnichannel.berlitzdigitalschool-eg.com
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Check out the exact tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Verify release identity and skip superseded commits
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [[ "$current" == "$RELEASE_SHA" ]]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Skipping superseded CI result.'
+          fi
+
+      - name: Build immutable release image
+        if: steps.release.outputs.current == 'true'
+        run: |
+          set -euo pipefail
+          docker build --label "org.opencontainers.image.revision=$RELEASE_SHA" -t "convo:$RELEASE_SHA" .
+          docker save "convo:$RELEASE_SHA" | gzip -1 > "$RUNNER_TEMP/convo.tar.gz"
+
+      - name: Transfer and deploy through restricted SSH command
+        if: steps.release.outputs.current == 'true'
+        env:
+          HOSTINGER_DEPLOY_KEY: ${{ secrets.HOSTINGER_DEPLOY_KEY }}
+          HOSTINGER_KNOWN_HOSTS: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Check again after building; a newer main may now be waiting for CI.
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [[ "$current" != "$RELEASE_SHA" ]]; then
+            echo 'Skipping release superseded during build.'
+            exit 0
+          fi
+          test -n "$HOSTINGER_DEPLOY_KEY"
+          test -n "$HOSTINGER_KNOWN_HOSTS"
+          umask 077
+          key="$RUNNER_TEMP/convo-deploy-key"
+          hosts="$RUNNER_TEMP/convo-known-hosts"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$HOSTINGER_DEPLOY_KEY" > "$key"
+          printf '%s\n' "$HOSTINGER_KNOWN_HOSTS" > "$hosts"
+          checksum=$(sha256sum "$RUNNER_TEMP/convo.tar.gz" | cut -d ' ' -f 1)
+          ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts" \
+            -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            root@185.77.96.36 "deploy $RELEASE_SHA $checksum" < "$RUNNER_TEMP/convo.tar.gz"
+
+      - name: Record deployment result
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          CURRENT: ${{ steps.release.outputs.current }}
+        run: |
+          printf 'Commit: %s\n\nJob status: %s\n\nEligible when checked: %s\n' \
+            "$RELEASE_SHA" "$RESULT" "$CURRENT" >> "$GITHUB_STEP_SUMMARY"
