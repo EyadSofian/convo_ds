@@ -19,6 +19,13 @@ describe('WhatsApp template definition', () => {
     ]);
   });
 
+  it('explains why Meta course templates with empty variables cannot be sent', () => {
+    const definition = defineWhatsAppTemplate([{ type: 'BODY', text: 'مرحبًا {{}}، بخصوص طلبك للاستفسار عن كورس {{}}، حالة طلبك الآن: {{}}.' }]);
+    expect(definition.sendSupported).toBe(false);
+    expect(definition.unsupportedReason).toContain('empty {{}} variables');
+    expect(buildWhatsAppTemplateComponents(definition, {})).toBeNull();
+  });
+
   it('derives positional body and header text parameters and renders a local preview', () => {
     const definition = defineWhatsAppTemplate([
       { type: 'HEADER', format: 'TEXT', text: 'Hello {{1}}' },

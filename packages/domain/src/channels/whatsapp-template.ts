@@ -63,7 +63,9 @@ export function defineWhatsAppTemplate(raw: unknown): WhatsAppTemplateDefinition
       }
       if (text !== null) {
         const found = textPlaceholders(text);
-        if (found === null) unsupportedReason ??= 'Malformed or mixed template parameters are not supported.';
+        if (found === null) unsupportedReason ??= /\{\{\s*\}\}/.test(text)
+          ? 'This Meta template has empty {{}} variables. Name or number each variable in WhatsApp Manager, then sync templates again.'
+          : 'Malformed or mixed template parameters are not supported.';
         else found.forEach((token, index) => {
           const name = /^\d+$/.test(token) ? undefined : token;
           const position = name === undefined ? Number(token) : index + 1;
