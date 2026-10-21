@@ -1,5 +1,13 @@
 import type { ChannelKind, ConnectionCheck, SendCommand, SendOutcome } from '@convo/domain';
 
+/** Safe profile-failure category for a retry queue; never contains provider PII. */
+export class ProfileLookupError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = 'ProfileLookupError';
+  }
+}
+
 /**
  * The transport half of a channel adapter — the part that talks to a provider.
  *

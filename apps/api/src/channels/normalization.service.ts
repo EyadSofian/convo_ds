@@ -4,6 +4,7 @@ import type { SqlExecutor } from '@convo/domain';
 import type { Pool } from 'pg';
 import { requireRow } from '../require-row.js';
 import { API_POOL, CHANNEL_TRANSPORT } from '../tokens.js';
+import { ProfileLookupError } from './channel-transport.js';
 import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
 import { ContactService } from '../contacts/contact.service.js';
@@ -110,12 +111,14 @@ export class ChannelNormalizationService {
       // The credential exists only inside the callback and is never logged or
       // returned by the API. A bounded provider timeout protects this worker.
       let name: string | null = null;
+      let failureCode = 'profile_unavailable';
       try {
         name = await withTenant(this.pool, tenantId, async (client) =>
           this.credentials.withActive(asExecutor(client),
             { tenantId, connectionId: row.connection_id, purpose: 'access_token' },
             (token) => this.transport.fetchPeerProfile!(row.kind, token, row.peer_identity)));
-      } catch {
+      } catch (error) {
+        if (error instanceof ProfileLookupError) failureCode = error.code;
         // A missing/rotating key or provider failure is retryable profile work,
         // never a reason to stop normalizing customer messages.
       }
@@ -135,9 +138,9 @@ export class ChannelNormalizationService {
           await sql.query(
             `UPDATE contact_profile_queue SET attempts=attempts+1, lease_until=NULL,
                 next_attempt_at=now() + make_interval(secs => least(86400, 60 * power(2, attempts))::int),
-                last_error_code='profile_unavailable'
+                last_error_code=$4
               WHERE tenant_id=$1 AND contact_id=$2 AND connection_id=$3`,
-            [tenantId, row.contact_id, row.connection_id],
+            [tenantId, row.contact_id, row.connection_id, failureCode],
           );
         }
       });
@@ -282,7 +285,9 @@ export class ChannelNormalizationService {
         `INSERT INTO contact_profile_queue (tenant_id, contact_id, connection_id)
          SELECT $1, $2, $3 WHERE EXISTS
            (SELECT 1 FROM contacts WHERE id=$2 AND display_name=$4)
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT (tenant_id, contact_id, connection_id) DO UPDATE SET
+           attempts=0, next_attempt_at=now(), lease_until=NULL, last_error_code=NULL
+         WHERE contact_profile_queue.attempts >= 5`,
         [tenantId, contact.contactId, connectionId, inbound.peerIdentity],
       );
     }

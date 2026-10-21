@@ -322,6 +322,7 @@ export class ChannelService {
             WHERE id = $1`,
           [connectionId],
         );
+        await retryExhaustedProfiles(sql, connectionId, connection.kind);
       } else {
         await recordError(sql, connectionId, check.code ?? 'provider_rejected');
       }
@@ -490,6 +491,7 @@ export class ChannelService {
           WHERE id = $1`,
         [connectionId, parsed.value.facebookPageId],
       );
+      await retryExhaustedProfiles(sql, connectionId, connection.kind);
       await refreshStatus(sql, connectionId);
       const rows = await readConnections(sql, connectionId);
       return requireRow(rows, 'the connection vanished mid-transaction');
@@ -595,6 +597,17 @@ async function recordError(sql: SqlExecutor, connectionId: string, code: string)
   await sql.query(
     `UPDATE channel_connections SET last_error_code = $2, last_error_at = now() WHERE id = $1`,
     [connectionId, code],
+  );
+}
+
+/** A repaired Meta credential lets exhausted sender-name lookups try again. */
+async function retryExhaustedProfiles(sql: SqlExecutor, connectionId: string, kind: ChannelKind): Promise<void> {
+  if (kind !== 'messenger' && kind !== 'instagram') return;
+  await sql.query(
+    `UPDATE contact_profile_queue
+        SET attempts = 0, next_attempt_at = now(), lease_until = NULL, last_error_code = NULL
+      WHERE connection_id = $1 AND attempts >= 5`,
+    [connectionId],
   );
 }
 

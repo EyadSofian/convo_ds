@@ -10,6 +10,7 @@ import { createApiApplication } from '../../apps/api/src/app.js';
 import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
+import { ProfileLookupError } from '../../apps/api/src/channels/channel-transport.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
 import type { ProviderTemplate, TemplateFetchResult } from '../../apps/api/src/channels/channel-transport.js';
 import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
@@ -2692,13 +2693,36 @@ describe('durable Meta sender profile enrichment', () => {
       ));
       expect(corrected.rows[0]?.display_name).toBe('Operator correction');
 
-      profile.mockRejectedValueOnce(new Error('Provider credential detail must remain private'));
+      profile.mockRejectedValueOnce(new ProfileLookupError('profile_permission_denied'));
       await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
         sender: { id: '4528904674043165' }, recipient: { id: '483612954841071' },
         timestamp: 1789000003000, message: { mid: 'mid.profile.4', text: 'Provider temporarily unavailable' },
       }] }] });
       await normalizer.drain(api.tenantId);
       expect(await normalizer.drainProfiles(api.tenantId)).toBe(0);
+      const deniedProfile = await withTenant(api.pool, api.tenantId, (client) => client.query<{ last_error_code: string }>(
+        `SELECT last_error_code FROM contact_profile_queue q JOIN contact_identities i ON i.contact_id=q.contact_id
+          WHERE i.external_id='4528904674043165'`,
+      ));
+      expect(deniedProfile.rows[0]?.last_error_code).toBe('profile_permission_denied');
+
+      // A later message can retry an exhausted profile after Meta permissions
+      // are repaired; the opaque sender ID must not be stuck forever.
+      await withTenant(api.pool, api.tenantId, (client) => client.query(
+        `UPDATE contact_profile_queue SET attempts=5, next_attempt_at=now()
+          WHERE contact_id=(SELECT contact_id FROM contact_identities WHERE external_id='4528904674043165')`,
+      ));
+      await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
+        sender: { id: '4528904674043165' }, recipient: { id: '483612954841071' },
+        timestamp: 1789000004000, message: { mid: 'mid.profile.5', text: 'Permissions repaired' },
+      }] }] });
+      await normalizer.drain(api.tenantId);
+      const retried = await withTenant(api.pool, api.tenantId, (client) => client.query<{ attempts: number }>(
+        `SELECT attempts FROM contact_profile_queue q JOIN contact_identities i ON i.contact_id=q.contact_id
+          WHERE i.external_id='4528904674043165'`,
+      ));
+      expect(retried.rows[0]?.attempts).toBe(0);
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(1);
     } finally {
       await api.app.close();
     }

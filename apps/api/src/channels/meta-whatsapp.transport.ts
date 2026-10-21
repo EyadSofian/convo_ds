@@ -1,5 +1,6 @@
 import type { ChannelKind, ConnectionCheck, SendCommand, SendOutcome } from '@convo/domain';
 import { PINNED_GRAPH_VERSION } from '@convo/domain';
+import { ProfileLookupError } from './channel-transport.js';
 import type { ChannelTransportPort, ProviderMutationResult, ProviderTemplate, TemplateFetchResult } from './channel-transport.js';
 
 /**
@@ -65,6 +66,24 @@ interface GraphError {
   readonly fbtrace_id?: unknown;
 }
 
+interface ProfileBody {
+  readonly id?: unknown;
+  readonly name?: unknown;
+  readonly username?: unknown;
+  readonly first_name?: unknown;
+  readonly last_name?: unknown;
+  readonly error?: GraphError;
+}
+
+function profileFailureCode(status: number, error: GraphError | undefined): string {
+  if (status === 429 || error?.code === 4 || error?.code === 80007) return 'profile_rate_limited';
+  if (status === 401 || error?.code === 190) return 'profile_credential_rejected';
+  if (status === 403 || error?.code === 10 || error?.code === 200) return 'profile_permission_denied';
+  if (status >= 500) return 'profile_provider_unavailable';
+  if (error?.code === 100) return 'profile_invalid_request';
+  return 'profile_unavailable';
+}
+
 export class MetaWhatsAppTransport implements ChannelTransportPort {
   readonly name = 'meta-whatsapp-cloud';
 
@@ -82,24 +101,34 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
   async fetchPeerProfile(kind: ChannelKind, credential: string, peerIdentity: string): Promise<string | null> {
     if (kind !== 'messenger' && kind !== 'instagram') return null;
     if (!/^[0-9]{1,32}$/.test(peerIdentity)) return null;
-    const fields = kind === 'messenger' ? 'id,name,first_name,last_name' : 'id,name,username';
-    try {
-      const response = await this.fetchImpl(`${this.graphBase}/${encodeURIComponent(peerIdentity)}?fields=${fields}`, {
-        method: 'GET', headers: { authorization: `Bearer ${credential}` },
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-      if (!response.ok) return null;
-      const body = await readJson(response) as { id?: unknown; name?: unknown; username?: unknown; first_name?: unknown; last_name?: unknown } | null;
-      if (body?.id !== peerIdentity) return null;
-      const name = typeof body.name === 'string' ? body.name.trim() : '';
-      const first = typeof body.first_name === 'string' ? body.first_name.trim() : '';
-      const last = typeof body.last_name === 'string' ? body.last_name.trim() : '';
-      const username = typeof body.username === 'string' ? body.username.trim() : '';
-      const candidate = name || [first, last].filter(Boolean).join(' ') || username;
-      return candidate.length > 0 && candidate.length <= 200 ? candidate : null;
-    } catch {
-      return null;
+    // A single unsupported field makes Graph reject the whole profile lookup.
+    // Messenger's Page-scoped profile uses first/last name; Instagram may also
+    // offer a display name, but its username alone is a safe fallback.
+    const request = async (fields: string): Promise<{ response: Response; body: ProfileBody | null }> => {
+      let response: Response;
+      try {
+        response = await this.fetchImpl(`${this.graphBase}/${peerIdentity}?fields=${fields}`, {
+          method: 'GET', headers: { authorization: `Bearer ${credential}` },
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch {
+        throw new ProfileLookupError('profile_provider_unavailable');
+      }
+      return { response, body: await readJson(response) as ProfileBody | null };
+    };
+    let result = await request(kind === 'messenger' ? 'id,first_name,last_name' : 'id,name,username');
+    if (kind === 'instagram' && !result.response.ok && result.body?.error?.code === 100) {
+      result = await request('id,username');
     }
+    if (!result.response.ok) throw new ProfileLookupError(profileFailureCode(result.response.status, result.body?.error));
+    const body = result.body;
+    if (body?.id !== peerIdentity) return null;
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const first = typeof body.first_name === 'string' ? body.first_name.trim() : '';
+    const last = typeof body.last_name === 'string' ? body.last_name.trim() : '';
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const candidate = name || [first, last].filter(Boolean).join(' ') || username;
+    return candidate.length > 0 && candidate.length <= 200 ? candidate : null;
   }
 
   /**

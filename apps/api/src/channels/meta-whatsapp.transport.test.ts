@@ -1,5 +1,6 @@
 import type { SendCommand } from '@convo/domain';
 import { describe, expect, it } from 'vitest';
+import { ProfileLookupError } from './channel-transport.js';
 import { MetaWhatsAppTransport } from './meta-whatsapp.transport.js';
 
 /**
@@ -201,13 +202,14 @@ describe('Messenger and Instagram Graph contracts', () => {
     const mismatch = transport(() => json(200, { id: 'different', name: 'Wrong person' }));
     expect(await mismatch.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
     const denied = transport(() => graphError(403, 10, 'private provider detail'));
-    expect(await denied.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
+    await expect(denied.adapter.fetchPeerProfile('messenger', TOKEN, '123'))
+      .rejects.toMatchObject({ code: 'profile_permission_denied' });
   });
 
   it('uses a Messenger name, first/last name, or Instagram username without trusting malformed profiles', async () => {
     const full = transport(() => json(200, { id: '123', first_name: '  Eyad ', last_name: ' Sofian  ' }));
     expect(await full.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBe('Eyad Sofian');
-    expect(full.calls[0]?.url).toBe(`${GRAPH}/123?fields=id,name,first_name,last_name`);
+    expect(full.calls[0]?.url).toBe(`${GRAPH}/123?fields=id,first_name,last_name`);
     const handle = transport(() => json(200, { id: '123', username: ' eyad_sofian ' }));
     expect(await handle.adapter.fetchPeerProfile('instagram', TOKEN, '123')).toBe('eyad_sofian');
     const empty = transport(() => json(200, { id: '123', name: null, username: null, first_name: null, last_name: null }));
@@ -215,9 +217,21 @@ describe('Messenger and Instagram Graph contracts', () => {
     const long = transport(() => json(200, { id: '123', name: 'x'.repeat(201) }));
     expect(await long.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
     const down = transport(() => new Error('credential must never reach caller'));
-    expect(await down.adapter.fetchPeerProfile('instagram', TOKEN, '123')).toBeNull();
+    await expect(down.adapter.fetchPeerProfile('instagram', TOKEN, '123'))
+      .rejects.toBeInstanceOf(ProfileLookupError);
     expect(await full.adapter.fetchPeerProfile('whatsapp', TOKEN, '123')).toBeNull();
     expect(await full.adapter.validateConnection('custom', TOKEN, '123')).toMatchObject({ ok: false, code: 'channel_not_supported' });
+  });
+
+  it('falls back to the Instagram username if Graph rejects an optional profile field', async () => {
+    const { adapter, calls } = transport((call) => call.url.includes('fields=id,name,username')
+      ? graphError(400, 100, 'Unsupported field')
+      : json(200, { id: '123', username: 'eyad_sofian' }));
+    expect(await adapter.fetchPeerProfile('instagram', TOKEN, '123')).toBe('eyad_sofian');
+    expect(calls.map((call) => call.url)).toEqual([
+      `${GRAPH}/123?fields=id,name,username`,
+      `${GRAPH}/123?fields=id,username`,
+    ]);
   });
 
   it('sends Messenger replies through the Page endpoint and preserves Meta message ids', async () => {
