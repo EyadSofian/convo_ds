@@ -1924,6 +1924,13 @@ describe('the outbound path', () => {
     const id = (response.json() as { data: { id: string } }).data.id;
     answer = accepted('wamid.accepted-1');
 
+    const before = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ first_outbound_at: Date | null }>(
+        'SELECT first_outbound_at FROM channel_connections WHERE id = $1', [connectionId],
+      ),
+    );
+    expect(before.rows[0]?.first_outbound_at).toBeNull();
+
     const result = await dispatcher.dispatch(api.tenantId);
     expect(result.accepted).toBeGreaterThan(0);
     // Provider URLs are scoped by the external Page/IG/phone asset ID, never
@@ -1937,6 +1944,13 @@ describe('the outbound path', () => {
     expect(message['provider_message_id']).toBe('wamid.accepted-1');
     expect(message['attempts']).toHaveLength(1);
     expect((message['attempts'] as { outcome: string }[])[0]?.outcome).toBe('accepted');
+
+    const evidence = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ first_outbound_at: Date | null }>(
+        'SELECT first_outbound_at FROM channel_connections WHERE id = $1', [connectionId],
+      ),
+    );
+    expect(evidence.rows[0]?.first_outbound_at).toBeInstanceOf(Date);
 
     // Accepted work leaves the outbox.
     const remaining = await withTenant(api.pool, api.tenantId, (client) =>

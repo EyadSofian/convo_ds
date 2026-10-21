@@ -480,6 +480,14 @@ export class ChannelDispatcherService {
         if (!applied) {
           return this.rejectStale(sql, attemptId);
         }
+        // Provider acceptance, not queueing or an unknown outcome, proves that
+        // this connection can send. Keep the first proof stable across sends.
+        await sql.query(
+          `UPDATE channel_connections
+              SET first_outbound_at = COALESCE(first_outbound_at, now())
+            WHERE id = $1`,
+          [claim.connection_id],
+        );
         await sql.query('DELETE FROM outbox WHERE message_id = $1', [claim.message_id]);
         // A receipt may already have arrived for this id, before we knew it.
         await reconcileHeldReceipts(sql, claim.message_id, outcome.providerMessageId);
