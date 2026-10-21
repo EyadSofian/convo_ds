@@ -47,52 +47,7 @@ describe('migrate', () => {
   it('applies every migration in filename order on a fresh database', async () => {
     const applied = await migrate(clusterCredentials(), names);
 
-    expect(applied.map((m) => m.name)).toEqual([
-      '0001_foundation.sql',
-      '0002_rls.sql',
-      '0003_permission_catalogue.sql',
-      '0004_installation_mode.sql',
-      '0005_idempotency.sql',
-      '0006_auth_sessions.sql',
-      '0007_role_matrix.sql',
-      '0008_invitations.sql',
-      '0009_people_admin.sql',
-      '0010_channels.sql',
-      '0011_outbound.sql',
-      '0012_channel_settings.sql',
-      '0013_broker_relay.sql',
-      '0014_realtime.sql',
-      '0015_receipt_watermark.sql',
-      '0016_contacts.sql',
-      '0017_conversation_lifecycle.sql',
-      '0018_work_routing.sql',
-      '0019_metadata_catalogue.sql',
-      '0020_campaign_core.sql',
-      '0021_campaign_dispatch_queue.sql',
-      '0022_campaign_test_send.sql',
-      '0023_campaign_reporting.sql',
-      '0024_campaign_failed_retry.sql',
-      '0025_campaign_report_exports.sql',
-      '0026_contact_field_email_phone.sql',
-      '0027_views_and_audiences.sql',
-      '0028_automation_foundation.sql',
-      '0029_automation_event_queue.sql',
-      '0030_email_outbox.sql',
-      '0031_invitation_tenant_scope.sql',
-      '0032_automation_execution.sql',
-      '0033_account_security_events.sql',
-      '0034_campaign_conversation_attribution.sql',
-      '0035_conversation_episode_actor_evidence.sql',
-      '0036_conversation_event_binding.sql',
-      '0037_conversation_identity_history_index.sql',
-      '0038_conversation_episode_actor_fk_set_null.sql',
-      '0039_notifications.sql',
-      '0040_whatsapp_template_send_evidence.sql',
-      '0041_meta_contact_profile_queue.sql',
-      '0042_meta_profile_tenant_backfill.sql',
-      '0043_conversation_removal.sql',
-      '0044_managed_meta_apps.sql',
-    ]);
+    expect(applied.map((m) => m.name)).toEqual([...MIGRATION_FILES].sort());
     expect(applied[0]?.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(applied[0]?.appliedAt).toBeInstanceOf(Date);
 

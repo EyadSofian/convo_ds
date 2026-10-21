@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { NAMES } from '../support/cluster.js';
@@ -12,6 +13,8 @@ import { clusterCredentials, scratchDatabaseName } from '../support/scratch.js';
  * the exit code and the stream each message landed on.
  */
 const BIN = fileURLToPath(new URL('../../packages/database/src/bin.ts', import.meta.url));
+const MIGRATION_FILES = readdirSync(fileURLToPath(new URL('../../packages/database/migrations', import.meta.url)))
+  .filter((name) => name.endsWith('.sql')).sort();
 
 interface Run {
   readonly code: number | null;
@@ -90,52 +93,7 @@ describe('convo-db entry point', () => {
     const first = await runBin(['migrate'], env);
     expect(first.stderr).toBe('');
     expect(first.code).toBe(0);
-    expect(first.stdout.trim().split('\n')).toEqual([
-      'applied 0001_foundation.sql',
-      'applied 0002_rls.sql',
-      'applied 0003_permission_catalogue.sql',
-      'applied 0004_installation_mode.sql',
-      'applied 0005_idempotency.sql',
-      'applied 0006_auth_sessions.sql',
-      'applied 0007_role_matrix.sql',
-      'applied 0008_invitations.sql',
-      'applied 0009_people_admin.sql',
-      'applied 0010_channels.sql',
-      'applied 0011_outbound.sql',
-      'applied 0012_channel_settings.sql',
-      'applied 0013_broker_relay.sql',
-      'applied 0014_realtime.sql',
-      'applied 0015_receipt_watermark.sql',
-      'applied 0016_contacts.sql',
-      'applied 0017_conversation_lifecycle.sql',
-      'applied 0018_work_routing.sql',
-      'applied 0019_metadata_catalogue.sql',
-      'applied 0020_campaign_core.sql',
-      'applied 0021_campaign_dispatch_queue.sql',
-      'applied 0022_campaign_test_send.sql',
-      'applied 0023_campaign_reporting.sql',
-      'applied 0024_campaign_failed_retry.sql',
-      'applied 0025_campaign_report_exports.sql',
-      'applied 0026_contact_field_email_phone.sql',
-      'applied 0027_views_and_audiences.sql',
-      'applied 0028_automation_foundation.sql',
-      'applied 0029_automation_event_queue.sql',
-      'applied 0030_email_outbox.sql',
-      'applied 0031_invitation_tenant_scope.sql',
-      'applied 0032_automation_execution.sql',
-      'applied 0033_account_security_events.sql',
-      'applied 0034_campaign_conversation_attribution.sql',
-      'applied 0035_conversation_episode_actor_evidence.sql',
-      'applied 0036_conversation_event_binding.sql',
-      'applied 0037_conversation_identity_history_index.sql',
-      'applied 0038_conversation_episode_actor_fk_set_null.sql',
-      'applied 0039_notifications.sql',
-      'applied 0040_whatsapp_template_send_evidence.sql',
-      'applied 0041_meta_contact_profile_queue.sql',
-      'applied 0042_meta_profile_tenant_backfill.sql',
-      'applied 0043_conversation_removal.sql',
-      'applied 0044_managed_meta_apps.sql',
-    ]);
+    expect(first.stdout.trim().split('\n')).toEqual(MIGRATION_FILES.map((name) => `applied ${name}`));
 
     const second = await runBin(['migrate'], env);
     expect(second.code).toBe(0);
