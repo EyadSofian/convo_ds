@@ -223,6 +223,30 @@ describe('Messenger and Instagram Graph contracts', () => {
     expect(await full.adapter.validateConnection('custom', TOKEN, '123')).toMatchObject({ ok: false, code: 'channel_not_supported' });
   });
 
+  it.each([
+    [429, 4, 'profile_rate_limited'],
+    [400, 4, 'profile_rate_limited'],
+    [400, 80007, 'profile_rate_limited'],
+    [401, 190, 'profile_credential_rejected'],
+    [400, 190, 'profile_credential_rejected'],
+    [403, 10, 'profile_permission_denied'],
+    [400, 10, 'profile_permission_denied'],
+    [400, 200, 'profile_permission_denied'],
+    [503, 1, 'profile_provider_unavailable'],
+    [400, 100, 'profile_invalid_request'],
+    [400, 1, 'profile_unavailable'],
+  ] as const)('classifies profile failure status %i and Graph code %i without leaking details', async (status, code, expected) => {
+    const { adapter } = transport(() => graphError(status, code, 'sensitive provider message'));
+    await expect(adapter.fetchPeerProfile('messenger', TOKEN, '123'))
+      .rejects.toMatchObject({ code: expected, message: expected });
+  });
+
+  it('classifies provider errors without a Graph error body', async () => {
+    const { adapter } = transport(() => json(400, {}));
+    await expect(adapter.fetchPeerProfile('messenger', TOKEN, '123'))
+      .rejects.toMatchObject({ code: 'profile_unavailable' });
+  });
+
   it('falls back to the Instagram username if Graph rejects an optional profile field', async () => {
     const { adapter, calls } = transport((call) => call.url.includes('fields=id,name,username')
       ? graphError(400, 100, 'Unsupported field')
