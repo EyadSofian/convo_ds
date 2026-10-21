@@ -309,7 +309,7 @@ export class ChannelNormalizationService {
          SELECT $1, $2, $3 WHERE EXISTS
            (SELECT 1 FROM contacts WHERE id=$2 AND display_name=$4)
          ON CONFLICT (tenant_id, contact_id, connection_id) DO UPDATE SET
-           attempts=0, next_attempt_at=now(), lease_until=NULL, last_error_code=NULL
+           attempts=0, next_attempt_at=now(), lease_until=NULL
          WHERE contact_profile_queue.attempts >= 5`,
         [tenantId, contact.contactId, connectionId, inbound.peerIdentity],
       );

@@ -636,6 +636,17 @@ function priorityCue(state: AppState, priority: string): Child {
   return priority === 'normal' || priority === 'low' ? null : priorityBadge(state, priority);
 }
 
+/** A Meta sender ID is an opaque routing key, never a customer name. */
+function customerLabel(state: AppState, channel: string, peerIdentity: string, name?: string | null): string {
+  if (channel === 'messenger' || channel === 'instagram') {
+    if (name && name !== peerIdentity) return name;
+    return channel === 'messenger'
+      ? t(state, 'عميل ماسنجر', 'Messenger customer')
+      : t(state, 'عميل إنستجرام', 'Instagram customer');
+  }
+  return name || peerIdentity;
+}
+
 /**
  * A queue card. Everything on it came from the server's projection; there is
  * no snippet because there is no snippet to render.
@@ -675,6 +686,7 @@ function queueRow(state: AppState, live: LiveState, card: QueueCard): HTMLElemen
 
 function conversationRow(state: AppState, live: LiveState, conversation: Conversation): HTMLElement {
   const open = live.openConversationId === conversation.id;
+  const customerName = customerLabel(state, conversation.channel, conversation.peerIdentity, conversation.contactDisplayName);
   // `unread` is this caller's own bookkeeping. A row with no answer is not
   // marked: absent is not the same as read.
   const unread = conversation.unread === true;
@@ -690,10 +702,10 @@ function conversationRow(state: AppState, live: LiveState, conversation: Convers
       'aria-current': open ? 'true' : 'false',
     },
     [
-      avatar({ initials: initials(conversation.contactDisplayName || conversation.peerIdentity), channel: conversation.channel, seed: conversation.contactDisplayName || conversation.peerIdentity }),
+      avatar({ initials: initials(customerName), channel: conversation.channel, seed: customerName }),
       h('span', { class: 'convrow__main' }, [
         h('span', { class: 'convrow__line' }, [
-          h('span', { class: 'convrow__name' }, [isolated(conversation.contactDisplayName || conversation.peerIdentity)]),
+          h('span', { class: 'convrow__name' }, [isolated(customerName)]),
           h('span', { class: 'convrow__time' }, [relativeTime(conversation.lastActivityAt, state.clock, state.lang)]),
         ]),
         h('span', { class: 'convrow__line convrow__meta' }, [
@@ -769,7 +781,8 @@ function renderThreadZone(state: AppState, live: LiveState): HTMLElement {
 }
 
 function threadHeader(state: AppState, live: LiveState, conversation: Conversation, supervisorMode: boolean): HTMLElement {
-  const customerName = conversation.contactDisplayName || (live.openContact.status === 'ready' ? live.openContact.value.displayName : null) || conversation.peerIdentity;
+  const customerName = customerLabel(state, conversation.channel, conversation.peerIdentity,
+    conversation.contactDisplayName || (live.openContact.status === 'ready' ? live.openContact.value.displayName : null));
   return h('header', { class: 'thread__header' }, [
     listToggle(state),
     avatar({ initials: initials(customerName), channel: conversation.channel, seed: customerName }),

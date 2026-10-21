@@ -219,7 +219,7 @@ export class ChannelService {
           ORDER BY i.contact_id
           LIMIT 500
          ON CONFLICT (tenant_id, contact_id, connection_id) DO UPDATE SET
-           attempts=0, next_attempt_at=now(), lease_until=NULL, last_error_code=NULL
+           attempts=0, next_attempt_at=now(), lease_until=NULL
          WHERE contact_profile_queue.lease_until IS NULL OR contact_profile_queue.lease_until<now()
          RETURNING contact_id::text`,
         [tenantId, connectionId, connection.kind],

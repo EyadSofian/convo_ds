@@ -57,6 +57,33 @@ describe('Inbox list controls', () => {
     const names = [...root.querySelectorAll('.convrow--card .convrow__name')].map((row) => row.textContent);
     expect(names).toEqual(['Messenger customer', 'Instagram customer', '••••347', 'Mona']);
   });
+
+  it('never presents an opaque Meta sender ID as a customer name in All or a thread', () => {
+    const app = state();
+    const peerIdentity = '28575734085430204';
+    const conversation = {
+      id: 'conversation-1', contactId: 'contact-1', connectionId: 'connection-1', peerIdentity,
+      contactDisplayName: peerIdentity, inboxLabel: 'Digital School', channel: 'messenger',
+      teamId: null, assigneeMembershipId: null, status: 'open', priority: 'normal',
+      version: 1, labels: [], customFields: [], lastActivityAt: NOW.toISOString(), unread: true,
+    };
+    app.inboxQueue = 'all';
+    app.live.inboxQuery = { ...app.live.inboxQuery, queue: 'all' };
+    app.live.conversations = ready([conversation] as never, 1);
+    app.live.openConversationId = 'conversation-1';
+    app.live.openConversation = ready(conversation as never, 1);
+    app.live.timeline = ready([], 1);
+    const root = renderInbox(app);
+    expect(root.querySelector('.convrow--record .convrow__name')?.textContent).toBe('Messenger customer');
+    expect(root.querySelector('.thread__name')?.textContent).toBe('Messenger customer');
+    expect(root.textContent).not.toContain(peerIdentity);
+
+    app.live.conversations = ready([{ ...conversation, contactDisplayName: 'Eyad Sofian' }] as never, 2);
+    app.live.openConversation = ready({ ...conversation, contactDisplayName: 'Eyad Sofian' } as never, 2);
+    const named = renderInbox(app);
+    expect(named.querySelector('.convrow--record .convrow__name')?.textContent).toBe('Eyad Sofian');
+    expect(named.querySelector('.thread__name')?.textContent).toBe('Eyad Sofian');
+  });
   it('makes archived conversations discoverable without including them in the live queue by default', () => {
     const app = state();
     const archive = renderInbox(app).querySelector('[data-act="live-inbox-archived-toggle"]') as HTMLButtonElement;

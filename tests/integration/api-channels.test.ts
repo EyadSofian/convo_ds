@@ -2835,6 +2835,12 @@ describe('durable Meta sender profile enrichment', () => {
       const requested = await send(api, owner, 'POST', `/channels/${connectionId}/sender-profiles/retry`);
       expect(requested.statusCode).toBe(201);
       expect((requested.json() as { data: { queued: number } }).data.queued).toBe(1);
+      // Requeuing is not a successful lookup. Keep the diagnostic visible
+      // until the provider actually returns a name or a newer failure.
+      const retryState = await send(api, owner, 'GET', '/channels');
+      const retryConnections = (retryState.json() as { data: { id: string; sender_profiles: { last_error_code: string | null } }[] }).data;
+      expect(retryConnections.find((entry) => entry.id === connectionId)?.sender_profiles.last_error_code)
+        .toBe('profile_permission_denied');
       expect(await normalizer.drainProfiles(api.tenantId)).toBe(1);
       const afterRetry = await send(api, owner, 'GET', '/channels');
       const refreshed = (afterRetry.json() as { data: { id: string; sender_profiles: { pending: number } }[] }).data;
