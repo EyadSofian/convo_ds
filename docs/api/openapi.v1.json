@@ -1007,6 +1007,49 @@
         }
       }
     },
+    "/tenants/{tenantId}/quick-whatsapp/options": {
+      "get": {
+        "operationId": "getQuickWhatsAppOptions",
+        "summary": "List WhatsApp send options scoped to the current agent's inboxes",
+        "description": "Requires conversation.reply for each returned inbox. Returns only connection identifiers, display names, and approved template definitions; never channel credentials or unrelated inboxes.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" }
+        ],
+        "responses": {
+          "200": { "description": "Scoped WhatsApp options.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QuickWhatsAppOptionsResponse" } } } },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/tenants/{tenantId}/channels/{connectionId}/quick-messages": {
+      "post": {
+        "operationId": "queueQuickWhatsAppMessage",
+        "summary": "Start an individual WhatsApp conversation with an approved template",
+        "description": "Requires conversation.reply and conversation.claim in scope, CSRF, an international phone number, a synchronized approved template, and a traceable opt-in proof reference. Creates or claims the conversation and queues the message atomically. The contact is created on first inbound reply; 202 means queued, not delivered.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QuickWhatsAppRequest" } } } },
+        "responses": {
+          "202": { "description": "Conversation and outbound command committed; delivery pending.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QuickWhatsAppResponse" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/channels/{connectionId}/templates/sync": {
       "post": {
         "operationId": "syncWhatsAppTemplates",
@@ -8829,6 +8872,59 @@
           }
         }
       },
+      "QuickWhatsAppOptionsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["connections", "templates"],
+            "properties": {
+              "connections": { "type": "array", "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["id", "displayName"],
+                "properties": { "id": { "type": "string", "format": "uuid" }, "displayName": { "type": "string" } }
+              } },
+              "templates": { "type": "array", "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["id", "connectionId", "providerTemplateId", "templateName", "language", "category", "status", "components", "variables", "lastSyncedAt"],
+                "properties": {
+                  "id": { "type": "string", "format": "uuid" },
+                  "connectionId": { "type": "string", "format": "uuid" },
+                  "providerTemplateId": { "type": "string" },
+                  "templateName": { "type": "string" },
+                  "language": { "type": "string" },
+                  "category": { "type": "string" },
+                  "status": { "type": "string", "enum": ["approved"] },
+                  "components": { "type": "array", "items": {} },
+                  "variables": { "type": "array", "items": { "type": "string" } },
+                  "lastSyncedAt": { "type": "string", "format": "date-time" }
+                }
+              } }
+            }
+          },
+          "request_id": { "type": "string" }
+        }
+      },
+      "QuickWhatsAppResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "request_id"],
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["conversationId", "message"],
+            "properties": {
+              "conversationId": { "type": "string", "format": "uuid" },
+              "message": { "$ref": "#/components/schemas/OutboundMessage" }
+            }
+          },
+          "request_id": { "type": "string" }
+        }
+      },
       "OwnershipTransfer": {
         "type": "object",
         "additionalProperties": false,
@@ -9334,6 +9430,25 @@
           }
         }
       },
+      "QuickWhatsAppRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["peerIdentity", "consentReference", "template", "clientMessageId"],
+        "properties": {
+          "peerIdentity": { "type": "string", "pattern": "^\\+?[1-9][0-9\\s().-]{7,20}$", "description": "International WhatsApp number, including country code." },
+          "consentReference": { "type": "string", "minLength": 3, "maxLength": 500, "description": "Traceable reference to the recipient's prior WhatsApp opt-in evidence; not inferred from adding a number." },
+          "template": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "parameters"],
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "parameters": { "type": "object", "maxProperties": 40, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 1024 } }
+            }
+          },
+          "clientMessageId": { "type": "string", "minLength": 8, "maxLength": 190 }
+        }
+      },
       "SendMessageRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -9761,6 +9876,7 @@
           "inboxLabel",
           "channel",
           "maskedLabel",
+          "contactDisplayName",
           "priority",
           "status",
           "waitingSinceAt",
@@ -9790,6 +9906,10 @@
             "type": "string",
             "description": "Enough of the customer's identity to tell two waiting cards apart, and no more.",
             "example": "••••888"
+          },
+          "contactDisplayName": {
+            "type": ["string", "null"],
+            "description": "Customer name retrieved from the channel profile when available; otherwise null."
           },
           "priority": {
             "type": "string",

@@ -1,4 +1,4 @@
-import type { ChannelCatalogueEntry, ChannelConnection, ChannelTestRecipient, ChannelsApi, CreatedMetaApp, MetaAppSummary } from '../api/channels.js';
+import type { ChannelCatalogueEntry, ChannelConnection, ChannelTestRecipient, ChannelsApi, CreatedMetaApp, MetaAppSummary, QuickWhatsAppOptions } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type {
   Collaborator,
@@ -265,6 +265,7 @@ export interface LiveState {
   automationRunsQuery: Omit<AutomationRunsQuery, 'cursor'>;
   automationRunsNextCursor: string | null;
   whatsappTemplates: Resource<readonly WhatsAppTemplate[]>;
+  quickWhatsAppOptions: Resource<QuickWhatsAppOptions>;
   conversationTemplates: Resource<readonly WhatsAppTemplateCatalogueItem[]>;
   conversationTemplateCursor: string | null;
   selectedCampaignId: string | null;
@@ -405,6 +406,7 @@ export function createLiveState(
     automationRunsQuery: DEFAULT_AUTOMATION_RUNS_QUERY,
     automationRunsNextCursor: null,
     whatsappTemplates: IDLE,
+    quickWhatsAppOptions: IDLE,
     conversationTemplates: IDLE,
     conversationTemplateCursor: null,
     selectedCampaignId: null,

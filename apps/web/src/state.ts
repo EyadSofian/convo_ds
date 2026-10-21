@@ -98,7 +98,7 @@ export interface AppState {
    */
   focusTarget: string | null;
   /** Which half of the live inbox is showing: the queue, or this agent's work. */
-  inboxQueue: 'unassigned' | 'mine';
+  inboxQueue: 'unassigned' | 'mine' | 'all';
   /** Whether the supervisor picker is expanded. It is separate from the selected lens. */
   supervisorPickerOpen: boolean;
   /** Which surface the composer writes to. A note never reaches a customer. */
@@ -217,7 +217,7 @@ export function routeParamsFor(state: AppState): Record<string, string> {
   }
   if (state.route.screen === 'inbox') {
     const query = state.live.inboxQuery;
-    if (query.queue !== 'mine') params.scope = query.queue;
+    if (query.queue !== 'mine' && state.inboxQueue !== 'all') params.scope = query.queue;
     if (query.sort !== 'activity_desc') params.sort = query.sort;
     if (query.filters.length > 0) params.filters = JSON.stringify(query.filters);
   }
@@ -291,10 +291,10 @@ export function applyRoute(state: AppState, route: Route): void {
   if (route.screen === 'inbox') {
     // Which half of the inbox is showing is worth sharing in a link; nothing
     // else about it is local state any more.
-    state.inboxQueue = params.queue === 'mine' ? 'mine' : 'unassigned';
+    state.inboxQueue = params.queue === 'mine' || params.queue === 'all' ? params.queue : params.scope === 'all' ? 'all' : 'unassigned';
     state.live.inboxQuery = {
       ...INBOX_QUERY_DEFAULT,
-      queue: params.scope === 'all' ? 'all' : 'mine',
+      queue: params.queue === 'all' || params.scope === 'all' ? 'all' : 'mine',
       sort: isInboxSort(params.sort) ? params.sort : 'activity_desc',
       filters: routeFilters(params.filters),
     };

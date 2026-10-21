@@ -198,17 +198,13 @@ function matchesScope(scopes: readonly ScopeGrant[], resource: ResourceRef): boo
 }
 
 /**
- * "Own" is assignment **or** participation.
- *
- * Participation matters because an agent who replied to a conversation and was
- * then reassigned must still be able to read what they wrote — but losing inbox
- * access overrides both, which is why this is checked *after* the scope term
- * rather than instead of it (business-rules.md §4.1).
+ * An assignment to a colleague overrides prior participation: an agent must
+ * not open a teammate's current conversation. Participation only grants access
+ * while a conversation remains unassigned.
  */
 function isOwnResource(membershipId: string, resource: ResourceRef): boolean {
-  if (resource.assigneeMembershipId === membershipId) {
-    return true;
-  }
+  if (resource.assigneeMembershipId !== null && resource.assigneeMembershipId !== undefined)
+    return resource.assigneeMembershipId === membershipId;
   return resource.participantMembershipIds?.includes(membershipId) ?? false;
 }
 
@@ -253,6 +249,7 @@ export const QUEUE_CARD_FIELDS = [
   'inboxLabel',
   'channel',
   'maskedLabel',
+  'contactDisplayName',
   'priority',
   'status',
   'waitingSinceAt',

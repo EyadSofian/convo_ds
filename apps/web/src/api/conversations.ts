@@ -25,6 +25,7 @@ export interface QueueCard {
   readonly inboxLabel: string;
   readonly channel: string;
   readonly maskedLabel: string;
+  readonly contactDisplayName: string | null;
   readonly priority: string;
   readonly status: string;
   readonly waitingSinceAt: string | null;

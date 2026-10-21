@@ -790,6 +790,9 @@ describe('channel authorization', () => {
     expect((await send(api, agent, 'GET', '/channels')).statusCode).toBe(403);
     expect((await send(api, agent, 'GET', '/channels/catalogue')).statusCode).toBe(403);
     expect((await connect(api, agent, 'phone-denied-1')).statusCode).toBe(403);
+    const quickOptions = await send(api, agent, 'GET', '/quick-whatsapp/options');
+    expect(quickOptions.statusCode).toBe(200);
+    expect(quickOptions.json()).toMatchObject({ data: { connections: [], templates: [] } });
   });
 
   it('separates rotating a credential from managing a channel', async () => {
@@ -2326,6 +2329,58 @@ describe('the outbound path', () => {
     expect(second.json()).toMatchObject({ page: { next_cursor: null, has_more: false } });
     const invalidCursor = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates?cursor=-1`);
     expect(invalidCursor.statusCode).toBe(400);
+  });
+
+  it('starts a one-to-one WhatsApp conversation with an approved template and recorded opt-in evidence', async () => {
+    const to = peer();
+    const templateId = await syncApprovedTemplate('quick_registration_followup');
+    const options = await send(api, owner, 'GET', '/quick-whatsapp/options');
+    expect(options.statusCode).toBe(200);
+    expect(options.json()).toMatchObject({ data: {
+      connections: expect.arrayContaining([{ id: connectionId, displayName: expect.any(String) }]),
+      templates: expect.arrayContaining([expect.objectContaining({ id: templateId, connectionId, templateName: 'quick_registration_followup' })]),
+    } });
+    expect(options.body).not.toContain('accessToken');
+    const key = clientId();
+    const payload = {
+      peerIdentity: `+${to}`,
+      consentReference: 'Website course enquiry form submission DS-1024',
+      template: { id: templateId, parameters: { 'body:1': 'DS-1024' } },
+      clientMessageId: key,
+    };
+    const first = await send(api, owner, 'POST', `/channels/${connectionId}/quick-messages`, payload);
+    expect(first.statusCode, first.body).toBe(202);
+    const result = first.json() as { data: { conversationId: string; message: { id: string } } };
+    const saved = await withTenant(api.pool, api.tenantId, async (client) => {
+      const conversation = await client.query<{ peer_identity: string; assignee_membership_id: string | null }>(
+        `SELECT peer_identity,assignee_membership_id::text FROM conversations WHERE id=$1`, [result.data.conversationId],
+      );
+      const message = await client.query<{ conversation_id: string; opt_in_proof_ref: string; template_name: string }>(
+        `SELECT conversation_id::text,opt_in_proof_ref,template_name FROM outbound_messages WHERE id=$1`, [result.data.message.id],
+      );
+      const contacts = await client.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM contact_identities WHERE tenant_id=$1 AND kind='whatsapp' AND scope_id=$2 AND external_id=$3`,
+        [api.tenantId, connectionId, to],
+      );
+      return { conversation: conversation.rows[0], message: message.rows[0], contacts: contacts.rows[0] };
+    });
+    expect(saved.conversation?.peer_identity).toBe(to);
+    expect(saved.conversation?.assignee_membership_id).toBeTruthy();
+    expect(saved.message).toMatchObject({ conversation_id: result.data.conversationId, opt_in_proof_ref: payload.consentReference, template_name: 'quick_registration_followup' });
+    expect(saved.contacts?.count).toBe('0');
+
+    const retry = await send(api, owner, 'POST', `/channels/${connectionId}/quick-messages`, payload);
+    expect(retry.statusCode, retry.body).toBe(202);
+    expect((retry.json() as typeof result).data).toMatchObject(result.data);
+    const duplicateCount = await withTenant(api.pool, api.tenantId, (client) => client.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM outbound_messages WHERE client_message_id=$1`, [key],
+    ));
+    expect(duplicateCount.rows[0]?.count).toBe('1');
+    // This case verifies queueing, not dispatch. Do not leave a pending command
+    // that a later dispatch test could pick up on an unrelated connection.
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query('DELETE FROM outbox WHERE message_id=$1', [result.data.message.id]),
+    );
   });
 
   it('fails closed for conversation sends without inbound evidence and revalidates template identity, status and values', async () => {

@@ -93,8 +93,8 @@ Additional rules:
 
 ### 4.1 Claim and ownership
 
-- An Agent with `conversation.unassigned.preview` sees only: conversation ID, inbox/channel label, masked display label, priority, status, wait time, claim availability. No snippet, no timeline, no notes, no attachments, no contact PII. This is a **projected endpoint and projected socket payload**, not a full record with fields hidden in the browser.
-- `conversation.read` grants full permitted content only **after** a successful claim or existing participation.
+- An Agent with `conversation.unassigned.preview` sees only: conversation ID, inbox/channel label, customer display name when Meta provides one (otherwise a generic channel label), masked identity for internal disambiguation, priority, status, wait time, claim availability. No snippet, timeline, notes, attachments or raw contact identity. This is a **projected endpoint and projected socket payload**, not a full record with fields hidden in the browser.
+- `conversation.read` grants full permitted content to the current assignee; participation may allow reading an unassigned conversation, but never one assigned to a colleague.
 - Claim is atomic and version-checked: exactly one winner, the loser receives `CONVERSATION_VERSION_CONFLICT`.
 - Losing inbox access overrides assignment and participation immediately.
 - A reassigned queue card disappears or becomes a redacted "no longer available" card. It never becomes another agent's private timeline.
@@ -139,7 +139,7 @@ Estimated, reserved, committed and reconciled usage are four distinct quantities
 
 ## 7. Role and scope matrix (product design, not a competitor copy)
 
-`Tenant` = all objects in the company. `Scoped` = explicitly allowed teams/inboxes. `Own` = assigned/participating conversations inside allowed inboxes. `No` = denied.
+`Tenant` = all objects in the company. `Scoped` = explicitly allowed teams/inboxes. `Own` = currently assigned conversations (or participated unassigned conversations) inside allowed inboxes. `No` = denied.
 
 | Capability | Owner | Admin | Supervisor | Agent | Campaign Mgr | Analyst | Integration Dev |
 |---|---|---|---|---|---|---|---|

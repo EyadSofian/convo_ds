@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SqlExecutor } from '@convo/domain';
 import type { AuthorizationService } from '../authorization/authorization.service.js';
 import type { LifecycleService } from '../conversations/lifecycle.service.js';
+import type { ConversationService } from '../conversations/conversation.service.js';
 import type { Principal } from '@convo/domain';
 import { OutboundService, requireLiveConnection } from './outbound.service.js';
 
@@ -25,18 +26,43 @@ function catalogueHarness(options: { conversation?: Record<string, unknown> | nu
   });
   const sql = { query } as unknown as SqlExecutor;
   const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal })) } as unknown as AuthorizationService;
-  const service = new OutboundService(authorization, { noteResponse: vi.fn() } as unknown as LifecycleService);
+  const service = new OutboundService(authorization, { noteResponse: vi.fn() } as unknown as LifecycleService, {} as ConversationService);
   return { service, sql, query };
 }
 
 describe('OutboundService defensive boundaries', () => {
+  it('requires a real international number and an opt-in evidence reference before a quick send', async () => {
+    const authorization = { withPrincipal: vi.fn() } as unknown as AuthorizationService;
+    const service = new OutboundService(authorization, {} as LifecycleService, {} as ConversationService);
+    await expect(service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, {
+      peerIdentity: '01012345678', consentReference: '', template: { id, parameters: {} }, clientMessageId: 'quick-key-1',
+    })).rejects.toMatchObject({ status: 400, code: 'invalid_input' });
+    expect(authorization.withPrincipal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a quick send to a WhatsApp number that opted out', async () => {
+    const principal: Principal = { membershipId: id, membershipStatus: 'active', tenantStatus: 'active', grants: { 'conversation.reply': 'tenant' }, scopes: [], delegationCeiling: null };
+    const query = vi.fn(async <T>(statement: string) => {
+      if (statement.includes('FROM channel_connections')) return { rows: [{ id, kind: 'whatsapp', capabilities: null, disconnected_at: null }] as T[], rowCount: 1 };
+      if (statement.includes('FROM channel_suppressions')) return { rows: [{ id }] as T[], rowCount: 1 };
+      return { rows: [] as T[], rowCount: 0 };
+    });
+    const sql = { query } as unknown as SqlExecutor;
+    const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal })) } as unknown as AuthorizationService;
+    const ensure = vi.fn();
+    const service = new OutboundService(authorization, {} as LifecycleService, { ensure } as unknown as ConversationService);
+    await expect(service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, {
+      peerIdentity: '+201001234567', consentReference: 'form-123', template: { id, parameters: {} }, clientMessageId: 'quick-key-1',
+    })).rejects.toMatchObject({ status: 409, code: 'consent_withdrawn' });
+    expect(ensure).not.toHaveBeenCalled();
+  });
   it('rejects an idempotency key already owned by another author', async () => {
     const principal: Principal = { membershipId: id, membershipStatus: 'active', tenantStatus: 'active', grants: { 'conversation.reply': 'tenant' }, scopes: [], delegationCeiling: null };
     const sql = { query: vi.fn(async <T>(text: string) => text.includes('FROM outbound_messages WHERE tenant_id')
       ? { rows: [{ id: 'existing-message', author_membership: 'different-membership' }] as T[], rowCount: 1 }
       : { rows: [] as T[], rowCount: 0 }) } as unknown as SqlExecutor;
     const authorization = { authorized: vi.fn(async (_session, _tenant, _permission, work) => work({ sql, tenantId: id, principal, decision: {}, scope: 'tenant' })) } as unknown as AuthorizationService;
-    const service = new OutboundService(authorization, { noteResponse: vi.fn() } as unknown as LifecycleService);
+    const service = new OutboundService(authorization, { noteResponse: vi.fn() } as unknown as LifecycleService, {} as ConversationService);
     await expect(service.queue({ userId: 'user' } as never, id, id, {
       peerIdentity: 'synthetic-visitor', messageType: 'text', text: 'hello', clientMessageId: 'same-key-123',
     })).rejects.toMatchObject({ status: 409, code: 'idempotency_key_conflict' });
@@ -51,7 +77,7 @@ describe('OutboundService defensive boundaries', () => {
       return { rows: [] as T[], rowCount: 0 };
     }) } as unknown as SqlExecutor;
     const authorization = { authorized: vi.fn(async (_session, _tenant, _permission, work) => work({ sql, tenantId: id, principal, decision: {}, scope: 'tenant' })) } as unknown as AuthorizationService;
-    const service = new OutboundService(authorization, { noteResponse: vi.fn() } as unknown as LifecycleService);
+    const service = new OutboundService(authorization, { noteResponse: vi.fn() } as unknown as LifecycleService, {} as ConversationService);
     await expect(service.queue({ userId: 'user' } as never, id, id, {
       peerIdentity: 'synthetic-visitor', messageType: 'template', text: '', clientMessageId: 'template-key-123',
       template: { id, parameters: {} },
@@ -114,7 +140,7 @@ describe('OutboundService defensive boundaries', () => {
     }) } as unknown as SqlExecutor;
     const authorization = { authorized: vi.fn(async (_session, _tenant, _permission, work) => work({ sql, tenantId: id, principal: { membershipId: id }, decision: {}, scope: 'tenant' })) } as unknown as AuthorizationService;
     const lifecycle = { noteResponse: vi.fn() } as unknown as LifecycleService;
-    const service = new OutboundService(authorization, lifecycle);
+    const service = new OutboundService(authorization, lifecycle, {} as ConversationService);
     await expect(service.queue({ userId: 'user' } as never, id, id, {
       peerIdentity: '15550000001', messageType: 'text', text: 'hello', clientMessageId: 'reply-1234',
     }, {}, id)).rejects.toMatchObject({ status: 404, code: 'resource_not_found' });
@@ -132,7 +158,7 @@ describe('OutboundService defensive boundaries', () => {
     });
     const sql = { query } as unknown as SqlExecutor;
     const authorization = { authorized: vi.fn(async (_session, _tenant, _permission, work) => work({ sql, tenantId: id, principal: { membershipId: id }, decision: {}, scope: 'tenant' })) } as unknown as AuthorizationService;
-    const service = new OutboundService(authorization, { noteResponse: vi.fn() } as unknown as LifecycleService);
+    const service = new OutboundService(authorization, { noteResponse: vi.fn() } as unknown as LifecycleService, {} as ConversationService);
     await expect(service.queue({ userId: 'user' } as never, id, id, {
       peerIdentity: '15550000000', messageType: 'text', text: 'still there?', clientMessageId: 'reply-closed-1',
     }, {}, id)).rejects.toMatchObject({ status: 422, code: 'outside_service_window' });

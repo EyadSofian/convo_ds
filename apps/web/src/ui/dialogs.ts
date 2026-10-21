@@ -43,6 +43,7 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'automation-delete') return automationDelete(state, dialog.arg);
   if (dialog.kind === 'whatsapp-template') return whatsappTemplatePicker(state);
   if (dialog.kind === 'contact-template') return contactTemplatePicker(state, dialog.arg);
+  if (dialog.kind === 'quick-whatsapp') return quickWhatsAppDialog(state);
   const admin = renderAdminDialog(state, dialog.kind, dialog.arg);
   if (admin !== null) return admin;
   return dialogShell(
@@ -149,6 +150,33 @@ function contactTemplatePicker(state: AppState, contactId: string): HTMLElement 
     closeButton(state),
     button({ label: t(state, 'إرسال القالب', 'Send template'), icon: 'send', act: 'live-contact-template-send', variant: 'primary', busy: state.live.busy === 'contact-template-send', disabled: contact === null || contact.suppressed.includes('whatsapp') || identity === undefined || definition === null || !definition.sendSupported }),
   ], { description: t(state, 'يُرسل كقالب معتمد فقط، وتظهر نتيجة التسليم بعد رد Meta.', 'Queued as an approved template; delivery status follows Meta’s response.') });
+}
+
+function quickWhatsAppDialog(state: AppState): HTMLElement {
+  const resource = state.live.quickWhatsAppOptions;
+  const connections = resource.status === 'ready' ? resource.value.connections : [];
+  const connectionId = state.dialogForm['quickConnectionId'] ?? connections[0]?.id ?? '';
+  const templates = resource.status === 'ready' ? resource.value.templates.filter((entry) => entry.connectionId === connectionId && entry.status === 'approved') : [];
+  const selected = templates.find((entry) => entry.id === state.dialogForm['quickTemplateId']);
+  const definition = selected === undefined ? null : templateDefinition(selected);
+  return dialogShell(state, t(state, 'رسالة واتساب جديدة', 'New WhatsApp message'), [
+    notice('info', 'info', t(state, 'لبدء محادثة مع رقم جديد، استخدم قالبًا معتمدًا وسجّل مرجع موافقة العميل على استقبال رسائل واتساب. لن ننشئ جهة اتصال قبل أن يرد.', 'Start a new number with an approved template and record where the customer opted in to WhatsApp messages. A contact is created when they reply.')),
+    resource.status === 'loading' ? h('p', { role: 'status' }, [t(state, 'جارٍ تحميل أرقام واتساب والقوالب…', 'Loading WhatsApp numbers and templates…')]) : null,
+    resource.status === 'error' ? inlineError(state, resource.error) : null,
+    connections.length === 0 && resource.status === 'ready' ? notice('warning', 'alert', t(state, 'لا يوجد رقم واتساب متاح لك.', 'No WhatsApp number is available to you.')) : null,
+    h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'رقم العميل بكود الدولة', 'Customer number with country code')]), textInput('quickPeerIdentity', state.dialogForm['quickPeerIdentity'] ?? '', '+201234567890', { required: true, inputmode: 'tel' })]),
+    connections.length > 0 ? h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'رقم الإرسال', 'Send from')]), selectControl({ act: 'form-toggle', form: 'quickConnectionId', value: connectionId, options: connections.map((entry) => ({ value: entry.id, label: entry.displayName })) })]) : null,
+    templates.length === 0 && resource.status === 'ready' ? notice('warning', 'alert', t(state, 'لا توجد قوالب معتمدة لهذا الرقم؛ زامن القوالب من القنوات.', 'No approved templates for this number; sync them from Channels.')) : null,
+    templates.length > 0 ? h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'القالب المعتمد', 'Approved template')]), selectControl({ act: 'form-toggle', form: 'quickTemplateId', value: selected?.id ?? '', options: [{ value: '', label: t(state, 'اختر قالبًا', 'Choose a template') }, ...templates.map((entry) => ({ value: entry.id, label: `${entry.templateName} · ${entry.language}${templateDefinition(entry).sendSupported ? '' : ' (unsupported)'}` }))] })]) : null,
+    definition !== null && !definition.sendSupported ? notice('warning', 'alert', definition.unsupportedReason ?? t(state, 'هذا القالب غير مدعوم.', 'This template is not supported.')) : null,
+    ...(definition?.parameters ?? []).map((parameter) => h('label', { class: 'field' }, [
+      h('span', { class: 'field__label' }, [parameter.mediaFormat === undefined ? `${parameter.component} {{${parameter.name ?? String(parameter.position)}}}` : t(state, 'رابط وسائط HTTPS', 'HTTPS media URL')]),
+      h('input', { class: 'input', type: parameter.mediaFormat === undefined ? 'text' : 'url', maxlength: 1024, value: state.dialogForm[`quickParam_${parameter.key.replaceAll(':', '_')}`] ?? '', placeholder: parameter.example ?? '', 'data-act': 'form', 'data-form': `quickParam_${parameter.key.replaceAll(':', '_')}` }),
+    ])),
+    h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'مرجع الموافقة (مثال: رقم نموذج التسجيل)', 'Opt-in proof reference (for example, form submission ID)')]), textInput('quickConsentReference', state.dialogForm['quickConsentReference'] ?? '', t(state, 'مصدر الموافقة وتاريخها', 'Consent source and date'), { required: true })]),
+    state.formErrors['quickWhatsApp'] ? notice('warning', 'alert', state.formErrors['quickWhatsApp']) : null,
+    state.live.error === null ? null : inlineError(state, state.live.error),
+  ], [closeButton(state), button({ label: t(state, 'إرسال القالب', 'Send template'), icon: 'send', act: 'live-quick-whatsapp-send', variant: 'primary', busy: state.live.busy === 'quick-whatsapp-send', disabled: connectionId === '' || definition === null || !definition.sendSupported })], { description: t(state, 'ستظهر المحادثة في صندوق الوارد بعد إضافة الرسالة إلى الطابور. التسليم الفعلي يعتمد على Meta.', 'The conversation appears in Inbox after queueing. Actual delivery depends on Meta.') });
 }
 
 function whatsappParameterKey(key: string): string { return `whatsappTemplateParameter_${key.replaceAll(':', '_')}`; }

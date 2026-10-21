@@ -4,6 +4,7 @@ import type {
   ChannelKind,
   OwnerState,
   OwnershipRefusal,
+  Principal,
   ResourceRef,
   SqlExecutor,
   WhatsAppTemplateDefinition,
@@ -13,11 +14,13 @@ import { authorize, buildWhatsAppTemplateComponents, defineWhatsAppTemplate, ren
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { LifecycleService } from '../conversations/lifecycle.service.js';
+import { ConversationService } from '../conversations/conversation.service.js';
 import { readConversation, readDetail } from '../conversations/record.js';
 import { latestConversationInbound } from '../conversations/event-boundary.js';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
 import { parseSendMessage } from './outbound-request.js';
+import type { SendMessageRequest } from './outbound-request.js';
 
 /**
  * Accepting an outbound command.
@@ -93,12 +96,52 @@ export interface WhatsAppTemplateCataloguePage {
   readonly nextCursor: string | null;
 }
 
+export interface QuickWhatsAppOptions {
+  readonly connections: readonly { readonly id: string; readonly displayName: string }[];
+  readonly templates: readonly {
+    readonly id: string; readonly connectionId: string; readonly providerTemplateId: string;
+    readonly templateName: string; readonly language: string; readonly category: string;
+    readonly status: 'approved'; readonly components: readonly unknown[];
+    readonly variables: readonly string[]; readonly lastSyncedAt: string;
+  }[];
+}
+
 @Injectable()
 export class OutboundService {
   constructor(
     @Inject(AuthorizationService) private readonly authorization: AuthorizationService,
     @Inject(LifecycleService) private readonly lifecycle: LifecycleService,
+    @Inject(ConversationService) private readonly conversations: ConversationService,
   ) {}
+
+  /** Only sendable WhatsApp assets and approved templates visible to this agent. */
+  async quickWhatsAppOptions(session: AuthenticatedSession, tenantId: string): Promise<QuickWhatsAppOptions> {
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const rows = await sql.query<{ id: string; display_name: string }>(
+        `SELECT id::text, display_name FROM channel_connections
+         WHERE tenant_id=$1 AND kind='whatsapp' AND disconnected_at IS NULL
+         ORDER BY lower(display_name), id`, [tenantId],
+      );
+      const connections = rows.rows.filter((row) => authorize(principal, 'conversation.reply', {
+        inboxId: row.id, assigneeMembershipId: principal.membershipId,
+      }).allowed).map((row) => ({ id: row.id, displayName: row.display_name }));
+      if (connections.length === 0) return { connections, templates: [] };
+      const templates = await sql.query<{
+        id: string; connection_id: string; provider_template_id: string; template_name: string;
+        language: string; category: string; components: unknown[]; variables: string[]; last_synced_at: Date;
+      }>(`SELECT id::text, connection_id::text, provider_template_id, template_name,
+                 language, category, components, variables, last_synced_at
+          FROM whatsapp_templates
+          WHERE tenant_id=$1 AND connection_id=ANY($2::uuid[]) AND status='approved'
+          ORDER BY lower(template_name), language, id`, [tenantId, connections.map((row) => row.id)]);
+      return { connections, templates: templates.rows.map((row) => ({
+        id: row.id, connectionId: row.connection_id, providerTemplateId: row.provider_template_id,
+        templateName: row.template_name, language: row.language, category: row.category,
+        status: 'approved' as const, components: row.components, variables: row.variables,
+        lastSyncedAt: row.last_synced_at.toISOString(),
+      })) };
+    });
+  }
 
   /** A bounded, connection-scoped catalogue for an authorized conversation. */
   async templates(
@@ -191,7 +234,94 @@ export class OutboundService {
       session,
       tenantId,
       'conversation.reply',
-      async ({ sql, principal }) => {
+      ({ sql, principal }) => this.queueAuthorized(sql, principal, tenantId, connectionId, request, conversationId),
+      resource,
+    );
+  }
+
+  /** Starts a one-to-one WhatsApp thread with an approved template. */
+  async queueQuickWhatsApp(
+    session: AuthenticatedSession,
+    tenantId: string,
+    connectionId: string,
+    body: unknown,
+  ): Promise<{ readonly conversationId: string; readonly message: OutboundMessageSummary }> {
+    const input = body !== null && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {};
+    const rawNumber = typeof input['peerIdentity'] === 'string' ? input['peerIdentity'].trim() : '';
+    const peerIdentity = rawNumber.replace(/[\s()+.-]/g, '');
+    const consentReference = typeof input['consentReference'] === 'string' ? input['consentReference'].trim() : '';
+    if (!/^[1-9][0-9]{7,14}$/.test(peerIdentity) || consentReference.length < 3 || consentReference.length > 500) {
+      throw new ApiHttpError(400, 'invalid_input', 'Enter an international WhatsApp number and a traceable opt-in reference.');
+    }
+    const parsed = parseSendMessage({
+      peerIdentity,
+      messageType: 'template',
+      text: '',
+      template: input['template'],
+      clientMessageId: input['clientMessageId'],
+      trafficClass: 'interactive',
+    });
+    if (!parsed.ok || parsed.value.template?.id === undefined) {
+      throw new ApiHttpError(400, 'invalid_input', 'Select an approved template and provide its parameters.');
+    }
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const connection = await requireLiveConnection(sql, connectionId);
+      if (connection.kind !== 'whatsapp') throw new ApiHttpError(422, 'template_not_sendable', 'Choose a WhatsApp channel.');
+      if (!authorize(principal, 'conversation.reply', { inboxId: connectionId, assigneeMembershipId: principal.membershipId }).allowed) {
+        throw new ApiHttpError(403, 'permission_denied', 'You cannot send from this inbox.');
+      }
+      const suppressed = await sql.query<{ id: string }>(
+        `SELECT id::text FROM channel_suppressions WHERE tenant_id=$1 AND kind='whatsapp' AND peer_identity=$2 LIMIT 1`,
+        [tenantId, peerIdentity],
+      );
+      if (suppressed.rows.length > 0) throw new ApiHttpError(409, 'consent_withdrawn', 'This number opted out of WhatsApp messages.');
+
+      // A retry must return the original command, never create a second thread.
+      const duplicate = await sql.query<{ id: string; conversation_id: string | null; author_membership: string | null }>(
+        `SELECT id::text,conversation_id::text,author_membership::text FROM outbound_messages WHERE tenant_id=$1 AND client_message_id=$2`,
+        [tenantId, parsed.value.clientMessageId],
+      );
+      const previous = duplicate.rows[0];
+      if (previous !== undefined) {
+        if (previous.author_membership !== principal.membershipId || previous.conversation_id === null) throw new ApiHttpError(409, 'idempotency_key_conflict', 'This message key is already in use.');
+        const previousMessage = requireRow(await readMessages(sql, previous.id), 'the message vanished');
+        if (previousMessage.connection_id !== connectionId || previousMessage.peer_identity !== peerIdentity) throw new ApiHttpError(409, 'idempotency_key_conflict', 'This message key is already in use.');
+        return { conversationId: previous.conversation_id, message: previousMessage };
+      }
+
+      const conversation = await this.conversations.ensure(sql, tenantId, connectionId, peerIdentity, 'outbound_contact');
+      const locked = requireRow((await sql.query<{ id: string; team_id: string | null; assignee_membership_id: string | null; status: string }>(
+        `SELECT id::text,team_id::text,assignee_membership_id::text,status FROM conversations WHERE id=$1 FOR UPDATE`,
+        [conversation.id],
+      )).rows, 'the conversation vanished');
+      if (locked.status !== 'open' && locked.status !== 'pending') throw new ApiHttpError(409, 'conversation_not_open', 'Open this conversation in Inbox to continue.');
+      if (locked.assignee_membership_id !== null && locked.assignee_membership_id !== principal.membershipId) {
+        throw new ApiHttpError(409, 'conversation_owned_by_another', 'This conversation belongs to another agent.');
+      }
+      const resource: ResourceRef = { inboxId: connectionId, ...(locked.team_id === null ? {} : { teamId: locked.team_id }), assigneeMembershipId: principal.membershipId };
+      if (!authorize(principal, 'conversation.reply', resource).allowed) throw new ApiHttpError(403, 'permission_denied', 'You cannot send from this inbox.');
+      if (locked.assignee_membership_id === null) {
+        if (!authorize(principal, 'conversation.claim', resource).allowed) throw new ApiHttpError(403, 'permission_denied', 'You cannot claim this conversation.');
+        await sql.query(
+          `UPDATE conversations SET assignee_membership_id=$2,waiting_since=NULL,owner_state='human_active',owner_version=owner_version+1,last_activity_at=now(),version=version+1 WHERE id=$1`,
+          [conversation.id, principal.membershipId],
+        );
+      }
+      const message = await this.queueAuthorized(sql, principal, tenantId, connectionId, parsed.value, conversation.id, false);
+      await sql.query(`UPDATE outbound_messages SET opt_in_proof_ref=$2 WHERE id=$1`, [message.id, consentReference]);
+      return { conversationId: conversation.id, message };
+    });
+  }
+
+  private async queueAuthorized(
+    sql: SqlExecutor,
+    principal: Principal,
+    tenantId: string,
+    connectionId: string,
+    request: SendMessageRequest,
+    conversationId: string | null,
+    noteResponse = true,
+  ): Promise<OutboundMessageSummary> {
         const existing = await sql.query<{ id: string; author_membership: string | null }>(
           'SELECT id::text,author_membership::text FROM outbound_messages WHERE tenant_id=$1 AND client_message_id=$2',
           [tenantId, request.clientMessageId],
@@ -334,16 +464,13 @@ export class OutboundService {
           [messageId, tenantId, connectionId, request.peerIdentity, request.trafficClass],
         );
 
-        if (conversationId !== null) {
+        if (conversationId !== null && noteResponse) {
           // The first response is the first: `noteResponse` coalesces, so a
           // second reply cannot move the number a report is computed from.
           await this.lifecycle.noteResponse(sql, conversationId, new Date(), principal.membershipId);
         }
 
         return requireRow(await readMessages(sql, messageId), 'the message vanished');
-      },
-      resource,
-    );
   }
 
   async read(

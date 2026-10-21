@@ -175,14 +175,13 @@ describe('visibility', () => {
     ).toBe('hidden');
   });
 
-  it('keeps a former assignee reading what they took part in', () => {
+  it('hides a colleague’s assigned conversation from a former assignee', () => {
     const agent = principal({ 'conversation.read': 'own' }, [{ type: 'inbox', id: INBOX }]);
     const reassigned = event({
       type: 'conversation.assigned',
       scope: { ...event().scope, assigneeMembershipId: OTHER_AGENT },
     });
-    // The event that reassigned them is exactly the one they must still get.
-    expect(visibilityOf(agent, reassigned, [AGENT])).toBe('full');
+    expect(visibilityOf(agent, reassigned, [AGENT])).toBe('hidden');
   });
 
   it('stops the stream the moment inbox access is taken away', () => {
@@ -244,6 +243,7 @@ describe('the queue card', () => {
       inboxLabel: '',
       channel: 'unknown',
       maskedLabel: '',
+      contactDisplayName: null,
       priority: 'normal',
       status: 'open',
       waitingSinceAt: null,

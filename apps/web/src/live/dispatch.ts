@@ -58,6 +58,7 @@ import { exportAnalytics, printAnalytics } from './analytics-export.js';
 import { manageArchived, tickArchived } from './archived-actions.js';
 import { goToBroadcastStep, jumpToBroadcastStep, submitBroadcast, syncBroadcastTemplates } from './broadcast.js';
 import { setSimpleFilter } from './inbox-query.js';
+import { openQuickWhatsApp, sendQuickWhatsApp } from './quick-whatsapp-actions.js';
 import { INBOX_FILTER_CATALOGUE, INBOX_SORTS, type InboxFilter, type InboxSort } from '@convo/domain';
 import { applySavedView, retireSavedView, saveCurrentInboxView } from './saved-view-actions.js';
 import {
@@ -753,12 +754,15 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
   'live-supervisor-exit': exitSupervisor,
 
-  'live-inbox-queue': (context, arg) => {
-    // A local view switch, not a request: both halves are already loaded, and
-    // re-fetching on a tab click would make the queue flicker for nothing.
-    context.state.inboxQueue = arg === 'mine' ? 'mine' : 'unassigned';
+  'live-inbox-queue': async (context, arg) => {
+    const next = arg === 'all' ? 'all' : arg === 'mine' ? 'mine' : 'unassigned';
+    if (context.state.inboxQueue === next) return;
+    const desiredQuery = next === 'all' ? 'all' : 'mine';
+    const canUseCachedMine = next === 'mine' && context.live.inboxQuery.queue === 'mine' && context.live.conversations.status === 'ready';
+    context.state.inboxQueue = next;
+    context.live.inboxQuery = { ...context.live.inboxQuery, queue: desiredQuery, cursor: null };
     context.refresh();
-    return Promise.resolve();
+    if (next !== 'unassigned' && !canUseCachedMine) await loadInboxScreen(context);
   },
 
   'live-inbox-open': async (context, arg) => openConversation(context, arg),
@@ -1243,6 +1247,8 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-inbox-send': async (context) => sendReply(context),
+  'live-quick-whatsapp-open': async (context) => openQuickWhatsApp(context),
+  'live-quick-whatsapp-send': async (context) => sendQuickWhatsApp(context),
   'live-whatsapp-template-open': async (context) => openWhatsAppTemplates(context),
   'live-whatsapp-template-search': async (context) => searchWhatsAppTemplates(context),
   'live-whatsapp-template-more': async (context) => loadMoreWhatsAppTemplates(context),

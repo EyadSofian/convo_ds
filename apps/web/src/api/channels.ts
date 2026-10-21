@@ -1,4 +1,5 @@
 import type { ApiClient, ApiResult } from './client.js';
+import type { WhatsAppTemplate } from './automations.js';
 
 /**
  * The channel operations, typed against the pinned OpenAPI.
@@ -123,6 +124,16 @@ export interface QueuedContactMessage {
   readonly command_state: string;
 }
 
+export interface QuickWhatsAppResult {
+  readonly conversationId: string;
+  readonly message: QueuedContactMessage;
+}
+
+export interface QuickWhatsAppOptions {
+  readonly connections: readonly { readonly id: string; readonly displayName: string }[];
+  readonly templates: readonly WhatsAppTemplate[];
+}
+
 export interface ConnectChannelInput {
   readonly kind: ChannelKind;
   readonly externalAssetId: string;
@@ -134,6 +145,10 @@ export interface ConnectChannelInput {
 
 export class ChannelsApi {
   constructor(private readonly client: ApiClient) {}
+
+  quickWhatsAppOptions(tenantId: string): Promise<ApiResult<QuickWhatsAppOptions>> {
+    return this.client.get<QuickWhatsAppOptions>(`/tenants/${tenantId}/quick-whatsapp/options`);
+  }
 
   metaApps(tenantId: string): Promise<ApiResult<readonly MetaAppSummary[]>> {
     return this.client.get<readonly MetaAppSummary[]>(`/tenants/${tenantId}/channel-apps/meta`);
@@ -186,6 +201,15 @@ export class ChannelsApi {
     return this.client.post<QueuedContactMessage>(`/tenants/${tenantId}/channels/${connectionId}/messages`, {
       body: { peerIdentity, messageType: 'template', text: '', template: { id: templateId, parameters }, clientMessageId, trafficClass: 'interactive' },
     });
+  }
+
+  sendQuickWhatsApp(tenantId: string, connectionId: string, input: {
+    readonly peerIdentity: string;
+    readonly consentReference: string;
+    readonly template: { readonly id: string; readonly parameters: Readonly<Record<string, string>> };
+    readonly clientMessageId: string;
+  }): Promise<ApiResult<QuickWhatsAppResult>> {
+    return this.client.post<QuickWhatsAppResult>(`/tenants/${tenantId}/channels/${connectionId}/quick-messages`, { body: input });
   }
 
   subscribeWhatsAppWebhook(tenantId: string, connectionId: string): Promise<ApiResult<WebhookSubscriptionResult>> {

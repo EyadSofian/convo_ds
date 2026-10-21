@@ -298,13 +298,17 @@ export class ConversationService {
       'conversation.unassigned.preview',
       async ({ sql, principal }) => {
         const rows = await sql.query<
-          RawConversation & { display_name: string; kind: string }
+          RawConversation & { display_name: string; kind: string; contact_display_name: string | null }
         >(
           `SELECT c.id::text, c.connection_id::text, c.peer_identity, c.team_id::text,
                   c.assignee_membership_id::text, c.status, c.priority, c.version, c.waiting_since,
-                  n.display_name, n.kind
+                  n.display_name, n.kind,
+                  CASE WHEN n.kind IN ('messenger', 'instagram')
+                         AND contact.display_name IS DISTINCT FROM c.peer_identity
+                       THEN contact.display_name ELSE NULL END AS contact_display_name
              FROM conversations c
              JOIN channel_connections n ON n.id = c.connection_id
+             LEFT JOIN contacts contact ON contact.id = c.contact_id AND contact.deleted_at IS NULL
             WHERE c.assignee_membership_id IS NULL
               AND c.status = 'open'
               AND ($1::uuid IS NULL OR c.connection_id = $1)
@@ -349,6 +353,7 @@ export class ConversationService {
                 inboxLabel: row.display_name,
                 channel: row.kind,
                 peerIdentity: row.peer_identity,
+                contactDisplayName: row.contact_display_name,
                 priority: row.priority,
                 status: row.status,
                 waitingSinceAt: row.waiting_since?.toISOString() ?? null,

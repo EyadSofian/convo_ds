@@ -645,6 +645,7 @@ describe('the Unassigned queue', () => {
       expect(Object.keys(card).sort()).toEqual([
         'channel',
         'claimable',
+        'contactDisplayName',
         'id',
         'inboxLabel',
         'maskedLabel',
@@ -1023,11 +1024,21 @@ describe('the inbox surface', () => {
       expect(row.assigneeMembershipId).toBe(agentAMembershipId);
     }
 
+    const allForAgent = await send(api, agentA, 'GET', '/conversations?queue=all');
+    expect(allForAgent.statusCode).toBe(200);
+    expect((allForAgent.json() as { data: { id: string; assigneeMembershipId: string }[] }).data.every(
+      (row) => row.assigneeMembershipId === agentAMembershipId,
+    )).toBe(true);
+    expect((allForAgent.json() as { data: { id: string }[] }).data.map((row) => row.id)).toContain(conversationId);
+
     // The same request from an agent on another inbox returns nothing at all
     // rather than a denial: they are allowed to ask, and the answer is empty.
     const theirs = await send(api, agentB, 'GET', '/conversations?queue=mine');
     expect(theirs.statusCode).toBe(200);
     expect((theirs.json() as { data: unknown[] }).data).toEqual([]);
+    const allForTeammate = await send(api, agentB, 'GET', '/conversations?queue=all');
+    expect(allForTeammate.statusCode).toBe(200);
+    expect((allForTeammate.json() as { data: { id: string }[] }).data.map((row) => row.id)).not.toContain(conversationId);
   });
 
   it('reads the timeline of a conversation the caller holds', async () => {
@@ -5151,7 +5162,7 @@ describe('what a reassigned agent keeps, and what they lose', () => {
     ).toBe(200);
   }, 120_000);
 
-  it('keeps read access to work they actually did, after being reassigned away', async () => {
+  it('removes agent read access when a conversation is reassigned to a colleague', async () => {
     expect(
       (await send(api, leaving, 'POST', `/conversations/${conversationId}/messages`, {
         messageType: 'text',
@@ -5173,12 +5184,12 @@ describe('what a reassigned agent keeps, and what they lose', () => {
       })).statusCode,
     ).toBe(200);
 
-    // Participation outlives assignment: they wrote to this customer, and a
-    // build that hid what they said would make their own work unreviewable.
-    expect((await send(api, leaving, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(200);
+    // Previous participation must not expose a colleague's current conversation.
+    expect((await send(api, leaving, 'GET', `/conversations/${conversationId}`)).statusCode).toBe(403);
     const timeline = await send(api, leaving, 'GET', `/conversations/${conversationId}/messages`);
-    expect(timeline.statusCode).toBe(200);
-    expect(timeline.payload).toContain('سأتحقق من الطلب');
+    expect(timeline.statusCode).toBe(403);
+    const all = await send(api, leaving, 'GET', '/conversations?queue=all');
+    expect((all.json() as { data: { id: string }[] }).data.map((row) => row.id)).not.toContain(conversationId);
   });
 
   it('loses it the moment the inbox scope goes, without logging out', async () => {

@@ -190,14 +190,14 @@ describe('own scope', () => {
     ).toEqual({ allowed: true, scope: 'own' });
   });
 
-  it('allows a past participant who is no longer the assignee', () => {
+  it('denies a past participant once a colleague owns the conversation', () => {
     expect(
       authorize(agent(), 'conversation.read', {
         inboxId: INBOX,
         assigneeMembershipId: SOMEONE_ELSE,
         participantMembershipIds: [ME, SOMEONE_ELSE],
       }),
-    ).toEqual({ allowed: true, scope: 'own' });
+    ).toEqual({ allowed: false, reason: 'not_own_resource' });
   });
 
   it('denies someone else’s conversation with a distinct reason', () => {
@@ -291,6 +291,7 @@ describe('field projection', () => {
       'inboxLabel',
       'channel',
       'maskedLabel',
+      'contactDisplayName',
       'priority',
       'status',
       'waitingSinceAt',

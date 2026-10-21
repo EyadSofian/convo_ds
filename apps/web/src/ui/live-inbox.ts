@@ -153,13 +153,14 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
   const activeFilters = activeFilterCount(live.inboxQuery);
   return h('section', { class: 'zone zone--list', 'aria-label': t(state, 'قائمة المحادثات', 'Conversation list') }, [
     h('header', { class: 'listhead' }, [
-      h('div', { class: 'listhead__row' }, [
+      h('div', { class: 'listhead__row listhead__row--primary' }, [
         supervisorMode ? h('div', { class: 'listhead__supervisor', role: 'status' }, [
           icon('eye', 15), t(state, 'عرض إشرافي للقراءة فقط', 'Read-only supervisor view'),
         ]) : segmented(
           [
             { value: 'unassigned', label: t(state, 'غير مسندة', 'Unassigned'), count: countOf(live.unassigned) },
-            { value: 'mine', label: t(state, 'محادثاتي', 'Mine'), count: countOf(live.conversations) },
+            { value: 'mine', label: t(state, 'محادثاتي', 'Mine'), count: live.inboxQuery.queue === 'mine' ? countOf(live.conversations) : undefined },
+            { value: 'all', label: t(state, 'الكل', 'All') },
           ],
           state.inboxQueue,
           'live-inbox-queue',
@@ -179,6 +180,9 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
           }),
         ]),
       ]),
+      !supervisorMode && hasPermission(live, 'conversation.reply')
+        ? h('div', { class: 'listhead__quick' }, [button({ label: t(state, 'رسالة واتساب جديدة', 'New WhatsApp message'), icon: 'send', act: 'live-quick-whatsapp-open', variant: 'primary', small: true, extraClass: 'inbox-quick-message' })])
+        : null,
       h('div', { class: 'listhead__row' }, [
         inboxSearch(state, live),
         h('div', { class: 'listhead__tools' }, [
@@ -248,7 +252,7 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
     activeFilterChips(state, live),
     listResizer(state),
     h('div', { class: 'zone__body', 'data-scroll': 'list' }, [
-      supervisorMode || state.inboxQueue === 'mine' ? mineList(state, live) : queueList(state, live),
+      supervisorMode || state.inboxQueue !== 'unassigned' ? mineList(state, live) : queueList(state, live),
     ]),
   ]);
 }
@@ -548,8 +552,8 @@ function mineList(state: AppState, live: LiveState): Child {
           body: t(state, 'تظهر هنا المحادثات بعد أرشفتها، ويمكنك إرجاعها إلى الصندوق من هنا.', 'Conversations appear here once archived, and can be brought back to the inbox from here.'),
         }
       : {
-          title: t(state, 'لا توجد محادثات مسندة إليك', 'Nothing assigned to you'),
-          body: t(state, 'استلم محادثة من «غير مسندة» لتبدأ.', 'Claim one from Unassigned to start.'),
+          title: state.inboxQueue === 'all' ? t(state, 'لا توجد محادثات في هذا العرض', 'No conversations in this view') : t(state, 'لا توجد محادثات مسندة إليك', 'Nothing assigned to you'),
+          body: state.inboxQueue === 'all' ? t(state, 'ستظهر هنا المحادثات المسموح لك برؤيتها عبر صناديقك.', 'Conversations you may access across your inboxes appear here.') : t(state, 'استلم محادثة من «غير مسندة» لتبدأ.', 'Claim one from Unassigned to start.'),
         },
     (rows) => h('div', { class: 'convlist', role: 'list' }, [
       ...(archivedView(live) ? archivedRows(state, live, rows) : rows.map((conversation) => conversationRow(state, live, conversation))),
@@ -631,10 +635,10 @@ function priorityCue(state: AppState, priority: string): Child {
  */
 function queueRow(state: AppState, live: LiveState, card: QueueCard): HTMLElement {
   return h('article', { class: 'convrow convrow--card', role: 'listitem', 'data-conversation': card.id }, [
-    avatar({ initials: '', channel: card.channel }),
+    avatar({ initials: initials(card.contactDisplayName ?? ''), channel: card.channel, seed: card.contactDisplayName ?? card.id }),
     h('div', { class: 'convrow__main' }, [
       h('div', { class: 'convrow__line' }, [
-        h('span', { class: 'convrow__name' }, [isolated(card.maskedLabel)]),
+        h('span', { class: 'convrow__name' }, [isolated(card.contactDisplayName || (card.channel === 'messenger' ? t(state, 'عميل ماسنجر', 'Messenger customer') : card.channel === 'instagram' ? t(state, 'عميل إنستجرام', 'Instagram customer') : card.maskedLabel))]),
         h('span', { class: 'convrow__time' }, [
           // A conversation opened by an outbound message has nobody waiting on
           // it, and the row says so rather than showing a made-up duration.

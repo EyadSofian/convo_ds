@@ -96,6 +96,8 @@ export function projectQueueCard(event: RealtimeEnvelope): QueueCard {
     inboxLabel: stringOr(payload['inboxLabel'], ''),
     channel: stringOr(payload['channel'], 'unknown'),
     maskedLabel: maskIdentity(stringOr(payload['peerIdentity'], '')),
+    contactDisplayName: typeof payload['contactDisplayName'] === 'string' && payload['contactDisplayName'].trim() !== ''
+      ? payload['contactDisplayName'] : null,
     priority: stringOr(payload['priority'], 'normal'),
     status: stringOr(payload['status'], 'open'),
     waitingSinceAt: typeof payload['waitingSinceAt'] === 'string' ? payload['waitingSinceAt'] : null,

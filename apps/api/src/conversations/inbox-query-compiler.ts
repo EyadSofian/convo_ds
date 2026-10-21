@@ -34,7 +34,10 @@ export function compileInboxQuery(
   );
   // A removed conversation appears nowhere, archive included.
   const clauses = ['c.deleted_at IS NULL', requestsArchived ? 'TRUE' : "c.status <> 'archived'", readableScope(principal, add)];
-  if (query.queue === 'mine') clauses.push(`c.assignee_membership_id = ${add(principal.membershipId)}::uuid`);
+  // For an `own` reader, All means their assigned work across every allowed
+  // inbox, not colleagues' threads or unassigned work they once touched.
+  if (query.queue === 'mine' || (query.queue === 'all' && principal.grants['conversation.read'] === 'own'))
+    clauses.push(`c.assignee_membership_id = ${add(principal.membershipId)}::uuid`);
   for (const filter of query.filters) clauses.push(predicate(filter, customFields, add));
   if (query.search !== null) clauses.push(searchPredicate(query.search, add));
   return {
@@ -160,7 +163,7 @@ export function readableScope(principal: Principal, add: (value: unknown) => str
   if (grant === 'scoped') return scoped;
   if (grant === 'own') {
     const member = add(principal.membershipId);
-    return `(${scoped} AND (c.assignee_membership_id = ${member}::uuid OR EXISTS (SELECT 1 FROM conversation_participants own_participant WHERE own_participant.conversation_id = c.id AND own_participant.membership_id = ${member}::uuid) OR EXISTS (SELECT 1 FROM conversation_collaborators own_collaborator WHERE own_collaborator.conversation_id = c.id AND own_collaborator.removed_at IS NULL AND own_collaborator.membership_id = ${member}::uuid)))`;
+    return `(${scoped} AND (c.assignee_membership_id = ${member}::uuid OR (c.assignee_membership_id IS NULL AND (EXISTS (SELECT 1 FROM conversation_participants own_participant WHERE own_participant.conversation_id = c.id AND own_participant.membership_id = ${member}::uuid) OR EXISTS (SELECT 1 FROM conversation_collaborators own_collaborator WHERE own_collaborator.conversation_id = c.id AND own_collaborator.removed_at IS NULL AND own_collaborator.membership_id = ${member}::uuid)))))`;
   }
   return 'FALSE';
 }

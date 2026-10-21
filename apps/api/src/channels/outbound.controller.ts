@@ -23,6 +23,12 @@ export class OutboundController {
     @Inject(OutboundService) private readonly outbound: OutboundService,
   ) {}
 
+  @Get('tenants/:tenantId/quick-whatsapp/options')
+  async quickWhatsAppOptions(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return { data: await this.outbound.quickWhatsAppOptions(session, tenantId), request_id: request.id };
+  }
+
   @Post('tenants/:tenantId/channels/:connectionId/messages')
   async queue(
     @Param('tenantId') tenantId: string,
@@ -35,6 +41,21 @@ export class OutboundController {
     const session = await this.auth.authenticate(request.headers.cookie);
     this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
     const queued = await this.outbound.queue(session, tenantId, connectionId, body);
+    await reply.status(202).send({ data: queued, request_id: request.id });
+  }
+
+  @Post('tenants/:tenantId/channels/:connectionId/quick-messages')
+  async quickWhatsApp(
+    @Param('tenantId') tenantId: string,
+    @Param('connectionId') connectionId: string,
+    @Body() body: unknown,
+    @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    const queued = await this.outbound.queueQuickWhatsApp(session, tenantId, connectionId, body);
     await reply.status(202).send({ data: queued, request_id: request.id });
   }
 

@@ -38,6 +38,22 @@ function healthy(id = 'cn-1', status: ChannelConnection['status'] = 'healthy'): 
 }
 
 describe('renderDialog', () => {
+  it('offers scoped quick WhatsApp numbers and approved templates without channel-management state', () => {
+    const state = base();
+    state.live.quickWhatsAppOptions = ready({
+      connections: [{ id: 'cn-1', displayName: 'Admissions WhatsApp' }],
+      templates: [{
+        id: 'tpl-1', connectionId: 'cn-1', providerTemplateId: 'meta-1',
+        templateName: 'course_followup', language: 'ar_EG', category: 'marketing',
+        status: 'approved', components: [{ type: 'BODY', text: 'مساء الخير {{1}}' }],
+        variables: ['1'], lastSyncedAt: NOW.toISOString(),
+      }],
+    }, NOW.getTime());
+    const dialog = open(state, 'quick-whatsapp');
+    expect(dialog.textContent).toContain('Admissions WhatsApp');
+    expect(dialog.textContent).toContain('course_followup');
+    expect(state.live.connections.status).toBe('idle');
+  });
   it('draws nothing when no dialog is open, and says so for an unknown kind', () => {
     const state = base();
     expect(renderDialog(state)).toBeNull();
