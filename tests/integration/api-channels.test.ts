@@ -2711,6 +2711,10 @@ describe('durable Meta sender profile enrichment', () => {
            JOIN contact_identities i ON i.contact_id=c.id
           WHERE i.scope_id=$1 AND i.external_id='4528904674043162'`, [connectionId]));
       expect(rows.rows).toEqual([{ display_name: 'Eyad Test', external_id: '4528904674043162' }]);
+      const invalidation = await withTenant(api.pool, api.tenantId, (client) => client.query<{
+        type: string; payload: Record<string, unknown>;
+      }>(`SELECT type, payload FROM realtime_events WHERE tenant_id=$1 AND type='conversation.contact'`, [api.tenantId]));
+      expect(invalidation.rows).toEqual([{ type: 'conversation.contact', payload: {} }]);
       expect(await normalizer.pendingProfileTenants()).not.toContain(api.tenantId);
 
       // Profile lookups are optional enrichment. A transient Meta failure must
@@ -2778,6 +2782,34 @@ describe('durable Meta sender profile enrichment', () => {
       ));
       expect(retried.rows[0]?.attempts).toBe(0);
       expect(await normalizer.drainProfiles(api.tenantId)).toBe(1);
+
+      // A lookup can exhaust after the last inbound. Channel management must
+      // show the safe error category and let an operator retry without asking
+      // the customer to send another message.
+      profile.mockRejectedValueOnce(new ProfileLookupError('profile_permission_denied'));
+      await deliver(api, { object: 'page', entry: [{ id: '483612954841071', messaging: [{
+        sender: { id: '4528904674043166' }, recipient: { id: '483612954841071' },
+        timestamp: 1789000005000, message: { mid: 'mid.profile.6', text: 'Profile retry' },
+      }] }] });
+      await normalizer.drain(api.tenantId);
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(0);
+      await withTenant(api.pool, api.tenantId, (client) => client.query(
+        `UPDATE contact_profile_queue SET attempts=5, next_attempt_at=now()
+          WHERE contact_id=(SELECT contact_id FROM contact_identities WHERE external_id='4528904674043166')`,
+      ));
+      const listed = await send(api, owner, 'GET', '/channels');
+      expect(listed.statusCode).toBe(200);
+      const connections = (listed.json() as { data: { id: string; sender_profiles: { pending: number; exhausted: number; last_error_code: string | null } }[] }).data;
+      expect(connections.find((entry) => entry.id === connectionId)?.sender_profiles).toMatchObject({
+        pending: 1, exhausted: 1, last_error_code: 'profile_permission_denied',
+      });
+      const requested = await send(api, owner, 'POST', `/channels/${connectionId}/sender-profiles/retry`);
+      expect(requested.statusCode).toBe(201);
+      expect((requested.json() as { data: { queued: number } }).data.queued).toBe(1);
+      expect(await normalizer.drainProfiles(api.tenantId)).toBe(1);
+      const afterRetry = await send(api, owner, 'GET', '/channels');
+      const refreshed = (afterRetry.json() as { data: { id: string; sender_profiles: { pending: number } }[] }).data;
+      expect(refreshed.find((entry) => entry.id === connectionId)?.sender_profiles.pending).toBe(0);
     } finally {
       await api.app.close();
     }

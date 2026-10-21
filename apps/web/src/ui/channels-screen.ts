@@ -435,6 +435,7 @@ function connectionRow(state: AppState, live: LiveState, connection: ChannelConn
 
 function connectionDetails(state: AppState, live: LiveState, connection: ChannelConnection, id: string): HTMLElement {
   const gone = connection.disconnected_at !== null;
+  const profiles = connection.sender_profiles ?? { pending: 0, exhausted: 0, last_error_code: null };
   const tokenField = channelTokenField(connection.id);
   const token = state.dialogForm[tokenField] ?? '';
   return h('div', { class: 'connection__details', id }, [
@@ -485,6 +486,28 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
     gone
       ? h('p', { class: 'field__hint' }, [t(state, 'هذا الاتصال مفصول. سجله محفوظ، ويمكن ربط الأصل من جديد.', 'This connection is disconnected. Its history is kept and the asset can be connected again.')])
       : h('div', { class: 'connection__manage' }, [
+          connection.kind === 'messenger' || connection.kind === 'instagram'
+            ? h('div', { class: 'connection__block', role: 'status' }, [
+                h('h3', { class: 'connection__blocktitle' }, [t(state, 'أسماء العملاء', 'Customer names')]),
+                h('p', { class: 'field__hint' }, [
+                  t(state,
+                    `${String(profiles.pending)} اسم لم يُجلب بعد${profiles.exhausted > 0 ? `، منها ${String(profiles.exhausted)} توقفت محاولاتها` : ''}.`,
+                    `${String(profiles.pending)} names not retrieved yet${profiles.exhausted > 0 ? `; ${String(profiles.exhausted)} exhausted retries` : ''}.`),
+                ]),
+                profiles.last_error_code === null
+                  ? null
+                  : h('p', { class: 'connection__error' }, [
+                      isolated(profiles.last_error_code, true),
+                      ' · ',
+                      profileLookupHint(state, profiles.last_error_code),
+                    ]),
+                button({
+                  label: t(state, 'إعادة جلب أسماء العملاء', 'Retry customer names'),
+                  icon: 'refresh', act: 'live-retry-sender-profiles', arg: connection.id, small: true,
+                  busy: live.busy === `retry-sender-profiles:${connection.id}`,
+                }),
+              ])
+            : null,
           h('div', { class: 'connection__actions' }, [
             connection.kind === 'whatsapp'
               ? button({
@@ -571,6 +594,13 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
           testRecipients(state, live, connection),
         ]),
   ]);
+}
+
+function profileLookupHint(state: AppState, code: string): string {
+  if (code === 'profile_permission_denied') return t(state, 'توكن الصفحة لا يملك صلاحية قراءة ملف المرسل؛ راجع صلاحيات تطبيق Meta وجدد Page token.', 'The Page token cannot read the sender profile. Check Meta app permissions and refresh the Page token.');
+  if (code === 'profile_credential_rejected') return t(state, 'Meta رفضت التوكن؛ استبدله بـ Page token صالح.', 'Meta rejected the token. Replace it with a valid Page token.');
+  if (code === 'profile_rate_limited') return t(state, 'Meta حدّت طلبات الأسماء مؤقتًا؛ أعد المحاولة لاحقًا.', 'Meta temporarily rate-limited profile lookups. Retry later.');
+  return t(state, 'لم نستطع جلب الاسم من Meta بعد. جرّب إعادة الجلب، ثم راجع إعدادات التطبيق إذا استمر الخطأ.', 'Meta has not returned this name yet. Retry, then check the app configuration if the error persists.');
 }
 
 /**

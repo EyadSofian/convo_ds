@@ -356,6 +356,19 @@ export function testChannel(context: LiveContext, connectionId: string): Promise
   );
 }
 
+export function retrySenderProfiles(context: LiveContext, connectionId: string): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `retry-sender-profiles:${connectionId}`,
+    (tenantId) => context.live.channels.retrySenderProfiles(tenantId, connectionId),
+    (result) => t(
+      context.state,
+      `أُعيد طلب أسماء ${String(result.queued)} عميل. حدّث صندوق الوارد بعد قليل.`,
+      `Queued ${String(result.queued)} customer names for lookup. Refresh the inbox shortly.`,
+    ),
+  );
+}
+
 export function syncWhatsAppTemplates(context: LiveContext, connectionId: string): Promise<boolean> {
   return mutateChannels(
     context,

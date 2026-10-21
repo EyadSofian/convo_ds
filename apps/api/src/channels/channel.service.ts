@@ -61,6 +61,12 @@ export interface ChannelConnectionSummary {
   readonly origins: readonly string[];
   /** Where a Custom Channel's replies are posted. */
   readonly outbound_url: string | null;
+  /** Aggregate diagnostics only; no sender identifiers or provider tokens. */
+  readonly sender_profiles: {
+    readonly pending: number;
+    readonly exhausted: number;
+    readonly last_error_code: string | null;
+  };
 }
 
 export interface ChannelCatalogueEntry {
@@ -103,6 +109,9 @@ interface ConnectionRow {
   readonly credential_fingerprint: string | null;
   readonly origins: unknown;
   readonly outbound_url: string | null;
+  readonly profile_pending: number;
+  readonly profile_exhausted: number;
+  readonly profile_last_error_code: string | null;
 }
 
 const ASSET_TAKEN_INDEX = 'channel_asset_registry_asset_uq';
@@ -183,6 +192,40 @@ export class ChannelService {
     return this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) =>
       readConnections(sql, null),
     );
+  }
+
+  /** Requeue unresolved Meta senders after a Page token or grant is repaired. */
+  async retrySenderProfiles(
+    session: AuthenticatedSession,
+    tenantId: string,
+    connectionId: string,
+  ): Promise<{ readonly queued: number }> {
+    this.authorization.assertTenantId(connectionId);
+    return this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) => {
+      const connection = await requireConnection(sql, connectionId);
+      if (connection.kind !== 'messenger' && connection.kind !== 'instagram') {
+        throw new ApiHttpError(422, 'channel_not_supported', 'Sender profile lookup is available only for Messenger and Instagram.');
+      }
+      if (connection.disconnected_at !== null) {
+        throw new ApiHttpError(409, 'channel_disconnected', 'Reconnect this channel before retrying sender profile lookups.');
+      }
+      const rows = await sql.query<{ contact_id: string }>(
+        `INSERT INTO contact_profile_queue (tenant_id, contact_id, connection_id)
+         SELECT i.tenant_id, i.contact_id, i.scope_id
+           FROM contact_identities i
+           JOIN contacts contact ON contact.tenant_id=i.tenant_id AND contact.id=i.contact_id AND contact.deleted_at IS NULL
+          WHERE i.tenant_id=$1 AND i.scope_id=$2 AND i.kind=$3
+            AND i.valid_to IS NULL AND contact.display_name=i.external_id
+          ORDER BY i.contact_id
+          LIMIT 500
+         ON CONFLICT (tenant_id, contact_id, connection_id) DO UPDATE SET
+           attempts=0, next_attempt_at=now(), lease_until=NULL, last_error_code=NULL
+         WHERE contact_profile_queue.lease_until IS NULL OR contact_profile_queue.lease_until<now()
+         RETURNING contact_id::text`,
+        [tenantId, connectionId, connection.kind],
+      );
+      return { queued: rows.rows.length };
+    });
   }
 
   /**
@@ -669,9 +712,19 @@ async function readConnections(
             c.created_at, c.disconnected_at,
             (SELECT cr.fingerprint FROM channel_credentials cr
               WHERE cr.connection_id = c.id AND cr.status = 'active') AS credential_fingerprint,
-            c.settings->'origins' AS origins, c.settings->>'outbound_url' AS outbound_url
+            c.settings->'origins' AS origins, c.settings->>'outbound_url' AS outbound_url,
+            profile.pending AS profile_pending, profile.exhausted AS profile_exhausted,
+            profile.last_error_code AS profile_last_error_code
        FROM channel_connections c
        LEFT JOIN channel_apps app ON app.id = c.app_id
+       LEFT JOIN LATERAL (
+         SELECT count(*)::int AS pending,
+                count(*) FILTER (WHERE q.attempts >= 5)::int AS exhausted,
+                (SELECT recent.last_error_code FROM contact_profile_queue recent
+                  WHERE recent.connection_id=c.id AND recent.last_error_code IS NOT NULL
+                  ORDER BY recent.next_attempt_at DESC LIMIT 1) AS last_error_code
+           FROM contact_profile_queue q WHERE q.connection_id=c.id
+       ) profile ON true
       WHERE ($1::uuid IS NULL OR c.id = $1)
       ORDER BY c.created_at`,
     [connectionId],
@@ -707,6 +760,11 @@ async function readConnections(
       credential_fingerprint: row.credential_fingerprint,
       origins: Array.isArray(row.origins) ? row.origins.filter((entry): entry is string => typeof entry === 'string') : [],
       outbound_url: row.outbound_url,
+      sender_profiles: {
+        pending: row.profile_pending,
+        exhausted: row.profile_exhausted,
+        last_error_code: row.profile_last_error_code,
+      },
     };
   });
 }

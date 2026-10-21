@@ -254,6 +254,20 @@ describe('connected integrations', () => {
     expect(edited.querySelector('[data-act="live-instagram-page"]')?.getAttribute('data-arg')).toBe('cn-ig');
   });
 
+  it('explains failed sender-name lookups and offers a scoped retry for Meta messaging', () => {
+    const { state, element } = screen([connection({
+      id: 'cn-ms', kind: 'messenger', sender_profiles: {
+        pending: 2, exhausted: 1, last_error_code: 'profile_permission_denied',
+      },
+    })]);
+    state.expandedConnection = 'cn-ms';
+    const details = element().querySelector('.connection__details') as HTMLElement;
+    expect(details.textContent).toContain('2 names not retrieved yet');
+    expect(details.textContent).toContain('1 exhausted retries');
+    expect(details.textContent).toContain('Page token cannot read the sender profile');
+    expect(details.querySelector('[data-act="live-retry-sender-profiles"]')?.getAttribute('data-arg')).toBe('cn-ms');
+  });
+
   it('tells the operator’s own system where to post, how to sign, and where replies go', () => {
     const custom = connection({ id: 'cn-cc', kind: 'custom', provider: 'custom', external_asset_id: 'gateway-1', origins: [], outbound_url: null, last_error_code: 'custom_endpoint_missing' });
     const { state, element } = screen([custom]);

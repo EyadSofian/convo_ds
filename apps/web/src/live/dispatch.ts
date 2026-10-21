@@ -119,6 +119,7 @@ import {
   renameRole,
   renameTeam,
   rotateChannelCredential,
+  retrySenderProfiles,
   setInstagramPage,
   updateChannelSettings,
   saveRoleGrants,
@@ -1354,6 +1355,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-test-channel': async (context, arg) => testChannel(context, arg),
+  'live-retry-sender-profiles': async (context, arg) => retrySenderProfiles(context, arg),
   'live-sync-channel-templates': async (context, arg) => syncWhatsAppTemplates(context, arg),
   'live-subscribe-channel-webhook': async (context, arg) => subscribeWhatsAppWebhook(context, arg),
 

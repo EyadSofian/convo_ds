@@ -155,7 +155,11 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       response = await this.fetchImpl(
         kind === 'instagram'
           ? `${this.graphBase}/me?fields=id,instagram_business_account{id}`
-          : `${this.graphBase}/${encodeURIComponent(assetIdentity)}?fields=${connectionFields(kind)}`,
+          : kind === 'messenger'
+            // Reading /{page-id} also succeeds with some User tokens. /me
+            // proves that this credential itself is scoped to the Page.
+            ? `${this.graphBase}/me?fields=id`
+            : `${this.graphBase}/${encodeURIComponent(assetIdentity)}?fields=${connectionFields(kind)}`,
         {
           method: 'GET',
           headers: { authorization: `Bearer ${credential}` },

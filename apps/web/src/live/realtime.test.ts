@@ -133,10 +133,12 @@ describe('the realtime subscription', () => {
     source.emit('message.inbound', event({ id: 'a', seq: 1 }));
     source.emit('message.delivery', event({ id: 'b', seq: 2, type: 'message.delivery' }));
     source.emit('conversation.assigned', event({ id: 'c', seq: 3, type: 'conversation.assigned' }));
+    source.emit('conversation.contact', event({ id: 'd', seq: 4, type: 'conversation.contact', payload: {} }));
     expect(events.map((entry) => entry.type)).toEqual([
       'message.inbound',
       'message.delivery',
       'conversation.assigned',
+      'conversation.contact',
     ]);
   });
 

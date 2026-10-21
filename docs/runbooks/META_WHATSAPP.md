@@ -101,8 +101,12 @@ projection so the composer can become writable without a browser refresh.
    Meta Webhooks. The API retains only a SHA-256 hash of the Verify Token.
    An existing installation-managed app remains usable: its App Secret stays
    in `CONVO_CHANNEL_SECRET_<REF>` and is not copied into a workspace row.
-5. Set `CONVO_CHANNEL_TRANSPORT=meta` on `convo-api` and every worker that
-   dispatches (`convo-worker-interactive`, `convo-worker-campaign`).
+5. Set `CONVO_CHANNEL_TRANSPORT=meta` on `convo-api`, the inbound worker
+   (`convo-worker-inbound`, which retrieves Messenger/Instagram sender names),
+   and every worker that dispatches (`convo-worker-interactive`,
+   `convo-worker-campaign`). Give the inbound worker the same
+   `CONVO_CREDENTIAL_KEYS` needed to decrypt the Page token. Otherwise messages
+   can arrive while sender-name lookups remain queued indefinitely.
 6. Create the channel connection in the product: Messenger uses its **Page ID**;
    Instagram uses its **Instagram professional account ID plus the linked
    Facebook Page ID**; WhatsApp uses its **Phone Number ID** and the owning

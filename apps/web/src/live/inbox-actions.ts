@@ -654,7 +654,7 @@ export async function applyRealtimeEvent(
     tasks.push(refreshSupervisorWorkload(context));
   }
   if (event.scope.conversationId === live.openConversationId) {
-    tasks.push(loadTimeline(context, event.scope.conversationId));
+    if (event.type !== 'conversation.contact') tasks.push(loadTimeline(context, event.scope.conversationId));
     if (event.type === 'message.inbound') {
       // The new customer message is the durable evidence that reopens the
       // WhatsApp service window. Refresh the conversation capability projection
@@ -669,12 +669,11 @@ export async function applyRealtimeEvent(
     if (
       event.type === 'conversation.state' ||
       event.type === 'conversation.assigned' ||
-      event.type === 'conversation.routing'
+      event.type === 'conversation.routing' ||
+      event.type === 'conversation.contact'
     ) {
-      // The record moved, not only its contents: a colleague resolved it, a
-      // wake fired, or it was assigned elsewhere. Re-read it, because the
-      // lifecycle controls on screen are drawn from the status and the version,
-      // and acting on a stale pair is exactly what the fence exists to refuse.
+      // State and assignment affect lifecycle controls; a resolved contact name
+      // changes the visible header. Re-read the authorized detail in both cases.
       tasks.push(refreshOpenConversation(context, event.scope.conversationId));
     }
   }

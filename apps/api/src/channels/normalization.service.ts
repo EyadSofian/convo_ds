@@ -10,6 +10,7 @@ import { ChannelCredentialService } from './credential.service.js';
 import { ContactService } from '../contacts/contact.service.js';
 import { normalizeSearchText } from '@convo/domain';
 import { ConversationService } from '../conversations/conversation.service.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 import { inboundRowFrom } from './inbound-projection.js';
 import type { InboundRow } from './inbound-projection.js';
 
@@ -52,6 +53,7 @@ export class ChannelNormalizationService {
     @Inject(ContactService) private readonly contacts: ContactService,
     @Inject(CHANNEL_TRANSPORT) private readonly transport: ChannelTransportPort,
     @Inject(ChannelCredentialService) private readonly credentials: ChannelCredentialService,
+    @Inject(RealtimeService) private readonly realtime: RealtimeService,
   ) {}
 
   /**
@@ -131,7 +133,28 @@ export class ChannelNormalizationService {
               WHERE id=$1 AND display_name=$2 AND deleted_at IS NULL`,
             [row.contact_id, row.peer_identity, name, normalizeSearchText(name)],
           );
-          if (Number(changed.rowCount) > 0) enriched += 1;
+          if (Number(changed.rowCount) > 0) {
+            enriched += 1;
+            // The message event preceded this asynchronous lookup. Notify only
+            // authorized conversation readers to refresh; do not put the name
+            // or provider identity on the realtime wire.
+            const conversations = await sql.query<{
+              id: string; version: number; team_id: string | null; assignee_membership_id: string | null;
+            }>(
+              `SELECT id::text, version, team_id::text, assignee_membership_id::text
+                 FROM conversations WHERE tenant_id=$1 AND contact_id=$2 AND connection_id=$3`,
+              [tenantId, row.contact_id, row.connection_id],
+            );
+            for (const conversation of conversations.rows) {
+              await this.realtime.emit(sql, tenantId, {
+                type: 'conversation.contact', entityType: 'conversation',
+                entityId: conversation.id, entityVersion: conversation.version,
+                conversationId: conversation.id, connectionId: row.connection_id,
+                teamId: conversation.team_id, assigneeMembershipId: conversation.assignee_membership_id,
+                occurredAt: new Date(), payload: {},
+              });
+            }
+          }
           await sql.query('DELETE FROM contact_profile_queue WHERE tenant_id=$1 AND contact_id=$2 AND connection_id=$3',
             [tenantId, row.contact_id, row.connection_id]);
         } else {

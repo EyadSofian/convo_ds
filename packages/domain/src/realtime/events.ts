@@ -57,6 +57,8 @@ export const REALTIME_EVENT_TYPES = [
    * agent deciding what to pick up is entitled to know it moved.
    */
   'conversation.routing',
+  /** A sender's display name was resolved; clients re-read authorized views. */
+  'conversation.contact',
   /** Recipient-only invalidation. The notification table owns the content. */
   'notification.changed',
 ] as const;

@@ -294,9 +294,16 @@ describe('Messenger and Instagram Graph contracts', () => {
     await expect(adapter.validateConnection('messenger', TOKEN, 'page-1')).resolves.toMatchObject({ ok: true, assetIdentity: 'page-1' });
     await expect(adapter.validateConnection('instagram', TOKEN, 'ig-account-1', 'page-1')).resolves.toMatchObject({ ok: true, assetIdentity: 'ig-account-1' });
     expect(calls.map((call) => call.url)).toEqual([
-      `${GRAPH}/page-1?fields=id,name`,
+      `${GRAPH}/me?fields=id`,
       `${GRAPH}/me?fields=id,instagram_business_account{id}`,
     ]);
+  });
+
+  it('does not accept a User token that can read the Page but is not Page-scoped', async () => {
+    const { adapter, calls } = transport(() => json(200, { id: 'user-1' }));
+    await expect(adapter.validateConnection('messenger', TOKEN, 'page-1'))
+      .resolves.toMatchObject({ ok: false, code: 'asset_mismatch' });
+    expect(calls[0]?.url).toBe(`${GRAPH}/me?fields=id`);
   });
 
   it('refuses unsupported attachment commands without making a partial provider call', async () => {

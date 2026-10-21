@@ -1097,6 +1097,29 @@
         }
       }
     },
+    "/tenants/{tenantId}/channels/{connectionId}/sender-profiles/retry": {
+      "post": {
+        "operationId": "retryChannelSenderProfiles",
+        "summary": "Retry unresolved Messenger and Instagram sender names",
+        "description": "Requires channel.manage and CSRF. Requeues at most 500 unresolved senders for this connection; the inbound worker retrieves provider names asynchronously. No sender identity or credential is returned.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "responses": {
+          "201": { "description": "The number of profiles queued for retry." },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/channels/{connectionId}/test": {
       "post": {
         "operationId": "testChannelConnection",
@@ -7794,7 +7817,8 @@
           "credential_held",
           "credential_fingerprint",
           "origins",
-          "outbound_url"
+          "outbound_url",
+          "sender_profiles"
         ],
         "properties": {
           "id": {
@@ -7888,6 +7912,17 @@
           "outbound_url": {
             "type": ["string", "null"],
             "description": "Custom Channel: where replies are posted. Null when none is configured or for other channels."
+          },
+          "sender_profiles": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["pending", "exhausted", "last_error_code"],
+            "properties": {
+              "pending": { "type": "integer", "minimum": 0 },
+              "exhausted": { "type": "integer", "minimum": 0 },
+              "last_error_code": { "type": ["string", "null"] }
+            },
+            "description": "Aggregate sender-name lookup diagnostics without sender IDs or credentials."
           },
           "provider_app_id": {
             "type": [
@@ -10207,7 +10242,11 @@
               "message.delivery",
               "conversation.assigned",
               "conversation.state",
-              "conversation.note"
+              "conversation.note",
+              "conversation.handoff",
+              "conversation.routing",
+              "conversation.contact",
+              "notification.changed"
             ]
           },
           "entity": {
@@ -10223,7 +10262,9 @@
                 "type": "string",
                 "enum": [
                   "conversation",
-                  "message"
+                  "message",
+                  "note",
+                  "notification"
                 ]
               },
               "id": {

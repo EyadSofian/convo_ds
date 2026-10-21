@@ -64,6 +64,11 @@ export interface ChannelConnection {
   readonly disconnected_at: string | null;
   readonly credential_held: boolean;
   readonly credential_fingerprint: string | null;
+  readonly sender_profiles?: {
+    readonly pending: number;
+    readonly exhausted: number;
+    readonly last_error_code: string | null;
+  };
   /** Our own channels: origins a browser delivery must come from. */
   readonly origins?: readonly string[];
   /** A Custom Channel: where replies are posted. */
@@ -190,6 +195,12 @@ export class ChannelsApi {
   test(tenantId: string, connectionId: string): Promise<ApiResult<ChannelConnection>> {
     return this.client.post<ChannelConnection>(
       `/tenants/${tenantId}/channels/${connectionId}/test`,
+    );
+  }
+
+  retrySenderProfiles(tenantId: string, connectionId: string): Promise<ApiResult<{ readonly queued: number }>> {
+    return this.client.post<{ readonly queued: number }>(
+      `/tenants/${tenantId}/channels/${connectionId}/sender-profiles/retry`,
     );
   }
 
