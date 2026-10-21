@@ -54,6 +54,62 @@ describe('renderDialog', () => {
     expect(dialog.textContent).toContain('course_followup');
     expect(state.live.connections.status).toBe('idle');
   });
+
+  it('explains loading, lookup failure, and empty quick WhatsApp catalogues', () => {
+    const state = base();
+    state.live.quickWhatsAppOptions = { status: 'loading' };
+    expect(open(state, 'quick-whatsapp').textContent).toContain('Loading WhatsApp numbers');
+    state.live.quickWhatsAppOptions = { status: 'error', error: { code: 'unavailable', message: 'Try again', status: 503, requestId: null, details: [] } };
+    expect(open(state, 'quick-whatsapp').textContent).toContain('Try again');
+    state.live.quickWhatsAppOptions = ready({ connections: [], templates: [] }, 1);
+    expect(open(state, 'quick-whatsapp').textContent).toContain('No WhatsApp number is available');
+    state.live.quickWhatsAppOptions = ready({ connections: [{ id: 'cn-1', displayName: 'Admissions' }], templates: [] }, 1);
+    expect(open(state, 'quick-whatsapp').textContent).toContain('No approved templates for this number');
+  });
+
+  it('previews quick WhatsApp parameters and reflects validation, transport and busy states', () => {
+    const state = base();
+    state.live.quickWhatsAppOptions = ready({
+      connections: [{ id: 'cn-1', displayName: 'Admissions' }],
+      templates: [{
+        id: 'tpl-1', connectionId: 'cn-1', providerTemplateId: 'meta-1', templateName: 'follow_up',
+        language: 'ar_EG', category: 'marketing', status: 'approved',
+        components: [{ type: 'BODY', text: 'أهلًا {{customer_name}}' }], variables: ['customer_name'], lastSyncedAt: NOW.toISOString(),
+      }],
+    }, 1);
+    state.dialogForm = { quickTemplateId: 'tpl-1', quickParam_body_customer_name: 'Mona', quickPeerIdentity: '+201001234567' };
+    state.formErrors = { quickWhatsApp: 'Check the opt-in proof' };
+    state.live.error = { code: 'provider_error', message: 'Meta refused', status: 502, requestId: null, details: [] };
+    state.live.busy = 'quick-whatsapp-send';
+    const dialog = open(state, 'quick-whatsapp');
+    expect(dialog.textContent).toContain('customer_name');
+    expect(dialog.textContent).toContain('Check the opt-in proof');
+    expect(dialog.textContent).toContain('The server couldn’t complete this');
+    expect(dialog.querySelector('[data-form="quickParam_body_customer_name"]')).not.toBeNull();
+    expect(dialog.querySelector('[data-act="live-quick-whatsapp-send"]')?.getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('renders media and numbered variables while blocking an unsupported quick template', () => {
+    const state = base();
+    state.live.quickWhatsAppOptions = ready({
+      connections: [{ id: 'cn-1', displayName: 'Admissions' }],
+      templates: [
+        { id: 'media', connectionId: 'cn-1', providerTemplateId: 'meta-media', templateName: 'course_image', language: 'ar', category: 'marketing', status: 'approved', components: [{ type: 'HEADER', format: 'IMAGE' }, { type: 'BODY', text: 'Hello {{1}}' }], variables: ['1'], lastSyncedAt: NOW.toISOString() },
+        { id: 'invalid', connectionId: 'cn-1', providerTemplateId: 'meta-invalid', templateName: 'broken', language: 'ar', category: 'utility', status: 'approved', components: [{ type: 'BODY', text: 'Broken {{1' }], variables: [], lastSyncedAt: NOW.toISOString() },
+      ],
+    }, 1);
+    state.dialogForm = { quickTemplateId: 'media' };
+    let dialog = open(state, 'quick-whatsapp');
+    expect(dialog.querySelector('[data-form="quickParam_header_0"]')?.getAttribute('type')).toBe('url');
+    expect(dialog.querySelector('[data-form="quickParam_body_1"]')?.getAttribute('type')).toBe('text');
+    state.dialogForm.quickParam_header_0 = 'https://example.com/course.jpg';
+    dialog = open(state, 'quick-whatsapp');
+    expect(dialog.querySelector('[data-form="quickParam_header_0"]')?.getAttribute('value')).toBe('https://example.com/course.jpg');
+    state.dialogForm = { quickTemplateId: 'invalid' };
+    dialog = open(state, 'quick-whatsapp');
+    expect(dialog.querySelector('[data-act="live-quick-whatsapp-send"]')?.hasAttribute('disabled')).toBe(true);
+    expect(dialog.textContent).toContain('Malformed or mixed template parameters');
+  });
   it('draws nothing when no dialog is open, and says so for an unknown kind', () => {
     const state = base();
     expect(renderDialog(state)).toBeNull();

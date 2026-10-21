@@ -215,6 +215,12 @@ describe('own scope', () => {
     ).toEqual({ allowed: false, reason: 'not_own_resource' });
   });
 
+  it('allows a participant to read an unassigned conversation without opening a colleague’s assignment', () => {
+    expect(authorize(agent(), 'conversation.read', {
+      inboxId: INBOX, assigneeMembershipId: null, participantMembershipIds: [ME],
+    })).toEqual({ allowed: true, scope: 'own' });
+  });
+
   /**
    * business-rules.md §4.1: losing inbox access overrides assignment and
    * participation immediately. The scope term runs before the ownership term

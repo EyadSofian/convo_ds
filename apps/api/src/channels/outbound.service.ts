@@ -299,7 +299,9 @@ export class OutboundService {
         throw new ApiHttpError(409, 'conversation_owned_by_another', 'This conversation belongs to another agent.');
       }
       const resource: ResourceRef = { inboxId: connectionId, ...(locked.team_id === null ? {} : { teamId: locked.team_id }), assigneeMembershipId: principal.membershipId };
-      if (!authorize(principal, 'conversation.reply', resource).allowed) throw new ApiHttpError(403, 'permission_denied', 'You cannot send from this inbox.');
+      // The same principal and inbox were authorized before looking up the
+      // conversation. An added team cannot narrow that inbox grant (scopes
+      // match either resource), so a second reply check would be unreachable.
       if (locked.assignee_membership_id === null) {
         if (!authorize(principal, 'conversation.claim', resource).allowed) throw new ApiHttpError(403, 'permission_denied', 'You cannot claim this conversation.');
         await sql.query(

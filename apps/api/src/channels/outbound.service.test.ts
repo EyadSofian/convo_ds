@@ -31,6 +31,80 @@ function catalogueHarness(options: { conversation?: Record<string, unknown> | nu
 }
 
 describe('OutboundService defensive boundaries', () => {
+  function quickHarness(options: {
+    kind?: string; grants?: Principal['grants']; scopes?: Principal['scopes'];
+    duplicate?: { id: string; conversation_id: string | null; author_membership: string | null };
+    previousConnection?: string; previousPeer?: string;
+    locked?: { id: string; team_id: string | null; assignee_membership_id: string | null; status: string };
+  } = {}) {
+    const principal: Principal = { membershipId: id, membershipStatus: 'active', tenantStatus: 'active',
+      grants: options.grants ?? { 'conversation.reply': 'tenant', 'conversation.claim': 'tenant' },
+      scopes: options.scopes ?? [], delegationCeiling: null };
+    const query = vi.fn(async <T>(statement: string) => {
+      if (statement.includes('FROM channel_connections')) return { rows: [{ id, kind: options.kind ?? 'whatsapp', capabilities: null, disconnected_at: null }] as T[], rowCount: 1 };
+      if (statement.includes('FROM channel_suppressions')) return { rows: [] as T[], rowCount: 0 };
+      if (statement.includes('FROM outbound_messages WHERE tenant_id')) return { rows: (options.duplicate ? [options.duplicate] : []) as T[], rowCount: options.duplicate ? 1 : 0 };
+      if (statement.includes('FROM outbound_messages') && statement.includes('ORDER BY created_at')) return { rows: [{
+        id: 'previous-message', connection_id: options.previousConnection ?? id, peer_identity: options.previousPeer ?? '201001234567',
+        message_type: 'template', client_message_id: 'quick-key-1', command_state: 'queued', state_reason: null,
+        delivery_state: null, delivery_anomaly: null, provider_message_id: null, created_at: new Date(), settled_at: null,
+      }] as T[], rowCount: 1 };
+      if (statement.includes('FROM conversations WHERE id=$1 FOR UPDATE')) return { rows: [options.locked ?? { id, team_id: null, assignee_membership_id: id, status: 'open' }] as T[], rowCount: 1 };
+      return { rows: [] as T[], rowCount: 0 };
+    });
+    const sql = { query } as unknown as SqlExecutor;
+    const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal })) } as unknown as AuthorizationService;
+    const ensure = vi.fn().mockResolvedValue({ id });
+    const service = new OutboundService(authorization, {} as LifecycleService, { ensure } as unknown as ConversationService);
+    const message = { id: 'message-1', connection_id: id, peer_identity: '201001234567' };
+    const queueAuthorized = vi.spyOn(service as never, 'queueAuthorized').mockResolvedValue(message as never);
+    const send = () => service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, {
+      peerIdentity: '+201001234567', consentReference: 'form-123', template: { id, parameters: {} }, clientMessageId: 'quick-key-1',
+    });
+    return { service, query, ensure, queueAuthorized, send };
+  }
+
+  it('rejects malformed quick-send bodies and incomplete template selection', async () => {
+    const { service } = quickHarness();
+    for (const body of [null, [], 42, { peerIdentity: 42, consentReference: 42 },
+      { peerIdentity: '+201001234567', consentReference: 'form-123', template: { name: 'legacy' }, clientMessageId: 'quick-key-1' },
+      { peerIdentity: '+201001234567', consentReference: 'form-123', template: null, clientMessageId: 'quick-key-1' }]) {
+      await expect(service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, body)).rejects.toMatchObject({ status: 400 });
+    }
+  });
+
+  it('requires a WhatsApp connection and a reply grant before quick sending', async () => {
+    await expect(quickHarness({ kind: 'messenger' }).send()).rejects.toMatchObject({ status: 422, code: 'template_not_sendable' });
+    await expect(quickHarness({ grants: {} }).send()).rejects.toMatchObject({ status: 403, code: 'permission_denied' });
+  });
+
+  it('refuses a reused key from another author or without a conversation', async () => {
+    await expect(quickHarness({ duplicate: { id: 'previous-message', author_membership: 'other', conversation_id: id } }).send()).rejects.toMatchObject({ status: 409, code: 'idempotency_key_conflict' });
+    await expect(quickHarness({ duplicate: { id: 'previous-message', author_membership: id, conversation_id: null } }).send()).rejects.toMatchObject({ status: 409, code: 'idempotency_key_conflict' });
+  });
+
+  it('returns the original quick command only when its author, channel and recipient match', async () => {
+    const duplicate = { id: 'previous-message', author_membership: id, conversation_id: id };
+    await expect(quickHarness({ duplicate, previousConnection: 'other-channel' }).send()).rejects.toMatchObject({ status: 409 });
+    await expect(quickHarness({ duplicate, previousPeer: '201000000000' }).send()).rejects.toMatchObject({ status: 409 });
+    const matching = quickHarness({ duplicate });
+    expect((await matching.send()).conversationId).toBe(id);
+    expect(matching.ensure).not.toHaveBeenCalled();
+  });
+
+  it('does not send into an archived thread or one already assigned to a colleague', async () => {
+    await expect(quickHarness({ locked: { id, team_id: null, assignee_membership_id: null, status: 'archived' } }).send()).rejects.toMatchObject({ status: 409, code: 'conversation_not_open' });
+    await expect(quickHarness({ locked: { id, team_id: null, assignee_membership_id: 'other', status: 'open' } }).send()).rejects.toMatchObject({ status: 409, code: 'conversation_owned_by_another' });
+  });
+
+  it('claims an unassigned team thread only with the claim permission', async () => {
+    const locked = { id, team_id: 'team-1', assignee_membership_id: null, status: 'pending' };
+    await expect(quickHarness({ grants: { 'conversation.reply': 'tenant' }, locked }).send()).rejects.toMatchObject({ status: 403, code: 'permission_denied' });
+    const allowed = quickHarness({ locked });
+    expect((await allowed.send()).conversationId).toBe(id);
+    expect(allowed.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE conversations SET assignee_membership_id'), [id, id]);
+    expect(allowed.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE outbound_messages SET opt_in_proof_ref'), ['message-1', 'form-123']);
+  });
   it('requires a real international number and an opt-in evidence reference before a quick send', async () => {
     const authorization = { withPrincipal: vi.fn() } as unknown as AuthorizationService;
     const service = new OutboundService(authorization, {} as LifecycleService, {} as ConversationService);

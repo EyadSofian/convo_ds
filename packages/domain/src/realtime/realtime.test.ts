@@ -209,6 +209,10 @@ describe('visibility', () => {
 });
 
 describe('the queue card', () => {
+  it('uses a nonempty customer name supplied by the trusted projection', () => {
+    expect(projectQueueCard(event({ payload: { contactDisplayName: '  Mona  ' } })).contactDisplayName).toBe('  Mona  ');
+    expect(projectQueueCard(event({ payload: { contactDisplayName: '   ' } })).contactDisplayName).toBeNull();
+  });
   it('carries the eight permitted fields and nothing else', () => {
     const card = projectQueueCard(event());
     // The same list the field-policy term uses, so the two cannot drift.

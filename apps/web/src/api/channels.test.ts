@@ -3,6 +3,16 @@ import type { ApiClient } from './client.js';
 import { ChannelsApi } from './channels.js';
 
 describe('channel API routes', () => {
+  it('fetches sendable quick WhatsApp options and queues the selected template', async () => {
+    const get = vi.fn().mockResolvedValue({ ok: true, data: { connections: [], templates: [] } });
+    const post = vi.fn().mockResolvedValue({ ok: true, data: { conversationId: 'conversation-1' } });
+    const api = new ChannelsApi({ get, post } as unknown as ApiClient);
+    await api.quickWhatsAppOptions('tenant-1');
+    expect(get).toHaveBeenCalledWith('/tenants/tenant-1/quick-whatsapp/options');
+    const input = { peerIdentity: '+201001234567', consentReference: 'form-123', template: { id: 'template-1', parameters: { 'body:1': 'Mona' } }, clientMessageId: 'quick-key-1' };
+    await api.sendQuickWhatsApp('tenant-1', 'channel-1', input);
+    expect(post).toHaveBeenCalledWith('/tenants/tenant-1/channels/channel-1/quick-messages', { body: input });
+  });
   it('subscribes the selected WhatsApp connection to the WABA webhook', async () => {
     const post = vi.fn().mockResolvedValue({ ok: true, data: { updated_connections: 2 } });
     const api = new ChannelsApi({ post } as unknown as ApiClient);

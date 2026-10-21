@@ -165,6 +165,31 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     ctx.live.campaigns = { status: 'ready', value: [], loadedAt: 1 };
   }
 
+  it('switches between All, Mine and Unassigned without reopening a colleague’s thread', async () => {
+    const { state, context } = active();
+    inboxReads(context);
+    context.live.conversations = ready([], 1);
+    expect(await LIVE_ACTIONS['live-inbox-queue']?.(context, 'unassigned')).toBeUndefined();
+    await LIVE_ACTIONS['live-inbox-queue']?.(context, 'all');
+    expect(state.inboxQueue).toBe('all');
+    expect(context.live.inboxQuery.queue).toBe('all');
+    await LIVE_ACTIONS['live-inbox-queue']?.(context, 'mine');
+    expect(state.inboxQueue).toBe('mine');
+    expect(context.live.inboxQuery.queue).toBe('mine');
+    await LIVE_ACTIONS['live-inbox-queue']?.(context, 'unassigned');
+    expect(state.inboxQueue).toBe('unassigned');
+    await LIVE_ACTIONS['live-inbox-queue']?.(context, 'invalid');
+    expect(state.inboxQueue).toBe('unassigned');
+  });
+
+  it('registers the quick WhatsApp header and send actions', async () => {
+    const { state, context } = active();
+    state.live.session = { status: 'signed_in', email: 'owner@test.local', memberships: [], tenantId: null };
+    await expect(LIVE_ACTIONS['live-quick-whatsapp-open']?.(context, '')).resolves.toBe(true);
+    expect(state.dialog?.kind).toBe('quick-whatsapp');
+    await expect(LIVE_ACTIONS['live-quick-whatsapp-send']?.(context, '')).resolves.toBe(false);
+  });
+
   it('normalizes automation state and sort before sending the list query', async () => {
     const { state, context } = active();
     const list = vi.fn().mockResolvedValue({ ok: true, data: { data: [], nextCursor: null, hasMore: false } });

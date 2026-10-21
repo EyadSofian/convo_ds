@@ -22,6 +22,28 @@ function state() {
 }
 
 describe('Inbox list controls', () => {
+  it('shows the All empty state and a Mine count only while the Mine query is loaded', () => {
+    const app = state();
+    app.inboxQueue = 'all';
+    app.live.inboxQuery = { ...app.live.inboxQuery, queue: 'all' };
+    app.live.conversations = ready([], 1);
+    expect(renderInbox(app).textContent).toContain('No conversations in this view');
+    app.inboxQueue = 'mine';
+    app.live.inboxQuery = { ...app.live.inboxQuery, queue: 'mine' };
+    expect(renderInbox(app).textContent).toContain('Nothing assigned to you');
+    expect(renderInbox(app).textContent).toContain('Mine');
+  });
+
+  it('shows a trusted customer name or channel-specific fallback on unassigned cards', () => {
+    const app = state();
+    const card = { id: 'conversation-1', inboxLabel: 'Digital School', channel: 'messenger', maskedLabel: '••••347',
+      contactDisplayName: null, priority: 'normal', status: 'open', waitingSinceAt: null, claimable: true, version: 1 };
+    app.live.unassigned = ready([card, { ...card, id: 'conversation-2', channel: 'instagram' },
+      { ...card, id: 'conversation-3', channel: 'whatsapp' }, { ...card, id: 'conversation-4', contactDisplayName: 'Mona' }] as never, 1);
+    const root = renderInbox(app);
+    const names = [...root.querySelectorAll('.convrow--card .convrow__name')].map((row) => row.textContent);
+    expect(names).toEqual(['Messenger customer', 'Instagram customer', '••••347', 'Mona']);
+  });
   it('makes archived conversations discoverable without including them in the live queue by default', () => {
     const app = state();
     const archive = renderInbox(app).querySelector('[data-act="live-inbox-archived-toggle"]') as HTMLButtonElement;
