@@ -34,6 +34,7 @@ function setup() {
     catalogue: vi.fn().mockResolvedValue(ok([])),
     testRecipients: vi.fn().mockResolvedValue(ok([RECIPIENT])),
     syncWhatsAppTemplates: vi.fn().mockResolvedValue(ok({ connection_id: 'channel-1', imported: 3, disabled: 1, synced_at: NOW.toISOString() })),
+    retrySenderProfiles: vi.fn().mockResolvedValue(ok({ queued: 2 })),
     authorizeTestRecipient: vi.fn().mockResolvedValue(ok(RECIPIENT)),
     revokeTestRecipient: vi.fn().mockResolvedValue(ok(undefined)),
   } as unknown as ChannelsApi;
@@ -120,6 +121,24 @@ describe('WhatsApp template synchronization from Channels', () => {
     const app = setup();
     vi.mocked(app.channels.syncWhatsAppTemplates).mockResolvedValueOnce(fail());
     expect(await LIVE_ACTIONS['live-sync-channel-templates']?.(app.context, 'channel-1')).toBe(false);
+    expect(app.state.live.error).toEqual(ERROR);
+    expect(app.state.toasts).toHaveLength(0);
+  });
+});
+
+describe('Meta sender name retry from Channels', () => {
+  it('requeues names only for the selected connection and shows the committed count', async () => {
+    const app = setup();
+    expect(await LIVE_ACTIONS['live-retry-sender-profiles']?.(app.context, 'channel-1')).toBe(true);
+    expect(app.channels.retrySenderProfiles).toHaveBeenCalledWith('tenant-1', 'channel-1');
+    expect(app.state.toasts.at(-1)?.text).toContain('2 customer names');
+    expect(app.state.live.busy).toBeNull();
+  });
+
+  it('reports a failed retry without claiming names were queued', async () => {
+    const app = setup();
+    vi.mocked(app.channels.retrySenderProfiles).mockResolvedValueOnce(fail());
+    expect(await LIVE_ACTIONS['live-retry-sender-profiles']?.(app.context, 'channel-1')).toBe(false);
     expect(app.state.live.error).toEqual(ERROR);
     expect(app.state.toasts).toHaveLength(0);
   });

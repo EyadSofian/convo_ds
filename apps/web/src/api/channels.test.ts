@@ -19,6 +19,12 @@ describe('channel API routes', () => {
     await api.subscribeWhatsAppWebhook('tenant-1', 'channel-1');
     expect(post).toHaveBeenCalledWith('/tenants/tenant-1/channels/channel-1/webhook/subscribe');
   });
+  it('requeues unresolved Meta sender names on the selected connection', async () => {
+    const post = vi.fn().mockResolvedValue({ ok: true, data: { queued: 2 } });
+    const api = new ChannelsApi({ post } as unknown as ApiClient);
+    await expect(api.retrySenderProfiles('tenant-1', 'channel-1')).resolves.toEqual({ ok: true, data: { queued: 2 } });
+    expect(post).toHaveBeenCalledWith('/tenants/tenant-1/channels/channel-1/sender-profiles/retry');
+  });
   it('sends a linked Instagram Page only to the DS backend', async () => {
     const post = vi.fn().mockResolvedValue({ ok: true, data: { id: 'channel-1' } });
     const api = new ChannelsApi({ post } as unknown as ApiClient);

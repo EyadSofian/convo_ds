@@ -2670,6 +2670,35 @@ describe('the outbound path', () => {
 /* ------------------------------------------------- the other four channels -- */
 
 describe('durable Meta sender profile enrichment', () => {
+  it('rejects profile retries for unsupported and disconnected channels', async () => {
+    const api = await createHarness();
+    try {
+      const owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+      const whatsapp = await send(api, owner, 'POST', '/channels', {
+        kind: 'whatsapp', externalAssetId: '15550009991', displayName: 'WhatsApp only',
+        accessToken: 'synthetic-whatsapp-token', appId: api.appId,
+      });
+      expect(whatsapp.statusCode).toBe(201);
+      const whatsappId = (whatsapp.json() as { data: { id: string } }).data.id;
+      const unsupported = await send(api, owner, 'POST', `/channels/${whatsappId}/sender-profiles/retry`);
+      expect(unsupported.statusCode).toBe(422);
+      expect(unsupported.json()).toMatchObject({ error: { code: 'channel_not_supported' } });
+
+      const messenger = await send(api, owner, 'POST', '/channels', {
+        kind: 'messenger', externalAssetId: '483612954841071', displayName: 'Disconnected Page',
+        accessToken: 'synthetic-page-token', appId: api.appId,
+      });
+      expect(messenger.statusCode).toBe(201);
+      const messengerId = (messenger.json() as { data: { id: string } }).data.id;
+      expect((await send(api, owner, 'DELETE', `/channels/${messengerId}`)).statusCode).toBe(204);
+      const disconnected = await send(api, owner, 'POST', `/channels/${messengerId}/sender-profiles/retry`);
+      expect(disconnected.statusCode).toBe(409);
+      expect(disconnected.json()).toMatchObject({ error: { code: 'channel_disconnected' } });
+    } finally {
+      await api.app.close();
+    }
+  });
+
   it('does not claim profiles when the configured provider has no profile capability', async () => {
     const api = await createHarness();
     try {

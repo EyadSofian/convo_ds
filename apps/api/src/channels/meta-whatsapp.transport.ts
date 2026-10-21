@@ -159,7 +159,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
             // Reading /{page-id} also succeeds with some User tokens. /me
             // proves that this credential itself is scoped to the Page.
             ? `${this.graphBase}/me?fields=id`
-            : `${this.graphBase}/${encodeURIComponent(assetIdentity)}?fields=${connectionFields(kind)}`,
+            : `${this.graphBase}/${encodeURIComponent(assetIdentity)}?fields=id,display_phone_number,verified_name`,
         {
           method: 'GET',
           headers: { authorization: `Bearer ${credential}` },
@@ -495,10 +495,6 @@ function firstMessageId(body: unknown): string | null {
 
 function isMetaGraphKind(kind: ChannelKind): kind is 'whatsapp' | 'messenger' | 'instagram' {
   return kind === 'whatsapp' || kind === 'messenger' || kind === 'instagram';
-}
-
-function connectionFields(kind: 'whatsapp' | 'messenger'): string {
-  return kind === 'whatsapp' ? 'id,display_phone_number,verified_name' : 'id,name';
 }
 
 function unsupportedConnection(kind: ChannelKind): ConnectionCheck {

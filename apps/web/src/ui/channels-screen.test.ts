@@ -268,6 +268,18 @@ describe('connected integrations', () => {
     expect(details.querySelector('[data-act="live-retry-sender-profiles"]')?.getAttribute('data-arg')).toBe('cn-ms');
   });
 
+  it.each([
+    ['profile_credential_rejected', 'Meta rejected the token'],
+    ['profile_rate_limited', 'Meta temporarily rate-limited'],
+    ['profile_provider_unavailable', 'Meta has not returned this name yet'],
+  ])('explains sender profile error %s', (code, explanation) => {
+    const { state, element } = screen([connection({ id: 'cn-ms', kind: 'messenger', sender_profiles: {
+      pending: 1, exhausted: 1, last_error_code: code,
+    } })]);
+    state.expandedConnection = 'cn-ms';
+    expect(element().textContent).toContain(explanation);
+  });
+
   it('tells the operator’s own system where to post, how to sign, and where replies go', () => {
     const custom = connection({ id: 'cn-cc', kind: 'custom', provider: 'custom', external_asset_id: 'gateway-1', origins: [], outbound_url: null, last_error_code: 'custom_endpoint_missing' });
     const { state, element } = screen([custom]);
