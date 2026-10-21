@@ -340,13 +340,15 @@ function countOf(resource: Resource<readonly unknown[]>): number | undefined {
 
 function inboxFilters(state: AppState, live: LiveState): HTMLElement {
   const search = state.dialogForm['inboxFilterCatalogueSearch'] ?? '';
-  const definitions = INBOX_FILTER_CATALOGUE.filter((definition) => definition.inbox && filterLabel(state, definition).toLowerCase().includes(search.toLowerCase()));
-  const selectedKey = state.dialogForm['inboxFilterKey'] ?? definitions[0]?.key ?? '';
-  const selected = INBOX_FILTER_CATALOGUE.find((definition) => definition.key === selectedKey) ?? definitions[0];
+  const unassigned = state.inboxQueue === 'unassigned';
+  const definitions = INBOX_FILTER_CATALOGUE.filter((definition) => definition.inbox &&
+    (!unassigned || definition.key === 'priority' || definition.key === 'channel' || definition.key === 'label_id') &&
+    filterLabel(state, definition).toLowerCase().includes(search.toLowerCase()));
+  const selected = definitions.find((definition) => definition.key === state.dialogForm['inboxFilterKey']);
   const selectedField = selected?.key === 'custom_field'
     ? rowsOf(live.customFields).find((field) => field.id === (state.dialogForm['inboxFilterFieldId'] ?? ''))
     : undefined;
-  const operators = selected?.key === 'custom_field' ? customFieldOperators(selectedField?.type) : selected?.operators ?? [];
+  const operators = unassigned ? ['eq'] : selected?.key === 'custom_field' ? customFieldOperators(selectedField?.type) : selected?.operators ?? [];
   const requestedOperator = state.dialogForm['inboxFilterOperator'] ?? '';
   const operator = operators.includes(requestedOperator) ? requestedOperator : operators[0] ?? '';
   const row = (label: string, control: HTMLElement): HTMLElement => h('label', { class: 'field field--row' }, [h('span', { class: 'field__label' }, [label]), control]);
@@ -356,11 +358,16 @@ function inboxFilters(state: AppState, live: LiveState): HTMLElement {
       button({ icon: 'close', act: 'close-menu', variant: 'ghost', small: true, title: t(state, 'إغلاق الفلاتر', 'Close filters') }),
     ]),
     h('input', { class: 'input input--sm', type: 'search', value: search, placeholder: t(state, 'ابحث عن فلتر', 'Find a filter'), 'data-act': 'form-toggle', 'data-form': 'inboxFilterCatalogueSearch' }),
-    ...(selected === undefined ? [h('p', { class: 'empty-copy' }, [t(state, 'لا يوجد فلتر مطابق.', 'No matching filter.')])] : [
-      row(t(state, 'الحقل', 'Field'), selectControl({ act: 'form-toggle', form: 'inboxFilterKey', value: selected.key, options: definitions.map((definition) => ({ value: definition.key, label: filterLabel(state, definition) })) })),
+    ...(definitions.length === 0 ? [h('p', { class: 'empty-copy' }, [t(state, 'لا يوجد فلتر مطابق.', 'No matching filter.')])] : [
+      row(t(state, 'الحقل', 'Field'), selectControl({ act: 'form-toggle', form: 'inboxFilterKey', value: selected?.key ?? '', options: [
+        { value: '', label: t(state, 'اختر الفلتر', 'Choose a filter') },
+        ...definitions.map((definition) => ({ value: definition.key, label: filterLabel(state, definition) })),
+      ] })),
+      ...(selected === undefined ? [] : [
       row(t(state, 'المطابقة', 'Match'), selectControl({ act: 'form-toggle', form: 'inboxFilterOperator', value: operator, options: operators.map((value) => ({ value, label: operatorLabel(state, value) })) })),
       filterValueEditor(state, live, selected, operator),
-      button({ label: t(state, 'إضافة فلتر', 'Add filter'), act: 'live-inbox-filter-apply', variant: 'primary', small: true, disabled: live.busy !== null || (selected.key === 'custom_field' && selectedField === undefined) }),
+      ]),
+      button({ label: t(state, 'إضافة فلتر', 'Add filter'), act: 'live-inbox-filter-apply', variant: 'primary', small: true, disabled: live.busy !== null || selected === undefined || (selected.key === 'custom_field' && selectedField === undefined) || (operator !== 'is_set' && operator !== 'is_not_set' && (state.dialogForm['inboxFilterValue'] ?? '').trim() === '') }),
     ]),
   ]);
 }

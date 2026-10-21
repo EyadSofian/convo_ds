@@ -813,7 +813,6 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     const filter = inboxFilterFromForm(context);
     if (filter === null) return false;
     context.live.inboxQuery = { ...context.live.inboxQuery, filters: [...context.live.inboxQuery.filters, filter], cursor: null };
-    context.state.inboxQueue = 'mine';
     context.state.dialogForm = {};
     return loadInboxScreen(context);
   },
@@ -823,14 +822,12 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     if (!Number.isInteger(index) || index < 0 || index >= context.live.inboxQuery.filters.length) return false;
     context.live.inboxQuery = { ...context.live.inboxQuery, filters: context.live.inboxQuery.filters.filter((_, candidate) => candidate !== index), cursor: null };
     context.live.selectedSavedViewId = null;
-    context.state.inboxQueue = 'mine';
     return loadInboxScreen(context);
   },
 
   'live-inbox-filter-clear': async (context) => {
     context.live.inboxQuery = { ...context.live.inboxQuery, filters: [], cursor: null };
     context.live.selectedSavedViewId = null;
-    context.state.inboxQueue = 'mine';
     return loadInboxScreen(context);
   },
 
@@ -1610,7 +1607,8 @@ function inboxFilterFromForm(context: LiveContext): InboxFilter | null {
   const requestedOperator = form(context, 'inboxFilterOperator');
   const definition = INBOX_FILTER_CATALOGUE.find((entry) => entry.key === key);
   if (definition === undefined) return null;
-  let operator = requestedOperator;
+  if (context.state.inboxQueue === 'unassigned' && definition.key !== 'priority' && definition.key !== 'channel' && definition.key !== 'label_id') return null;
+  let operator = requestedOperator === '' ? definition.operators[0]! : requestedOperator;
   let customFieldType: string | undefined;
   const fieldId = form(context, 'inboxFilterFieldId');
   if (definition.key === 'custom_field') {
@@ -1620,7 +1618,7 @@ function inboxFilterFromForm(context: LiveContext): InboxFilter | null {
     const operators = customFieldOperators(field.type);
     operator = operators.includes(requestedOperator) ? requestedOperator : operators[0]!;
   }
-  if (!definition.operators.includes(operator)) return null;
+  if (!definition.operators.includes(operator) || context.state.inboxQueue === 'unassigned' && operator !== 'eq') return null;
   const valuelessOperator = operator === 'is_set' || operator === 'is_not_set';
   if (valuelessOperator) {
     return {

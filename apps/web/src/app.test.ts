@@ -660,6 +660,7 @@ describe('layers, focus and the keyboard', () => {
     const { root, app } = start('#/inbox', signedIn());
     await settle();
     app.state.openMenu = 'inbox-filters';
+    app.state.dialogForm = { inboxFilterKey: 'priority', inboxFilterValue: 'high' };
     app.render();
     const popover = root.querySelector('[data-trap="mobile-inbox-filters"]') as HTMLElement;
     expect(popover).not.toBeNull();

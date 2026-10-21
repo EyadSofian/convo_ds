@@ -274,6 +274,7 @@ describe('dialogs and forms', () => {
 
   it('ignores a form value with no field name', () => {
     runAction('form', app.context, 'no-separator');
+    runAction('form-toggle', app.context, 'no-separator');
     expect(app.state.dialogForm).toEqual({});
   });
 
@@ -283,6 +284,18 @@ describe('dialogs and forms', () => {
     expect(app.renders).toBe(before);
     runAction('form-toggle', app.context, 'channelToken_c:abc');
     expect(app.renders).toBeGreaterThan(before);
+  });
+
+  it('clears stale filter inputs when the field, operator, or custom field changes', () => {
+    app.state.dialogForm = { inboxFilterKey: 'priority', inboxFilterOperator: 'neq', inboxFilterValue: 'high', inboxFilterFieldId: 'old' };
+    runAction('form-toggle', app.context, 'inboxFilterKey:channel');
+    expect(app.state.dialogForm).toEqual({ inboxFilterKey: 'channel' });
+    app.state.dialogForm = { inboxFilterKey: 'custom_field', inboxFilterFieldId: 'old', inboxFilterOperator: 'eq', inboxFilterValue: 'secret' };
+    runAction('form-toggle', app.context, 'inboxFilterFieldId:new');
+    expect(app.state.dialogForm['inboxFilterValue']).toBeUndefined();
+    app.state.dialogForm['inboxFilterValue'] = 'high';
+    runAction('form-toggle', app.context, 'inboxFilterOperator:neq');
+    expect(app.state.dialogForm['inboxFilterValue']).toBeUndefined();
   });
 });
 

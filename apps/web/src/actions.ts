@@ -180,7 +180,17 @@ const formInput: ActionHandler = (context, arg) => {
 
 /** Same as `form`, but re-renders — used by controls whose value gates another. */
 const formToggle: ActionHandler = (context, arg) => {
+  const separator = arg.indexOf(':');
+  const name = separator === -1 ? '' : arg.slice(0, separator);
+  const value = separator === -1 ? '' : arg.slice(separator + 1);
+  const changed = name !== '' && context.state.dialogForm[name] !== value;
   formInput(context, arg);
+  if (changed && name === 'inboxFilterKey') {
+    delete context.state.dialogForm['inboxFilterOperator'];
+    delete context.state.dialogForm['inboxFilterValue'];
+    delete context.state.dialogForm['inboxFilterFieldId'];
+  }
+  if (changed && (name === 'inboxFilterOperator' || name === 'inboxFilterFieldId')) delete context.state.dialogForm['inboxFilterValue'];
   context.refresh();
 };
 

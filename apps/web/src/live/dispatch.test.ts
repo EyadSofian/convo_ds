@@ -487,6 +487,7 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
 
   it('builds only catalogue-backed custom filters and rejects incomplete forms', async () => {
     const { state, context } = active();
+    state.inboxQueue = 'mine';
     inboxReads(context);
     expect(await LIVE_ACTIONS['live-inbox-filter-apply']?.(context, '')).toBe(false);
     state.dialogForm = { inboxFilterKey: 'custom_field', inboxFilterFieldId: 'field-1', inboxFilterOperator: 'neq', inboxFilterValue: 'true' };
@@ -529,6 +530,14 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     state.dialogForm = { inboxFilterKey: 'waiting_since', inboxFilterOperator: 'is_set', inboxFilterValue: '' };
     await expect(LIVE_ACTIONS['live-inbox-filter-apply']?.(context, '')).resolves.toBeUndefined();
     expect(context.live.inboxQuery.filters.at(-1)).toEqual({ key: 'waiting_since', operator: 'is_set' });
+  });
+
+  it('rejects filters the Unassigned endpoint cannot apply', async () => {
+    const { state, context } = active();
+    state.inboxQueue = 'unassigned';
+    state.dialogForm = { inboxFilterKey: 'unread', inboxFilterValue: 'true' };
+    expect(await LIVE_ACTIONS['live-inbox-filter-apply']?.(context, '')).toBe(false);
+    expect(context.live.inboxQuery.filters).toEqual([]);
   });
 
   it('fails closed for unavailable saved-view apply and malformed inline label create', async () => {

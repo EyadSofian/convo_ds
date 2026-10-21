@@ -269,6 +269,13 @@ function type(root: ParentNode, selector: string, value: string): void {
   field.dispatchEvent(new window.Event('input', { bubbles: true }));
 }
 
+function choose(root: ParentNode, selector: string, value: string): void {
+  const field = root.querySelector(selector) as HTMLSelectElement | null;
+  if (field === null) throw new Error(`no element for ${selector}`);
+  field.value = value;
+  field.dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+
 /** Claims through the control the screen renders, whichever one it is. */
 async function claimConversationFrom(app: AppHandle): Promise<void> {
   const id = app.state.live.openConversationId ?? CONVERSATION;
@@ -864,16 +871,43 @@ describe('what the screen does with what it is given', () => {
     const popover = root.querySelector('.popover') as HTMLElement;
     expect(popover).not.toBeNull();
     expect(popover.querySelector('[data-form="inboxFilterKey"]')).not.toBeNull();
-    // The catalogue picker writes the same bounded form state the action reads.
-    // Driving the action directly keeps this test about the server query rather
-    // than browser select re-render timing, which is covered by UI tests.
-    app.state.dialogForm = { inboxFilterKey: 'label_id', inboxFilterOperator: 'eq', inboxFilterValue: 'l-1' };
-    app.dispatch('live-inbox-filter-apply');
+    expect((popover.querySelector('[data-act="live-inbox-filter-apply"]') as HTMLButtonElement).disabled).toBe(true);
+    choose(root, '[data-form="inboxFilterKey"]', 'label_id');
+    choose(root, '[data-form="inboxFilterValue"]', 'l-1');
+    click(root, '[data-act="live-inbox-filter-apply"]');
     await settle();
     expect(app.state.live.inboxQuery.filters).toContainEqual({ key: 'label_id', operator: 'eq', value: 'l-1' });
+    expect(app.state.inboxQueue).toBe('unassigned');
     expect(api.countOf(`GET /tenants/${TENANT}/conversations/unassigned?label=l-1`)).toBe(1);
     // The control says how many filters are on.
     expect(root.querySelector('[data-arg="inbox-filters"]')?.getAttribute('title')).toBe('إضافة فلتر (1 مفعّلة)');
+    click(root, '[data-act="live-inbox-filter-remove"][data-arg="0"]');
+    await settle();
+    expect(app.state.inboxQueue).toBe('unassigned');
+    expect(app.state.live.inboxQuery.filters).toEqual([]);
+  });
+
+  it('applies the visible default operator on All without moving to Mine', async () => {
+    const filter = encodeURIComponent(JSON.stringify({ key: 'unread', operator: 'eq', value: true }));
+    const api = inboxApi()
+      .on(`GET /tenants/${TENANT}/conversations?queue=all`, { status: 200, body: { data: [] } })
+      .on(`GET /tenants/${TENANT}/conversations?queue=all&filter=${filter}`, { status: 200, body: { data: [] } });
+    const { root, app } = await open(api);
+    click(root, '[data-act="live-inbox-queue"][data-arg="all"]');
+    await settle();
+    click(root, '[data-act="menu"][data-arg="inbox-filters"]');
+    choose(root, '[data-form="inboxFilterKey"]', 'unread');
+    choose(root, '[data-form="inboxFilterValue"]', 'true');
+    click(root, '[data-act="live-inbox-filter-apply"]');
+    await settle();
+    expect(app.state.inboxQueue).toBe('all');
+    expect(app.state.live.inboxQuery.queue).toBe('all');
+    expect(app.state.live.inboxQuery.filters).toEqual([{ key: 'unread', operator: 'eq', value: true }]);
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations?queue=all&filter=${filter}`)).toBe(1);
+    click(root, '[data-act="live-inbox-filter-clear"]');
+    await settle();
+    expect(app.state.inboxQueue).toBe('all');
+    expect(app.state.live.inboxQuery.filters).toEqual([]);
   });
 
   it('says a card has not waited yet when the server sends no wait time', async () => {

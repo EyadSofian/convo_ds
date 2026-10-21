@@ -22,6 +22,19 @@ function state() {
 }
 
 describe('Inbox list controls', () => {
+  it('offers only supported filters on Unassigned and requires an explicit value', () => {
+    const app = state();
+    app.openMenu = 'inbox-filters';
+    const initial = renderInbox(app);
+    const keys = initial.querySelector('[data-form="inboxFilterKey"]') as HTMLSelectElement;
+    expect([...keys.options].map((option) => option.value)).toEqual(['', 'channel', 'label_id', 'priority']);
+    expect((initial.querySelector('[data-act="live-inbox-filter-apply"]') as HTMLButtonElement).disabled).toBe(true);
+    app.dialogForm = { inboxFilterKey: 'priority' };
+    expect((renderInbox(app).querySelector('[data-act="live-inbox-filter-apply"]') as HTMLButtonElement).disabled).toBe(true);
+    app.dialogForm = { inboxFilterKey: 'priority', inboxFilterValue: 'high' };
+    expect((renderInbox(app).querySelector('[data-act="live-inbox-filter-apply"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('shows the All empty state and a Mine count only while the Mine query is loaded', () => {
     const app = state();
     app.inboxQueue = 'all';
@@ -129,6 +142,7 @@ describe('Inbox list controls', () => {
 
   it('renders catalogue-backed custom and label filters with active chips and saved-view actions', () => {
     const app = state();
+    app.inboxQueue = 'mine';
     app.openMenu = 'inbox-filters';
     app.dialogForm = { inboxFilterCatalogueSearch: '___' };
     expect(renderInbox(app).textContent).toContain('No matching filter');
@@ -204,6 +218,7 @@ describe('Inbox list controls', () => {
 
   it('uses current server catalogues for agent, team, connection, label and campaign filters', () => {
     const app = state();
+    app.inboxQueue = 'mine';
     app.live.people = ready([
       { membership_id: 'agent-1', email: 'agent@example.test', status: 'active' },
       { membership_id: 'agent-2', email: 'inactive@example.test', status: 'inactive' },
