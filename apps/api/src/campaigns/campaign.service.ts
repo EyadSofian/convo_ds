@@ -51,6 +51,8 @@ export interface CampaignView {
   readonly approved: boolean;
   readonly audience: { readonly total: number; readonly eligible: number; readonly excluded: number } | null;
   readonly execution: { readonly id: string; readonly state: string; readonly scheduled_for: string | null } | null;
+  readonly lead_summary: { readonly total: number; readonly new: number; readonly existing: number; readonly repeat: number;
+    readonly won: number; readonly lost: number; readonly unqualified: number; readonly revenue_amount_minor: string } | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -77,6 +79,7 @@ interface CampaignRow {
   readonly execution_id: string | null;
   readonly execution_state: string | null;
   readonly scheduled_for: Date | null;
+  readonly lead_summary: CampaignView['lead_summary'];
   readonly created_at: Date;
   readonly updated_at: Date;
 }
@@ -984,10 +987,26 @@ async function readCampaigns(sql: SqlExecutor, id: string | null): Promise<reado
             r.id::text AS revision_id,r.revision,r.revision_hash,r.content,r.variables,r.audience_filter,
             r.timezone,r.expires_at,r.budget_amount_minor::text,r.budget_currency,
             EXISTS(SELECT 1 FROM campaign_approvals a WHERE a.revision_id=r.id AND a.revision_hash=r.revision_hash AND a.revoked_at IS NULL) AS approved,
-            s.counts,e.id::text AS execution_id,e.state AS execution_state,e.scheduled_for,c.created_at,c.updated_at
+            s.counts,e.id::text AS execution_id,e.state AS execution_state,e.scheduled_for,
+            CASE WHEN leads.total=0 THEN NULL ELSE jsonb_build_object(
+              'total',leads.total,'new',leads.new_count,'existing',leads.existing_count,
+              'repeat',leads.repeat_count,'won',leads.won_count,'lost',leads.lost_count,
+              'unqualified',leads.unqualified_count,'revenue_amount_minor',leads.revenue_amount_minor::text) END AS lead_summary,
+            c.created_at,c.updated_at
        FROM campaigns c JOIN campaign_revisions r ON r.id=c.current_revision_id
        LEFT JOIN audience_snapshots s ON s.revision_id=r.id
        LEFT JOIN campaign_executions e ON e.campaign_id=c.id
+       LEFT JOIN LATERAL (
+         SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE NOT existing_contact)::int AS new_count,
+                count(*) FILTER (WHERE existing_contact)::int AS existing_count,
+                count(*) FILTER (WHERE repeat_lead)::int AS repeat_count,
+                count(*) FILTER (WHERE status='won')::int AS won_count,
+                count(*) FILTER (WHERE status='lost')::int AS lost_count,
+                count(*) FILTER (WHERE status='unqualified')::int AS unqualified_count,
+                coalesce(sum(revenue_amount_minor),0) AS revenue_amount_minor
+           FROM campaign_leads WHERE campaign_id=c.id
+       ) leads ON true
       WHERE ($1::uuid IS NULL OR c.id=$1) ORDER BY c.created_at DESC,c.id`, [id],
   );
   return result.rows;
@@ -1005,6 +1024,7 @@ function viewOf(row: CampaignRow): CampaignView {
     audience: counts === null ? null : { total: counts.total, eligible: counts.eligible, excluded: counts.excluded },
     execution: row.execution_id === null ? null : { id: row.execution_id, state: row.execution_state as string,
       scheduled_for: row.scheduled_for?.toISOString() ?? null },
+    lead_summary: row.lead_summary,
     created_at: row.created_at.toISOString(), updated_at: row.updated_at.toISOString(),
   };
 }

@@ -9,6 +9,7 @@ import type { ApiError, ApiResult } from '../api/client.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { broadcastStep, broadcastTemplate, goToBroadcastStep, jumpToBroadcastStep, scheduledInstant, stepProblems, submitBroadcast, syncBroadcastTemplates } from './broadcast.js';
+import { previewBroadcastUpload, setBroadcastUpload } from './broadcast-import.js';
 import { LIVE_ACTIONS } from './dispatch.js';
 
 const NOW = new Date('2026-09-26T09:00:00.000Z');
@@ -54,6 +55,9 @@ function setup(permissions: readonly string[] = ['campaign.draft', 'campaign.app
     launch: vi.fn().mockResolvedValue(ok(running)),
     list: vi.fn().mockResolvedValue(ok([running])),
     previewAudience: vi.fn().mockResolvedValue(ok(PREVIEW)),
+    previewLeads: vi.fn().mockResolvedValue(ok({ totalRows: 2, validLeads: 1, newContacts: 1, existingContacts: 0,
+      duplicateLeads: 1, invalidMobileNumbers: 0, missingRequiredFields: 0, readyToSend: 1, issues: [] })),
+    importLeads: vi.fn().mockResolvedValue(ok({ contactIds: ['22222222-2222-4222-8222-222222222222'], preview: { totalRows: 2 } })),
   };
   const channels = { connections: vi.fn().mockResolvedValue(ok([])), metaApps: vi.fn().mockResolvedValue(ok([])), testRecipients: vi.fn().mockResolvedValue(ok([])) } as unknown as ChannelsApi;
   Object.defineProperty(state.live, 'campaignsApi', { value: api as unknown as CampaignsApi });
@@ -126,6 +130,27 @@ describe('moving between steps', () => {
 });
 
 describe('sending', () => {
+  it('previews a sheet and replaces the safe empty audience only after import', async () => {
+    const { state, context, api } = setup();
+    complete(state);
+    const rows = [
+      { leadName: 'Mona', mobile: '01012345678', courseName: 'PMP', label: 'PMP_OCT', assignTo: '', campaignName: 'Sunday reminder' },
+      { leadName: 'Mona again', mobile: '+201012345678', courseName: 'PMP', label: 'PMP_OCT', assignTo: '', campaignName: 'Sunday reminder' },
+    ];
+    setBroadcastUpload(state, 'leads.csv', { ok: true, rows });
+    expect(stepProblems(context, 0)).toHaveProperty('campaignLeadSheet');
+    expect(await previewBroadcastUpload(context)).toBe(true);
+    expect(stepProblems(context, 0)).toEqual({});
+    expect(await submitBroadcast(context, 'now')).toBe(true);
+    expect(api.create).toHaveBeenCalledWith('tenant-1', expect.objectContaining({
+      audienceFilter: { contactIds: ['00000000-0000-4000-8000-000000000000'] },
+    }), 'key-1');
+    expect(api.importLeads).toHaveBeenCalledWith('tenant-1', 'c-1', { connectionId: 'cn-1', campaignName: 'Sunday reminder', rows });
+    expect(api.update).toHaveBeenCalledWith('tenant-1', 'c-1', expect.objectContaining({
+      audienceFilter: { contactIds: ['22222222-2222-4222-8222-222222222222'] },
+    }), 1, 'key-1');
+  });
+
   it('reads a future local time as an instant', () => {
     expect(scheduledInstant('', NOW.getTime())).toBeNull();
     expect(scheduledInstant('nope', NOW.getTime())).toBeNull();

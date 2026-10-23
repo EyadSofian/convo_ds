@@ -278,6 +278,7 @@ function campaignDetail(state: AppState, live: LiveState, campaign: Campaign, ca
       steps(state, campaign),
       h('div', { class: 'campaign-detail__grid' }, [
         audienceSummary(state, campaign),
+        campaign.lead_summary == null ? null : leadSummary(state, campaign.lead_summary),
         h('dl', { class: 'attrgrid' }, [
           h('dt', {}, [t(state, 'القناة', 'Channel')]),
           h('dd', {}, [connection === undefined ? '—' : `${connection.display_name} · ${phrase(state, CHANNEL_NAMES, connection.kind)}`]),
@@ -300,6 +301,23 @@ function campaignDetail(state: AppState, live: LiveState, campaign: Campaign, ca
       actions(state, live, campaign, can, busyPrefix),
       ledger(state, live, campaign),
     ]),
+  ]);
+}
+
+function leadSummary(state: AppState, value: NonNullable<Campaign['lead_summary']>): HTMLElement {
+  const metrics: readonly [string, number][] = [
+    [t(state, 'الليدز', 'Leads'), value.total],
+    [t(state, 'جدد', 'New'), value.new],
+    [t(state, 'موجودون', 'Existing'), value.existing],
+    [t(state, 'متكررون', 'Repeat'), value.repeat],
+    [t(state, 'مكتسبون', 'Won'), value.won],
+    [t(state, 'مفقودون', 'Lost'), value.lost],
+  ];
+  return h('section', { class: 'campaign-leads-summary', 'aria-label': t(state, 'نتائج الليدز', 'Lead results') }, [
+    h('h3', {}, [t(state, 'نتائج الليدز', 'Lead results')]),
+    h('div', { class: 'campaign-leads-summary__grid' }, metrics.map(([label, count]) =>
+      h('div', {}, [h('strong', {}, [formatNumber(count, state.lang)]), h('span', {}, [label])]))),
+    h('p', {}, [t(state, 'الإيراد المسجل', 'Recorded revenue'), `: ${formatNumber(Number(value.revenue_amount_minor) / 100, state.lang)} EGP`]),
   ]);
 }
 

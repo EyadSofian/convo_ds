@@ -7,6 +7,7 @@ import { icon } from '../icons.js';
 import { hasPermission } from '../live/ability.js';
 import { editorAudience, previewKey } from '../live/audience.js';
 import { BROADCAST_PREFIX, broadcastName, broadcastStep, broadcastTemplate, whatsappNumbers } from '../live/broadcast.js';
+import { broadcastUpload, uploadKey } from '../live/broadcast-import.js';
 import { bindingsFromForm, templateDefinition } from '../live/template-binding.js';
 import { rowsOf } from '../live/store.js';
 import type { AppState } from '../state.js';
@@ -159,9 +160,46 @@ function setupStep(state: AppState, campaign: Campaign | undefined, numbers: Ret
       ]),
       fieldError(state, 'campaignConnection'),
     ]),
+    leadSheetCard(state),
     notice('info', 'shield', t(state,
       'واتساب يسمح ببدء المحادثة مع العملاء بالقوالب المعتمدة فقط، ولمن وافق على استقبال رسائلك.',
       'WhatsApp lets a business start a conversation only with an approved template, and only with people who agreed to hear from it.')),
+  ]);
+}
+
+function leadSheetCard(state: AppState): HTMLElement {
+  const upload = broadcastUpload(state);
+  const preview = upload?.previewKey === uploadKey(state) ? upload.preview : null;
+  const stats = preview === null ? [] : [
+    [t(state, 'الصفوف', 'Rows'), preview.totalRows],
+    [t(state, 'جاهز', 'Ready'), preview.readyToSend],
+    [t(state, 'جديد', 'New'), preview.newContacts],
+    [t(state, 'موجود', 'Existing'), preview.existingContacts],
+    [t(state, 'مكرر', 'Duplicates'), preview.duplicateLeads],
+    [t(state, 'رقم غير صالح', 'Invalid mobile'), preview.invalidMobileNumbers],
+  ] as const;
+  return h('section', { class: 'broadcast__import' }, [
+    h('div', { class: 'broadcast__import-head' }, [
+      h('span', { class: 'broadcast__import-icon', 'aria-hidden': 'true' }, [icon('contacts', 20)]),
+      h('div', {}, [
+        h('strong', {}, [t(state, 'ارفع قائمة الليدز', 'Import lead list')]),
+        h('p', {}, [t(state, 'اختياري · ملف Excel أو CSV بستة أعمدة. معاينة قبل الإرسال.', 'Optional · Six-column Excel or CSV. Review before sending.')]),
+      ]),
+    ]),
+    h('label', { class: 'broadcast__import-picker' }, [
+      h('span', {}, [upload?.fileName ?? t(state, 'اختر ملف .xlsx أو .csv', 'Choose .xlsx or .csv')]),
+      h('input', { type: 'file', accept: '.xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'data-act': 'live-broadcast-import-file', 'aria-label': t(state, 'ملف الليدز', 'Lead sheet') }),
+    ]),
+    upload === null ? h('p', { class: 'field__hint' }, [t(state,
+      'الأعمدة: Lead Name, Mobile, Course Name, Label, Assign To, Campaign Name. بدون ملف، استخدم اختيار الجمهور المعتاد.',
+      'Columns: Lead Name, Mobile, Course Name, Label, Assign To, Campaign Name. Without a file, choose the audience normally.')]) : null,
+    upload?.error === null && preview === null ? button({ label: t(state, 'افحص الملف', 'Check file'), act: 'live-broadcast-import-preview', small: true, busy: state.live.busy === 'broadcast-import-preview' }) : null,
+    upload?.error ? notice('danger', 'alert', upload.error) : null,
+    preview === null ? null : h('div', { class: 'broadcast__import-stats', 'aria-live': 'polite' }, stats.map(([label, count]) =>
+      h('div', {}, [h('strong', {}, [formatNumber(count, state.lang)]), h('span', {}, [label])]))),
+    preview?.issues.length ? h('div', { class: 'broadcast__import-issues', role: 'status' }, preview.issues.slice(0, 8).map((issue) => h('p', {}, [issue.message]))) : null,
+    upload === null ? null : button({ label: t(state, 'إزالة الملف', 'Remove file'), act: 'live-broadcast-import-clear', variant: 'ghost', small: true }),
+    fieldError(state, 'campaignLeadSheet'),
   ]);
 }
 
@@ -218,6 +256,12 @@ function messageStep(state: AppState, campaign: Campaign | undefined): HTMLEleme
 }
 
 function audienceStep(state: AppState): HTMLElement {
+  const upload = broadcastUpload(state);
+  if (upload !== null) return h('section', { class: 'broadcast__panel broadcast__panel--audience' }, [
+    h('h3', {}, [t(state, 'جمهور الملف', 'Imported audience')]),
+    h('p', { class: 'field__hint' }, [t(state, 'لن يُرسل إلا لصفوف الملف الصالحة وغير المكررة. فحص الاستبعاد النهائي يتم قبل الإرسال.', 'Only valid, unique rows from this sheet will be addressed. Final suppression checks run before sending.')]),
+    leadSheetCard(state),
+  ]);
   return h('section', { class: 'broadcast__panel broadcast__panel--audience', 'aria-label': t(state, 'الجمهور', 'Audience') }, [audienceSection(state)]);
 }
 
@@ -231,6 +275,8 @@ function sendStep(state: AppState, campaign: Campaign | undefined): HTMLElement 
   const bindings: TemplateBindings = template === undefined ? {} : bindingsFromForm(form, BROADCAST_PREFIX, templateDefinition(template), stored).bindings;
   const preview = state.live.audiencePreview;
   const count = filter !== null && preview !== null && preview.key === previewKey(connectionId, filter) && preview.result.status === 'ready' ? preview.result.value : null;
+  const upload = broadcastUpload(state);
+  const leadPreview = upload?.previewKey === uploadKey(state) ? upload.preview : null;
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const scheduled = form['campaignScheduleAt'] ?? '';
   return h('section', { class: 'broadcast__panel', 'aria-label': t(state, 'الإرسال', 'Send') }, [
@@ -262,12 +308,15 @@ function sendStep(state: AppState, campaign: Campaign | undefined): HTMLElement 
       review(t(state, 'القالب', 'Template'), template === undefined ? '—' : `${template.templateName} · ${template.language}`),
       review(t(state, 'المتغيرات', 'Variables'), Object.keys(bindings).length === 0 ? t(state, 'لا توجد', 'None') : Object.entries(bindings).map(([key, binding]) =>
         `${placeName(state, key)} {{${key.split(':').at(-1)!}}}: ${sourceName(state, binding.source)}`).join(t(state, '، ', ', '))),
-      review(t(state, 'الجمهور', 'Audience'), count === null
-        ? t(state, 'لم يُحسب بعد', 'Not counted yet')
-        : t(state, `${formatNumber(count.eligible, state.lang)} سيستلمون من ${formatNumber(count.total, state.lang)}`, `${formatNumber(count.eligible, state.lang)} will receive it, of ${formatNumber(count.total, state.lang)}`)),
+      review(t(state, 'الجمهور', 'Audience'), upload !== null
+        ? leadPreview === null ? t(state, 'لم يُفحص الملف بعد', 'Sheet not checked yet')
+          : t(state, `${formatNumber(leadPreview.readyToSend, state.lang)} ليد صالح للاستيراد؛ الأهلية تُفحص قبل الإرسال`, `${formatNumber(leadPreview.readyToSend, state.lang)} valid leads to import; eligibility is checked before sending`)
+        : count === null ? t(state, 'لم يُحسب بعد', 'Not counted yet')
+          : t(state, `${formatNumber(count.eligible, state.lang)} سيستلمون من ${formatNumber(count.total, state.lang)}`, `${formatNumber(count.eligible, state.lang)} will receive it, of ${formatNumber(count.total, state.lang)}`)),
+      upload === null ? null : review(t(state, 'ملف الليدز', 'Lead sheet'), upload.fileName),
       review(t(state, 'الموعد', 'When'), when === 'now' ? t(state, 'الآن', 'Now') : scheduled === '' ? '—' : dateFormat(state.lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(scheduled))),
     ]),
-    count === null
+    count === null && upload === null
       ? button({ label: t(state, 'احسب الجمهور', 'Check audience'), icon: 'users', act: 'live-campaign-audience-preview', small: true })
       : null,
     fieldError(state, 'campaignAudience'),

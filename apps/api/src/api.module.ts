@@ -71,6 +71,7 @@ import { MetadataController } from './metadata/metadata.controller.js';
 import { MetadataService } from './metadata/metadata.service.js';
 import { CampaignController } from './campaigns/campaign.controller.js';
 import { CampaignService } from './campaigns/campaign.service.js';
+import { CampaignLeadImportService } from './campaigns/campaign-lead-import.service.js';
 import { CampaignPlannerService } from './campaigns/campaign-planner.service.js';
 import { CampaignReportingService } from './campaigns/reporting.service.js';
 import { OperationalReportingService } from './campaigns/operational-report.service.js';
@@ -211,6 +212,7 @@ export class ApiModule {
         ContactService,
         MetadataService,
         CampaignService,
+        CampaignLeadImportService,
         CampaignPlannerService,
         CampaignReportingService,
         OperationalReportingService,

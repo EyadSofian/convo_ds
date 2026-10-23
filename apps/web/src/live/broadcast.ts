@@ -11,6 +11,7 @@ import { editorAudience } from './audience.js';
 import { loadCampaignsScreen } from './campaign-actions.js';
 import { bindingsFromForm, storedBindings, templateDefinition } from './template-binding.js';
 import { currentTenantId, rowsOf } from './store.js';
+import { broadcastUpload, clearBroadcastUpload, uploadKey } from './broadcast-import.js';
 
 export { whatsappNumbers } from './audience.js';
 
@@ -61,9 +62,12 @@ export function stepProblems(context: LiveContext, step: number): Readonly<Recor
   if (step === 0) {
     const name = broadcastName(state, campaign);
     const { connectionId } = editorAudience(state);
+    const upload = broadcastUpload(state);
+    const sheetReady = upload === null || (upload.error === null && upload.previewKey === uploadKey(state) && upload.preview !== null && upload.preview.readyToSend > 0);
     return {
       ...(name === '' ? { campaignName: t(context, 'سمِّ البث.', 'Name the broadcast.') } : {}),
       ...(connectionId === '' ? { campaignConnection: t(context, 'اختر رقم واتساب.', 'Choose a WhatsApp number.') } : {}),
+      ...(!sheetReady ? { campaignLeadSheet: t(context, 'افحص ملف الليدز وأصلح الأخطاء قبل المتابعة.', 'Check the lead sheet and fix its issues before continuing.') } : {}),
     };
   }
   if (step === 1) {
@@ -77,6 +81,7 @@ export function stepProblems(context: LiveContext, step: number): Readonly<Recor
       : {};
   }
   if (step === 2) {
+    if (broadcastUpload(state) !== null) return {};
     const problem = audienceProblem(context);
     return problem === null ? {} : { campaignAudience: problem };
   }
@@ -103,7 +108,7 @@ export async function goToBroadcastStep(context: LiveContext, arg: string): Prom
   context.state.dialogForm = { ...context.state.dialogForm, broadcastStep: String(target) };
   context.refresh();
   // Reaching the review, the count is taken for the operator.
-  if (target === 3) await previewCampaignAudience(context);
+  if (target === 3 && broadcastUpload(context.state) === null) await previewCampaignAudience(context);
   return true;
 }
 
@@ -150,6 +155,7 @@ export async function submitBroadcast(context: LiveContext, mode: string): Promi
     return showProblems(context, 3, { campaignScheduleAt: t(context, 'اختر وقتًا قادمًا.', 'Choose a time in the future.') });
   }
   const campaign = editedCampaign(state);
+  const upload = broadcastUpload(state);
   const { connectionId, filter } = editorAudience(state);
   const { template: templateId, stored } = broadcastTemplate(state, campaign);
   const template = rowsOf(live.whatsappTemplates).find((entry) => entry.id === templateId)!;
@@ -160,7 +166,9 @@ export async function submitBroadcast(context: LiveContext, mode: string): Promi
     content: { template: { id: templateId, parameters: bindingsFromForm(state.dialogForm, BROADCAST_PREFIX, templateDefinition(template), stored).bindings } },
     variables: {},
     // The audience step refused any audience that names no filter.
-    audienceFilter: filter!,
+    // A newly saved import campaign must never temporarily have an unrestricted
+    // audience while the server is matching and creating its contacts.
+    audienceFilter: upload === null ? filter! : { contactIds: ['00000000-0000-4000-8000-000000000000'] },
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     budgetAmountMinor: 0,
     budgetCurrency: 'USD',
@@ -182,6 +190,12 @@ export async function submitBroadcast(context: LiveContext, mode: string): Promi
     current = result.data;
     return true;
   };
+  if (upload !== null) {
+    const imported = await api.importLeads(tenantId, current.id, { connectionId, campaignName: input.name, rows: upload.rows });
+    if (!imported.ok) return stop(context, imported.error, current.id);
+    if (!await step(() => api.update(tenantId, current.id,
+      { ...input, audienceFilter: { contactIds: imported.data.contactIds } }, current.version, context.newKey()))) return false;
+  }
   if (mode !== 'draft') {
     if (current.state === 'draft' && !await step(() => api.validate(tenantId, current.id))) return false;
     if (hasPermission(live, 'campaign.approve') && !current.approved && !await step(() => api.approve(tenantId, current.id))) return false;
@@ -196,6 +210,7 @@ export async function submitBroadcast(context: LiveContext, mode: string): Promi
   live.selectedCampaignId = current.id;
   state.dialog = null;
   state.dialogForm = {};
+  clearBroadcastUpload(state);
   state.formErrors = {};
   pushToast(state, message);
   await loadCampaignsScreen(context);

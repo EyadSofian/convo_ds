@@ -139,6 +139,85 @@ describe('campaign API', () => {
   beforeAll(async () => { api = await setup(); }, 120_000);
   afterAll(async () => { if (api !== undefined) await api.app.close(); });
 
+  it('previews and imports a deduplicated lead sheet, then labels only accepted sends', async () => {
+    const api = await setup();
+    try {
+    const name = 'PMP October lead sheet';
+    const rows = [
+      { leadName: 'Existing Student', mobile: '201000000000', courseName: 'PMP', label: 'CODE_ONE', assignTo: '', campaignName: name },
+      { leadName: 'Mona New', mobile: '01012345678', courseName: 'PMP', label: 'CODE_ONE', assignTo: 'owner@campaign.test', campaignName: name },
+      { leadName: 'Mona repeated', mobile: '+201012345678', courseName: 'PMP', label: 'CODE_ONE', assignTo: '', campaignName: name },
+    ];
+    const payload = { connectionId: api.connectionId, campaignName: name, rows };
+    const preview = await send(api, 'POST', '/campaigns/lead-import-preview', payload);
+    expect(preview.statusCode, preview.body).toBe(200);
+    expect(preview.json()).toMatchObject({ data: { totalRows: 3, readyToSend: 2, newContacts: 1, existingContacts: 1, duplicateLeads: 1 } });
+
+    const safe = { contactIds: ['00000000-0000-4000-8000-000000000000'] };
+    const created = await send(api, 'POST', '/campaigns', draft(api, { name, audienceFilter: safe }), 'lead-sheet-create');
+    expect(created.statusCode, created.body).toBe(201);
+    const campaign = created.json() as { data: { id: string; version: number } };
+    const imported = await send(api, 'POST', `/campaigns/${campaign.data.id}/leads/import`, payload);
+    expect(imported.statusCode, imported.body).toBe(201);
+    const contactIds = (imported.json() as { data: { contactIds: string[] } }).data.contactIds;
+    expect(contactIds).toHaveLength(2);
+    const replay = await send(api, 'POST', `/campaigns/${campaign.data.id}/leads/import`, payload);
+    expect(replay.statusCode, replay.body).toBe(201);
+    expect((replay.json() as { data: { contactIds: string[] } }).data.contactIds).toEqual(contactIds);
+    const stored = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const leads = await sql.query<{ mobile: string; course_name: string; contact_id: string }>(
+        `SELECT mobile,course_name,contact_id::text FROM campaign_leads WHERE campaign_id=$1 ORDER BY mobile`, [campaign.data.id]);
+      const labelled = await sql.query(`SELECT 1 FROM contact_labels WHERE contact_id=ANY($1::uuid[]) AND removed_at IS NULL`, [contactIds]);
+      const consents = await sql.query(`SELECT 1 FROM consents WHERE contact_id=$1`, [contactIds.find((id) => id !== leads.rows.find((row) => row.mobile === '201000000000')?.contact_id)]);
+      return { leads: leads.rows, labels: labelled.rowCount, consents: consents.rowCount };
+    });
+    expect(stored.leads).toHaveLength(2);
+    expect(stored.leads.map((row) => row.course_name)).toEqual(['PMP', 'PMP']);
+    expect(stored.labels).toBe(0);
+    expect(stored.consents).toBe(0);
+
+    const revised = await send(api, 'PATCH', `/campaigns/${campaign.data.id}`,
+      { ...draft(api, { name, audienceFilter: { contactIds } }), expectedVersion: campaign.data.version }, 'lead-sheet-audience');
+    expect(revised.statusCode, revised.body).toBe(200);
+    const validated = await send(api, 'POST', `/campaigns/${campaign.data.id}/validate`);
+    expect(validated.json()).toMatchObject({ data: { audience: { total: 2, eligible: 2 } } });
+    await send(api, 'POST', `/campaigns/${campaign.data.id}/approve`);
+    await send(api, 'POST', `/campaigns/${campaign.data.id}/launch`, { mode: 'now' }, 'lead-sheet-launch');
+    await withTenant(api.pool, api.tenantId, async (sql) => {
+      await sql.query(`UPDATE campaign_recipients SET state='accepted' WHERE execution_id=(SELECT id FROM campaign_executions WHERE campaign_id=$1)`, [campaign.data.id]);
+      const labels = await sql.query(`SELECT 1 FROM contact_labels WHERE contact_id=ANY($1::uuid[]) AND removed_at IS NULL`, [contactIds]);
+      expect(labels.rowCount).toBe(2);
+      await sql.query(`UPDATE campaign_recipients SET state='delivered' WHERE execution_id=(SELECT id FROM campaign_executions WHERE campaign_id=$1)`, [campaign.data.id]);
+      const again = await sql.query(`SELECT 1 FROM contact_labels WHERE contact_id=ANY($1::uuid[]) AND removed_at IS NULL`, [contactIds]);
+      expect(again.rowCount).toBe(2);
+    });
+    // Keep this fixture from being planned by the later dispatcher tests.
+    const cancelled = await send(api, 'POST', `/campaigns/${campaign.data.id}/control`, { action: 'cancel' });
+    expect(cancelled.statusCode, cancelled.body).toBe(201);
+
+    const secondName = 'PMP November lead sheet';
+    const second = await send(api, 'POST', '/campaigns', draft(api, { name: secondName, audienceFilter: safe }), 'lead-sheet-second-create');
+    const secondId = dataOf(second).id;
+    const secondImport = await send(api, 'POST', `/campaigns/${secondId}/leads/import`, {
+      connectionId: api.connectionId, campaignName: secondName,
+      rows: [{ ...rows[1], campaignName: secondName, label: 'NOVEMBER_PMP' }],
+    });
+    expect(secondImport.statusCode, secondImport.body).toBe(201);
+    expect((secondImport.json() as { data: { contactIds: string[] } }).data.contactIds).toEqual([contactIds.find((id) => id !== stored.leads[0]!.contact_id)]);
+    const history = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ repeat_lead: boolean }>(
+      `SELECT repeat_lead FROM campaign_leads WHERE campaign_id=$1`, [secondId]));
+    expect(history.rows[0]?.repeat_lead).toBe(true);
+
+    const invalid = await send(api, 'POST', '/campaigns/lead-import-preview', {
+      connectionId: api.connectionId, campaignName: secondName,
+      rows: [{ ...rows[1], mobile: 'not a number', campaignName: secondName }],
+    });
+    expect(invalid.json()).toMatchObject({ data: { readyToSend: 0, invalidMobileNumbers: 1 } });
+    } finally {
+      await api.app.close();
+    }
+  });
+
   it('creates, freezes, approves and launches one exact campaign revision', async () => {
     const body = draft(api, { audienceFilter: { search: 'student' } });
     const created = await send(api, 'POST', '/campaigns', body, 'create-september');

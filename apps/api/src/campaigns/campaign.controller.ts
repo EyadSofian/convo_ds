@@ -11,6 +11,7 @@ import { OperationalReportingService, parseOperationalReportFilters } from './op
 import { AssignmentReportService, parseAssignmentReportQuery } from './assignment-report.service.js';
 import { LifecycleReportService } from './lifecycle-report.service.js';
 import { TeamReportService } from './team-report.service.js';
+import { CampaignLeadImportService, parseLeadImport } from './campaign-lead-import.service.js';
 
 @Controller()
 export class CampaignController {
@@ -23,6 +24,7 @@ export class CampaignController {
     @Inject(LifecycleReportService) private readonly lifecycleReports: LifecycleReportService,
     @Inject(TeamReportService) private readonly teamReports: TeamReportService,
     @Inject(CampaignReportExportService) private readonly exports: CampaignReportExportService,
+    @Inject(CampaignLeadImportService) private readonly leadImports: CampaignLeadImportService,
   ) {}
 
   @Get('tenants/:tenantId/campaigns')
@@ -127,6 +129,22 @@ export class CampaignController {
     @Headers('x-csrf-token') csrf: string | string[] | undefined, @Req() request: FastifyRequest) {
     const session = await this.mutating(request, csrf);
     return { data: await this.campaigns.previewAudience(session, tenantId, parseAudiencePreview(body)), request_id: request.id };
+  }
+
+  @Post('tenants/:tenantId/campaigns/lead-import-preview')
+  @HttpCode(200)
+  async previewLeads(@Param('tenantId') tenantId: string, @Body() body: unknown,
+    @Headers('x-csrf-token') csrf: string | string[] | undefined, @Req() request: FastifyRequest) {
+    const session = await this.mutating(request, csrf);
+    return { data: await this.leadImports.preview(session, tenantId, parseLeadImport(body)), request_id: request.id };
+  }
+
+  @Post('tenants/:tenantId/campaigns/:campaignId/leads/import')
+  async importLeads(@Param('tenantId') tenantId: string, @Param('campaignId') campaignId: string,
+    @Body() body: unknown, @Headers('x-csrf-token') csrf: string | string[] | undefined,
+    @Req() request: FastifyRequest) {
+    const session = await this.mutating(request, csrf);
+    return { data: await this.leadImports.commit(session, tenantId, campaignId, parseLeadImport(body)), request_id: request.id };
   }
 
   @Post('tenants/:tenantId/campaigns/:campaignId/validate')

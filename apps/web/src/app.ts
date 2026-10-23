@@ -34,6 +34,8 @@ import { loadAnalyticsReport, loadCampaignsScreen, refreshCampaignReportExport }
 import { loadAutomationsScreen } from './live/automation-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
+import { setBroadcastUpload } from './live/broadcast-import';
+import { parseLeadSheet } from './lead-sheet';
 import { refreshNotificationCount, runNotificationAction } from './live/notification-actions';
 import { createLiveState, renewLiveState, rowsOf } from './live/store';
 import type { LiveState } from './live/store';
@@ -969,6 +971,17 @@ export function mount(options: MountOptions): AppHandle {
       void file.text().then((content) => {
         state.dialogForm = { ...state.dialogForm, contactImportCsv: content, contactImportFileName: file.name, contactImportError: '' };
         refresh();
+      });
+      return;
+    }
+    if (target instanceof HTMLInputElement && target.type === 'file' && act === 'live-broadcast-import-file') {
+      const file = target.files?.[0];
+      if (file === undefined || lastImportFile.get(target) === file) return;
+      lastImportFile.set(target, file);
+      void parseLeadSheet(file).then((parsed) => {
+        setBroadcastUpload(state, file.name, parsed);
+        refresh();
+        if (parsed.ok) dispatch('live-broadcast-import-preview', '');
       });
       return;
     }

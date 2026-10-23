@@ -5,6 +5,7 @@ import type { AudienceFilter } from '../api/campaigns.js';
 import { AUDIENCE_SOURCES, audienceGap, conditionsFromFilter, editorAudience, previewKey, sourceOf } from './audience.js';
 import { loadContactsScreen } from './contact-actions.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
+import { clearBroadcastUpload } from './broadcast-import.js';
 import { forTenant, fromResult, LOADING, rowsOf } from './store.js';
 
 /**
@@ -45,6 +46,8 @@ export async function loadAudienceSources(context: LiveContext, source: Audience
  * and saved audiences are there when the operator reaches them.
  */
 export async function openCampaignEditor(context: LiveContext, arg: string): Promise<boolean> {
+  // A sheet belongs to one wizard session; never carry it into another draft.
+  clearBroadcastUpload(context.state);
   const campaign = rowsOf(context.live.campaigns).find((entry) => entry.id === arg);
   context.state.dialog = arg === '' ? { kind: 'campaign', arg: '' } : { kind: 'campaign-edit', arg };
   context.state.openMenu = null;

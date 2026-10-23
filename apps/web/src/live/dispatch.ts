@@ -57,6 +57,7 @@ import { chooseAudienceSource, openAudienceDialog, openCampaignEditor, previewCa
 import { exportAnalytics, printAnalytics } from './analytics-export.js';
 import { manageArchived, tickArchived } from './archived-actions.js';
 import { goToBroadcastStep, jumpToBroadcastStep, submitBroadcast, syncBroadcastTemplates } from './broadcast.js';
+import { clearBroadcastUpload, previewBroadcastUpload } from './broadcast-import.js';
 import { setSimpleFilter } from './inbox-query.js';
 import { openQuickWhatsApp, sendQuickWhatsApp } from './quick-whatsapp-actions.js';
 import { INBOX_FILTER_CATALOGUE, INBOX_SORTS, type InboxFilter, type InboxSort } from '@convo/domain';
@@ -619,6 +620,8 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-automation-runs-load-more': async (context) => loadAutomationRunsPage(context, false),
 
   'live-broadcast-step': async (context, arg) => goToBroadcastStep(context, arg),
+  'live-broadcast-import-preview': async (context) => previewBroadcastUpload(context),
+  'live-broadcast-import-clear': async (context) => { clearBroadcastUpload(context.state); context.refresh(); return true; },
   'live-broadcast-jump': async (context, arg) => jumpToBroadcastStep(context, arg),
   'live-broadcast-sync': async (context, arg) => syncBroadcastTemplates(context, arg),
   'live-broadcast-submit': async (context, arg) => submitBroadcast(context, arg),

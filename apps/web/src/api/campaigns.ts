@@ -1,4 +1,5 @@
 import { API_BASE_URL, ApiClient, type ApiResult, type PagedData } from './client.js';
+import type { LeadSheetRow } from '../lead-sheet.js';
 
 export type CampaignState = 'draft' | 'validating' | 'ready' | 'scheduled' | 'running' |
   'pausing' | 'paused' | 'dispatch_completed' | 'cancelling' | 'cancelled' | 'failed';
@@ -23,6 +24,8 @@ export interface Campaign {
   readonly approved: boolean;
   readonly audience: { readonly total: number; readonly eligible: number; readonly excluded: number } | null;
   readonly execution: { readonly id: string; readonly state: string; readonly scheduled_for: string | null } | null;
+  readonly lead_summary?: { readonly total: number; readonly new: number; readonly existing: number; readonly repeat: number;
+    readonly won: number; readonly lost: number; readonly unqualified: number; readonly revenue_amount_minor: string } | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -273,8 +276,32 @@ export interface AudiencePreview {
   readonly sample: readonly string[];
 }
 
+export interface LeadImportPreview {
+  readonly totalRows: number;
+  readonly validLeads: number;
+  readonly newContacts: number;
+  readonly existingContacts: number;
+  readonly duplicateLeads: number;
+  readonly invalidMobileNumbers: number;
+  readonly missingRequiredFields: number;
+  readonly readyToSend: number;
+  readonly issues: readonly { readonly row: number; readonly code: string; readonly message: string }[];
+}
+
+export interface LeadImportInput {
+  readonly connectionId: string;
+  readonly campaignName: string;
+  readonly rows: readonly LeadSheetRow[];
+}
+
 export class CampaignsApi {
   constructor(private readonly client: ApiClient) {}
+  previewLeads(tenantId: string, input: LeadImportInput): Promise<ApiResult<LeadImportPreview>> {
+    return this.client.post(`/tenants/${tenantId}/campaigns/lead-import-preview`, { body: input });
+  }
+  importLeads(tenantId: string, campaignId: string, input: LeadImportInput): Promise<ApiResult<{ readonly preview: LeadImportPreview; readonly contactIds: readonly string[] }>> {
+    return this.client.post(`/tenants/${tenantId}/campaigns/${campaignId}/leads/import`, { body: input });
+  }
   previewAudience(tenantId: string, connectionId: string, audienceFilter: AudienceFilter): Promise<ApiResult<AudiencePreview>> {
     return this.client.post(`/tenants/${tenantId}/campaigns/audience-preview`, { body: { connectionId, audienceFilter } });
   }
