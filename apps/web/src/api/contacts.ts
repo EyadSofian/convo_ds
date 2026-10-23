@@ -52,6 +52,21 @@ export interface Contact extends ContactSummary {
   readonly suppressed: readonly string[];
 }
 
+export interface ContactCampaignHistory {
+  readonly lead_id: string;
+  readonly campaign_id: string;
+  readonly campaign_name: string;
+  readonly course_name: string;
+  readonly label: string;
+  readonly assigned_to: string | null;
+  readonly source: string;
+  readonly status: string;
+  readonly lost_reason: string | null;
+  readonly imported_at: string;
+  readonly send_state: string | null;
+  readonly sent_at: string | null;
+}
+
 export interface ConsentInput {
   readonly channel: string;
   readonly purpose: string;
@@ -117,6 +132,10 @@ export class ContactsApi {
 
   read(tenantId: string, contactId: string): Promise<ApiResult<Contact>> {
     return this.client.get<Contact>(`/tenants/${tenantId}/contacts/${contactId}`);
+  }
+
+  campaignHistory(tenantId: string, contactId: string): Promise<ApiResult<readonly ContactCampaignHistory[]>> {
+    return this.client.get<readonly ContactCampaignHistory[]>(`/tenants/${tenantId}/contacts/${contactId}/campaign-history`);
   }
 
   /** A contact, on a channel identity when one is given. */

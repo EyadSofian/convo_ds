@@ -15,7 +15,7 @@ import type {
   SupervisorWorkload,
 } from '../api/conversations.js';
 import { INBOX_QUERY_DEFAULT, type InboxQuery } from '@convo/domain';
-import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
+import type { Contact, ContactCampaignHistory, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
 import type { AssignmentReportRow, AudiencePreview, Campaign, CampaignLead, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport, ResponseReport, ResolutionReport, TeamReportRow } from '../api/campaigns.js';
 import { disconnectedCampaignsApi } from '../api/campaigns.js';
@@ -232,6 +232,7 @@ export interface LiveState {
   contactQuery: string;
   selectedContactId: string | null;
   selectedContact: Resource<Contact>;
+  selectedContactCampaignHistory: Resource<readonly ContactCampaignHistory[]>;
   labels: Resource<readonly Label[]>;
   /** The complete catalogue for workspace management, including retired labels. */
   workspaceLabels: Resource<readonly Label[]>;
@@ -380,6 +381,7 @@ export function createLiveState(
     contactQuery: '',
     selectedContactId: null,
     selectedContact: IDLE,
+    selectedContactCampaignHistory: IDLE,
     labels: IDLE,
     workspaceLabels: IDLE,
     customFields: IDLE,

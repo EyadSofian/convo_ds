@@ -7,6 +7,7 @@ import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadWhatsAppTemplates } from './audience-actions.js';
 import { templateDefinition } from './template-binding.js';
 import { buildWhatsAppTemplateComponents } from '@convo/domain';
+import { hasPermission } from './ability.js';
 
 /**
  * Contacts, against the real API.
@@ -266,9 +267,15 @@ export async function openContact(context: LiveContext, contactId: string): Prom
   return forTenant(context, undefined, async (tenantId) => {
     live.selectedContactId = contactId;
     live.selectedContact = LOADING;
+    live.selectedContactCampaignHistory = hasPermission(live, 'campaign.read') ? LOADING : { status: 'idle' };
     context.refresh();
-    const result = await live.contactsApi.read(tenantId, contactId);
+    const [result, history] = await Promise.all([
+      live.contactsApi.read(tenantId, contactId),
+      hasPermission(live, 'campaign.read') ? live.contactsApi.campaignHistory(tenantId, contactId) : null,
+    ]);
+    if (live.selectedContactId !== contactId) return;
     live.selectedContact = fromResult(result, context.now());
+    if (history !== null) live.selectedContactCampaignHistory = fromResult(history, context.now());
     context.refresh();
   });
 }

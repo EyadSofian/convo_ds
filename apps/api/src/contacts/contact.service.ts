@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { PermissionKey, Principal, SqlExecutor } from '@convo/domain';
-import { normalizeSearchText, reachFor, validateFieldValue } from '@convo/domain';
+import { authorize, normalizeSearchText, reachFor, validateFieldValue } from '@convo/domain';
 import type { CustomFieldType } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
@@ -69,6 +69,26 @@ export interface ContactDetail extends ContactSummary {
    * overrides it in the same view.
    */
   readonly suppressed: readonly string[];
+}
+
+export interface ContactCampaignHistory {
+  readonly lead_id: string;
+  readonly campaign_id: string;
+  readonly campaign_name: string;
+  readonly course_name: string;
+  readonly label: string;
+  readonly assigned_to: string | null;
+  readonly source: string;
+  readonly status: string;
+  readonly lost_reason: string | null;
+  readonly imported_at: string;
+  readonly send_state: string | null;
+  readonly sent_at: string | null;
+}
+
+interface RawCampaignHistory extends ContactCampaignHistory {
+  readonly connection_id: string;
+  readonly assigned_membership_id: string | null;
 }
 
 interface RawContact {
@@ -370,6 +390,47 @@ export class ContactService {
       await readContact(sql, contactId);
       if (!(await canReachContact(sql, principal, contactId, 'contact.read'))) throw denied();
       return detailOf(sql, contactId);
+    });
+  }
+
+  /** Recent campaign participation for a readable contact, limited to campaigns the caller may see. */
+  async campaignHistory(
+    session: AuthenticatedSession,
+    tenantId: string,
+    contactId: string,
+  ): Promise<readonly ContactCampaignHistory[]> {
+    this.authorization.assertTenantId(contactId);
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      await readContact(sql, contactId);
+      if (!(await canReachContact(sql, principal, contactId, 'contact.read')) || reachFor(principal, 'campaign.read') === 'none') throw denied();
+      const rows = await sql.query<RawCampaignHistory>(`
+        SELECT lead.id::text AS lead_id,campaign.id::text AS campaign_id,campaign.name AS campaign_name,
+               campaign.connection_id::text,lead.assigned_membership_id::text,
+               lead.course_name,label.name AS label,assignee.display_name AS assigned_to,
+               lead.source,lead.status,lead.lost_reason,lead.imported_at::text,
+               dispatch.state AS send_state,dispatch.sent_at
+          FROM campaign_leads lead
+          JOIN campaigns campaign ON campaign.id=lead.campaign_id
+          JOIN labels label ON label.id=lead.label_id
+          LEFT JOIN memberships assignee ON assignee.id=lead.assigned_membership_id
+          LEFT JOIN LATERAL (
+            SELECT recipient.state,recipient.updated_at::text AS sent_at
+              FROM campaign_recipients recipient
+              JOIN campaign_executions execution ON execution.id=recipient.execution_id
+             WHERE execution.campaign_id=lead.campaign_id AND recipient.contact_id=lead.contact_id
+             ORDER BY recipient.updated_at DESC,recipient.id DESC LIMIT 1
+          ) dispatch ON true
+         WHERE lead.contact_id=$1
+         ORDER BY lead.imported_at DESC,lead.id DESC LIMIT 200`, [contactId]);
+      return rows.rows.filter((row) => authorize(principal, 'campaign.read', {
+        inboxId: row.connection_id,
+        assigneeMembershipId: row.assigned_membership_id,
+      }).allowed).map((row) => ({
+        lead_id: row.lead_id, campaign_id: row.campaign_id, campaign_name: row.campaign_name,
+        course_name: row.course_name, label: row.label, assigned_to: row.assigned_to,
+        source: row.source, status: row.status, lost_reason: row.lost_reason,
+        imported_at: row.imported_at, send_state: row.send_state, sent_at: row.sent_at,
+      }));
     });
   }
 

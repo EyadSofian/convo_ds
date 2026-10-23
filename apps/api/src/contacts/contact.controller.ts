@@ -62,6 +62,16 @@ export class ContactController {
     };
   }
 
+  @Get('tenants/:tenantId/contacts/:contactId/campaign-history')
+  async campaignHistory(
+    @Param('tenantId') tenantId: string,
+    @Param('contactId') contactId: string,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return { data: await this.contacts.campaignHistory(session, tenantId, contactId), request_id: request.id };
+  }
+
   @Post('tenants/:tenantId/contacts')
   async create(
     @Param('tenantId') tenantId: string,

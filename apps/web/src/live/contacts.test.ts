@@ -6,7 +6,7 @@ import type { FetchLike } from '../api/client.js';
 import type { AppHandle } from '../app.js';
 import { mount } from '../app.js';
 import type { LiveContext } from './actions.js';
-import { addContactIdentity, createContact, importContacts, loadContactConnections } from './contact-actions.js';
+import { addContactIdentity, createContact, importContacts, loadContactConnections, openContact } from './contact-actions.js';
 import type { RouterHost } from '../router.js';
 import type { EventSourceLike } from './realtime.js';
 import { createState } from '../state.js';
@@ -1238,6 +1238,75 @@ describe('when there is no company to act on', () => {
     // The session is not asked again: any 401 on the way closes the workspace.
     expect(api.countOf('GET /auth/session')).toBe(1);
     expect(root.querySelector('.contactrow')).not.toBeNull();
+  });
+});
+
+describe('contact campaign history', () => {
+  const historyPath = `GET /tenants/${TENANT}/contacts/${CONTACT}/campaign-history`;
+
+  it('shows the contact’s campaigns, lead outcome and send state to a campaign reader', async () => {
+    const api = contactsApi(['contact.read', 'campaign.read']).on(historyPath, { status: 200, body: { data: [
+      { lead_id: 'lead-1', campaign_id: 'campaign-1', campaign_name: 'PMP October', course_name: 'PMP',
+        label: 'CODE_ONE', assigned_to: 'Mona', source: 'excel_import', status: 'won', lost_reason: null,
+        imported_at: NOW.toISOString(), send_state: 'accepted', sent_at: NOW.toISOString() },
+      { lead_id: 'lead-2', campaign_id: 'campaign-2', campaign_name: 'CFM Retargeting', course_name: 'CFM',
+        label: 'CFM', assigned_to: null, source: 'excel_import', status: 'unknown_from_server', lost_reason: null,
+        imported_at: NOW.toISOString(), send_state: null, sent_at: null },
+    ] } });
+    const { root } = await open(api);
+    click(root, '.contactrow');
+    await settle();
+    expect(api.countOf(historyPath)).toBe(1);
+    const section = root.querySelector('.contact-campaign-history');
+    expect(section?.textContent).toContain('PMP October');
+    expect(section?.textContent).toContain('CFM Retargeting');
+    expect(section?.textContent).toContain('مكتسب');
+    expect(section?.textContent).toContain('لم تُرسل');
+    expect(section?.textContent).toContain('غير مسند');
+    expect(section?.textContent).toContain('unknown_from_server');
+    expect(section?.querySelectorAll('[data-campaign-lead]')).toHaveLength(2);
+  });
+
+  it('shows a skeleton while a contact’s campaign history is loading and ignores a stale contact response', async () => {
+    const api = contactsApi(['contact.read', 'campaign.read']).on(historyPath, { status: 200, body: { data: [] } });
+    const { app, root } = await open(api);
+    click(root, '.contactrow');
+    await settle();
+    app.state.live.selectedContactCampaignHistory = { status: 'loading' };
+    app.render();
+    expect(root.querySelector('.contact-campaign-history .skeleton')).not.toBeNull();
+
+    let release: ((value: unknown) => void) | undefined;
+    vi.spyOn(app.state.live.contactsApi, 'read').mockReturnValue(new Promise((resolve) => { release = resolve as (value: unknown) => void; }));
+    const context = { state: app.state, live: app.state.live, refresh: () => app.render(), now: () => NOW.getTime() } as LiveContext;
+    const pending = openContact(context, CONTACT);
+    app.state.live.selectedContactId = 'another-contact';
+    release?.({ ok: true, data: contact() });
+    await pending;
+    expect(app.state.live.selectedContactId).toBe('another-contact');
+    expect(app.state.live.selectedContact.status).toBe('loading');
+  });
+
+  it('shows an empty history, an API error, and hides the section without campaign permission', async () => {
+    const empty = contactsApi(['contact.read', 'campaign.read']).on(historyPath, { status: 200, body: { data: [] } });
+    const first = await open(empty);
+    click(first.root, '.contactrow');
+    await settle();
+    expect(text(first.root.querySelector('.contact-campaign-history') as HTMLElement)).toContain('لم يُربط');
+
+    const failing = contactsApi(['contact.read', 'campaign.read']).on(historyPath, { status: 503,
+      body: { error: { code: 'unavailable', message: 'History unavailable.' } } });
+    const second = await open(failing);
+    click(second.root, '.contactrow');
+    await settle();
+    expect(text(second.root.querySelector('.contact-campaign-history') as HTMLElement)).toContain('تعذّر إكمال الطلب');
+
+    const without = contactsApi(['contact.read']);
+    const third = await open(without);
+    click(third.root, '.contactrow');
+    await settle();
+    expect(without.countOf(historyPath)).toBe(0);
+    expect(third.root.querySelector('.contact-campaign-history')).toBeNull();
   });
 });
 

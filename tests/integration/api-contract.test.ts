@@ -137,6 +137,7 @@ describe('pinned OpenAPI contract', () => {
       "exportContacts",
       "getContact",
       "updateContact",
+      "getContactCampaignHistory",
       "addContactIdentity",
       "recordConsent",
       "listConversations",

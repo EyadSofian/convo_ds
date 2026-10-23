@@ -175,6 +175,10 @@ describe('campaign API', () => {
     expect(stored.leads.map((row) => row.course_name)).toEqual(['PMP', 'PMP']);
     expect(stored.labels).toBe(0);
     expect(stored.consents).toBe(0);
+    const initialHistory = await send(api, 'GET', `/contacts/${contactIds[0]}/campaign-history`);
+    expect(initialHistory.statusCode, initialHistory.body).toBe(200);
+    expect(initialHistory.json()).toMatchObject({ data: [{ campaign_id: campaign.data.id, campaign_name: name,
+      course_name: 'PMP', label: 'CODE_ONE', source: 'excel_import', status: 'new', send_state: null }] });
     const listed = await send(api, 'GET', `/campaigns/${campaign.data.id}/leads`);
     expect(listed.statusCode, listed.body).toBe(200);
     const leadRows = (listed.json() as { data: { id: string; mobile: string; status: string }[] }).data;
@@ -233,6 +237,12 @@ describe('campaign API', () => {
     const history = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ repeat_lead: boolean }>(
       `SELECT repeat_lead FROM campaign_leads WHERE campaign_id=$1`, [secondId]));
     expect(history.rows[0]?.repeat_lead).toBe(true);
+    const repeatHistory = await send(api, 'GET', `/contacts/${contactIds.find((id) => id !== stored.leads[0]!.contact_id)}/campaign-history`);
+    expect(repeatHistory.statusCode, repeatHistory.body).toBe(200);
+    expect(repeatHistory.json()).toMatchObject({ data: [
+      { campaign_id: secondId, campaign_name: secondName, send_state: null },
+      { campaign_id: campaign.data.id, campaign_name: name, status: 'won', send_state: 'delivered' },
+    ] });
 
     const invalid = await send(api, 'POST', '/campaigns/lead-import-preview', {
       connectionId: api.connectionId, campaignName: secondName,

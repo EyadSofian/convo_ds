@@ -111,3 +111,45 @@ describe('ContactService concurrent identity conflicts', () => {
     expect(sql.query).not.toHaveBeenCalled();
   });
 });
+
+describe('ContactService campaign history', () => {
+  const contactId = '33333333-3333-4333-8333-333333333333';
+  const visibleConnection = '22222222-2222-4222-8222-222222222222';
+  const hiddenConnection = '44444444-4444-4444-8444-444444444444';
+  const lead = (connection_id: string) => ({ lead_id: 'lead-1', campaign_id: 'campaign-1', campaign_name: 'PMP October',
+    course_name: 'PMP', label: 'CODE_ONE', assigned_to: 'Mona', source: 'excel_import', status: 'contacted',
+    lost_reason: null, imported_at: '2026-10-23T10:00:00Z', send_state: 'accepted', sent_at: '2026-10-23T10:01:00Z',
+    connection_id, assigned_membership_id: null });
+
+  function fixture(grants: Record<string, string>, contactExists = true) {
+    const principal = { membershipId: 'member-1', membershipStatus: 'active', tenantStatus: 'active',
+      grants, delegationCeiling: null, scopes: [{ type: 'inbox', id: visibleConnection }] };
+    const sql = { query: vi.fn(async (statement: string) => {
+      if (statement.includes('FROM contacts WHERE id')) return { rows: contactExists ? [{ id: contactId }] : [] };
+      if (statement.includes('FROM conversations c')) return { rows: [{ '?column?': 1 }] };
+      if (statement.includes('FROM campaign_leads lead')) return { rows: [lead(visibleConnection), lead(hiddenConnection)] };
+      throw new Error(`Unexpected query: ${statement}`);
+    }) };
+    const authorization = { assertTenantId: vi.fn(),
+      withPrincipal: async (_session: unknown, _tenant: string, work: (context: { sql: typeof sql; principal: typeof principal }) => unknown) => work({ sql, principal }) };
+    return { service: new ContactService(authorization as unknown as AuthorizationService), sql, authorization };
+  }
+
+  it('only returns entries from campaigns in the caller’s scope and strips internal scope fields', async () => {
+    const { service, sql, authorization } = fixture({ 'contact.read': 'scoped', 'campaign.read': 'scoped' });
+    const rows = await service.campaignHistory({} as AuthenticatedSession, TENANT, contactId);
+    expect(rows).toEqual([{ lead_id: 'lead-1', campaign_id: 'campaign-1', campaign_name: 'PMP October',
+      course_name: 'PMP', label: 'CODE_ONE', assigned_to: 'Mona', source: 'excel_import', status: 'contacted',
+      lost_reason: null, imported_at: '2026-10-23T10:00:00Z', send_state: 'accepted', sent_at: '2026-10-23T10:01:00Z' }]);
+    expect(authorization.assertTenantId).toHaveBeenCalledWith(contactId);
+    expect(sql.query.mock.calls.some(([statement]) => statement.includes('LIMIT 200'))).toBe(true);
+  });
+
+  it('refuses an unreadable contact or a missing campaign grant before querying history', async () => {
+    const noCampaign = fixture({ 'contact.read': 'scoped' });
+    await expect(noCampaign.service.campaignHistory({} as AuthenticatedSession, TENANT, contactId)).rejects.toMatchObject({ status: 403 });
+    expect(noCampaign.sql.query.mock.calls.some(([statement]) => statement.includes('FROM campaign_leads lead'))).toBe(false);
+    const missing = fixture({ 'contact.read': 'scoped', 'campaign.read': 'scoped' }, false);
+    await expect(missing.service.campaignHistory({} as AuthenticatedSession, TENANT, contactId)).rejects.toMatchObject({ status: 404 });
+  });
+});

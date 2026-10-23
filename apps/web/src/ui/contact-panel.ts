@@ -1,5 +1,5 @@
 import type { ApiError } from '../api/client.js';
-import type { ConsentRecord, Contact, ContactIdentity } from '../api/contacts.js';
+import type { ConsentRecord, Contact, ContactCampaignHistory, ContactIdentity } from '../api/contacts.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, formatNumber, initials, relativeTime } from '../format.js';
@@ -166,7 +166,50 @@ export function contactBody(state: AppState, contact: Contact, live: LiveState, 
 
       consentSection(state, contact, live, where),
 
+      where === 'screen' && hasPermission(live, 'campaign.read') && live.selectedContactId === contact.id && live.selectedContactCampaignHistory.status !== 'idle'
+        ? campaignHistorySection(state, live.selectedContactCampaignHistory)
+        : null,
+
       metadataSection(state, live, 'contact', contact),
+    ]),
+  ]);
+}
+
+const CAMPAIGN_LEAD_STATUS: Readonly<Record<string, readonly [string, string, Tone]>> = {
+  new: ['جديد', 'New', 'neutral'],
+  contacted: ['تم التواصل', 'Contacted', 'accent'],
+  won: ['مكتسب', 'Won', 'success'],
+  lost: ['مفقود', 'Lost', 'danger'],
+  unqualified: ['غير مؤهل', 'Unqualified', 'warning'],
+};
+
+function campaignHistorySection(state: AppState, resource: Resource<readonly ContactCampaignHistory[]>): HTMLElement {
+  const entries = rowsOf(resource);
+  return h('section', { class: 'panel-section contact__card contact-campaign-history', 'aria-labelledby': 'contact-campaign-history-title' }, [
+    sectionTitle('broadcasts', 'violet', t(state, 'تاريخ الحملات', 'Campaign history'), 'contact-campaign-history-title'),
+    resource.status === 'loading' ? skeleton(state, 2)
+      : resource.status === 'error' ? contactError(state, resource.error)
+      : entries.length === 0
+        ? h('p', { class: 'field__hint' }, [t(state, 'لم يُربط هذا العميل بحملة بعد.', 'This contact has not been linked to a campaign yet.')])
+        : h('ol', { class: 'contact-campaign-history__list' }, entries.map((entry) => campaignHistoryRow(state, entry))),
+  ]);
+}
+
+function campaignHistoryRow(state: AppState, entry: ContactCampaignHistory): HTMLElement {
+  const [ar, en, tone] = CAMPAIGN_LEAD_STATUS[entry.status] ?? [entry.status, entry.status, 'neutral'];
+  const date = dateFormat(state.lang, { day: 'numeric', month: 'short', year: 'numeric' });
+  return h('li', { class: 'contact-campaign-history__item', 'data-campaign-lead': entry.lead_id }, [
+    h('div', { class: 'contact-campaign-history__top' }, [
+      h('strong', { class: 'contact-campaign-history__name' }, [isolated(entry.campaign_name)]),
+      badge(t(state, ar, en), tone),
+    ]),
+    h('p', { class: 'contact-campaign-history__meta' }, [
+      isolated(entry.course_name), ' · ', isolated(entry.label), ' · ', isolated(entry.source),
+    ]),
+    h('p', { class: 'contact-campaign-history__meta' }, [
+      entry.assigned_to === null ? t(state, 'غير مسند', 'Unassigned') : isolated(entry.assigned_to),
+      ' · ', date.format(new Date(entry.imported_at)),
+      entry.send_state === null ? ` · ${t(state, 'لم تُرسل', 'Not sent')}` : ` · ${t(state, 'الإرسال', 'Send')}: ${entry.send_state}`,
     ]),
   ]);
 }

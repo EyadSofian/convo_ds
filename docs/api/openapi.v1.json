@@ -1583,6 +1583,26 @@
         }
       }
     },
+    "/tenants/{tenantId}/contacts/{contactId}/campaign-history": {
+      "get": {
+        "operationId": "getContactCampaignHistory",
+        "summary": "Read recent campaign participation for a contact",
+        "description": "Requires contact.read for the contact and campaign.read for each returned campaign. Results are newest-first and capped at 200 entries. A send state is null until a recipient record exists; imports never imply that a message was sent.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "contactId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Campaigns visible to this caller for the contact.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactCampaignHistoryResponse" } } } },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/contacts/{contactId}/identities": {
       "post": {
         "operationId": "addContactIdentity",
@@ -10870,6 +10890,31 @@
           "request_id": {
             "type": "string"
           }
+        }
+      },
+      "ContactCampaignHistory": {
+        "type": "object", "additionalProperties": false,
+        "required": ["lead_id", "campaign_id", "campaign_name", "course_name", "label", "assigned_to", "source", "status", "lost_reason", "imported_at", "send_state", "sent_at"],
+        "properties": {
+          "lead_id": { "type": "string", "format": "uuid" },
+          "campaign_id": { "type": "string", "format": "uuid" },
+          "campaign_name": { "type": "string" },
+          "course_name": { "type": "string" },
+          "label": { "type": "string" },
+          "assigned_to": { "type": ["string", "null"] },
+          "source": { "type": "string" },
+          "status": { "type": "string", "enum": ["new", "contacted", "won", "lost", "unqualified"] },
+          "lost_reason": { "type": ["string", "null"] },
+          "imported_at": { "type": "string", "format": "date-time" },
+          "send_state": { "type": ["string", "null"] },
+          "sent_at": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "ContactCampaignHistoryResponse": {
+        "type": "object", "additionalProperties": false, "required": ["data", "request_id"],
+        "properties": {
+          "data": { "type": "array", "maxItems": 200, "items": { "$ref": "#/components/schemas/ContactCampaignHistory" } },
+          "request_id": { "type": "string" }
         }
       },
       "UpdateContactRequest": {

@@ -101,3 +101,17 @@ describe('ContactController bulk contact tools', () => {
     expect(contacts.importBatch).not.toHaveBeenCalled();
   });
 });
+
+describe('ContactController campaign history', () => {
+  it('authenticates and returns the contact campaign history without a write token', async () => {
+    const auth = { authenticate: vi.fn().mockResolvedValue(session) };
+    const history = [{ campaign_name: 'PMP October' }];
+    const contacts = { campaignHistory: vi.fn().mockResolvedValue(history) };
+    const controller = new ContactController(auth as never, contacts as unknown as ContactService);
+    const request = { headers: { cookie: 'session=cookie' }, id: 'request-history' } as unknown as FastifyRequest;
+    await expect(controller.campaignHistory(tenantId, connectionId, request))
+      .resolves.toEqual({ data: history, request_id: 'request-history' });
+    expect(auth.authenticate).toHaveBeenCalledWith('session=cookie');
+    expect(contacts.campaignHistory).toHaveBeenCalledWith(session, tenantId, connectionId);
+  });
+});
