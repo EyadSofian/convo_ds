@@ -11,7 +11,7 @@ import { OperationalReportingService, parseOperationalReportFilters } from './op
 import { AssignmentReportService, parseAssignmentReportQuery } from './assignment-report.service.js';
 import { LifecycleReportService } from './lifecycle-report.service.js';
 import { TeamReportService } from './team-report.service.js';
-import { CampaignLeadImportService, parseLeadImport } from './campaign-lead-import.service.js';
+import { CampaignLeadImportService, parseLeadImport, parseLeadOutcome } from './campaign-lead-import.service.js';
 
 @Controller()
 export class CampaignController {
@@ -145,6 +145,21 @@ export class CampaignController {
     @Req() request: FastifyRequest) {
     const session = await this.mutating(request, csrf);
     return { data: await this.leadImports.commit(session, tenantId, campaignId, parseLeadImport(body)), request_id: request.id };
+  }
+
+  @Get('tenants/:tenantId/campaigns/:campaignId/leads')
+  async campaignLeads(@Param('tenantId') tenantId: string, @Param('campaignId') campaignId: string,
+    @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return pageEnvelope(await this.leadImports.listLeads(session, tenantId, campaignId), null, request.id);
+  }
+
+  @Patch('tenants/:tenantId/campaigns/:campaignId/leads/:leadId')
+  async updateLeadOutcome(@Param('tenantId') tenantId: string, @Param('campaignId') campaignId: string,
+    @Param('leadId') leadId: string, @Body() body: unknown,
+    @Headers('x-csrf-token') csrf: string | string[] | undefined, @Req() request: FastifyRequest) {
+    const session = await this.mutating(request, csrf);
+    return { data: await this.leadImports.updateOutcome(session, tenantId, campaignId, leadId, parseLeadOutcome(body)), request_id: request.id };
   }
 
   @Post('tenants/:tenantId/campaigns/:campaignId/validate')

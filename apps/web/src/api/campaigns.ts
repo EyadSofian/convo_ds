@@ -41,6 +41,31 @@ export interface CampaignRecipient {
   readonly currency: string | null;
 }
 
+export interface CampaignLead {
+  readonly id: string;
+  readonly contact_id: string;
+  readonly display_name: string;
+  readonly mobile: string;
+  readonly course_name: string;
+  readonly label: string;
+  readonly assigned_to: string | null;
+  readonly source: string;
+  readonly status: 'new' | 'contacted' | 'won' | 'lost' | 'unqualified';
+  readonly lost_reason: string | null;
+  readonly revenue_amount_minor: string;
+  readonly currency: string;
+  readonly existing_contact: boolean;
+  readonly repeat_lead: boolean;
+  readonly imported_at: string;
+}
+
+export interface CampaignLeadOutcome {
+  readonly status: CampaignLead['status'];
+  readonly lostReason: string | null;
+  readonly revenueAmountMinor: number;
+  readonly currency: string;
+}
+
 export interface CampaignTestSend {
   readonly id: string;
   readonly campaign_id: string;
@@ -351,6 +376,12 @@ export class CampaignsApi {
   }
   recipients(tenantId: string, id: string): Promise<ApiResult<readonly CampaignRecipient[]>> {
     return this.client.get(`/tenants/${tenantId}/campaigns/${id}/recipients`);
+  }
+  leads(tenantId: string, id: string): Promise<ApiResult<readonly CampaignLead[]>> {
+    return this.client.get(`/tenants/${tenantId}/campaigns/${id}/leads`);
+  }
+  updateLeadOutcome(tenantId: string, campaignId: string, leadId: string, input: CampaignLeadOutcome): Promise<ApiResult<CampaignLead>> {
+    return this.client.patch(`/tenants/${tenantId}/campaigns/${campaignId}/leads/${leadId}`, { body: input });
   }
   report(tenantId: string, filters: CampaignReportFilterInput | null = null): Promise<ApiResult<CampaignReport>> {
     const query = new URLSearchParams();

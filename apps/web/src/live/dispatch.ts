@@ -69,11 +69,13 @@ import {
   createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
+  loadCampaignLeads,
   loadAssignmentReport,
   loadAnalyticsReport,
   loadCampaignsScreen,
   refreshCampaignReportExport,
   retryCampaignFailures,
+  saveCampaignLeadOutcome,
   testSendCampaign,
   validateCampaign,
 } from './campaign-actions.js';
@@ -665,6 +667,28 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
   'live-campaign-ledger': async (context, arg) => loadCampaignRecipients(context, arg),
 
+  'live-campaign-lead-save': async (context, arg) => {
+    const [campaignId, leadId] = arg.split(':');
+    if (!campaignId || !leadId || context.live.campaignLeads.status !== 'ready') return false;
+    const lead = context.live.campaignLeads.value.find((entry) => entry.id === leadId);
+    if (lead === undefined) return false;
+    const status = edited(context, `campaignLeadStatus_${leadId}`, lead.status);
+    const lostReason = status === 'lost' ? form(context, `campaignLeadReason_${leadId}`) || lead.lost_reason : null;
+    const revenueText = status === 'won' ? edited(context, `campaignLeadRevenue_${leadId}`,
+      String(Number(lead.revenue_amount_minor) / 100)) : '0';
+    const revenue = Number(revenueText);
+    if (invalid(context, {
+      ...(status === 'lost' && !lostReason ? { [`campaignLeadReason_${leadId}`]: text(context, 'اختر سبب الخسارة', 'Choose a loss reason') } : {}),
+      ...(status === 'won' && (!/^\d+(?:\.\d{1,2})?$/.test(revenueText) || !Number.isSafeInteger(Math.round(revenue * 100)))
+        ? { [`campaignLeadRevenue_${leadId}`]: text(context, 'أدخل مبلغًا صحيحًا', 'Enter a valid amount') } : {}),
+    })) return false;
+    const saved = await saveCampaignLeadOutcome(context, campaignId, leadId, {
+      status: status as typeof lead.status, lostReason, revenueAmountMinor: Math.round(revenue * 100), currency: lead.currency,
+    });
+    if (saved) clearForm(context, [`campaignLeadStatus_${leadId}`, `campaignLeadReason_${leadId}`, `campaignLeadRevenue_${leadId}`]);
+    return saved;
+  },
+
   /**
    * Shows one campaign's detail, and its recipients when it has an execution.
    * A campaign that never launched has no ledger to ask for.
@@ -675,10 +699,10 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     if (campaign.execution === null) {
       context.live.selectedCampaignId = campaign.id;
       context.live.campaignRecipients = { status: 'idle' };
-      context.refresh();
+      await loadCampaignLeads(context, campaign.id);
       return true;
     }
-    await loadCampaignRecipients(context, campaign.id);
+    await Promise.all([loadCampaignRecipients(context, campaign.id), loadCampaignLeads(context, campaign.id)]);
     return true;
   },
 

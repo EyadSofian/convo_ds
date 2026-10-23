@@ -81,6 +81,7 @@ describe('migrate', () => {
       'campaign_audit',
       'campaign_conversation_attributions',
       'campaign_executions',
+      'campaign_lead_events',
       'campaign_leads',
       'campaign_recipients',
       'campaign_report_export_queue',

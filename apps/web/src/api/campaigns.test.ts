@@ -48,6 +48,10 @@ describe('CampaignsApi', () => {
     await api.report('tenant-1');
     await api.createReportExport('tenant-1', null, 'export-key');
     await api.reportExport('tenant-1', 'export-1');
+    await api.leads('tenant-1', 'campaign-1');
+    await api.updateLeadOutcome('tenant-1', 'campaign-1', 'lead-1', {
+      status: 'lost', lostReason: 'no_interest', revenueAmountMinor: 0, currency: 'EGP',
+    });
 
     expect(calls.map(({ path, init }) => [init.method, path])).toEqual([
       ['GET', '/api/v1/tenants/tenant-1/campaigns'],
@@ -66,6 +70,8 @@ describe('CampaignsApi', () => {
       ['GET', '/api/v1/tenants/tenant-1/reports/campaigns'],
       ['POST', '/api/v1/tenants/tenant-1/reports/campaigns/exports'],
       ['GET', '/api/v1/tenants/tenant-1/reports/campaigns/exports/export-1'],
+      ['GET', '/api/v1/tenants/tenant-1/campaigns/campaign-1/leads'],
+      ['PATCH', '/api/v1/tenants/tenant-1/campaigns/campaign-1/leads/lead-1'],
     ]);
     expect(JSON.parse(String(calls[1]?.init.body))).toEqual(leads);
     expect(JSON.parse(String(calls[2]?.init.body))).toEqual(leads);
@@ -80,6 +86,7 @@ describe('CampaignsApi', () => {
     expect(JSON.parse(String(calls[11]?.init.body))).toEqual({ testRecipientId: 'recipient-1', expectedVersion: 3 });
     expect(calls[14]?.init.headers).toMatchObject({ 'idempotency-key': 'export-key' });
     expect(JSON.parse(String(calls[14]?.init.body))).toEqual({ format: 'csv', campaignId: null });
+    expect(JSON.parse(String(calls[17]?.init.body))).toEqual({ status: 'lost', lostReason: 'no_interest', revenueAmountMinor: 0, currency: 'EGP' });
   });
 
   it('scopes the report by the filters that are set, and schedules a launch', async () => {

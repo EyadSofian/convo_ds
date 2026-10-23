@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AssignmentReportRow, Campaign, CampaignReport, CampaignReportExport, CampaignRetry, CampaignsApi, CampaignTestSend, CreateCampaignInput, OperationalReport } from '../api/campaigns.js';
+import type { AssignmentReportRow, Campaign, CampaignLead, CampaignReport, CampaignReportExport, CampaignRetry, CampaignsApi, CampaignTestSend, CreateCampaignInput, OperationalReport } from '../api/campaigns.js';
 import type { ChannelConnection, ChannelsApi } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type { MetadataApi } from '../api/metadata.js';
@@ -12,6 +12,7 @@ import {
   createCampaignReportExport,
   launchCampaign,
   loadCampaignRecipients,
+  loadCampaignLeads,
   loadAssignmentReport,
   loadCampaignReport,
   loadOperationalReport,
@@ -21,6 +22,7 @@ import {
   loadCampaignsScreen,
   refreshCampaignReportExport,
   retryCampaignFailures,
+  saveCampaignLeadOutcome,
   testSendCampaign,
   validateCampaign,
 } from './campaign-actions.js';
@@ -46,6 +48,10 @@ const TEST_SEND: CampaignTestSend = {
   recipient_label: 'Owner phone', peer_identity: '201000000000', message_id: 'message-1',
   state: 'queued', state_reason: null, created_at: NOW.toISOString(),
 };
+const LEAD: CampaignLead = { id: 'lead-1', contact_id: 'contact-1', display_name: 'Mona', mobile: '201012345678',
+  course_name: 'PMP', label: 'PMP', assigned_to: 'Agent A', source: 'excel_import', status: 'new',
+  lost_reason: null, revenue_amount_minor: '0', currency: 'EGP', existing_contact: false, repeat_lead: false,
+  imported_at: NOW.toISOString() };
 const REPORT = {
   generated_at: NOW.toISOString(), fresh_through: NOW.toISOString(),
   campaigns: [{ id: 'campaign-1', name: 'September intake' }, { id: 'campaign-2', name: 'Reminder' }],
@@ -81,6 +87,8 @@ function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>
     clone: vi.fn().mockResolvedValue(mutation),
     testSend: vi.fn().mockResolvedValue(ok(TEST_SEND)),
     recipients: vi.fn().mockResolvedValue(ok([])),
+    leads: vi.fn().mockResolvedValue(ok([LEAD])),
+    updateLeadOutcome: vi.fn().mockResolvedValue(ok({ ...LEAD, status: 'won', revenue_amount_minor: '125050' })),
     report: vi.fn().mockResolvedValue(ok(REPORT)),
     operationsReport: vi.fn().mockResolvedValue(ok({ agents: [], agentOptions: [] })),
     assignmentsReport: vi.fn().mockResolvedValue(ok({ data: [], nextCursor: null, hasMore: false })),
@@ -509,6 +517,66 @@ describe('campaign actions', () => {
     vi.mocked(refused.campaigns.recipients).mockResolvedValueOnce(fail());
     await loadCampaignRecipients(refused.context, 'campaign-1');
     expect(refused.state.live.campaignRecipients).toEqual({ status: 'error', error: ERROR });
+  });
+
+  it('loads lead rows, saves an outcome, and refreshes campaign totals', async () => {
+    const { context, campaigns, state } = setup();
+    await loadCampaignLeads(context, 'campaign-1');
+    expect(state.live.campaignLeads).toMatchObject({ status: 'ready', value: [LEAD] });
+    state.live.campaignLeads = { status: 'ready', loadedAt: NOW.getTime(), value: [LEAD, { ...LEAD, id: 'lead-2' }] };
+    expect(await saveCampaignLeadOutcome(context, 'campaign-1', 'lead-1', {
+      status: 'won', lostReason: null, revenueAmountMinor: 125050, currency: 'EGP',
+    })).toBe(true);
+    expect(campaigns.updateLeadOutcome).toHaveBeenCalledWith('tenant-1', 'campaign-1', 'lead-1', {
+      status: 'won', lostReason: null, revenueAmountMinor: 125050, currency: 'EGP',
+    });
+    expect(state.live.campaignLeads).toMatchObject({ status: 'ready', value: [{ status: 'won' }, { status: 'new' }] });
+    expect(campaigns.list).toHaveBeenCalled();
+  });
+
+  it('validates Lost and Won fields before saving a lead', async () => {
+    const { context, campaigns, state } = setup();
+    expect(await LIVE_ACTIONS['live-campaign-lead-save']?.(context, ':')).toBe(false);
+    await loadCampaignLeads(context, 'campaign-1');
+    expect(await LIVE_ACTIONS['live-campaign-lead-save']?.(context, 'campaign-1:missing')).toBe(false);
+    state.dialogForm['campaignLeadStatus_lead-1'] = 'lost';
+    expect(await LIVE_ACTIONS['live-campaign-lead-save']?.(context, 'campaign-1:lead-1')).toBe(false);
+    expect(state.formErrors['campaignLeadReason_lead-1']).toBe('Choose a loss reason');
+    state.dialogForm['campaignLeadReason_lead-1'] = 'no_interest';
+    expect(await LIVE_ACTIONS['live-campaign-lead-save']?.(context, 'campaign-1:lead-1')).toBe(true);
+    expect(campaigns.updateLeadOutcome).toHaveBeenCalledWith('tenant-1', 'campaign-1', 'lead-1', {
+      status: 'lost', lostReason: 'no_interest', revenueAmountMinor: 0, currency: 'EGP',
+    });
+    expect(state.dialogForm['campaignLeadStatus_lead-1']).toBeUndefined();
+    state.dialogForm['campaignLeadStatus_lead-1'] = 'won';
+    state.dialogForm['campaignLeadRevenue_lead-1'] = '1.234';
+    expect(await LIVE_ACTIONS['live-campaign-lead-save']?.(context, 'campaign-1:lead-1')).toBe(false);
+    expect(state.formErrors['campaignLeadRevenue_lead-1']).toBe('Enter a valid amount');
+    state.dialogForm['campaignLeadRevenue_lead-1'] = '0.29';
+    expect(await LIVE_ACTIONS['live-campaign-lead-save']?.(context, 'campaign-1:lead-1')).toBe(true);
+    expect(campaigns.updateLeadOutcome).toHaveBeenLastCalledWith('tenant-1', 'campaign-1', 'lead-1', {
+      status: 'won', lostReason: null, revenueAmountMinor: 29, currency: 'EGP',
+    });
+  });
+
+  it('preserves server refusals and ignores lead reads for a departed campaign', async () => {
+    const noTenant = setup({ tenant: null });
+    await loadCampaignLeads(noTenant.context, 'campaign-1');
+    expect(await saveCampaignLeadOutcome(noTenant.context, 'campaign-1', 'lead-1', {
+      status: 'new', lostReason: null, revenueAmountMinor: 0, currency: 'EGP',
+    })).toBe(false);
+    const refused = setup();
+    vi.mocked(refused.campaigns.updateLeadOutcome).mockResolvedValueOnce(fail());
+    await loadCampaignLeads(refused.context, 'campaign-1');
+    expect(await LIVE_ACTIONS['live-campaign-lead-save']?.(refused.context, 'campaign-1:lead-1')).toBe(false);
+    expect(refused.state.live.error).toEqual(ERROR);
+    const stale = setup();
+    vi.mocked(stale.campaigns.leads).mockImplementationOnce(async () => {
+      stale.state.live.selectedCampaignId = 'campaign-2';
+      return ok([LEAD]);
+    });
+    await loadCampaignLeads(stale.context, 'campaign-1');
+    expect(stale.state.live.campaignLeads.status).toBe('loading');
   });
 
   it('dispatches every campaign control', async () => {

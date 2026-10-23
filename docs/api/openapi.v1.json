@@ -6060,6 +6060,43 @@
         }
       }
     },
+    "/tenants/{tenantId}/campaigns/{campaignId}/leads": {
+      "get": {
+        "operationId": "listCampaignLeads",
+        "summary": "List imported leads and their current outcomes",
+        "description": "Requires campaign.read on the campaign connection.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "campaignId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Imported leads", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CampaignLeadListResponse" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/tenants/{tenantId}/campaigns/{campaignId}/leads/{leadId}": {
+      "patch": {
+        "operationId": "updateCampaignLeadOutcome",
+        "summary": "Record a lead outcome with an audit event",
+        "description": "Requires contact.edit in the campaign inbox and assignee scope. Lost requires a reason; only Won may carry revenue.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/CsrfToken" },
+          { "name": "campaignId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "leadId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CampaignLeadOutcomeRequest" } } } },
+        "responses": {
+          "200": { "description": "Updated lead", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CampaignLeadResponse" } } } },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/campaigns/{campaignId}/validate": {
       "post": {
         "operationId": "validateCampaign",
@@ -12324,6 +12361,36 @@
               "contactIds": { "type": "array", "items": { "type": "string", "format": "uuid" } }
             } },
           "request_id": { "type": "string" }
+        }
+      },
+      "CampaignLead": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "contact_id", "display_name", "mobile", "course_name", "label", "assigned_to", "source", "status", "lost_reason", "revenue_amount_minor", "currency", "existing_contact", "repeat_lead", "imported_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" }, "contact_id": { "type": "string", "format": "uuid" },
+          "display_name": { "type": "string" }, "mobile": { "type": "string" }, "course_name": { "type": "string" },
+          "label": { "type": "string" }, "assigned_to": { "type": ["string", "null"] }, "source": { "type": "string" },
+          "status": { "type": "string", "enum": ["new", "contacted", "won", "lost", "unqualified"] },
+          "lost_reason": { "type": ["string", "null"] }, "revenue_amount_minor": { "type": "string" },
+          "currency": { "type": "string" }, "existing_contact": { "type": "boolean" }, "repeat_lead": { "type": "boolean" },
+          "imported_at": { "type": "string" }
+        }
+      },
+      "CampaignLeadListResponse": {
+        "type": "object", "additionalProperties": false, "required": ["data", "page", "request_id"],
+        "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/CampaignLead" } },
+          "page": { "$ref": "#/components/schemas/Page" }, "request_id": { "type": "string" } }
+      },
+      "CampaignLeadResponse": {
+        "type": "object", "additionalProperties": false, "required": ["data", "request_id"],
+        "properties": { "data": { "$ref": "#/components/schemas/CampaignLead" }, "request_id": { "type": "string" } }
+      },
+      "CampaignLeadOutcomeRequest": {
+        "type": "object", "additionalProperties": false, "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "enum": ["new", "contacted", "won", "lost", "unqualified"] },
+          "lostReason": { "type": ["string", "null"], "enum": ["no_answer", "unreachable", "no_interest", "unqualified", "price_objection", "other", null] },
+          "revenueAmountMinor": { "type": "integer", "minimum": 0 }, "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
         }
       },
       "AudiencePreviewRequest": {

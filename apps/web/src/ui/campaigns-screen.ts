@@ -1,4 +1,4 @@
-import type { Campaign, CampaignRecipient } from '../api/campaigns.js';
+import type { Campaign, CampaignLead, CampaignRecipient } from '../api/campaigns.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, formatNumber, relativeTime } from '../format.js';
@@ -299,6 +299,7 @@ function campaignDetail(state: AppState, live: LiveState, campaign: Campaign, ca
         ]),
       ]),
       actions(state, live, campaign, can, busyPrefix),
+      campaign.lead_summary == null || campaign.lead_summary.total === 0 ? null : leadList(state, live, campaign),
       ledger(state, live, campaign),
     ]),
   ]);
@@ -318,6 +319,68 @@ function leadSummary(state: AppState, value: NonNullable<Campaign['lead_summary'
     h('div', { class: 'campaign-leads-summary__grid' }, metrics.map(([label, count]) =>
       h('div', {}, [h('strong', {}, [formatNumber(count, state.lang)]), h('span', {}, [label])]))),
     h('p', {}, [t(state, 'الإيراد المسجل', 'Recorded revenue'), `: ${formatNumber(Number(value.revenue_amount_minor) / 100, state.lang)} EGP`]),
+  ]);
+}
+
+const LEAD_STATUS_LABELS: Readonly<Record<CampaignLead['status'], readonly [string, string]>> = {
+  new: ['جديد', 'New'], contacted: ['تم التواصل', 'Contacted'], won: ['مكتسب', 'Won'],
+  lost: ['مفقود', 'Lost'], unqualified: ['غير مؤهل', 'Unqualified'],
+};
+const LEAD_LOSS_REASONS: Readonly<Record<string, readonly [string, string]>> = {
+  no_answer: ['لا يرد', 'No answer'], unreachable: ['تعذّر الوصول', 'Unreachable'],
+  no_interest: ['غير مهتم', 'Not interested'], unqualified: ['غير مؤهل', 'Unqualified'],
+  price_objection: ['اعتراض على السعر', 'Price objection'], other: ['سبب آخر', 'Other'],
+};
+
+function leadList(state: AppState, live: LiveState, campaign: Campaign): HTMLElement {
+  const heading = h('h3', { class: 'subsection-title', id: 'campaign-leads-title' }, [t(state, 'ليدز الحملة', 'Campaign leads')]);
+  if (live.selectedCampaignId !== campaign.id || live.campaignLeads.status === 'idle') {
+    return h('section', { class: 'campaign-lead-list', 'aria-labelledby': 'campaign-leads-title' }, [
+      heading, button({ label: t(state, 'عرض الليدز وتحديث نتائجهم', 'View leads and update outcomes'),
+        act: 'live-campaign-open', arg: campaign.id, small: true }),
+    ]);
+  }
+  const resource = live.campaignLeads;
+  return h('section', { class: 'campaign-lead-list', 'aria-labelledby': 'campaign-leads-title' }, [
+    h('div', { class: 'campaign-lead-list__header' }, [heading,
+      button({ label: t(state, 'تحديث', 'Refresh'), act: 'live-campaign-open', arg: campaign.id, small: true, variant: 'ghost' })]),
+    resource.status === 'ready'
+      ? h('div', { class: 'campaign-lead-list__rows' }, resource.value.map((lead) => leadRow(state, live, campaign, lead)))
+      : resource.status === 'error' ? errorState(state, resource.error, 'live-campaigns-reload') : skeleton(state, 3),
+  ]);
+}
+
+function leadRow(state: AppState, live: LiveState, campaign: Campaign, lead: CampaignLead): HTMLElement {
+  const statusKey = `campaignLeadStatus_${lead.id}`;
+  const reasonKey = `campaignLeadReason_${lead.id}`;
+  const revenueKey = `campaignLeadRevenue_${lead.id}`;
+  const chosen = (state.dialogForm[statusKey] ?? lead.status) as CampaignLead['status'];
+  const canEdit = hasPermission(live, 'contact.edit');
+  return h('article', { class: 'campaign-lead-card', 'data-lead': lead.id }, [
+    h('div', { class: 'campaign-lead-card__identity' }, [
+      h('strong', {}, [lead.display_name]),
+      h('span', {}, [isolated(lead.mobile, true), ` · ${lead.course_name}`]),
+      h('small', {}, [lead.label, ' · ', lead.source, lead.assigned_to === null ? '' : ` · ${lead.assigned_to}`]),
+    ]),
+    h('div', { class: 'campaign-lead-card__editor' }, [
+      h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'النتيجة', 'Outcome')]),
+        h('select', { class: 'select', 'data-act': 'form', 'data-form': statusKey, disabled: !canEdit },
+          Object.entries(LEAD_STATUS_LABELS).map(([value, label]) => h('option', { value, selected: value === chosen }, [t(state, label[0], label[1])])))]),
+      chosen === 'lost' ? h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'سبب الخسارة', 'Loss reason')]),
+        h('select', { class: 'select', 'data-act': 'form', 'data-form': reasonKey, disabled: !canEdit }, [
+          h('option', { value: '', selected: (state.dialogForm[reasonKey] ?? lead.lost_reason) == null }, [t(state, 'اختر السبب', 'Choose reason')]),
+          ...Object.entries(LEAD_LOSS_REASONS).map(([value, label]) => h('option', { value,
+            selected: value === (state.dialogForm[reasonKey] ?? lead.lost_reason) }, [t(state, label[0], label[1])])),
+        ])]) : null,
+      chosen === 'won' ? h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'الإيراد', 'Revenue')]),
+        h('input', { class: 'input', type: 'number', min: '0', step: '0.01', inputmode: 'decimal',
+          value: state.dialogForm[revenueKey] ?? String(Number(lead.revenue_amount_minor) / 100),
+          'data-act': 'form', 'data-form': revenueKey, disabled: !canEdit })]) : null,
+      canEdit ? button({ label: t(state, 'حفظ', 'Save'), act: 'live-campaign-lead-save', arg: `${campaign.id}:${lead.id}`,
+        small: true, variant: 'primary', busy: live.busy === `campaign-lead:${lead.id}` }) : null,
+    ]),
+    state.formErrors[reasonKey] ? h('p', { class: 'campaign-lead-card__error', role: 'alert' }, [state.formErrors[reasonKey]!]) : null,
+    state.formErrors[revenueKey] ? h('p', { class: 'campaign-lead-card__error', role: 'alert' }, [state.formErrors[revenueKey]!]) : null,
   ]);
 }
 

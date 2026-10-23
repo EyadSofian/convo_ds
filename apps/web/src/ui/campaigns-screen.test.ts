@@ -2,7 +2,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest';
-import type { Campaign, CampaignRecipient } from '../api/campaigns';
+import type { Campaign, CampaignLead, CampaignRecipient } from '../api/campaigns';
 import type { ChannelConnection } from '../api/channels';
 import { createState } from '../state';
 import type { AppState } from '../state';
@@ -142,6 +142,39 @@ describe('the lifecycle offered for each state', () => {
 });
 
 describe('the detail', () => {
+  it('shows imported leads with contextual outcome controls and a reason for Lost', () => {
+    const state = screen([campaign({ lead_summary: { total: 1, new: 1, existing: 0, repeat: 0,
+      won: 0, lost: 0, unqualified: 0, revenue_amount_minor: '0' } })], [...ALL, 'contact.edit']);
+    const lead: CampaignLead = { id: 'lead-1', contact_id: 'contact-1', display_name: 'Mona', mobile: '201012345678',
+      course_name: 'PMP', label: 'PMP', assigned_to: 'Agent A', source: 'excel_import', status: 'new',
+      lost_reason: null, revenue_amount_minor: '0', currency: 'EGP', existing_contact: false,
+      repeat_lead: false, imported_at: NOW.toISOString() };
+    expect(renderBroadcasts(state).querySelector('[data-act="live-campaign-open"]')).not.toBeNull();
+    state.live.selectedCampaignId = 'c-1';
+    state.live.campaignLeads = { status: 'ready', loadedAt: 1, value: [{ ...lead, assigned_to: null }] };
+    const root = renderBroadcasts(state);
+    expect(root.querySelector('[data-lead="lead-1"]')?.textContent).toContain('Mona');
+    expect(root.querySelector('[data-lead="lead-1"]')?.textContent).toContain('PMP');
+    expect(root.querySelector('[data-act="live-campaign-lead-save"]')).not.toBeNull();
+    state.dialogForm['campaignLeadStatus_lead-1'] = 'lost';
+    expect(renderBroadcasts(state).querySelector('[data-form="campaignLeadReason_lead-1"]')).not.toBeNull();
+    state.formErrors['campaignLeadReason_lead-1'] = 'Choose a loss reason';
+    expect(renderBroadcasts(state).querySelector('[data-lead="lead-1"] [role="alert"]')?.textContent).toContain('Choose a loss reason');
+    delete state.dialogForm['campaignLeadStatus_lead-1'];
+    state.live.campaignLeads = { status: 'ready', loadedAt: 1, value: [{ ...lead, status: 'won', revenue_amount_minor: '2900' }] };
+    state.formErrors['campaignLeadRevenue_lead-1'] = 'Enter a valid amount';
+    expect((renderBroadcasts(state).querySelector('[data-form="campaignLeadRevenue_lead-1"]') as HTMLInputElement).value).toBe('29');
+    expect(renderBroadcasts(state).querySelectorAll('[data-lead="lead-1"] [role="alert"]')).toHaveLength(2);
+    state.live.campaignLeads = { status: 'loading' };
+    expect(renderBroadcasts(state).querySelector('.campaign-lead-list [aria-busy="true"]')).not.toBeNull();
+    state.live.campaignLeads = { status: 'error', error: { code: 'x', message: 'x', requestId: 'req', status: 500, details: [] } };
+    expect(renderBroadcasts(state).querySelector('.campaign-lead-list')?.textContent).toContain('req');
+    state.live.campaignLeads = { status: 'ready', loadedAt: 1, value: [lead] };
+    state.live.session = { ...state.live.session, memberships: [{ id: 'm', tenant: { id: 't', name: 'School', slug: 'school' },
+      role: { id: 'r', key: 'x', name: 'X' }, permissions: ALL }] } as typeof state.live.session;
+    expect(renderBroadcasts(state).querySelector('[data-act="live-campaign-lead-save"]')).toBeNull();
+  });
+
   it('shows imported lead outcomes and recorded revenue for a campaign', () => {
     const value = { total: 12, new: 8, existing: 4, repeat: 2, won: 3, lost: 1, unqualified: 0, revenue_amount_minor: '125050' };
     const root = renderBroadcasts(screen([campaign({ lead_summary: value })]));

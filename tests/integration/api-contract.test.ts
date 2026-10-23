@@ -218,6 +218,8 @@ describe('pinned OpenAPI contract', () => {
       "previewCampaignAudience",
       "previewCampaignLeads",
       "importCampaignLeads",
+      "listCampaignLeads",
+      "updateCampaignLeadOutcome",
       "validateCampaign",
       "approveCampaign",
       "launchCampaign",

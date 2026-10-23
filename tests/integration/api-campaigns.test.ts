@@ -175,10 +175,23 @@ describe('campaign API', () => {
     expect(stored.leads.map((row) => row.course_name)).toEqual(['PMP', 'PMP']);
     expect(stored.labels).toBe(0);
     expect(stored.consents).toBe(0);
-    await withTenant(api.pool, api.tenantId, async (sql) => {
-      await sql.query(`UPDATE campaign_leads SET status='won',revenue_amount_minor=120000 WHERE campaign_id=$1 AND mobile=$2`,
-        [campaign.data.id, '201012345678']);
-    });
+    const listed = await send(api, 'GET', `/campaigns/${campaign.data.id}/leads`);
+    expect(listed.statusCode, listed.body).toBe(200);
+    const leadRows = (listed.json() as { data: { id: string; mobile: string; status: string }[] }).data;
+    expect(leadRows).toHaveLength(2);
+    const newLead = leadRows.find((row) => row.mobile === '201012345678')!;
+    const outcome = await send(api, 'PATCH', `/campaigns/${campaign.data.id}/leads/${newLead.id}`,
+      { status: 'won', revenueAmountMinor: 120000, currency: 'EGP' });
+    expect(outcome.statusCode, outcome.body).toBe(200);
+    expect(outcome.json()).toMatchObject({ data: { status: 'won', revenue_amount_minor: '120000.000000' } });
+    const repeatedOutcome = await send(api, 'PATCH', `/campaigns/${campaign.data.id}/leads/${newLead.id}`,
+      { status: 'won', revenueAmountMinor: 120000, currency: 'EGP' });
+    expect(repeatedOutcome.statusCode, repeatedOutcome.body).toBe(200);
+    const events = await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `SELECT old_status,new_status FROM campaign_lead_events WHERE campaign_lead_id=$1`, [newLead.id]));
+    expect(events.rows).toEqual([{ old_status: 'new', new_status: 'won' }]);
+    expect((await send(api, 'PATCH', `/campaigns/${campaign.data.id}/leads/${newLead.id}`,
+      { status: 'lost' })).statusCode).toBe(422);
     const leadReport = await send(api, 'GET', `/reports/campaigns?campaignId=${campaign.data.id}`);
     expect(leadReport.statusCode, leadReport.body).toBe(200);
     expect(leadReport.json()).toMatchObject({ data: { leads: {

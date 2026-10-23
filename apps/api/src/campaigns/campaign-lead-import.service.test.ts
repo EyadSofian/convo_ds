@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SqlExecutor } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import type { AuthorizationService } from '../authorization/authorization.service.js';
-import { CampaignLeadImportService, normalizeLeadMobile, parseLeadImport, type LeadImportInput } from './campaign-lead-import.service';
+import { CampaignLeadImportService, normalizeLeadMobile, parseLeadImport, parseLeadOutcome, type LeadImportInput } from './campaign-lead-import.service';
 
 const CONNECTION = '11111111-1111-4111-8111-111111111111';
 const CAMPAIGN = '22222222-2222-4222-8222-222222222222';
@@ -35,6 +35,34 @@ function ordinary(statement: string): readonly unknown[] {
 }
 
 describe('campaign lead import boundary', () => {
+  it('accepts only valid outcome transitions and requires a reason for lost leads', () => {
+    expect(parseLeadOutcome({ status: 'won', revenueAmountMinor: 125050 })).toEqual({
+      status: 'won', lostReason: null, revenueAmountMinor: 125050, currency: 'EGP',
+    });
+    expect(parseLeadOutcome({ status: 'lost', lostReason: 'no_interest' }).status).toBe('lost');
+    expect(() => parseLeadOutcome({ status: 'lost' })).toThrow();
+    expect(() => parseLeadOutcome({ status: 'new', revenueAmountMinor: 1 })).toThrow();
+    expect(() => parseLeadOutcome({ status: 'won', revenueAmountMinor: -1 })).toThrow();
+    expect(() => parseLeadOutcome({ status: 'won', revenueAmountMinor: 1.5 })).toThrow();
+    expect(() => parseLeadOutcome({ status: 'contacted', lostReason: 'no_answer' })).toThrow();
+    expect(() => parseLeadOutcome([])).toThrow();
+    expect(() => parseLeadOutcome(null)).toThrow();
+  });
+
+  it('checks campaign access before listing imported leads', async () => {
+    const { service, requirePermission } = harness((statement) => statement.includes('SELECT connection_id::text FROM campaigns')
+      ? [{ connection_id: CONNECTION }] : []);
+    expect(await service.listLeads(SESSION, TENANT, CAMPAIGN)).toEqual([]);
+    expect(requirePermission.mock.calls.map((call) => call[2])).toEqual(['campaign.read']);
+  });
+
+  it('does not expose a missing campaign or a lead outside that campaign', async () => {
+    const { service } = harness(() => []);
+    await expect(service.listLeads(SESSION, TENANT, CAMPAIGN)).rejects.toThrow('Campaign not found');
+    await expect(service.updateOutcome(SESSION, TENANT, CAMPAIGN, CONNECTION,
+      parseLeadOutcome({ status: 'contacted' }))).rejects.toThrow('Campaign lead not found');
+  });
+
   it('normalizes Egyptian national and explicit international numbers', () => {
     expect(normalizeLeadMobile('010 1234 5678')).toBe('201012345678');
     expect(normalizeLeadMobile('+20 (10) 1234-5678')).toBe('201012345678');

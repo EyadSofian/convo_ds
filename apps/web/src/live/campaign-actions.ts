@@ -1,5 +1,5 @@
 import type { ApiResult } from '../api/client.js';
-import type { Campaign, CampaignTestSend } from '../api/campaigns.js';
+import type { Campaign, CampaignLead, CampaignLeadOutcome, CampaignTestSend } from '../api/campaigns.js';
 import type { ChannelTestRecipient } from '../api/channels.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
@@ -308,6 +308,43 @@ export async function loadCampaignRecipients(context: LiveContext, id: string): 
   const result = await context.live.campaignsApi.recipients(tenantId, id);
   context.live.campaignRecipients = fromResult(result, context.now());
   context.refresh();
+}
+
+export async function loadCampaignLeads(context: LiveContext, id: string): Promise<void> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return;
+  context.live.selectedCampaignId = id;
+  context.live.campaignLeads = LOADING;
+  context.refresh();
+  const result = await context.live.campaignsApi.leads(tenantId, id);
+  if (context.live.selectedCampaignId !== id) return;
+  context.live.campaignLeads = fromResult(result, context.now());
+  context.refresh();
+}
+
+export async function saveCampaignLeadOutcome(context: LiveContext, campaignId: string, leadId: string,
+  input: CampaignLeadOutcome): Promise<boolean> {
+  const tenantId = currentTenantId(context.live);
+  if (tenantId === null) return false;
+  context.live.busy = `campaign-lead:${leadId}`;
+  context.live.error = null;
+  context.refresh();
+  const result: ApiResult<CampaignLead> = await context.live.campaignsApi.updateLeadOutcome(tenantId, campaignId, leadId, input);
+  context.live.busy = null;
+  if (!result.ok) {
+    context.live.error = result.error;
+    context.refresh();
+    return false;
+  }
+  if (context.live.campaignLeads.status === 'ready') {
+    context.live.campaignLeads = { ...context.live.campaignLeads,
+      value: context.live.campaignLeads.value.map((lead) => lead.id === leadId ? result.data : lead) };
+  }
+  const campaigns = await context.live.campaignsApi.list(tenantId);
+  context.live.campaigns = fromResult(campaigns, context.now());
+  pushToast(context.state, t(context, 'اتحدّثت حالة الليد', 'Lead outcome updated'));
+  context.refresh();
+  return true;
 }
 
 async function mutate(

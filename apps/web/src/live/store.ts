@@ -17,7 +17,7 @@ import type {
 import { INBOX_QUERY_DEFAULT, type InboxQuery } from '@convo/domain';
 import type { Contact, ContactsApi, ContactSummary } from '../api/contacts.js';
 import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
-import type { AssignmentReportRow, AudiencePreview, Campaign, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport, ResponseReport, ResolutionReport, TeamReportRow } from '../api/campaigns.js';
+import type { AssignmentReportRow, AudiencePreview, Campaign, CampaignLead, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport, ResponseReport, ResolutionReport, TeamReportRow } from '../api/campaigns.js';
 import { disconnectedCampaignsApi } from '../api/campaigns.js';
 import {
   DEFAULT_AUTOMATION_LIST_QUERY,
@@ -240,6 +240,7 @@ export interface LiveState {
   sessions: Resource<readonly SessionSummary[]>;
   campaigns: Resource<readonly Campaign[]>;
   campaignRecipients: Resource<readonly CampaignRecipient[]>;
+  campaignLeads: Resource<readonly CampaignLead[]>;
   campaignReport: Resource<CampaignReport>;
   operationalReport: Resource<OperationalReport>;
   assignmentReport: Resource<readonly AssignmentReportRow[]>;
@@ -385,6 +386,7 @@ export function createLiveState(
     sessions: IDLE,
     campaigns: IDLE,
     campaignRecipients: IDLE,
+    campaignLeads: IDLE,
     campaignReport: IDLE,
     operationalReport: IDLE,
     assignmentReport: IDLE,

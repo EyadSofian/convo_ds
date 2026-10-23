@@ -3474,6 +3474,18 @@
   .campaign-leads-summary__grid > div { display: grid; gap: 2px; }
   .campaign-leads-summary__grid strong { font-size: var(--text-lg); }
   .campaign-leads-summary__grid span, .campaign-leads-summary p { color: var(--text-muted); font-size: var(--text-xs); }
+  .campaign-lead-list { display: grid; gap: var(--space-3); }
+  .campaign-lead-list__header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+  .campaign-lead-list__header h3 { margin: 0; }
+  .campaign-lead-list__rows { display: grid; gap: var(--space-2); max-height: 34rem; overflow-y: auto; }
+  .campaign-lead-card { display: grid; grid-template-columns: minmax(12rem,1fr) minmax(16rem,1.5fr); align-items: end; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-2); }
+  .campaign-lead-card__identity { display: grid; gap: var(--space-1); min-width: 0; }
+  .campaign-lead-card__identity strong, .campaign-lead-card__identity span, .campaign-lead-card__identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .campaign-lead-card__identity span, .campaign-lead-card__identity small { color: var(--text-muted); }
+  .campaign-lead-card__editor { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2); }
+  .campaign-lead-card__editor .field { flex: 1 1 8rem; min-width: 0; }
+  .campaign-lead-card__error { grid-column: 1 / -1; color: var(--danger); margin: 0; }
+  @media (max-width: 720px) { .campaign-lead-card { grid-template-columns: 1fr; } }
 
   /* ----------------------------------------------------- template composer -- */
 
