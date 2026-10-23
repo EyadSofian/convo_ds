@@ -3897,10 +3897,11 @@ describe('private notes and the read cursor', () => {
   it('answers unread per person on the list', async () => {
     await send(api, owner, 'POST', `/conversations/${conversationId}/read`, {});
     const mine = await send(api, owner, 'GET', '/conversations?queue=all');
-    const row = (mine.json() as { data: { id: string; unread: boolean }[] }).data.find(
+    const row = (mine.json() as { data: { id: string; unread: boolean; lastMessagePreview: string | null }[] }).data.find(
       (entry) => entry.id === conversationId,
     );
     expect(row?.unread).toBe(false);
+    expect(row?.lastMessagePreview).toBe('سؤال');
 
     // A colleague who has not opened it sees it as unread, from the same row.
     const theirs = await send(api, owner, 'GET', '/conversations?queue=all');
@@ -3908,11 +3909,12 @@ describe('private notes and the read cursor', () => {
 
     await customerWrites(INBOX_A, peer, 'رسالة جديدة', 'wamid.rt-610');
     const afterNews = await send(api, owner, 'GET', '/conversations?queue=all');
-    const again = (afterNews.json() as { data: { id: string; unread: boolean }[] }).data.find(
+    const again = (afterNews.json() as { data: { id: string; unread: boolean; lastMessagePreview: string | null }[] }).data.find(
       (entry) => entry.id === conversationId,
     );
     // New activity past the cursor makes it unread again.
     expect(again?.unread).toBe(true);
+    expect(again?.lastMessagePreview).toBe('رسالة جديدة');
   });
 });
 

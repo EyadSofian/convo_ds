@@ -10043,6 +10043,11 @@
             "type": ["string", "null"],
             "description": "Current contact name if available; otherwise the client may show the channel identity."
           },
+          "lastMessagePreview": {
+            "type": ["string", "null"],
+            "maxLength": 160,
+            "description": "Short preview of the latest message on authorized Inbox list rows only. Not returned on unassigned queue cards."
+          },
           "teamId": {
             "type": [
               "string",

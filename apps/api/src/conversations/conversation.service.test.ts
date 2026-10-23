@@ -61,6 +61,13 @@ describe('ConversationService Inbox boundaries', () => {
     await expect(empty.service.list({ userId: 'user' } as never, tenantId, base)).resolves.toEqual({ items: [], nextCursor: null });
   });
 
+  it('returns a bounded last-message preview only in readable Inbox rows', async () => {
+    const { service, sql } = harness([{ ...raw(idA, '2026-09-22T10:00:00.000Z'), last_message_preview: `  ${'A'.repeat(170)}  ` }]);
+    const page = await service.list({ userId: 'user' } as never, tenantId, base);
+    expect(page.items[0]?.lastMessagePreview).toBe('A'.repeat(160));
+    expect(sql.query).toHaveBeenCalledWith(expect.stringContaining('LEFT JOIN LATERAL'), expect.any(Array));
+  });
+
   it('round-trips keyset cursors for every Inbox sort', async () => {
     const sorts = ['activity_desc', 'activity_asc', 'created_desc', 'created_asc', 'waiting_desc', 'priority_desc'] as const;
     for (const sort of sorts) {

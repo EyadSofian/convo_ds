@@ -38,7 +38,7 @@ import { OpaqueCursorCodec } from '../pagination.js';
 import { compileInboxQuery, readableScope } from './inbox-query-compiler.js';
 import { validateInboxQuery } from './inbox-query-validation.js';
 import { requireScopedSupervisorAgent, scopedSupervisorAgents } from './supervisor-directory.js';
-import { conversationUnrepliedPredicate, latestConversationInbound } from './event-boundary.js';
+import { conversationEventBoundary, conversationUnrepliedPredicate, latestConversationInbound } from './event-boundary.js';
 
 export type { ConversationDetail, ConversationRow } from './record.js';
 
@@ -52,6 +52,8 @@ export type { ConversationDetail, ConversationRow } from './record.js';
  */
 export interface ConversationListRow extends ConversationDetail, EntityMetadata {
   readonly unread: boolean;
+  /** A short preview from the latest message, only on readable list records. */
+  readonly lastMessagePreview: string | null;
 }
 export interface ConversationListPage { readonly items: readonly ConversationListRow[]; readonly nextCursor: string | null; }
 export interface SupervisorAgent { readonly membershipId: string; readonly name: string; readonly email: string; readonly teams: readonly string[]; }
@@ -390,12 +392,13 @@ export class ConversationService {
       if(query.cursor!==null){const decoded=codec.decode(query.cursor,binding);if(decoded.status==='rejected')throw new ApiHttpError(400,decoded.code,decoded.message);cursor=cursorPredicate(query.sort,decoded.after.value,decoded.after.id,add);}
       const viewer=add(principal.membershipId);const limit=add(query.limit+1);
       const rows = await sql.query<
-        RawConversation & { display_name: string; kind: string; contact_display_name: string | null; read_through: Date | null; cursor_value:string; participant_membership_ids: readonly string[] }
+        RawConversation & { display_name: string; kind: string; contact_display_name: string | null; last_message_preview: string | null; read_through: Date | null; cursor_value:string; participant_membership_ids: readonly string[] }
       >(
         // The read cursor is joined for THIS membership only. Unread is a fact
         // about a person, so a row's unread flag is not a property of the row —
         // two agents looking at the same list see different answers, correctly.
-        `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, contact.display_name AS contact_display_name, r.read_through, ${cursorValue(query.sort)} AS cursor_value,
+        `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, contact.display_name AS contact_display_name,
+                left(btrim(preview.text_body), 160) AS last_message_preview, r.read_through, ${cursorValue(query.sort)} AS cursor_value,
                 ARRAY(SELECT participant.membership_id::text FROM conversation_participants participant WHERE participant.conversation_id = c.id
                       UNION
                       SELECT collaborator.membership_id::text FROM conversation_collaborators collaborator WHERE collaborator.conversation_id = c.id AND collaborator.removed_at IS NULL) AS participant_membership_ids
@@ -404,6 +407,19 @@ export class ConversationService {
            LEFT JOIN contacts contact ON contact.id=c.contact_id AND contact.deleted_at IS NULL
            LEFT JOIN conversation_reads r
              ON r.conversation_id = c.id AND r.membership_id = ${viewer}
+           LEFT JOIN LATERAL (
+             SELECT latest.text_body FROM (
+               (SELECT e.text_body, e.occurred_at AS at, e.id
+                  FROM inbound_events e
+                 WHERE e.kind='message' AND ${conversationEventBoundary('c', 'e', 'e.occurred_at', { inboundOpeningEvent: true })}
+                 ORDER BY e.occurred_at DESC LIMIT 1)
+               UNION ALL
+               (SELECT COALESCE(m.template_preview, m.text_body) AS text_body, m.created_at AS at, m.id
+                  FROM outbound_messages m
+                 WHERE ${conversationEventBoundary('c', 'm', 'm.created_at')}
+                 ORDER BY m.created_at DESC LIMIT 1)
+             ) latest ORDER BY latest.at DESC, latest.id DESC LIMIT 1
+           ) preview ON true
           WHERE ${compiled.where}${cursor}
           ORDER BY ${compiled.order}
           LIMIT ${limit}`,
@@ -430,6 +446,7 @@ export class ConversationService {
           inboxLabel: row.display_name,
           channel: row.kind,
           contactDisplayName: row.contact_display_name ?? null,
+          lastMessagePreview: row.last_message_preview?.trim().slice(0, 160) || null,
           participantMembershipIds: participants,
           unread:
             row.read_through === null ||

@@ -58,6 +58,8 @@ export interface Conversation extends EntityMetadata {
   readonly resolution: string | null;
   readonly resolvedAt: string | null;
   readonly lastActivityAt: string;
+  /** Present on readable Inbox lists; absent on single-conversation reads. */
+  readonly lastMessagePreview?: string | null;
   /** ADR-0008's bot-versus-human dimension. Always `human_active` in this build. */
   readonly ownerState: string;
   readonly ownerVersion: number;

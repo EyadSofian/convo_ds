@@ -400,6 +400,17 @@
     white-space: nowrap;
   }
 
+  .convrow__preview {
+    display: block;
+    min-inline-size: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .convrow__meta .badge {
     block-size: 20px;
   }

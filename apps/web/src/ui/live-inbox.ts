@@ -716,6 +716,9 @@ function conversationRow(state: AppState, live: LiveState, conversation: Convers
             ? h('span', { class: 'convrow__dot' }, [h('span', { class: 'visually-hidden' }, [t(state, 'غير مقروءة', 'Unread')])])
             : null,
         ]),
+        conversation.lastMessagePreview
+          ? h('span', { class: 'convrow__preview' }, [isolated(conversation.lastMessagePreview)])
+          : null,
       ]),
     ],
   );

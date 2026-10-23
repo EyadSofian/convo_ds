@@ -84,6 +84,26 @@ describe('Inbox list controls', () => {
     expect(named.querySelector('.convrow--record .convrow__name')?.textContent).toBe('Eyad Sofian');
     expect(named.querySelector('.thread__name')?.textContent).toBe('Eyad Sofian');
   });
+  it('shows the latest text under readable Inbox rows without adding it to Unassigned cards', () => {
+    const app = state();
+    const conversation = {
+      id: 'conversation-1', contactId: 'contact-1', connectionId: 'connection-1', peerIdentity: '123456789',
+      contactDisplayName: 'Eyad Sofian', inboxLabel: 'Digital School', channel: 'messenger',
+      teamId: null, assigneeMembershipId: 'member-1', status: 'open', priority: 'normal',
+      version: 1, labels: [], customFields: [], lastActivityAt: NOW.toISOString(), unread: false,
+      lastMessagePreview: 'Hello from Messenger',
+    };
+    app.inboxQueue = 'all';
+    app.live.inboxQuery = { ...app.live.inboxQuery, queue: 'all' };
+    app.live.conversations = ready([conversation] as never, 1);
+    expect(renderInbox(app).querySelector('.convrow--record .convrow__preview')?.textContent).toBe('Hello from Messenger');
+    app.inboxQueue = 'unassigned';
+    app.live.unassigned = ready([{ id: 'conversation-2', inboxLabel: 'Digital School', channel: 'messenger',
+      maskedLabel: '••••789', contactDisplayName: 'Eyad Sofian', priority: 'normal', status: 'open',
+      waitingSinceAt: null, claimable: true, version: 1 }] as never, 1);
+    expect(renderInbox(app).querySelector('.convrow--card .convrow__name')?.textContent).toBe('Eyad Sofian');
+    expect(renderInbox(app).querySelector('.convrow--card .convrow__preview')).toBeNull();
+  });
   it('makes archived conversations discoverable without including them in the live queue by default', () => {
     const app = state();
     const archive = renderInbox(app).querySelector('[data-act="live-inbox-archived-toggle"]') as HTMLButtonElement;
