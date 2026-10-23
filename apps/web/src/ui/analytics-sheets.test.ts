@@ -23,6 +23,8 @@ function campaign(overrides: Partial<CampaignReport> = {}): CampaignReport {
     current: { denominator: 618, planned: 38, queued: 42, in_flight: 8, accepted: 101, delivered: 214, read: 187, failed: 19, skipped: 7, cancelled: 0, outcome_unknown: 2 },
     milestones: { denominator: 618, accepted: 502, delivered: 401, read: 187 },
     costs: [{ currency: 'USD', estimated_amount_minor: '30.9', committed_amount_minor: '25.2', reconciled_amount_minor: '24.6' }],
+    leads: { total: 0, new: 0, existing: 0, repeat: 0, won: 0, lost: 0, unqualified: 0,
+      by_course: [], by_source: [], by_agent: [], revenue: [] },
     channels: [
       { kind: 'whatsapp', denominator: 500, accepted: 420, delivered: 358, read: 170, delivery_receipts: true, read_receipts: true },
       { kind: 'instagram', denominator: 118, accepted: 82, delivered: 43, read: 17, delivery_receipts: false, read_receipts: false },
@@ -109,6 +111,23 @@ describe('the tables behind each view', () => {
     const noCost = loaded();
     noCost.live.campaignReport = { status: 'ready', loadedAt: 1, value: campaign({ costs: [] }) };
     expect(names(noCost, 'campaigns')).not.toContain('Cost');
+  });
+
+  it('exports lead acquisition separately from message recipients', () => {
+    const base = campaign().leads;
+    const state = loaded();
+    state.live.campaignReport = { status: 'ready', loadedAt: 1, value: campaign({ leads: { ...base, total: 4, new: 3, existing: 1, repeat: 1, won: 1,
+      by_course: [{ name: 'PMP', total: 4, won: 1, lost: 0 }],
+      by_source: [{ name: 'excel_import', total: 4, won: 1, lost: 0 }],
+      by_agent: [{ name: 'Mona', total: 4, won: 1, lost: 0 }],
+      revenue: [{ currency: 'EGP', amount_minor: '120000' }] } }) };
+    const sheets = sheetsFor(state, 'campaigns');
+    expect(sheets.map((sheet) => sheet.name)).toContain('Lead summary');
+    expect(sheets.find((sheet) => sheet.name === 'Lead summary')?.rows).toContainEqual(['Conversion rate', { ratio: 0.25 }]);
+    expect(sheets.find((sheet) => sheet.name === 'Leads by course')?.rows[1]).toEqual(['PMP', 4, 1, 0, { ratio: 0.25 }]);
+    expect(sheets.find((sheet) => sheet.name === 'Leads by source')?.rows[1]?.[0]).toBe('excel_import');
+    expect(sheets.find((sheet) => sheet.name === 'Leads by sales rep')?.rows[1]?.[0]).toBe('Mona');
+    expect(sheets.find((sheet) => sheet.name === 'Lead revenue')?.rows[1]).toEqual(['EGP', '120000']);
   });
 
   it('writes the operations overview with durations in minutes and each breakdown as its own table', () => {

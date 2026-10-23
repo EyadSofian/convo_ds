@@ -175,6 +175,19 @@ describe('campaign API', () => {
     expect(stored.leads.map((row) => row.course_name)).toEqual(['PMP', 'PMP']);
     expect(stored.labels).toBe(0);
     expect(stored.consents).toBe(0);
+    await withTenant(api.pool, api.tenantId, async (sql) => {
+      await sql.query(`UPDATE campaign_leads SET status='won',revenue_amount_minor=120000 WHERE campaign_id=$1 AND mobile=$2`,
+        [campaign.data.id, '201012345678']);
+    });
+    const leadReport = await send(api, 'GET', `/reports/campaigns?campaignId=${campaign.data.id}`);
+    expect(leadReport.statusCode, leadReport.body).toBe(200);
+    expect(leadReport.json()).toMatchObject({ data: { leads: {
+      total: 2, new: 1, existing: 1, repeat: 0, won: 1, lost: 0,
+      by_course: [{ name: 'PMP', total: 2, won: 1, lost: 0 }],
+      by_source: [{ name: 'excel_import', total: 2, won: 1, lost: 0 }],
+      by_agent: expect.arrayContaining([expect.objectContaining({ total: 1, won: 1, lost: 0 })]),
+      revenue: [{ currency: 'EGP', amount_minor: '120000.000000' }],
+    } } });
 
     const revised = await send(api, 'PATCH', `/campaigns/${campaign.data.id}`,
       { ...draft(api, { name, audienceFilter: { contactIds } }), expectedVersion: campaign.data.version }, 'lead-sheet-audience');

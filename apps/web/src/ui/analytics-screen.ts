@@ -859,9 +859,48 @@ function reportBody(state: AppState, report: CampaignReport): readonly Child[] {
       : h('div', { class: 'report-grid' }, [funnel(state, report), trend(state, report.trend)]),
     h('div', { class: 'report-grid report-grid--3' }, [currentStates(state, report), channelBreakdown(state, report), errorBreakdown(state, report)]),
     campaignComparison(state, report),
+    leadPerformance(state, report),
     campaignTable(state, report),
     costs(state, report),
   ];
+}
+
+/** Acquisition is a different denominator from dispatch: a lead can exist before any send. */
+function leadPerformance(state: AppState, report: CampaignReport): HTMLElement | null {
+  const leads = report.leads;
+  if (leads === undefined || leads.total === 0) return null;
+  const buckets = (title: string, rows: readonly { readonly name: string; readonly total: number; readonly won: number; readonly lost: number }[]) =>
+    panel(title, [h('div', { class: 'tablewrap' }, [h('table', { class: 'table table--compact' }, [
+      h('thead', {}, [h('tr', {}, [
+        ...[t(state, 'الاسم', 'Name'), t(state, 'الليدز', 'Leads'), t(state, 'مكتسب', 'Won'), t(state, 'مفقود', 'Lost'), t(state, 'التحويل', 'Conversion')]
+          .map((label) => h('th', { scope: 'col' }, [label])),
+      ])]),
+      h('tbody', {}, rows.map((row) => h('tr', {}, [
+        h('th', { scope: 'row' }, [isolated(row.name)]),
+        ...[row.total, row.won, row.lost].map((value) => h('td', { class: 'num' }, [formatNumber(value, state.lang)])),
+        h('td', { class: 'num' }, [percent(state, row.won, row.total)]),
+      ]))),
+    ])])], { flush: true });
+  return h('section', { class: 'stack', 'aria-label': t(state, 'تحليل الليدز', 'Lead analysis') }, [
+    h('section', { class: 'kpis kpis--4', 'aria-label': t(state, 'نتائج الليدز', 'Lead outcomes') }, [
+      stat({ label: t(state, 'الليدز', 'Leads'), value: formatNumber(leads.total, state.lang), icon: 'users', hue: 'blue',
+        foot: t(state, `${formatNumber(leads.new, state.lang)} جديد · ${formatNumber(leads.existing, state.lang)} موجود`, `${formatNumber(leads.new, state.lang)} new · ${formatNumber(leads.existing, state.lang)} existing`) }),
+      stat({ label: t(state, 'متكررون', 'Repeat'), value: formatNumber(leads.repeat, state.lang), icon: 'history', hue: 'violet',
+        foot: t(state, 'من حملات سابقة؛ ليسوا مفقودين', 'From previous campaigns, not lost') }),
+      stat({ label: t(state, 'مكتسبون', 'Won'), value: formatNumber(leads.won, state.lang), icon: 'check', hue: 'green',
+        foot: t(state, `${percent(state, leads.won, leads.total)} من الليدز`, `${percent(state, leads.won, leads.total)} of leads`) }),
+      stat({ label: t(state, 'مفقودون', 'Lost'), value: formatNumber(leads.lost, state.lang), icon: 'alert', hue: 'danger',
+        foot: t(state, `${formatNumber(leads.unqualified, state.lang)} غير مؤهل منفصل`, `${formatNumber(leads.unqualified, state.lang)} unqualified separately`) }),
+    ]),
+    h('div', { class: 'report-grid report-grid--3' }, [
+      buckets(t(state, 'حسب الكورس', 'By course'), leads.by_course),
+      buckets(t(state, 'حسب المصدر', 'By source'), leads.by_source),
+      buckets(t(state, 'حسب مسؤول المبيعات', 'By sales rep'), leads.by_agent),
+    ]),
+    notice('plain', 'info', h('strong', {}, [t(state, 'الإيراد المسجل: ', 'Recorded revenue: ')]),
+      leads.revenue.length === 0 ? t(state, 'لا يوجد بعد', 'None yet')
+        : leads.revenue.map((row) => `${formatNumber(Number(row.amount_minor) / 100, state.lang)} ${row.currency}`).join(' · ')),
+  ]);
 }
 
 /** The four rates a broadcast is judged by, as rings on the brand band. */

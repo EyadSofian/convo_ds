@@ -114,6 +114,14 @@ export interface CampaignReport {
   };
   readonly milestones: { readonly denominator: number; readonly accepted: number; readonly delivered: number; readonly read: number };
   readonly costs: readonly { readonly currency: string; readonly estimated_amount_minor: string; readonly committed_amount_minor: string; readonly reconciled_amount_minor: string }[];
+  readonly leads: {
+    readonly total: number; readonly new: number; readonly existing: number; readonly repeat: number;
+    readonly won: number; readonly lost: number; readonly unqualified: number;
+    readonly by_course: readonly { readonly name: string; readonly total: number; readonly won: number; readonly lost: number }[];
+    readonly by_source: readonly { readonly name: string; readonly total: number; readonly won: number; readonly lost: number }[];
+    readonly by_agent: readonly { readonly name: string; readonly total: number; readonly won: number; readonly lost: number }[];
+    readonly revenue: readonly { readonly currency: string; readonly amount_minor: string }[];
+  };
   readonly channels: readonly { readonly kind: string; readonly denominator: number; readonly accepted: number; readonly delivered: number; readonly read: number; readonly delivery_receipts: boolean; readonly read_receipts: boolean }[];
   readonly errors: readonly { readonly code: string; readonly count: number }[];
   readonly trend: readonly CampaignReportTrendDay[];

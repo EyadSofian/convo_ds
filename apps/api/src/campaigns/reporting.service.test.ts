@@ -25,6 +25,11 @@ describe('CampaignReportingService', () => {
     const [text, values] = vi.mocked(sql.query).mock.calls[0] ?? [];
     expect(text).toContain('campaign_report_rows');
     expect(text).toContain('trend_rows');
+    expect(text).toContain('scoped_leads');
+    expect(text).toContain('lead_courses');
+    expect(text).toContain('lead_sources');
+    expect(text).toContain('lead_agents');
+    expect(text).toContain("'leads',to_jsonb(lt)");
     expect(values).toEqual([null, null, null, null]);
   });
 

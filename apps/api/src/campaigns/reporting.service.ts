@@ -42,6 +42,15 @@ export interface CampaignReport {
     readonly committed_amount_minor: string;
     readonly reconciled_amount_minor: string;
   }[];
+  /** Imported leads are counted by import date, independently of dispatch receipts. */
+  readonly leads: {
+    readonly total: number; readonly new: number; readonly existing: number; readonly repeat: number;
+    readonly won: number; readonly lost: number; readonly unqualified: number;
+    readonly by_course: readonly { readonly name: string; readonly total: number; readonly won: number; readonly lost: number }[];
+    readonly by_source: readonly { readonly name: string; readonly total: number; readonly won: number; readonly lost: number }[];
+    readonly by_agent: readonly { readonly name: string; readonly total: number; readonly won: number; readonly lost: number }[];
+    readonly revenue: readonly { readonly currency: string; readonly amount_minor: string }[];
+  };
   readonly channels: readonly {
     readonly kind: string;
     readonly denominator: number;
@@ -151,6 +160,44 @@ export function reportQuery(sql: SqlExecutor, filters: CampaignReportFilters) {
     scoped_rows AS (
       SELECT r.*,e.launched_at FROM campaign_report_rows r JOIN scoped_executions e ON e.id=r.execution_id
     ),
+    scoped_leads AS (
+      SELECT l.* FROM campaign_leads l JOIN scoped_campaigns c ON c.id=l.campaign_id CROSS JOIN params p
+       WHERE (p.from_at IS NULL OR l.imported_at>=p.from_at)
+         AND (p.to_at IS NULL OR l.imported_at<p.to_at)
+    ),
+    lead_totals AS (
+      SELECT count(*)::int AS total,
+             count(*) FILTER (WHERE NOT existing_contact)::int AS new,
+             count(*) FILTER (WHERE existing_contact)::int AS existing,
+             count(*) FILTER (WHERE repeat_lead)::int AS repeat,
+             count(*) FILTER (WHERE status='won')::int AS won,
+             count(*) FILTER (WHERE status='lost')::int AS lost,
+             count(*) FILTER (WHERE status='unqualified')::int AS unqualified
+        FROM scoped_leads
+    ),
+    lead_courses AS (
+      SELECT course_name AS name,count(*)::int AS total,
+             count(*) FILTER (WHERE status='won')::int AS won,
+             count(*) FILTER (WHERE status='lost')::int AS lost
+        FROM scoped_leads GROUP BY course_name ORDER BY total DESC,name
+    ),
+    lead_sources AS (
+      SELECT source AS name,count(*)::int AS total,
+             count(*) FILTER (WHERE status='won')::int AS won,
+             count(*) FILTER (WHERE status='lost')::int AS lost
+        FROM scoped_leads GROUP BY source ORDER BY total DESC,name
+    ),
+    lead_agents AS (
+      SELECT coalesce(m.display_name,'Unassigned') AS name,count(*)::int AS total,
+             count(*) FILTER (WHERE l.status='won')::int AS won,
+             count(*) FILTER (WHERE l.status='lost')::int AS lost
+        FROM scoped_leads l LEFT JOIN memberships m ON m.id=l.assigned_membership_id
+       GROUP BY m.id,m.display_name ORDER BY total DESC,name
+    ),
+    lead_revenue AS (
+      SELECT currency,sum(revenue_amount_minor)::text AS amount_minor
+        FROM scoped_leads WHERE status='won' GROUP BY currency ORDER BY currency
+    ),
     definitions AS (
       SELECT count(DISTINCT c.id)::int AS campaigns,
              count(e.id)::int AS executions,
@@ -246,11 +293,16 @@ export function reportQuery(sql: SqlExecutor, filters: CampaignReportFilters) {
       'current',to_jsonb(cc) - 'fresh_through',
       'milestones',to_jsonb(mc),
       'costs',coalesce((SELECT jsonb_agg(to_jsonb(x)) FROM cost_rows x),'[]'::jsonb),
+      'leads',to_jsonb(lt) || jsonb_build_object(
+        'by_course',coalesce((SELECT jsonb_agg(to_jsonb(x)) FROM lead_courses x),'[]'::jsonb),
+        'by_source',coalesce((SELECT jsonb_agg(to_jsonb(x)) FROM lead_sources x),'[]'::jsonb),
+        'by_agent',coalesce((SELECT jsonb_agg(to_jsonb(x)) FROM lead_agents x),'[]'::jsonb),
+        'revenue',coalesce((SELECT jsonb_agg(to_jsonb(x)) FROM lead_revenue x),'[]'::jsonb)),
       'channels',coalesce((SELECT jsonb_agg(to_jsonb(x)) FROM channel_rows x),'[]'::jsonb),
       'errors',coalesce((SELECT jsonb_agg(to_jsonb(x)) FROM error_rows x),'[]'::jsonb),
       'trend',coalesce((SELECT jsonb_agg(to_jsonb(x)) FROM trend_rows x),'[]'::jsonb),
       'campaigns',coalesce((SELECT jsonb_agg(to_jsonb(x)) FROM campaign_rows x),'[]'::jsonb)
     ) AS report
-    FROM definitions d CROSS JOIN audience a CROSS JOIN current_counts cc CROSS JOIN milestone_counts mc
+    FROM definitions d CROSS JOIN audience a CROSS JOIN current_counts cc CROSS JOIN milestone_counts mc CROSS JOIN lead_totals lt
   `, [filters.fromAt, filters.toExclusiveAt, filters.channel, filters.campaignId]);
 }

@@ -25,6 +25,8 @@ function report(overrides: Partial<CampaignReport> = {}): CampaignReport {
     current: { denominator: 618, planned: 38, queued: 42, in_flight: 8, accepted: 101, delivered: 214, read: 187, failed: 19, skipped: 7, cancelled: 0, outcome_unknown: 2 },
     milestones: { denominator: 618, accepted: 502, delivered: 401, read: 187 },
     costs: [{ currency: 'USD', estimated_amount_minor: '30.9', committed_amount_minor: '25.2', reconciled_amount_minor: '24.6' }],
+    leads: { total: 0, new: 0, existing: 0, repeat: 0, won: 0, lost: 0, unqualified: 0,
+      by_course: [], by_source: [], by_agent: [], revenue: [] },
     channels: [
       { kind: 'whatsapp', denominator: 500, accepted: 420, delivered: 358, read: 170, delivery_receipts: true, read_receipts: true },
       { kind: 'instagram', denominator: 118, accepted: 82, delivered: 43, read: 17, delivery_receipts: false, read_receipts: false },
@@ -503,6 +505,26 @@ describe('a failed report', () => {
 });
 
 describe('the report', () => {
+  it('separates imported lead acquisition from dispatch and breaks it down by course, source and agent', () => {
+    const base = report().leads;
+    const leads: CampaignReport['leads'] = { ...base, total: 12, new: 8, existing: 4, repeat: 2, won: 3, lost: 1, unqualified: 1,
+      by_course: [{ name: 'PMP', total: 12, won: 3, lost: 1 }],
+      by_source: [{ name: 'excel_import', total: 12, won: 3, lost: 1 }],
+      by_agent: [{ name: 'Mona', total: 12, won: 3, lost: 1 }],
+      revenue: [{ currency: 'EGP', amount_minor: '120000' }] };
+    const root = renderAnalytics(screen(report({ leads })));
+    const analysis = root.querySelector('[aria-label="Lead analysis"]') as HTMLElement;
+    expect(analysis.textContent).toContain('8 new · 4 existing');
+    expect(analysis.textContent).toContain('From previous campaigns, not lost');
+    expect(analysis.textContent).toContain('25% of leads');
+    expect(analysis.textContent).toContain('PMP');
+    expect(analysis.textContent).toContain('excel_import');
+    expect(analysis.textContent).toContain('Mona');
+    expect(analysis.textContent).toContain('1,200 EGP');
+    expect(renderAnalytics(screen(report({ leads: { ...leads, revenue: [] } }))).textContent).toContain('Recorded revenue: None yet');
+    expect(renderAnalytics(screen()).querySelector('[aria-label="Lead analysis"]')).toBeNull();
+  });
+
   it('publishes its freshness and the denominator every percentage uses', () => {
     const root = renderAnalytics(screen());
     expect(root.querySelector('[data-report-ready]')?.textContent).toContain('percentages of 618 recipients');

@@ -221,10 +221,41 @@ function campaignSheets(state: AppState, report: CampaignReport): Sheet[] {
         t(state, 'فشلت', 'Failed'), t(state, 'نسبة التسليم', 'Delivery rate')],
       ...report.trend.map((day) => [day.day, day.recipients, day.accepted, day.delivered, day.read, day.failed, ratio(day.delivered, day.recipients)]),
     ] },
+    ...leadSheets(state, report.leads),
     ...(report.costs.length === 0 ? [] : [{ name: t(state, 'التكلفة', 'Cost'), rows: [
       [t(state, 'العملة', 'Currency'), t(state, 'مقدّرة', 'Estimated'), t(state, 'محجوزة', 'Committed'), t(state, 'مطابقة مع المزوّد', 'Reconciled')],
       ...report.costs.map((cost) => [cost.currency, cost.estimated_amount_minor, cost.committed_amount_minor, cost.reconciled_amount_minor]),
     ] }]),
+  ];
+}
+
+function leadSheets(state: AppState, leads: CampaignReport['leads']): Sheet[] {
+  if (leads === undefined || leads.total === 0) return [];
+  const breakdown = (name: string, rows: readonly { readonly name: string; readonly total: number; readonly won: number; readonly lost: number }[]): Sheet => ({
+    name, rows: [
+      [t(state, 'الاسم', 'Name'), t(state, 'الليدز', 'Leads'), t(state, 'مكتسب', 'Won'), t(state, 'مفقود', 'Lost'), t(state, 'التحويل', 'Conversion')],
+      ...rows.map((row) => [row.name, row.total, row.won, row.lost, ratio(row.won, row.total)]),
+    ],
+  });
+  return [
+    { name: t(state, 'ملخص الليدز', 'Lead summary'), rows: [
+      [t(state, 'المقياس', 'Measure'), t(state, 'القيمة', 'Value')],
+      [t(state, 'الليدز', 'Leads'), leads.total],
+      [t(state, 'جدد', 'New'), leads.new],
+      [t(state, 'موجودون', 'Existing'), leads.existing],
+      [t(state, 'متكررون', 'Repeat'), leads.repeat],
+      [t(state, 'مكتسبون', 'Won'), leads.won],
+      [t(state, 'مفقودون', 'Lost'), leads.lost],
+      [t(state, 'غير مؤهلين', 'Unqualified'), leads.unqualified],
+      [t(state, 'نسبة التحويل', 'Conversion rate'), ratio(leads.won, leads.total)],
+    ] },
+    breakdown(t(state, 'الليدز حسب الكورس', 'Leads by course'), leads.by_course),
+    breakdown(t(state, 'الليدز حسب المصدر', 'Leads by source'), leads.by_source),
+    breakdown(t(state, 'الليدز حسب المسؤول', 'Leads by sales rep'), leads.by_agent),
+    { name: t(state, 'إيراد الليدز', 'Lead revenue'), rows: [
+      [t(state, 'العملة', 'Currency'), t(state, 'الإيراد بأصغر وحدة', 'Revenue in minor units')],
+      ...leads.revenue.map((row) => [row.currency, row.amount_minor]),
+    ] },
   ];
 }
 
