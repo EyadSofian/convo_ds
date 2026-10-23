@@ -6,6 +6,7 @@ import type { WhatsAppTemplate } from '../api/automations';
 import type { Campaign } from '../api/campaigns';
 import type { ChannelConnection } from '../api/channels';
 import { previewKey } from '../live/audience';
+import { broadcastUpload, setBroadcastUpload, uploadKey } from '../live/broadcast-import';
 import { createState } from '../state';
 import type { AppState } from '../state';
 import { broadcastWizard } from './broadcast-wizard';
@@ -75,6 +76,27 @@ describe('before the wizard can start', () => {
 });
 
 describe('the steps', () => {
+  it('shows sheet errors, pending checks and the validated audience without a second picker', () => {
+    const state = wizard();
+    state.dialogForm = { campaignName: 'Autumn offer' };
+    setBroadcastUpload(state, 'bad.csv', { ok: false, message: 'Wrong columns' });
+    expect(text(render(state))).toContain('Wrong columns');
+    setBroadcastUpload(state, 'leads.csv', { ok: true, rows: [{ leadName: 'Mona', mobile: '01012345678', courseName: 'PMP', label: 'PMP', assignTo: '', campaignName: 'Autumn offer' }] });
+    let root = render(state);
+    expect(root.querySelector('[data-act="live-broadcast-import-preview"]')).not.toBeNull();
+    // The result is bound to the same campaign name and sending number.
+    const selected = broadcastUpload(state)!;
+    Object.assign(selected, { previewKey: uploadKey(state), preview: { totalRows: 2, readyToSend: 1, newContacts: 1, existingContacts: 0, duplicateLeads: 1, invalidMobileNumbers: 0, missingRequiredFields: 0, validLeads: 1, issues: [{ row: 3, code: 'duplicate', message: 'Duplicate row' }] } });
+    root = render(state);
+    expect(text(root)).toContain('Duplicate row');
+    expect(root.querySelectorAll('.broadcast__import-stats > div')).toHaveLength(6);
+    state.dialogForm = { ...state.dialogForm, broadcastStep: '2' };
+    expect(render(state).querySelectorAll('.broadcast__import-picker')).toHaveLength(1);
+    state.dialogForm = { ...state.dialogForm, broadcastStep: '3' };
+    expect(text(render(state))).toContain('1 valid leads to import');
+    state.dialogForm = { ...state.dialogForm, campaignName: 'Another campaign' };
+    expect(text(render(state))).toContain('Sheet not checked yet');
+  });
   it('starts on setup: a name, and the WhatsApp number it goes from', () => {
     const state = wizard();
     let root = render(state);

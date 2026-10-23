@@ -142,6 +142,13 @@ describe('the lifecycle offered for each state', () => {
 });
 
 describe('the detail', () => {
+  it('shows imported lead outcomes and recorded revenue for a campaign', () => {
+    const value = { total: 12, new: 8, existing: 4, repeat: 2, won: 3, lost: 1, unqualified: 0, revenue_amount_minor: '125050' };
+    const root = renderBroadcasts(screen([campaign({ lead_summary: value })]));
+    expect(root.querySelector('.campaign-leads-summary')?.textContent).toContain('Lead results');
+    expect(root.querySelector('.campaign-leads-summary')?.textContent).toContain('Recorded revenue: 1,250.5 EGP');
+    expect(root.querySelectorAll('.campaign-leads-summary__grid > div')).toHaveLength(6);
+  });
   it('walks the steps the server record has reached', () => {
     const state = screen([campaign({ state: 'ready', approved: true, audience: { total: 1280, eligible: 1146, excluded: 134 } })]);
     const root = renderBroadcasts(state);

@@ -32,6 +32,9 @@ describe('CampaignsApi', () => {
     }));
 
     await api.list('tenant-1');
+    const leads = { connectionId: 'connection-1', campaignName: 'September intake', rows: [{ leadName: 'Mona', mobile: '01012345678', courseName: 'PMP', label: 'PMP', assignTo: '', campaignName: 'September intake' }] };
+    await api.previewLeads('tenant-1', leads);
+    await api.importLeads('tenant-1', 'campaign-1', leads);
     await api.create('tenant-1', INPUT, 'create-key');
     await api.update('tenant-1', 'campaign-1', INPUT, 3, 'update-key');
     await api.validate('tenant-1', 'campaign-1');
@@ -48,6 +51,8 @@ describe('CampaignsApi', () => {
 
     expect(calls.map(({ path, init }) => [init.method, path])).toEqual([
       ['GET', '/api/v1/tenants/tenant-1/campaigns'],
+      ['POST', '/api/v1/tenants/tenant-1/campaigns/lead-import-preview'],
+      ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/leads/import'],
       ['POST', '/api/v1/tenants/tenant-1/campaigns'],
       ['PATCH', '/api/v1/tenants/tenant-1/campaigns/campaign-1'],
       ['POST', '/api/v1/tenants/tenant-1/campaigns/campaign-1/validate'],
@@ -62,17 +67,19 @@ describe('CampaignsApi', () => {
       ['POST', '/api/v1/tenants/tenant-1/reports/campaigns/exports'],
       ['GET', '/api/v1/tenants/tenant-1/reports/campaigns/exports/export-1'],
     ]);
-    expect(calls[1]?.init.headers).toMatchObject({ 'idempotency-key': 'create-key' });
-    expect(calls[2]?.init.headers).toMatchObject({ 'idempotency-key': 'update-key' });
-    expect(JSON.parse(String(calls[2]?.init.body))).toMatchObject({ expectedVersion: 3, name: 'September intake' });
-    expect(calls[5]?.init.headers).toMatchObject({ 'idempotency-key': 'launch-key' });
-    expect(JSON.parse(String(calls[6]?.init.body))).toEqual({ action: 'pause' });
-    expect(calls[7]?.init.headers).toMatchObject({ 'idempotency-key': 'retry-key' });
-    expect(calls[8]?.init.headers).toMatchObject({ 'idempotency-key': 'clone-key' });
-    expect(calls[9]?.init.headers).toMatchObject({ 'idempotency-key': 'test-key' });
-    expect(JSON.parse(String(calls[9]?.init.body))).toEqual({ testRecipientId: 'recipient-1', expectedVersion: 3 });
-    expect(calls[12]?.init.headers).toMatchObject({ 'idempotency-key': 'export-key' });
-    expect(JSON.parse(String(calls[12]?.init.body))).toEqual({ format: 'csv', campaignId: null });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual(leads);
+    expect(JSON.parse(String(calls[2]?.init.body))).toEqual(leads);
+    expect(calls[3]?.init.headers).toMatchObject({ 'idempotency-key': 'create-key' });
+    expect(calls[4]?.init.headers).toMatchObject({ 'idempotency-key': 'update-key' });
+    expect(JSON.parse(String(calls[4]?.init.body))).toMatchObject({ expectedVersion: 3, name: 'September intake' });
+    expect(calls[7]?.init.headers).toMatchObject({ 'idempotency-key': 'launch-key' });
+    expect(JSON.parse(String(calls[8]?.init.body))).toEqual({ action: 'pause' });
+    expect(calls[9]?.init.headers).toMatchObject({ 'idempotency-key': 'retry-key' });
+    expect(calls[10]?.init.headers).toMatchObject({ 'idempotency-key': 'clone-key' });
+    expect(calls[11]?.init.headers).toMatchObject({ 'idempotency-key': 'test-key' });
+    expect(JSON.parse(String(calls[11]?.init.body))).toEqual({ testRecipientId: 'recipient-1', expectedVersion: 3 });
+    expect(calls[14]?.init.headers).toMatchObject({ 'idempotency-key': 'export-key' });
+    expect(JSON.parse(String(calls[14]?.init.body))).toEqual({ format: 'csv', campaignId: null });
   });
 
   it('scopes the report by the filters that are set, and schedules a launch', async () => {

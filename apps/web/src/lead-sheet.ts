@@ -38,7 +38,7 @@ export async function parseLeadSheet(file: Pick<File, 'name' | 'size' | 'text' |
   if (data.length === 0 || data.length > 500) return { ok: false, message: 'Import between 1 and 500 leads per file.' };
   if (data.some((row) => row.length > 6)) return { ok: false, message: 'A row has more than six columns.' };
   return { ok: true, rows: data.map((row) => ({
-    leadName: row[0]?.trim() ?? '', mobile: row[1]?.trim() ?? '', courseName: row[2]?.trim() ?? '',
+    leadName: row[0]!.trim(), mobile: row[1]?.trim() ?? '', courseName: row[2]?.trim() ?? '',
     label: row[3]?.trim() ?? '', assignTo: row[4]?.trim() ?? '', campaignName: row[5]?.trim() ?? '',
   })) };
 }
@@ -104,7 +104,7 @@ function xlsxRows(bytes: Uint8Array, unzipSync: typeof UnzipSync): string[][] {
   const sheet = files[path];
   if (sheet === undefined) throw new Error('First worksheet missing');
   const strings = files['xl/sharedStrings.xml'] === undefined ? [] : nodes(xml(files['xl/sharedStrings.xml']), 'si')
-    .map((item) => nodes(item, 't').map((text) => text.textContent ?? '').join(''));
+    .map((item) => nodes(item, 't').map((text) => text.textContent!).join(''));
   const result: string[][] = [];
   for (const row of nodes(xml(sheet), 'row')) {
     const cells: string[] = [];
@@ -116,8 +116,9 @@ function xlsxRows(bytes: Uint8Array, unzipSync: typeof UnzipSync): string[][] {
       if (column < 1 || column > 6) continue;
       if (nodes(cell, 'f').length > 0) throw new Error('Formula cells are not accepted');
       const type = cell.getAttribute('t');
-      const value = type === 'inlineStr' ? nodes(cell, 't').map((node) => node.textContent ?? '').join('')
-        : nodes(cell, 'v')[0]?.textContent ?? '';
+      const valueNode = nodes(cell, 'v')[0];
+      const value = type === 'inlineStr' ? nodes(cell, 't').map((node) => node.textContent!).join('')
+        : valueNode === undefined ? '' : valueNode.textContent!;
       cells[column - 1] = type === 's' ? strings[Number(value)] ?? '' : value;
     }
     result.push(Array.from({ length: 6 }, (_, index) => cells[index] ?? ''));

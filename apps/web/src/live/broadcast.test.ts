@@ -9,7 +9,7 @@ import type { ApiError, ApiResult } from '../api/client.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { broadcastStep, broadcastTemplate, goToBroadcastStep, jumpToBroadcastStep, scheduledInstant, stepProblems, submitBroadcast, syncBroadcastTemplates } from './broadcast.js';
-import { previewBroadcastUpload, setBroadcastUpload } from './broadcast-import.js';
+import { broadcastUpload, previewBroadcastUpload, setBroadcastUpload } from './broadcast-import.js';
 import { LIVE_ACTIONS } from './dispatch.js';
 
 const NOW = new Date('2026-09-26T09:00:00.000Z');
@@ -130,6 +130,27 @@ describe('moving between steps', () => {
 });
 
 describe('sending', () => {
+  it('handles missing, invalid and refused lead sheets without sending', async () => {
+    const { state, context, api } = setup();
+    expect(await previewBroadcastUpload(context)).toBe(false);
+    setBroadcastUpload(state, 'bad.csv', { ok: false, message: 'Bad sheet' });
+    expect(broadcastUpload(state)?.error).toBe('Bad sheet');
+    expect(await previewBroadcastUpload(context)).toBe(false);
+    setBroadcastUpload(state, 'leads.csv', { ok: true, rows: [{ leadName: 'Mona', mobile: '01012345678', courseName: 'PMP', label: 'PMP', assignTo: '', campaignName: 'Sunday reminder' }] });
+    expect(await previewBroadcastUpload(context)).toBe(false);
+    expect(broadcastUpload(state)?.error).toContain('Name the broadcast');
+    state.dialogForm = { campaignName: 'Sunday reminder' };
+    api.previewLeads.mockResolvedValueOnce(fail());
+    expect(await LIVE_ACTIONS['live-broadcast-import-preview']?.(context, '')).toBe(false);
+    expect(broadcastUpload(state)?.error).toBe('Channel not ready');
+    expect(await previewBroadcastUpload(context)).toBe(true);
+    expect(broadcastUpload(state)?.preview?.readyToSend).toBe(1);
+    expect(await LIVE_ACTIONS['live-broadcast-import-clear']?.(context, '')).toBe(true);
+    expect(broadcastUpload(state)).toBeNull();
+    state.live.session = { status: 'signed_in', email: 'a@b.c', memberships: [], tenantId: null };
+    setBroadcastUpload(state, 'leads.csv', { ok: true, rows: [{ leadName: 'Mona', mobile: '01012345678', courseName: 'PMP', label: 'PMP', assignTo: '', campaignName: 'Sunday reminder' }] });
+    expect(await previewBroadcastUpload(context)).toBe(false);
+  });
   it('previews a sheet and replaces the safe empty audience only after import', async () => {
     const { state, context, api } = setup();
     complete(state);
@@ -149,6 +170,23 @@ describe('sending', () => {
     expect(api.update).toHaveBeenCalledWith('tenant-1', 'c-1', expect.objectContaining({
       audienceFilter: { contactIds: ['22222222-2222-4222-8222-222222222222'] },
     }), 1, 'key-1');
+  });
+
+  it('keeps the saved campaign editable if lead import or audience update fails', async () => {
+    for (const failure of ['import', 'update'] as const) {
+      const { state, context, api } = setup();
+      complete(state);
+      setBroadcastUpload(state, 'leads.csv', { ok: true, rows: [
+        { leadName: 'Mona', mobile: '01012345678', courseName: 'PMP', label: 'PMP', assignTo: '', campaignName: 'Sunday reminder' },
+      ] });
+      expect(await previewBroadcastUpload(context)).toBe(true);
+      if (failure === 'import') api.importLeads.mockResolvedValueOnce(fail());
+      else api.update.mockResolvedValueOnce(fail());
+      expect(await submitBroadcast(context, 'now')).toBe(false);
+      expect(state.live.error).toEqual(ERROR);
+      expect(state.dialog).toEqual({ kind: 'campaign-edit', arg: 'c-1' });
+      expect(api.launch).not.toHaveBeenCalled();
+    }
   });
 
   it('reads a future local time as an instant', () => {

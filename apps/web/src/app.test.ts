@@ -9,6 +9,7 @@ import type { PreferenceStore } from './preferences';
 import { LANG_KEY, NAV_KEY, THEME_KEY } from './preferences';
 import type { RouterHost } from './router';
 import { createState } from './state';
+import { broadcastUpload } from './live/broadcast-import';
 
 /**
  * The composition root: the authentication boundary, the shell's layers and
@@ -781,6 +782,29 @@ describe('layers, focus and the keyboard', () => {
     click(settings.root.querySelector('select[data-act="lang"]'));
     // A select's action runs on change, never on the click that opens it.
     expect(settings.app.state.lang).toBe('ar');
+  });
+
+  it('reads a broadcast sheet once per selected file and previews valid rows', async () => {
+    const { root, app } = start('#/broadcasts', signedIn());
+    await settle();
+    app.state.dialog = { kind: 'campaign', arg: '' };
+    app.render();
+    const change = (files: readonly File[]) => {
+      const input = root.querySelector('input[data-act="live-broadcast-import-file"]') as HTMLInputElement;
+      Object.defineProperty(input, 'files', { configurable: true, value: files });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    change([]);
+    expect(broadcastUpload(app.state)).toBeNull();
+    const malformed = new File(['Wrong,Columns\nMona,01012345678'], 'bad.csv', { type: 'text/csv' });
+    change([malformed]);
+    change([malformed]);
+    await settle();
+    expect(broadcastUpload(app.state)?.error).toContain('Expected columns');
+    const valid = new File(['Lead Name,Mobile,Course Name,Label,Assign To,Campaign Name\nMona,01012345678,PMP,PMP,,Autumn'], 'leads.csv', { type: 'text/csv' });
+    change([valid]);
+    await settle();
+    expect(broadcastUpload(app.state)?.rows).toHaveLength(1);
   });
 
   it('pulls Shift+Tab back into a dialog from outside it, and leaves it alone in the middle', async () => {
