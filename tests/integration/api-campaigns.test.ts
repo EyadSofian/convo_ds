@@ -161,6 +161,19 @@ describe('campaign API', () => {
     expect(imported.statusCode, imported.body).toBe(201);
     const contactIds = (imported.json() as { data: { contactIds: string[] } }).data.contactIds;
     expect(contactIds).toHaveLength(2);
+    // Importing leads never makes a broad (or partially selected) audience sendable.
+    const premature = await send(api, 'POST', `/campaigns/${campaign.data.id}/validate`);
+    expect(premature.statusCode, premature.body).toBe(409);
+    expect(premature.json()).toMatchObject({ error: { code: 'imported_audience_mismatch' } });
+    const widened = await send(api, 'PATCH', `/campaigns/${campaign.data.id}`,
+      { ...draft(api, { name, audienceFilter: {} }), expectedVersion: campaign.data.version }, 'lead-sheet-widen');
+    expect(widened.statusCode, widened.body).toBe(409);
+    const narrowed = await send(api, 'PATCH', `/campaigns/${campaign.data.id}`,
+      { ...draft(api, { name, audienceFilter: { contactIds: [contactIds[0]] } }), expectedVersion: campaign.data.version }, 'lead-sheet-narrow');
+    expect(narrowed.statusCode, narrowed.body).toBe(409);
+    const searched = await send(api, 'PATCH', `/campaigns/${campaign.data.id}`,
+      { ...draft(api, { name, audienceFilter: { contactIds, search: 'Mona' } }), expectedVersion: campaign.data.version }, 'lead-sheet-search');
+    expect(searched.statusCode, searched.body).toBe(409);
     const replay = await send(api, 'POST', `/campaigns/${campaign.data.id}/leads/import`, payload);
     expect(replay.statusCode, replay.body).toBe(201);
     expect((replay.json() as { data: { contactIds: string[] } }).data.contactIds).toEqual(contactIds);

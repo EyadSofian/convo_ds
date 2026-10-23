@@ -34,7 +34,7 @@ import { loadAnalyticsReport, loadCampaignsScreen, refreshCampaignReportExport }
 import { loadAutomationsScreen } from './live/automation-actions';
 import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
-import { setBroadcastUpload } from './live/broadcast-import';
+import { beginBroadcastUpload, finishBroadcastUpload } from './live/broadcast-import';
 import { parseLeadSheet } from './lead-sheet';
 import { refreshNotificationCount, runNotificationAction } from './live/notification-actions';
 import { createLiveState, renewLiveState, rowsOf } from './live/store';
@@ -978,8 +978,10 @@ export function mount(options: MountOptions): AppHandle {
       const file = target.files?.[0];
       if (file === undefined || lastImportFile.get(target) === file) return;
       lastImportFile.set(target, file);
+      const pending = beginBroadcastUpload(state, file.name);
+      refresh();
       void parseLeadSheet(file).then((parsed) => {
-        setBroadcastUpload(state, file.name, parsed);
+        if (!finishBroadcastUpload(state, pending, parsed)) return;
         refresh();
         if (parsed.ok) dispatch('live-broadcast-import-preview', '');
       });

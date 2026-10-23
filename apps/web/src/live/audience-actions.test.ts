@@ -96,6 +96,9 @@ describe('the campaign editor’s audience', () => {
       expect(state.formErrors['campaignAudience']).toContain(message);
     }
     state.dialogForm = {};
+    expect(await previewCampaignAudience(context)).toBe(false);
+    expect(state.formErrors['campaignAudience']).toBe('Choose an audience explicitly or upload a lead sheet.');
+    state.dialogForm = { campaignAudienceSource: 'all' };
     state.live.connections = { status: 'idle' };
     expect(await previewCampaignAudience(context)).toBe(false);
     expect(state.formErrors['campaignAudience']).toBe('Choose a channel first.');

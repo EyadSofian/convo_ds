@@ -28,11 +28,12 @@ const text = (element: Element | null): string => element?.textContent ?? '';
 describe('the audience block', () => {
   it('offers five sources, marks the chosen one, and states who can receive a campaign', () => {
     const state = editor();
+    state.dialogForm = { campaignAudienceSource: 'all' };
     const block = audienceSection(state);
     const sources = [...block.querySelectorAll('.audience-source')];
     expect(sources.map((source) => source.getAttribute('data-arg'))).toEqual(['all', 'labels', 'conversations', 'picked', 'saved']);
     expect(sources[0]?.getAttribute('aria-checked')).toBe('true');
-    expect(text(block)).toContain('opted out or withdrew consent');
+    expect(text(block)).toContain('opt-outs and withdrawn consent are excluded');
     // Everyone: no picker, no saving, but a name narrowing and a count.
     expect(block.querySelector('.audience__panel')).toBeNull();
     expect(block.querySelector('.audience__save')).toBeNull();
@@ -112,6 +113,7 @@ describe('the audience block', () => {
 
   it('shows a count only for the filter it was taken for', () => {
     const state = editor();
+    state.dialogForm = { campaignAudienceSource: 'all' };
     const key = previewKey('channel-1', {});
     state.live.audiencePreview = { key: 'another', result: { status: 'ready', value: PREVIEW, loadedAt: 1 } };
     expect(text(audienceSection(state).querySelector('.audience__preview'))).toContain('changed since the last count');
@@ -133,7 +135,7 @@ describe('the audience block', () => {
     state.dialogForm = { campaignAudienceSource: 'saved' };
     expect(text(audienceSection(state).querySelector('.audience__preview'))).toContain('changed since the last count');
     state.lang = 'ar';
-    state.dialogForm = {};
+    state.dialogForm = { campaignAudienceSource: 'all' };
     state.live.audiencePreview = { key, result: { status: 'ready', value: PREVIEW, loadedAt: 1 } };
     expect(text(audienceSection(state).querySelector('.audience-result__sample'))).toBe('مثل: Mona، Sara');
   });

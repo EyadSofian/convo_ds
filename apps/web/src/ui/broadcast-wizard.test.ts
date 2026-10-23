@@ -92,10 +92,20 @@ describe('the steps', () => {
     expect(root.querySelectorAll('.broadcast__import-stats > div')).toHaveLength(6);
     state.dialogForm = { ...state.dialogForm, broadcastStep: '2' };
     expect(render(state).querySelectorAll('.broadcast__import-picker')).toHaveLength(1);
+    expect(text(render(state))).toContain('Only the leads in this file');
+    expect(text(render(state))).not.toContain('Everyone on the channel');
     state.dialogForm = { ...state.dialogForm, broadcastStep: '3' };
     expect(text(render(state))).toContain('1 valid leads to import');
     state.dialogForm = { ...state.dialogForm, campaignName: 'Another campaign' };
     expect(text(render(state))).toContain('Sheet not checked yet');
+  });
+  it('offers lead import in Audience and does not preselect everyone', () => {
+    const state = wizard();
+    state.dialogForm = { broadcastStep: '2', campaignName: 'Autumn offer' };
+    const root = render(state);
+    expect(root.querySelector('input[data-act="live-broadcast-import-file"]')).not.toBeNull();
+    expect(text(root)).toContain('Choose an audience explicitly');
+    expect(root.querySelector('.audience-source[aria-checked="true"]')).toBeNull();
   });
   it('starts on setup: a name, and the WhatsApp number it goes from', () => {
     const state = wizard();

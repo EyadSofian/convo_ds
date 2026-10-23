@@ -17,6 +17,20 @@ const uploads = new WeakMap<AppState, BroadcastUpload>();
 
 export function broadcastUpload(state: AppState): BroadcastUpload | null { return uploads.get(state) ?? null; }
 
+/** Reserve the audience as soon as a file is chosen, before Excel parsing can finish. */
+export function beginBroadcastUpload(state: AppState, fileName: string): BroadcastUpload {
+  const pending = { fileName, rows: [], error: null, preview: null, previewKey: null };
+  uploads.set(state, pending);
+  return pending;
+}
+
+/** Ignore a late parser result after the file was replaced or the wizard closed. */
+export function finishBroadcastUpload(state: AppState, pending: BroadcastUpload, parsed: LeadSheetResult): boolean {
+  if (uploads.get(state) !== pending || (state.dialog?.kind !== 'campaign' && state.dialog?.kind !== 'campaign-edit')) return false;
+  setBroadcastUpload(state, pending.fileName, parsed);
+  return true;
+}
+
 export function setBroadcastUpload(state: AppState, fileName: string, parsed: LeadSheetResult): void {
   uploads.set(state, parsed.ok
     ? { fileName, rows: parsed.rows, error: null, preview: null, previewKey: null }
@@ -50,6 +64,7 @@ export async function previewBroadcastUpload(context: LiveContext): Promise<bool
   context.refresh();
   const result = await live.campaignsApi.previewLeads(tenantId, { connectionId, campaignName, rows: upload.rows });
   live.busy = null;
+  if (uploads.get(state) !== upload) return false;
   uploads.set(state, result.ok
     ? { ...upload, error: null, preview: result.data, previewKey: key }
     : { ...upload, error: result.error.message, preview: null, previewKey: null });

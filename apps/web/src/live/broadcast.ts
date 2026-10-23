@@ -81,7 +81,9 @@ export function stepProblems(context: LiveContext, step: number): Readonly<Recor
       : {};
   }
   if (step === 2) {
-    if (broadcastUpload(state) !== null) return {};
+    const upload = broadcastUpload(state);
+    if (upload !== null) return upload.error === null && upload.previewKey === uploadKey(state) && upload.preview !== null && upload.preview.readyToSend > 0
+      ? {} : { campaignLeadSheet: t(context, 'افحص ملف الليدز وأصلح الأخطاء قبل المتابعة.', 'Check the lead sheet and fix its issues before continuing.') };
     const problem = audienceProblem(context);
     return problem === null ? {} : { campaignAudience: problem };
   }

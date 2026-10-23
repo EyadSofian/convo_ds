@@ -266,6 +266,7 @@ export class CampaignService {
       if (target === null) throw conflict('campaign_edit_locked', 'A launched campaign cannot be edited. Clone it into a new draft.');
       if (campaign.version !== input.expectedVersion) throw conflict('version_conflict', 'The campaign changed after you opened it. Reload before saving.');
       await requireConnection(sql, input.connectionId, false);
+      await requireImportedAudience(sql, campaignId, campaign.connection_id, input.connectionId, input.audienceFilter);
       input = { ...await withCatalogueTemplate(sql, input), expectedVersion: input.expectedVersion };
       const hash = revisionHash(input);
       if (hash === campaign.revision_hash) {
@@ -439,6 +440,7 @@ export class CampaignService {
       const campaign = await locked(sql, campaignId);
       const started = transition(campaign.control_state, 'validate');
       await requireConnection(sql, campaign.connection_id, true);
+      await requireImportedAudience(sql, campaignId, campaign.connection_id, campaign.connection_id, campaign.audience_filter);
       await requireCatalogueTemplate(sql, campaign.connection_id, campaign.content);
       await sql.query(`UPDATE campaigns SET control_state=$2,version=version+1,updated_at=now() WHERE id=$1`, [campaignId, started.to]);
       const frozen = await freezeAudience(sql, tenantId, campaignId, campaign.current_revision_id,
@@ -824,6 +826,28 @@ function audienceScope(p: {
 /** A stored list, already validated as UUIDs when the revision was written. */
 function uuidList(value: unknown): readonly string[] {
   return Array.isArray(value) ? value as readonly string[] : [];
+}
+
+/** An imported sheet owns this campaign's cohort; no later edit may silently widen it. */
+async function requireImportedAudience(
+  sql: SqlExecutor,
+  campaignId: string,
+  campaignConnectionId: string,
+  requestedConnectionId: string,
+  filter: { readonly search?: unknown; readonly labelIds?: unknown; readonly conversationLabelIds?: unknown; readonly contactIds?: unknown },
+): Promise<void> {
+  const imported = (await sql.query<{ contact_id: string }>(
+    `SELECT DISTINCT contact_id::text FROM campaign_leads WHERE campaign_id=$1 ORDER BY contact_id::text`, [campaignId],
+  )).rows.map((row) => row.contact_id);
+  if (imported.length === 0) return;
+  const selected = uuidList(filter.contactIds);
+  const importedIds = new Set(imported);
+  const exact = selected.length === importedIds.size && selected.every((id) => importedIds.has(id));
+  if (requestedConnectionId !== campaignConnectionId || !exact ||
+      (typeof filter.search === 'string' && filter.search !== '') ||
+      uuidList(filter.labelIds).length > 0 || uuidList(filter.conversationLabelIds).length > 0) {
+    throw conflict('imported_audience_mismatch', 'This broadcast can address only the contacts imported from its lead sheet.');
+  }
 }
 
 async function freezeAudience(

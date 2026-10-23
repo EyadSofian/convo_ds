@@ -9,7 +9,7 @@ import type { ApiError, ApiResult } from '../api/client.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { broadcastStep, broadcastTemplate, goToBroadcastStep, jumpToBroadcastStep, scheduledInstant, stepProblems, submitBroadcast, syncBroadcastTemplates } from './broadcast.js';
-import { broadcastUpload, previewBroadcastUpload, setBroadcastUpload } from './broadcast-import.js';
+import { beginBroadcastUpload, broadcastUpload, finishBroadcastUpload, previewBroadcastUpload, setBroadcastUpload } from './broadcast-import.js';
 import { LIVE_ACTIONS } from './dispatch.js';
 
 const NOW = new Date('2026-09-26T09:00:00.000Z');
@@ -71,6 +71,39 @@ function complete(state: ReturnType<typeof setup>['state'], extra: Record<string
 }
 
 describe('moving between steps', () => {
+  it('requires an explicit audience and never falls back to everyone while a sheet is being read', async () => {
+    const { state, context } = setup();
+    state.dialogForm = { campaignName: 'Sunday reminder', campaignTemplate: 'wa-1', campaignParam_body_2_value: 'Sunday' };
+    expect(stepProblems(context, 2)).toEqual({ campaignAudience: 'Choose an audience explicitly or upload a lead sheet.' });
+    const pending = beginBroadcastUpload(state, 'leads.csv');
+    expect(stepProblems(context, 2)).toHaveProperty('campaignLeadSheet');
+    expect(finishBroadcastUpload(state, pending, { ok: true, rows: [{ leadName: 'Mona', mobile: '01012345678', courseName: 'PMP', label: 'PMP', assignTo: '', campaignName: 'Sunday reminder' }] })).toBe(true);
+    expect(await previewBroadcastUpload(context)).toBe(true);
+    expect(stepProblems(context, 2)).toEqual({});
+    const replaced = beginBroadcastUpload(state, 'new.csv');
+    expect(finishBroadcastUpload(state, pending, { ok: false, message: 'late result' })).toBe(false);
+    expect(broadcastUpload(state)).toBe(replaced);
+    state.dialog = null;
+    expect(finishBroadcastUpload(state, replaced, { ok: false, message: 'closed result' })).toBe(false);
+    state.dialog = { kind: 'campaign-edit', arg: 'c-1' };
+    expect(finishBroadcastUpload(state, replaced, { ok: false, message: 'bad file' })).toBe(true);
+    expect(broadcastUpload(state)?.error).toBe('bad file');
+  });
+
+  it('ignores a late server preview after the operator replaced the file', async () => {
+    const { state, context, api } = setup();
+    state.dialogForm = { campaignName: 'Sunday reminder' };
+    setBroadcastUpload(state, 'first.csv', { ok: true, rows: [{ leadName: 'Mona', mobile: '01012345678', courseName: 'PMP', label: 'PMP', assignTo: '', campaignName: 'Sunday reminder' }] });
+    let resolve!: (value: ApiResult<Awaited<ReturnType<CampaignsApi['previewLeads']>> extends ApiResult<infer T> ? T : never>) => void;
+    api.previewLeads.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const pending = previewBroadcastUpload(context);
+    const replacement = beginBroadcastUpload(state, 'second.csv');
+    resolve(ok({ totalRows: 1, validLeads: 1, newContacts: 1, existingContacts: 0, duplicateLeads: 0,
+      invalidMobileNumbers: 0, missingRequiredFields: 0, readyToSend: 1, issues: [] }));
+    expect(await pending).toBe(false);
+    expect(broadcastUpload(state)).toBe(replacement);
+  });
+
   it('reads the step it is on, and refuses a step that does not exist', async () => {
     const { state, context } = setup();
     expect(broadcastStep(state)).toBe(0);

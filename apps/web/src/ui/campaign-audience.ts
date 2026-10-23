@@ -34,18 +34,22 @@ export function audienceSection(state: AppState): HTMLElement {
   const live = state.live;
   // Built on its own, an audience narrows: "everyone" and "a saved one" are not new audiences.
   const standalone = state.dialog?.kind === 'audience-new';
+  const needsChoice = state.dialog?.kind === 'campaign' && state.dialogForm['campaignAudienceSource'] === undefined;
   const sources = standalone ? AUDIENCE_SOURCES.filter((source) => source !== 'all' && source !== 'saved') : AUDIENCE_SOURCES;
   return h('section', { class: 'audience field--wide', 'aria-labelledby': 'campaign-audience-title' }, [
     h('div', { class: 'audience__head' }, [
       sectionTitle('users', 'blue', standalone ? t(state, 'من في هذا الجمهور؟', 'Who is in it?') : t(state, 'من سيستلم الحملة؟', 'Who receives it?'), 'campaign-audience-title'),
       h('p', { class: 'field__hint' }, [t(state,
-        'تصل لكل من لديه هوية سارية على القناة، ما عدا من ألغى الاشتراك أو سحب موافقته.',
-        'Everyone with a live identity on the channel receives it, except those who opted out or withdrew consent.')]),
+        'يصل البث للجمهور الذي تحدده فقط، مع استبعاد من ألغى الاشتراك أو سحب موافقته.',
+        'Only the audience you select will receive it; opt-outs and withdrawn consent are excluded.')]),
     ]),
+    needsChoice ? h('p', { class: 'field__hint', role: 'status' }, [t(state,
+      'اختر جمهورًا صراحةً. لن نختار «كل جهات القناة» تلقائيًا.',
+      'Choose an audience explicitly. We will not select everyone automatically.')]) : null,
     h('div', { class: 'audience__sources', role: 'radiogroup', 'aria-label': t(state, 'مصدر الجمهور', 'Audience source') }, sources.map((source) => {
       const copy = SOURCES[source];
       const [title, body] = state.lang === 'ar' ? copy.ar : copy.en;
-      const chosen = draft.source === source;
+      const chosen = !needsChoice && draft.source === source;
       return h('button', {
         type: 'button',
         class: 'audience-source',
@@ -59,16 +63,16 @@ export function audienceSection(state: AppState): HTMLElement {
         h('span', { class: 'audience-source__body' }, [body]),
       ]);
     })),
-    sourcePanel(state, draft.source, draft),
-    draft.source === 'saved'
+    needsChoice ? null : sourcePanel(state, draft.source, draft),
+    needsChoice || draft.source === 'saved'
       ? null
       : h('div', { class: 'field audience__search' }, [
           h('label', { class: 'field__label', for: 'campaign-search' }, [t(state, 'ضيّق بالاسم (اختياري)', 'Narrow by name (optional)')]),
           textInput('campaignSearch', draft.search, t(state, 'مثال: أحمد', 'e.g. Ahmed'), { id: 'campaign-search' }),
         ]),
     formError(state, 'campaignAudience'),
-    previewBlock(state, filter === null || connectionId === '' ? null : previewKey(connectionId, filter)),
-    draft.source === 'all' || draft.source === 'saved'
+    needsChoice ? null : previewBlock(state, filter === null || connectionId === '' ? null : previewKey(connectionId, filter)),
+    needsChoice || draft.source === 'all' || draft.source === 'saved'
       ? null
       : h('div', { class: 'audience__save' }, [
           h('div', { class: 'field' }, [

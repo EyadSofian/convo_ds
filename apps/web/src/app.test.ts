@@ -803,8 +803,29 @@ describe('layers, focus and the keyboard', () => {
     expect(broadcastUpload(app.state)?.error).toContain('Expected columns');
     const valid = new File(['Lead Name,Mobile,Course Name,Label,Assign To,Campaign Name\nMona,01012345678,PMP,PMP,,Autumn'], 'leads.csv', { type: 'text/csv' });
     change([valid]);
+    expect(broadcastUpload(app.state)).toMatchObject({ fileName: 'leads.csv', rows: [], preview: null });
     await settle();
     expect(broadcastUpload(app.state)?.rows).toHaveLength(1);
+  });
+
+  it('does not restore a lead sheet whose parser finished after the operator removed it', async () => {
+    const { root, app } = start('#/broadcasts', signedIn());
+    await settle();
+    app.state.dialog = { kind: 'campaign', arg: '' };
+    app.render();
+    let finishRead!: (value: string) => void;
+    const reading = new Promise<string>((resolve) => { finishRead = resolve; });
+    const file = new File([''], 'slow.csv', { type: 'text/csv' });
+    Object.defineProperty(file, 'text', { value: () => reading });
+    const input = root.querySelector('input[data-act="live-broadcast-import-file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(broadcastUpload(app.state)?.fileName).toBe('slow.csv');
+    click(root.querySelector('[data-act="live-broadcast-import-clear"]'));
+    expect(broadcastUpload(app.state)).toBeNull();
+    finishRead('Lead Name,Mobile,Course Name,Label,Assign To,Campaign Name\nMona,01012345678,PMP,PMP,,Autumn');
+    await settle();
+    expect(broadcastUpload(app.state)).toBeNull();
   });
 
   it('pulls Shift+Tab back into a dialog from outside it, and leaves it alone in the middle', async () => {

@@ -130,6 +130,9 @@ export async function chooseAudienceSource(context: LiveContext, arg: string): P
 
 /** Tells the operator what is still missing, on the audience field. */
 export function audienceProblem(context: LiveContext): string | null {
+  if (context.state.dialog?.kind === 'campaign' && context.state.dialogForm['campaignAudienceSource'] === undefined) {
+    return t(context, 'اختر الجمهور صراحةً أو ارفع ملف الليدز.', 'Choose an audience explicitly or upload a lead sheet.');
+  }
   const { draft, filter } = editorAudience(context.state);
   const gap = audienceGap(draft, filter);
   if (gap === null) return null;

@@ -193,7 +193,9 @@ function leadSheetCard(state: AppState): HTMLElement {
     upload === null ? h('p', { class: 'field__hint' }, [t(state,
       'الأعمدة: Lead Name, Mobile, Course Name, Label, Assign To, Campaign Name. بدون ملف، استخدم اختيار الجمهور المعتاد.',
       'Columns: Lead Name, Mobile, Course Name, Label, Assign To, Campaign Name. Without a file, choose the audience normally.')]) : null,
-    upload?.error === null && preview === null ? button({ label: t(state, 'افحص الملف', 'Check file'), act: 'live-broadcast-import-preview', small: true, busy: state.live.busy === 'broadcast-import-preview' }) : null,
+    upload?.error === null && upload.rows.length > 0 && preview === null ? button({ label: t(state, 'افحص الملف', 'Check file'), act: 'live-broadcast-import-preview', small: true, busy: state.live.busy === 'broadcast-import-preview' }) : null,
+    upload !== null && upload.error === null && upload.rows.length === 0
+      ? h('p', { class: 'field__hint', role: 'status' }, [t(state, 'جارٍ قراءة ملف الليدز…', 'Reading the lead sheet…')]) : null,
     upload?.error ? notice('danger', 'alert', upload.error) : null,
     preview === null ? null : h('div', { class: 'broadcast__import-stats', 'aria-live': 'polite' }, stats.map(([label, count]) =>
       h('div', {}, [h('strong', {}, [formatNumber(count, state.lang)]), h('span', {}, [label])]))),
@@ -258,11 +260,14 @@ function messageStep(state: AppState, campaign: Campaign | undefined): HTMLEleme
 function audienceStep(state: AppState): HTMLElement {
   const upload = broadcastUpload(state);
   if (upload !== null) return h('section', { class: 'broadcast__panel broadcast__panel--audience' }, [
-    h('h3', {}, [t(state, 'جمهور الملف', 'Imported audience')]),
+    h('h3', {}, [t(state, 'جمهور هذا الملف فقط', 'Only the leads in this file')]),
     h('p', { class: 'field__hint' }, [t(state, 'لن يُرسل إلا لصفوف الملف الصالحة وغير المكررة. فحص الاستبعاد النهائي يتم قبل الإرسال.', 'Only valid, unique rows from this sheet will be addressed. Final suppression checks run before sending.')]),
     leadSheetCard(state),
   ]);
-  return h('section', { class: 'broadcast__panel broadcast__panel--audience', 'aria-label': t(state, 'الجمهور', 'Audience') }, [audienceSection(state)]);
+  return h('section', { class: 'broadcast__panel broadcast__panel--audience', 'aria-label': t(state, 'الجمهور', 'Audience') }, [
+    leadSheetCard(state),
+    audienceSection(state),
+  ]);
 }
 
 function sendStep(state: AppState, campaign: Campaign | undefined): HTMLElement {
@@ -320,9 +325,11 @@ function sendStep(state: AppState, campaign: Campaign | undefined): HTMLElement 
       ? button({ label: t(state, 'احسب الجمهور', 'Check audience'), icon: 'users', act: 'live-campaign-audience-preview', small: true })
       : null,
     fieldError(state, 'campaignAudience'),
-    notice('info', 'shield', t(state,
-      'يصل البث لكل عملاء الرقم ما عدا من ألغى الاشتراك أو سحب موافقته. واتساب يشترط أن يكونوا قد وافقوا على مراسلتك.',
-      'The broadcast reaches everyone on the number except those who opted out or withdrew consent. WhatsApp expects them to have agreed to hear from you.')),
+    notice('info', 'shield', upload === null ? t(state,
+      'الإرسال للجمهور الذي اخترته فقط، مع استبعاد من ألغى الاشتراك أو سحب موافقته. واتساب يشترط موافقتهم على مراسلتك.',
+      'Only your selected audience receives this broadcast, excluding opt-outs and withdrawn consent. WhatsApp expects them to have agreed to hear from you.') : t(state,
+      'الإرسال لليدز الصالحة غير المكررة في هذا الملف فقط، مع استبعاد من ألغى الاشتراك أو سحب موافقته.',
+      'Only valid, unique leads in this file are addressed, excluding opt-outs and withdrawn consent.')),
   ]);
 }
 
