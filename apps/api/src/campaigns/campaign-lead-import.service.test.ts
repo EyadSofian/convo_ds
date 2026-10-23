@@ -44,6 +44,8 @@ describe('campaign lead import boundary', () => {
     expect(normalizeLeadMobile('0101234567x')).toBeNull();
     expect(normalizeLeadMobile('441234567890')).toBeNull();
     expect(normalizeLeadMobile('+441234567890')).toBe('441234567890');
+    expect(normalizeLeadMobile('+1212345678')).toBe('1212345678');
+    expect(normalizeLeadMobile('001212345678')).toBe('1212345678');
   });
 
   it('refuses overlarge or malformed payloads', () => {

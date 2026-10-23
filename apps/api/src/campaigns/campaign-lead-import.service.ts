@@ -41,7 +41,7 @@ export function normalizeLeadMobile(input: string): string | null {
   let digits = raw.replace(/^\+/, '');
   if (digits.startsWith('00')) digits = digits.slice(2);
   if (/^01[0125]\d{8}$/.test(digits)) digits = `2${digits}`;
-  if (/^1[0125]\d{8}$/.test(digits)) digits = `20${digits}`; // Excel numeric cell lost the leading zero.
+  if (!raw.startsWith('+') && !raw.startsWith('00') && /^1[0125]\d{8}$/.test(digits)) digits = `20${digits}`; // Excel numeric cell lost the leading zero.
   if (!/^[1-9]\d{7,14}$/.test(digits)) return null;
   // Unprefixed national numbers outside Egypt are ambiguous and unsafe.
   if (!raw.startsWith('+') && !raw.startsWith('00') && !digits.startsWith('20')) return null;
