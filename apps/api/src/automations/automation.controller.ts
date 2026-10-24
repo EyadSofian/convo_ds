@@ -26,4 +26,4 @@ function invalid():ApiHttpError{return new ApiHttpError(400,'validation_failed',
  * The zone a template's schedule runs in. An older client sends none and keeps
  * UTC; a newer one sends the operator's, so "every day at 9" is 9 for them.
  */
-function templateTimezone(value:unknown):string{if(value===undefined||value===null)return 'UTC';if(typeof value!=='string'||value.length<1||value.length>100)throw invalid();try{new Intl.DateTimeFormat('en',{timeZone:value}).format();}catch{throw invalid();}return value;}
+export function templateTimezone(value:unknown):string{if(value===undefined||value===null)return 'UTC';if(typeof value!=='string'||value.length<1||value.length>100)throw invalid();try{new Intl.DateTimeFormat('en',{timeZone:value}).format();}catch{throw invalid();}return value;}

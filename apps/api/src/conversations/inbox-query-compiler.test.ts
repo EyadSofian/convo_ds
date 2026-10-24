@@ -220,6 +220,8 @@ describe('the queue and the waiting sort', () => {
     // A queue card has no assignee and no participants, so `own` reaches none.
     expect(previewScope(withGrant('own', [{ type: 'inbox', id: 'inbox-1' }]), add().add)).toBe('FALSE');
     expect(previewScope(withGrant('none', [{ type: 'inbox', id: 'inbox-1' }]), add().add)).toBe('FALSE');
+    // No grant at all reads as none.
+    expect(previewScope({ ...principal, grants: {}, scopes: [{ type: 'inbox', id: 'inbox-1' }] }, add().add)).toBe('FALSE');
   });
 
   it('sorts "waiting longest" by the earliest wait first, with nobody waiting last', () => {

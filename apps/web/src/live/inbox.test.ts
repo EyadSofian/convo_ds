@@ -1523,3 +1523,76 @@ describe('scroll positions across re-renders', () => {
     expect(log(root).scrollTop).toBe(100 + 400);
   });
 });
+
+describe('the address bar and a failed action', () => {
+  /** A host whose hash can be moved the way Back and Forward move it. */
+  function historyHost(hash: string): RouterHost & { go(next: string): void } {
+    let current = hash;
+    const listeners = new Set<() => void>();
+    return {
+      location: {
+        get hash(): string { return current; },
+        set hash(next: string) { current = next; },
+      },
+      addEventListener: (_type, listener) => { listeners.add(listener); },
+      removeEventListener: (_type, listener) => { listeners.delete(listener); },
+      go(next: string) {
+        current = next;
+        for (const listener of listeners) listener();
+      },
+    };
+  }
+
+  it('reads the lists again when Back or Forward changes the inbox query', async () => {
+    const host = historyHost('#/inbox?queue=mine');
+    const api = inboxApi().on(`GET /tenants/${TENANT}/conversations?queue=mine`, { status: 200, body: { data: [conversation()] } });
+    const { app } = await open(api, '#/inbox?queue=mine', { host });
+    const before = api.calls.length;
+    host.go('#/inbox?queue=mine&sort=priority_desc');
+    await settle();
+    expect(app.state.live.inboxQuery.sort).toBe('priority_desc');
+    expect(api.calls.slice(before).some((call) => call.path.includes('sort=priority_desc'))).toBe(true);
+  });
+
+  it('opens the thread Back or Forward names', async () => {
+    const host = historyHost('#/inbox?queue=mine');
+    const api = inboxApi()
+      .on(`GET /tenants/${TENANT}/conversations?queue=mine`, { status: 200, body: { data: [conversation()] } })
+      .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}`, { status: 200, body: { data: conversation() } })
+      .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`, page([message()]));
+    const { app } = await open(api, '#/inbox?queue=mine', { host });
+    host.go(`#/inbox/${CONVERSATION}?queue=mine`);
+    await settle();
+    expect(app.state.live.openConversationId).toBe(CONVERSATION);
+    expect(api.countOf(`GET /tenants/${TENANT}/conversations/${CONVERSATION}`)).toBe(1);
+  });
+
+  it('releases a busy control when its action throws, and says so', async () => {
+    const api = inboxApi().on(`POST /tenants/${TENANT}/conversations/${CONVERSATION}/claim`, {
+      // A body this build cannot read: the action throws part-way through.
+      status: 201,
+      body: { data: null },
+    });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { root, app } = await open(api);
+    click(root, '[data-act="live-inbox-claim"]');
+    await settle();
+    expect(app.state.live.busy).toBeNull();
+    expect(app.state.toasts.at(-1)).toMatchObject({ tone: 'danger' });
+    expect(errors).toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it('says nothing about a failed action once the workspace it belonged to has closed', async () => {
+    const api = inboxApi().on(`POST /tenants/${TENANT}/conversations/${CONVERSATION}/claim`, { status: 201, body: { data: null } });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { root, app } = await open(api);
+    const toasts = app.state.toasts.length;
+    click(root, '[data-act="live-inbox-claim"]');
+    app.destroy();
+    await settle();
+    expect(app.state.toasts).toHaveLength(toasts);
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+});

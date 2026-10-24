@@ -107,3 +107,37 @@ describe('ConversationService Inbox boundaries', () => {
     await expect(service.supervisorWorkload({ userId: 'user' } as never, tenantId, member)).rejects.toThrow('supervisor workload returned no row');
   });
 });
+
+describe('the queue and the claim, at their guards', () => {
+  const inboxOnly: Principal = {
+    ...principal,
+    grants: { 'conversation.unassigned.preview': 'scoped', 'conversation.claim': 'scoped' },
+    scopes: [{ type: 'inbox', id: connection }],
+  };
+
+  it('still skips a card the domain refuses, even when SQL let it through', async () => {
+    const elsewhere = '66666666-6666-4666-8666-666666666666';
+    const sql = { query: vi.fn(async <T>() => ({
+      rows: [{ ...raw(idA, ''), assignee_membership_id: null }, { ...raw(idB, ''), connection_id: elsewhere, assignee_membership_id: null }] as T[],
+      rowCount: 2,
+    })) } as unknown as SqlExecutor;
+    const authorization = { authorized: vi.fn(async (_session, _tenant, _permission, work) => work({ sql, principal: inboxOnly, tenantId })) } as unknown as AuthorizationService;
+    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, {} as never, {} as never);
+    const cards = await service.unassigned({ userId: 'user' } as never, tenantId, { connectionId: null, priority: null, channel: null, labelIds: [] });
+    expect(cards.map((card) => card.id)).toEqual([idA]);
+    // The scope is in the query, so the 200-row cap counts visible cards only.
+    const [text, params] = (sql.query as ReturnType<typeof vi.fn>).mock.calls[0] as [string, unknown[]];
+    expect(text).toContain('c.connection_id = ANY($6::uuid[])');
+    expect(params[5]).toEqual([connection]);
+  });
+
+  it('refuses to claim an archived conversation', async () => {
+    const sql = { query: vi.fn(async <T>(text: string) => text.includes('FROM conversations WHERE id')
+      ? { rows: [{ ...raw(idA, ''), status: 'archived', assignee_membership_id: null }] as T[], rowCount: 1 }
+      : { rows: [] as T[], rowCount: 0 }) } as unknown as SqlExecutor;
+    const authorization = { assertTenantId: vi.fn(), withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal: inboxOnly, tenantId })) } as unknown as AuthorizationService;
+    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, {} as never, {} as never);
+    await expect(service.claim({ userId: 'user' } as never, tenantId, idA, 1)).rejects.toMatchObject({ status: 409, code: 'archived_conversation_is_immutable' });
+    expect((sql.query as ReturnType<typeof vi.fn>).mock.calls.some(([text]) => String(text).includes('UPDATE conversations'))).toBe(false);
+  });
+});

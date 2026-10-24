@@ -337,7 +337,8 @@ export function zonedMidnight(utcMidnight: Date, zone: string): Date {
 }
 function offsetMs(at: Date, zone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(at);
-  const part = (type: string): number => Number(parts.find((entry) => entry.type === type)?.value ?? 0);
+  const fields = Object.fromEntries(parts.map((entry) => [entry.type, entry.value]));
+  const part = (type: string): number => Number(fields[type]);
   const wall = Date.UTC(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'), part('second'));
   return wall - Math.floor(at.getTime() / 1000) * 1000;
 }

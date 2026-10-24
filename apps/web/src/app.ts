@@ -59,6 +59,7 @@ import { renderUsers } from './ui/users-screen';
 import { draftIsDirty, renderRoles } from './ui/roles-screen';
 import { renderTeams } from './ui/teams-screen';
 import { renderSettings } from './ui/settings-screen';
+import { t } from './ui/copy';
 import { renderShell, renderToasts } from './ui/shell';
 import { trackViewport } from './viewport';
 import { newerBundleAvailable } from './app-version';
@@ -737,10 +738,9 @@ export function mount(options: MountOptions): AppHandle {
     let drew = false;
     const settled = load({ ...current, refresh: () => { drew = true; refresh(); } });
     // The stream and the deep link follow the load whether or not it threw:
-    // a screen whose load failed still has to hear about new work.
-    void settled.catch((cause: unknown) => {
-      console.error(cause);
-    }).then(() => {
+    // a screen whose load failed still has to hear about new work. The
+    // failure itself still reaches the console as an unhandled rejection.
+    void settled.finally(() => {
       afterLoad(screen, current);
     });
     return drew;
@@ -879,7 +879,7 @@ export function mount(options: MountOptions): AppHandle {
       if (from !== liveContext || destroyed) return;
       state.live.busy = null;
       state.live.refreshing = null;
-      pushToast(state, state.lang === 'ar' ? 'تعذّر إكمال هذا الإجراء. حاول مرة أخرى.' : 'That did not complete. Please try again.', 'danger');
+      pushToast(state, t(state, 'تعذّر إكمال هذا الإجراء. حاول مرة أخرى.', 'That did not complete. Please try again.'), 'danger');
       // Kept for whoever opens the console; the operator has the toast.
       console.error(cause);
       refresh();

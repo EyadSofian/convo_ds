@@ -19,6 +19,9 @@ describe('AutomationsApi', () => {
     ]);
     expect(JSON.parse(String(calls[6]?.init.body))).toMatchObject({ version: 2, name: 'Welcome' });
     expect(JSON.parse(String(calls[7]?.init.body))).toEqual({ version: 2 });
+    // A template's schedule runs in the zone the operator sends.
+    await api.useTemplate('t', 'a/b', 'Copy', 'Africa/Cairo');
+    expect(JSON.parse(String(calls.at(-1)?.init.body))).toEqual({ name: 'Copy', timezone: 'Africa/Cairo' });
   });
 
   it('has an honest disconnected default', async () => {

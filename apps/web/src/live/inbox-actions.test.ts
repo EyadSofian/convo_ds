@@ -2,8 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, WhatsAppTemplateCatalogueItem } from '../api/conversations.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { applyRealtimeEvent, claimConversation, loadMoreWhatsAppTemplates, openConversation, openWhatsAppTemplates, refreshWhatsAppTemplates, searchWhatsAppTemplates, sendReply, sendWhatsAppTemplate, templateParameterKey } from './inbox-actions.js';
+import { applyRealtimeEvent, claimConversation, loadInboxScreen, loadMoreWhatsAppTemplates, loadOlderMessages, loadSupervisorInbox, openConversation, startRealtime, openWhatsAppTemplates, refreshWhatsAppTemplates, searchWhatsAppTemplates, sendReply, sendWhatsAppTemplate, templateParameterKey } from './inbox-actions.js';
 import type { RealtimeEvent } from './realtime.js';
+import { loadOpenContact } from './contact-actions.js';
+import { claimInboxRead } from './inbox-lists.js';
+import { loadEpisodes, loadNotes } from './lifecycle-actions.js';
+import { loadRouting } from './routing-actions.js';
 import { failed, ready } from './store.js';
 
 const error = { status: 503, code: 'unavailable', message: 'Try again.', requestId: null, details: [] } as const;
@@ -219,6 +223,41 @@ describe('a thread switched while it was loading', () => {
     expect(ctx.state.live.timeline).toEqual(ready([], 1));
   });
 
+  it('drops every per-thread answer for a thread closed while it loaded', async () => {
+    const ctx = threadsSetup();
+    ctx.state.live.openConversationId = 'a';
+    const answers = {
+      notes: deferred<unknown>(), episodes: deferred<unknown>(), handoffs: deferred<unknown>(),
+      older: deferred<unknown>(), contact: deferred<unknown>(),
+    };
+    ctx.api.notes.mockReturnValueOnce(answers.notes.promise);
+    ctx.api.episodes.mockReturnValueOnce(answers.episodes.promise);
+    ctx.api.handoffs.mockReturnValueOnce(answers.handoffs.promise);
+    ctx.api.timeline.mockReturnValueOnce(answers.older.promise);
+    const contactRead = vi.fn().mockReturnValueOnce(answers.contact.promise);
+    Object.assign(ctx.state.live, { contactsApi: { read: contactRead } });
+    ctx.state.live.timeline = ready([], 1);
+    ctx.state.live.timelineCursor = 'older';
+    ctx.state.live.openConversation = ready(thread('a', 'contact-a'), 1);
+    const pending = [
+      loadNotes(ctx.context, 'a'), loadEpisodes(ctx.context, 'a'), loadRouting(ctx.context, 'a'),
+      loadOlderMessages(ctx.context), loadOpenContact(ctx.context, 'contact-a'),
+    ];
+    // Another thread, with another customer, is opened meanwhile.
+    ctx.state.live.openConversationId = 'b';
+    ctx.state.live.openConversation = ready(thread('b', 'contact-b'), 2);
+    const shown = { notes: ready([], 2), episodes: ready([], 2), handoffs: ready([], 2), timeline: ready([], 2), openContact: ready({ id: 'contact-b' }, 2) };
+    Object.assign(ctx.state.live, shown);
+    answers.notes.resolve({ ok: true, data: [{ id: 'note-a' }] });
+    answers.episodes.resolve({ ok: true, data: [{ id: 'episode-a' }] });
+    answers.handoffs.resolve({ ok: true, data: [{ id: 'offer-a' }] });
+    answers.older.resolve({ ok: true, data: { messages: [{ id: 'old-a' }], nextCursor: null } });
+    answers.contact.resolve({ ok: true, data: { id: 'contact-a' } });
+    await Promise.all(pending);
+    expect(ctx.state.live).toMatchObject(shown);
+    expect(ctx.state.live.busy).toBeNull();
+  });
+
   it('keeps the WhatsApp window known after a claim whose answer omits it', async () => {
     const ctx = threadsSetup();
     const open = { ...conversation(), serviceWindow: { status: 'open' as const, lastCustomerInboundAt: null, serviceWindowExpiresAt: null } };
@@ -242,5 +281,97 @@ describe('a thread switched while it was loading', () => {
     expect(ctx.state.live.openConversation).toMatchObject({ value: { id: 'queued', serviceWindow: { status: 'open' } } });
     // What was typed for the previous customer does not follow the agent.
     expect(ctx.state.live.composer).toBe('');
+  });
+});
+
+describe('reads overtaken by newer ones', () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => { resolve = done; });
+    return { promise, resolve };
+  }
+  const listPage = (...ids: string[]) => ({ ok: true, data: { items: ids.map((id) => ({ ...conversation(), id })), nextCursor: null } });
+
+  function supervisorSetup() {
+    const ctx = setup();
+    const list = deferred<unknown>();
+    const api = {
+      supervisorList: vi.fn().mockReturnValue(list.promise),
+      supervisorWorkload: vi.fn().mockResolvedValue({ ok: true, data: { assigned: 0 } }),
+    };
+    Object.assign(ctx.state.live, { conversationsApi: api });
+    ctx.state.live.supervisorAgents = ready([{ membershipId: 'agent-1', name: 'A', email: 'a@x', teams: [] }] as never, 1);
+    return { ...ctx, list, api };
+  }
+
+  it('leaves a supervisor list to the newer read that took it', async () => {
+    const ctx = supervisorSetup();
+    ctx.state.live.supervisorAgentId = 'agent-1';
+    const loading = loadInboxScreen(ctx.context);
+    claimInboxRead(ctx.state.live);
+    ctx.state.live.conversations = ready([], 3);
+    ctx.list.resolve(listPage('stale'));
+    await loading;
+    expect(ctx.state.live.conversations).toEqual(ready([], 3));
+  });
+
+  it('leaves the lens alone when another agent was picked meanwhile', async () => {
+    const ctx = supervisorSetup();
+    const loading = loadSupervisorInbox(ctx.context, 'agent-1');
+    ctx.state.live.supervisorAgentId = 'agent-2';
+    ctx.state.live.conversations = ready([], 3);
+    ctx.list.resolve(listPage('agent-1-row'));
+    expect(await loading).toBe(true);
+    expect(ctx.state.live.conversations).toEqual(ready([], 3));
+  });
+
+  it('shows the customer when no thread record is on screen yet', async () => {
+    const ctx = setup();
+    ctx.state.live.openConversation = { status: 'loading' };
+    Object.assign(ctx.state.live, { contactsApi: { read: vi.fn().mockResolvedValue({ ok: true, data: { id: 'contact-a' } }) } });
+    await loadOpenContact(ctx.context, 'contact-a');
+    expect(ctx.state.live.openContact).toEqual(ready({ id: 'contact-a' }, 2));
+  });
+
+  it('does not mark a thread read when another was opened while its sections loaded', async () => {
+    const ctx = setup();
+    const notes = deferred<unknown>();
+    const empty = { ok: true, data: [] };
+    const markRead = vi.fn().mockResolvedValue({ ok: true, data: undefined });
+    Object.assign(ctx.state.live, { conversationsApi: {
+      read: vi.fn().mockResolvedValue({ ok: true, data: conversation() }),
+      timeline: vi.fn().mockResolvedValue({ ok: true, data: { messages: [], nextCursor: null } }),
+      notes: vi.fn().mockReturnValue(notes.promise),
+      episodes: vi.fn().mockResolvedValue(empty), handoffs: vi.fn().mockResolvedValue(empty), collaborators: vi.fn().mockResolvedValue(empty),
+      markRead,
+    } });
+    const opening = openConversation(ctx.context, 'conversation-id');
+    await new Promise((done) => setTimeout(done, 0));
+    ctx.state.live.openConversationId = 'other';
+    notes.resolve(empty);
+    await opening;
+    expect(markRead).not.toHaveBeenCalled();
+  });
+
+  it("re-reads once when a new stream first opens, and not on the browser's own reconnects", async () => {
+    const ctx = setup();
+    ctx.state.route = { screen: 'inbox', conversationId: 'conversation-id', params: {} };
+    ctx.state.live.timeline = ready([], 1);
+    const listeners = new Map<string, (event: MessageEvent<string>) => void>();
+    const source = { addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) => { listeners.set(type, listener); }, close: vi.fn(), readyState: 1 };
+    const api = {
+      unassigned: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      list: vi.fn().mockResolvedValue({ ok: true, data: { items: [], nextCursor: null } }),
+      timeline: vi.fn().mockResolvedValue({ ok: true, data: { messages: [], nextCursor: null } }),
+    };
+    Object.assign(ctx.state.live, { conversationsApi: api });
+    startRealtime(ctx.context, { open: () => source, baseUrl: '/api/v1' });
+    const opened = listeners.get('open');
+    opened?.({} as MessageEvent<string>);
+    await new Promise((done) => setTimeout(done, 0));
+    opened?.({} as MessageEvent<string>);
+    await new Promise((done) => setTimeout(done, 0));
+    expect(api.list).toHaveBeenCalledTimes(1);
+    expect(api.timeline).toHaveBeenCalledTimes(1);
   });
 });

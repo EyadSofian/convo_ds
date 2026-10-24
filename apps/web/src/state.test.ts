@@ -173,6 +173,12 @@ describe('URL round-trip', () => {
     expect(legacy.live.inboxQuery.queue).toBe('all');
   });
 
+  it('still writes the scope of an older Mine link that asked for All', () => {
+    const state = createState(NOW);
+    applyRoute(state, parseHash('#/inbox?queue=mine&scope=all'));
+    expect(routeParamsFor(state)).toMatchObject({ queue: 'mine', scope: 'all' });
+  });
+
   it('keeps a reload on Unassigned on Unassigned, whatever query All left behind', () => {
     const state = createState(NOW);
     state.inboxQueue = 'unassigned';

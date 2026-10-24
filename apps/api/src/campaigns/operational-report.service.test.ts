@@ -69,6 +69,9 @@ describe('report days in the operator’s zone', () => {
 
   it('keeps UTC days when no zone is given, and refuses one it does not know', () => {
     expect(parseOperationalReportFilters({ from: '2026-10-24' }).fromAt?.toISOString()).toBe('2026-10-24T00:00:00.000Z');
+    expect(parseOperationalReportFilters({ from: '2026-10-24', tz: '' }).fromAt?.toISOString()).toBe('2026-10-24T00:00:00.000Z');
     expect(() => parseOperationalReportFilters({ from: '2026-10-24', tz: 'Mars/Olympus' })).toThrow();
+    expect(() => parseOperationalReportFilters({ from: '2026-10-24', tz: 3 })).toThrow();
+    expect(() => parseOperationalReportFilters({ from: '2026-10-24', tz: 'x'.repeat(101) })).toThrow();
   });
 });
