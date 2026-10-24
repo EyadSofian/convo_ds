@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Conversation, WhatsAppTemplateCatalogueItem } from '../api/conversations.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
-import { loadMoreWhatsAppTemplates, openWhatsAppTemplates, refreshWhatsAppTemplates, searchWhatsAppTemplates, sendReply, sendWhatsAppTemplate, templateParameterKey } from './inbox-actions.js';
+import { applyRealtimeEvent, claimConversation, loadMoreWhatsAppTemplates, openConversation, openWhatsAppTemplates, refreshWhatsAppTemplates, searchWhatsAppTemplates, sendReply, sendWhatsAppTemplate, templateParameterKey } from './inbox-actions.js';
+import type { RealtimeEvent } from './realtime.js';
 import { failed, ready } from './store.js';
 
 const error = { status: 503, code: 'unavailable', message: 'Try again.', requestId: null, details: [] } as const;
@@ -155,5 +156,91 @@ describe('WhatsApp template inbox actions', () => {
     expect(ctx.state.live.openConversation.status).toBe('ready');
     if (ctx.state.live.openConversation.status === 'ready') expect(ctx.state.live.openConversation.value.serviceWindow?.status).toBe('closed');
     expect(ctx.state.live.error?.code).toBe('outside_service_window');
+  });
+});
+
+describe('a thread switched while it was loading', () => {
+  function thread(id: string, contactId: string | null = null): Conversation {
+    return { ...conversation(), id, contactId };
+  }
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => { resolve = done; });
+    return { promise, resolve };
+  }
+
+  function threadsSetup() {
+    const ctx = setup();
+    const empty = { ok: true, data: [] };
+    const api = {
+      read: vi.fn(),
+      timeline: vi.fn().mockResolvedValue({ ok: true, data: { messages: [], nextCursor: null } }),
+      notes: vi.fn().mockResolvedValue(empty),
+      episodes: vi.fn().mockResolvedValue(empty),
+      handoffs: vi.fn().mockResolvedValue(empty),
+      collaborators: vi.fn().mockResolvedValue(empty),
+      markRead: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
+      unassigned: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      list: vi.fn().mockResolvedValue({ ok: true, data: { items: [], nextCursor: null } }),
+      claim: vi.fn(),
+    };
+    Object.assign(ctx.state.live, { conversationsApi: api });
+    return { ...ctx, api };
+  }
+
+  it("does not let the first thread's answer land on the second one", async () => {
+    const ctx = threadsSetup();
+    const slow = deferred<unknown>();
+    ctx.api.read.mockImplementation(async (_tenant: string, id: string) => (id === 'a' ? slow.promise : { ok: true, data: thread('b') }));
+    const first = openConversation(ctx.context, 'a');
+    await openConversation(ctx.context, 'b');
+    slow.resolve({ ok: true, data: thread('a') });
+    await first;
+    expect(ctx.state.live.openConversationId).toBe('b');
+    expect(ctx.state.live.openConversation).toMatchObject({ status: 'ready', value: { id: 'b' } });
+    // Only the thread that is open was marked read.
+    expect(ctx.api.markRead).toHaveBeenCalledTimes(1);
+    expect(ctx.api.markRead).toHaveBeenCalledWith('tenant-id', 'b');
+  });
+
+  it('drops a realtime timeline read for a thread that is no longer open', async () => {
+    const ctx = threadsSetup();
+    ctx.state.live.openConversationId = 'a';
+    ctx.api.read.mockResolvedValue({ ok: true, data: thread('a') });
+    const slow = deferred<unknown>();
+    ctx.api.timeline.mockReturnValueOnce(slow.promise);
+    const event = { type: 'message.inbound', scope: { conversationId: 'a' } } as unknown as RealtimeEvent;
+    const applying = applyRealtimeEvent(ctx.context, event);
+    ctx.state.live.openConversationId = 'b';
+    ctx.state.live.timeline = ready([], 1);
+    slow.resolve({ ok: true, data: { messages: [{ id: 'from-a' }], nextCursor: null } });
+    await applying;
+    expect(ctx.state.live.timeline).toEqual(ready([], 1));
+  });
+
+  it('keeps the WhatsApp window known after a claim whose answer omits it', async () => {
+    const ctx = threadsSetup();
+    const open = { ...conversation(), serviceWindow: { status: 'open' as const, lastCustomerInboundAt: null, serviceWindowExpiresAt: null } };
+    ctx.state.live.openConversation = ready(open, 1);
+    const { serviceWindow: _dropped, ...claimed } = { ...open, assigneeMembershipId: 'me', version: 2 };
+    void _dropped;
+    ctx.api.claim.mockResolvedValue({ ok: true, data: claimed });
+    expect(await claimConversation(ctx.context, 'conversation-id', 1)).toBe(true);
+    expect(ctx.state.live.openConversation).toMatchObject({ status: 'ready', value: { assigneeMembershipId: 'me', serviceWindow: { status: 'open' } } });
+  });
+
+  it('reads the window when a claim from the queue answers without it', async () => {
+    const ctx = threadsSetup();
+    ctx.state.live.composer = 'typed for another customer';
+    const { serviceWindow: _dropped, ...claimed } = { ...thread('queued'), assigneeMembershipId: 'me' };
+    void _dropped;
+    ctx.api.claim.mockResolvedValue({ ok: true, data: claimed });
+    ctx.api.read.mockResolvedValue({ ok: true, data: { ...thread('queued'), assigneeMembershipId: 'me', serviceWindow: { status: 'open', lastCustomerInboundAt: null, serviceWindowExpiresAt: null } } });
+    expect(await claimConversation(ctx.context, 'queued', 1)).toBe(true);
+    expect(ctx.api.read).toHaveBeenCalledWith('tenant-id', 'queued');
+    expect(ctx.state.live.openConversation).toMatchObject({ value: { id: 'queued', serviceWindow: { status: 'open' } } });
+    // What was typed for the previous customer does not follow the agent.
+    expect(ctx.state.live.composer).toBe('');
   });
 });

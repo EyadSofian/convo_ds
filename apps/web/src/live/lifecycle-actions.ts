@@ -3,7 +3,7 @@ import type { TransitionCommand } from '../api/conversations.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { refreshInboxLists } from './inbox-lists.js';
-import { failed, forTenant, fromResult, LOADING, ready } from './store.js';
+import { adoptConversation, failed, forTenant, fromResult, LOADING, ready } from './store.js';
 
 /**
  * The lifecycle, the notes and the read cursor, from the browser.
@@ -101,7 +101,7 @@ export async function transitionConversation(
       context.refresh();
       return false;
     }
-    live.openConversation = ready(result.data, context.now());
+    adoptConversation(live, result.data, context.now());
     live.lifecyclePanel = null;
     pushToast(context.state, transitionConfirmation(context, command));
     await Promise.all([loadEpisodes(context, id), refreshInboxLists(context)]);
@@ -133,6 +133,7 @@ export async function loadNotes(context: LiveContext, conversationId: string): P
     live.notes = LOADING;
     context.refresh();
     const result = await live.conversationsApi.notes(tenantId, conversationId);
+    if (live.openConversationId !== conversationId) return;
     live.notes = result.ok ? ready(result.data, context.now()) : failed(result.error);
     context.refresh();
   });
@@ -142,6 +143,7 @@ export async function loadEpisodes(context: LiveContext, conversationId: string)
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
     const result = await live.conversationsApi.episodes(tenantId, conversationId);
+    if (live.openConversationId !== conversationId) return;
     live.episodes = result.ok ? ready(result.data, context.now()) : failed(result.error);
     context.refresh();
   });

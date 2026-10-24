@@ -181,6 +181,8 @@ export interface SegmentItem {
   readonly value: string;
   readonly label: string;
   readonly count?: number | undefined;
+  /** The count is of what is loaded, and there is more beyond it. */
+  readonly more?: boolean | undefined;
 }
 
 export function segmented(
@@ -204,7 +206,7 @@ export function segmented(
         },
         [
           item.label,
-          item.count === undefined ? null : h('span', { class: 'segmented__count' }, [String(item.count)]),
+          item.count === undefined ? null : h('span', { class: 'segmented__count' }, [`${String(item.count)}${item.more === true ? '+' : ''}`]),
         ],
       ),
     ),

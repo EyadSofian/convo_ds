@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InboxQuery, Principal } from '@convo/domain';
-import { compileInboxQuery, readableScope } from './inbox-query-compiler.js';
+import { compileInboxQuery, previewScope, readableScope } from './inbox-query-compiler.js';
 
 const member = '11111111-1111-4111-8111-111111111111';
 const label = '22222222-2222-4222-8222-222222222222';
@@ -199,5 +199,31 @@ describe('compileInboxQuery', () => {
     expect(() => compileInboxQuery({ ...base, filters: [{ key: 'custom_field', operator: 'eq', value: 'x' } as never] }, principal, new Map())).toThrow('must be validated');
     expect(() => compileInboxQuery({ ...base, filters: [{ key: 'custom_field', fieldId: label, operator: 'eq', value: 'x' }] }, principal, new Map([[label, { id: label, type: 'unsupported' as never }]]))).toThrow('Unsupported validated custom field type');
     expect(compileInboxQuery({ ...base, filters: [{ key: 'custom_field', fieldId: label, operator: 'is_set' }] }, principal, new Map([[label, { id: label, type: 'text' }]])).where).toContain('custom.field_id');
+  });
+});
+
+describe('the queue and the waiting sort', () => {
+  const add = () => {
+    const params: unknown[] = [];
+    return { params, add: (value: unknown) => { params.push(value); return `$${String(params.length)}`; } };
+  };
+  const withGrant = (level: 'none' | 'own' | 'scoped' | 'tenant', scopes: Principal['scopes']): Principal => ({
+    ...principal, grants: { ...principal.grants, 'conversation.unassigned.preview': level }, scopes,
+  });
+
+  it('puts the Unassigned preview scope into SQL, so the row cap applies to visible rows', () => {
+    const inboxOnly = add();
+    expect(previewScope(withGrant('scoped', [{ type: 'inbox', id: 'inbox-1' }]), inboxOnly.add)).toBe('(c.team_id = ANY($1::uuid[]) OR c.connection_id = ANY($2::uuid[]))');
+    expect(inboxOnly.params).toEqual([[], ['inbox-1']]);
+    expect(previewScope(withGrant('scoped', [{ type: 'tenant', id: 't' }]), add().add)).toBe('TRUE');
+    expect(previewScope(withGrant('tenant', []), add().add)).toBe('TRUE');
+    // A queue card has no assignee and no participants, so `own` reaches none.
+    expect(previewScope(withGrant('own', [{ type: 'inbox', id: 'inbox-1' }]), add().add)).toBe('FALSE');
+    expect(previewScope(withGrant('none', [{ type: 'inbox', id: 'inbox-1' }]), add().add)).toBe('FALSE');
+  });
+
+  it('sorts "waiting longest" by the earliest wait first, with nobody waiting last', () => {
+    const order = compileInboxQuery({ ...base, sort: 'waiting_desc' }, principal, new Map()).order;
+    expect(order).toBe("coalesce(c.waiting_since,'infinity'::timestamptz) ASC, c.id ASC");
   });
 });

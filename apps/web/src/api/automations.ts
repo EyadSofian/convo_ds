@@ -102,8 +102,9 @@ export class AutomationsApi {
   runs(tenantId: string, query: AutomationRunsQuery = { ...DEFAULT_AUTOMATION_RUNS_QUERY, cursor: null }): Promise<ApiResult<PagedData<AutomationRun>>> {
     return this.client.page(`/tenants/${tenantId}/automation-runs${queryString(query)}`);
   }
-  useTemplate(tenantId: string, key: string, name: string): Promise<ApiResult<Automation>> {
-    return this.client.post(`/tenants/${tenantId}/automation-templates/${encodeURIComponent(key)}/use`, { body: { name } });
+  /** `timezone` is the one a schedule in the template runs in: the operator's, not the server's. */
+  useTemplate(tenantId: string, key: string, name: string, timezone?: string): Promise<ApiResult<Automation>> {
+    return this.client.post(`/tenants/${tenantId}/automation-templates/${encodeURIComponent(key)}/use`, { body: timezone === undefined ? { name } : { name, timezone } });
   }
   create(tenantId: string, input: AutomationInput): Promise<ApiResult<Automation>> {
     return this.client.post(`/tenants/${tenantId}/automations`, { body: input });

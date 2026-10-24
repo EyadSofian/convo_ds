@@ -785,12 +785,18 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-inbox-queue': async (context, arg) => {
     const next = arg === 'all' ? 'all' : arg === 'mine' ? 'mine' : 'unassigned';
     if (context.state.inboxQueue === next) return;
-    const desiredQuery = next === 'all' ? 'all' : 'mine';
-    const canUseCachedMine = next === 'mine' && context.live.inboxQuery.queue === 'mine' && context.live.conversations.status === 'ready';
     context.state.inboxQueue = next;
-    context.live.inboxQuery = { ...context.live.inboxQuery, queue: desiredQuery, cursor: null };
+    if (next === 'unassigned') {
+      // The queue is its own list. The Mine/All query is left as it is, so the
+      // rows loaded for it still match it: flipping it to `mine` here made
+      // All → Unassigned → Mine show the All rows under Mine.
+      context.refresh();
+      return;
+    }
+    const canUseCached = context.live.inboxQuery.queue === next && context.live.conversations.status === 'ready';
+    context.live.inboxQuery = { ...context.live.inboxQuery, queue: next, cursor: null };
     context.refresh();
-    if (next !== 'unassigned' && !canUseCachedMine) await loadInboxScreen(context);
+    if (!canUseCached) await loadInboxScreen(context);
   },
 
   'live-inbox-open': async (context, arg) => openConversation(context, arg),

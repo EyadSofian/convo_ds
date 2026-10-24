@@ -1,7 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike } from './client.js';
 import { ApiClient } from './client.js';
 import { CampaignsApi, disconnectedCampaignsApi, type CreateCampaignInput } from './campaigns.js';
+
+/** Pins the browser's zone, so the exact URLs below do not depend on the machine running them. */
+function inZone(zone: string): void {
+  const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+  vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockImplementation(function (this: Intl.DateTimeFormat) {
+    return { ...real.call(this), timeZone: zone };
+  });
+}
+beforeEach(() => inZone('UTC'));
+afterEach(() => { vi.restoreAllMocks(); });
 
 const INPUT: CreateCampaignInput = {
   name: 'September intake',
@@ -122,6 +132,24 @@ describe('CampaignsApi', () => {
     expect(calls).toEqual([
       '/api/v1/tenants/tenant-1/reports/operations',
       '/api/v1/tenants/tenant-1/reports/operations?from=2026-09-01&to=2026-09-09',
+    ]);
+  });
+
+  it("asks for the operator's days, not UTC's, once a date is picked", async () => {
+    vi.restoreAllMocks();
+    inZone('Africa/Cairo');
+    const calls: string[] = [];
+    const api = new CampaignsApi(new ApiClient({
+      baseUrl: '/api/v1',
+      fetch: (path) => { calls.push(String(path)); return Promise.resolve(new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'content-type': 'application/json' } })); },
+      readCsrfToken: () => 'csrf',
+    }));
+    const emptyFilters = { agentId: '', teamId: '', channel: '', connectionId: '', labelId: '', campaignId: '', priority: '', status: '' };
+    await api.operationsReport('tenant-1', { ...emptyFilters, from: '', to: '' });
+    await api.operationsReport('tenant-1', { ...emptyFilters, from: '2026-09-01', to: '2026-09-09' });
+    expect(calls).toEqual([
+      '/api/v1/tenants/tenant-1/reports/operations',
+      '/api/v1/tenants/tenant-1/reports/operations?from=2026-09-01&to=2026-09-09&tz=Africa%2FCairo',
     ]);
   });
 

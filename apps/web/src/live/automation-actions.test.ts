@@ -63,7 +63,7 @@ describe('automation actions',()=>{
     expect(s.api.list).not.toHaveBeenCalled();
   });
   it('creates from a preset and from scratch only after the server commits',async()=>{
-    const s=setup(); expect(await useAutomationTemplate(s.context,'welcome')).toBe(true); expect(s.api.useTemplate).toHaveBeenCalledWith('t','welcome',expect.stringContaining('Welcome'));
+    const s=setup(); expect(await useAutomationTemplate(s.context,'welcome')).toBe(true); expect(s.api.useTemplate).toHaveBeenCalledWith('t','welcome',expect.stringContaining('Welcome'),Intl.DateTimeFormat().resolvedOptions().timeZone);
     expect(s.state.route).toEqual({ screen: 'automations', conversationId: null, params: { view: 'mine', edit: 'a-1' } });
     expect(s.state.focusTarget).toContain('automationName');
     expect(s.state.toasts.at(-1)?.text).toContain('Draft created');

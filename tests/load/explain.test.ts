@@ -338,6 +338,6 @@ function keysetCursor(
   const id = add(cursor.id);
   if (sort === 'created_desc') return ` AND (c.created_at,c.id)<(${value}::timestamptz,${id}::uuid)`;
   if (sort === 'priority_desc') return ` AND ((CASE c.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END),c.id)<(${value}::integer,${id}::uuid)`;
-  if (sort === 'waiting_desc') return ` AND (coalesce(c.waiting_since,'-infinity'::timestamptz),c.id)<(${value}::timestamptz,${id}::uuid)`;
+  if (sort === 'waiting_desc') return ` AND (coalesce(c.waiting_since,'infinity'::timestamptz),c.id)>(${value}::timestamptz,${id}::uuid)`;
   return ` AND (c.last_activity_at,c.id)<(${value}::timestamptz,${id}::uuid)`;
 }

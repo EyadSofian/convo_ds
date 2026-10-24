@@ -39,3 +39,48 @@ describe('realtime feed defensive scope boundary', () => {
     expect(client.release).toHaveBeenCalled();
   });
 });
+
+describe('where a feed starts', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111';
+  function serviceWith(bounds: { oldest: string | null; newest: string | null; next: string | null }, waiting = '0') {
+    const client = { release: vi.fn(), query: vi.fn().mockImplementation(async (sql: string) => {
+      if (sql.includes('app_current_tenant()')) return { rows: [{ tenant: tenantId }] };
+      if (sql.includes('min(seq)')) return { rows: [bounds] };
+      if (sql.includes('count(*)')) return { rows: [{ waiting }] };
+      return { rows: [] };
+    }) };
+    const pool = { connect: vi.fn().mockResolvedValue(client) } as unknown as Pool;
+    const authorization = {
+      assertTenantId: vi.fn(),
+      requirePrincipal: vi.fn().mockResolvedValue({ membershipId: '44444444-4444-4444-8444-444444444444',
+        membershipStatus: 'active', tenantStatus: 'active', grants: {}, scopes: [], delegationCeiling: null }),
+    } as unknown as AuthorizationService;
+    return { service: new RealtimeService(pool, authorization), client };
+  }
+  const seqOf = (cursor: string) => Buffer.from(cursor, 'base64url').toString().split('|')[2];
+
+  it('starts a live stream with no cursor at the newest event, not at the oldest', async () => {
+    const { service, client } = serviceWith({ oldest: '1', newest: '9000', next: '9000' });
+    const page = await service.page({} as AuthenticatedSession, tenantId, null, 200, 5000, 'latest');
+    expect(page).toMatchObject({ status: 'ok', events: [] });
+    expect(seqOf(page.cursor)).toBe('9000');
+    // The backlog is counted from the newest event: nothing to replay.
+    expect(client.query.mock.calls.find(([sql]) => String(sql).includes('count(*)'))?.[1]).toEqual([9000]);
+  });
+
+  it('sends a consumer that is too far behind back to the newest event, not to the same backlog', async () => {
+    const { service } = serviceWith({ oldest: '1', newest: '9000', next: '9000' }, '8999');
+    const page = await service.page({} as AuthenticatedSession, tenantId, null, 200, 5000);
+    expect(page).toMatchObject({ status: 'reset_required', reason: 'too_far_behind' });
+    // Restarting from `oldest - 1` asked the same question again and got the
+    // same reset, every few seconds, forever.
+    expect(seqOf(page.cursor)).toBe('9000');
+  });
+
+  it('starts just below the floor when nothing is retained', async () => {
+    const { service } = serviceWith({ oldest: null, newest: null, next: '41' });
+    const page = await service.page({} as AuthenticatedSession, tenantId, null, 200, 5000, 'latest');
+    expect(seqOf(page.cursor)).toBe('41');
+  });
+});
+

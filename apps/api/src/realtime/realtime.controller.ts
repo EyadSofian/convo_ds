@@ -87,12 +87,16 @@ export class RealtimeController {
     // subscription is a 401 or a 404 like every other request rather than a 200
     // stream that closes immediately. A client cannot tell those apart, and a
     // monitor certainly cannot.
+    // A stream opened without a cursor starts at the newest event: the screen
+    // opening it has just read its lists, and replaying the retained history
+    // made every page load re-read those lists once per historical event.
     let page = await this.realtime.page(
       session,
       tenantId,
       position,
       tuning.maxBatch,
       tuning.maxBacklog,
+      'latest',
     );
 
     const raw = reply.raw;
@@ -114,6 +118,10 @@ export class RealtimeController {
     };
     request.raw.on('close', close);
     request.raw.on('error', close);
+    // The response socket is the one that tells a disconnect apart from a
+    // finished request body; without it a stream whose browser went away kept
+    // polling the database until its deadline.
+    raw.on('close', close);
 
     const deadline = Date.now() + tuning.maxStreamMs;
     let lastFrameAt = Date.now();
@@ -156,6 +164,9 @@ export class RealtimeController {
         }
         if (page.backlog === 0) {
           await sleep(tuning.pollMs);
+          // The browser may have gone while this slept; asking the database on
+          // its behalf would be a query nobody reads.
+          if (!open) break;
         }
         try {
           page = await this.realtime.page(
@@ -181,6 +192,7 @@ export class RealtimeController {
     } finally {
       request.raw.off('close', close);
       request.raw.off('error', close);
+      raw.off('close', close);
       raw.end();
     }
   }

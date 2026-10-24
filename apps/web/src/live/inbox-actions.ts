@@ -2,13 +2,13 @@ import type { ApiError } from '../api/client.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { loadOpenContact } from './contact-actions.js';
-import { refreshInboxLists } from './inbox-lists.js';
+import { claimInboxRead, refreshInboxLists } from './inbox-lists.js';
 import { unassignedFilterProjection } from './inbox-query.js';
 import { loadEpisodes, loadNotes, markConversationRead } from './lifecycle-actions.js';
 import { loadRouting } from './routing-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
-import { currentTenantId, failed, forTenant, fromResult, LOADING, ready, refetching, rowsOf } from './store.js';
+import { adoptConversation, currentTenantId, failed, forTenant, fromResult, LOADING, ready, refetching, rowsOf, singleFlight } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadSavedViews } from './saved-view-actions.js';
 import { loadNotifications, refreshNotificationCount } from './notification-actions.js';
@@ -49,6 +49,8 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
     if (live.supervisorAgentId === null && uuid(context.state.route.params['agent'])) {
       live.supervisorAgentId = context.state.route.params['agent']!;
     }
+    // Only the newest read of the lists may write them; see `claimInboxRead`.
+    const current = claimInboxRead(live);
     if (live.supervisorAgentId !== null) {
       live.conversations = refetching(live, live.conversations);
       live.supervisorWorkload = refetching(live, live.supervisorWorkload);
@@ -57,6 +59,7 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
         live.conversationsApi.supervisorList(tenantId, live.supervisorAgentId, { ...live.inboxQuery, cursor: null }),
         live.conversationsApi.supervisorWorkload(tenantId, live.supervisorAgentId),
       ]);
+      if (!current()) return;
       live.conversations = page.ok ? ready(page.data.items, context.now()) : failed(page.error);
       live.supervisorWorkload = fromResult(workload, context.now());
       live.inboxNextCursor = page.ok ? page.data.nextCursor : null;
@@ -73,11 +76,15 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
       live.conversationsApi.unassigned(tenantId, unassignedFilterProjection(live.inboxQuery)),
       live.conversationsApi.list(tenantId, live.inboxQuery),
     ]);
-    const now = context.now();
-    live.unassigned = fromResult(unassigned, now);
-    live.conversations = mine.ok ? ready(mine.data.items, now) : failed(mine.error);
-    live.inboxNextCursor = mine.ok ? mine.data.nextCursor : null;
-    context.refresh();
+    // A newer read owns the lists; the catalogues below are still this
+    // screen's to load, whichever read wrote the rows.
+    if (current()) {
+      const now = context.now();
+      live.unassigned = fromResult(unassigned, now);
+      live.conversations = mine.ok ? ready(mine.data.items, now) : failed(mine.error);
+      live.inboxNextCursor = mine.ok ? mine.data.nextCursor : null;
+      context.refresh();
+    }
     if (live.labels.status === 'idle') await loadMetadataCatalog(context);
     if (live.savedViews.status === 'idle') await loadSavedViews(context);
     if (live.people.status === 'idle' || live.teams.status === 'idle' || live.connections.status === 'idle' || live.campaigns.status === 'idle') {
@@ -106,6 +113,7 @@ export async function loadSupervisorAgents(context: LiveContext): Promise<void> 
 export async function loadSupervisorInbox(context: LiveContext, agentMembershipId: string): Promise<boolean> {
   if (!rowsOf(context.live.supervisorAgents).some((agent) => agent.membershipId === agentMembershipId)) return false;
   return forTenant(context, false, async (tenantId) => {
+    const current = claimInboxRead(context.live);
     context.live.conversations = LOADING;
     context.live.supervisorWorkload = LOADING;
     context.live.supervisorAgentId = agentMembershipId;
@@ -116,6 +124,8 @@ export async function loadSupervisorInbox(context: LiveContext, agentMembershipI
       context.live.conversationsApi.supervisorList(tenantId, agentMembershipId, { ...context.live.inboxQuery, cursor: null }),
       context.live.conversationsApi.supervisorWorkload(tenantId, agentMembershipId),
     ]);
+    // Another agent was picked, or the lens closed, while this was loading.
+    if (!current() || context.live.supervisorAgentId !== agentMembershipId) return result.ok;
     context.live.conversations = result.ok ? ready(result.data.items, context.now()) : failed(result.error);
     context.live.supervisorWorkload = fromResult(workload, context.now());
     context.live.inboxNextCursor = result.ok ? result.data.nextCursor : null;
@@ -215,6 +225,9 @@ export async function openConversation(context: LiveContext, id: string): Promis
     context.refresh();
 
     const conversation = await live.conversationsApi.read(tenantId, id);
+    // Somebody opened another thread while this one was loading. Its answer
+    // must not land on the screen now showing a different customer.
+    if (live.openConversationId !== id) return;
     live.openConversation = fromResult(conversation, context.now());
     if (!conversation.ok) {
       // No record means no contents: the timeline carries the same refusal
@@ -243,6 +256,7 @@ export async function openConversation(context: LiveContext, id: string): Promis
     // Supervisor inspection is observational. It never alters the selected
     // agent's cursor and it also avoids manufacturing a supervisor read side
     // effect merely from opening a read-only lens.
+    if (live.openConversationId !== id) return;
     if (live.supervisorAgentId === null && live.timeline.status === 'ready') await markConversationRead(context, id);
   });
 }
@@ -261,7 +275,7 @@ export async function refreshOpenConversation(context: LiveContext, id: string):
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
     const fresh = await live.conversationsApi.read(tenantId, id);
-    if (fresh.ok) {
+    if (fresh.ok && live.openConversationId === id) {
       live.openConversation = ready(fresh.data, context.now());
       context.refresh();
     }
@@ -272,6 +286,9 @@ async function loadTimeline(context: LiveContext, id: string): Promise<void> {
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
     const page = await live.conversationsApi.timeline(tenantId, id, null);
+    // A realtime event or a send for a thread that is no longer open: its
+    // messages belong to that thread, not to the one on screen.
+    if (live.openConversationId !== id) return;
     live.timeline = page.ok ? ready(page.data.messages, context.now()) : failed(page.error);
     live.timelineCursor = page.ok ? page.data.nextCursor : null;
     context.refresh();
@@ -299,6 +316,10 @@ export async function loadOlderMessages(context: LiveContext): Promise<void> {
 
     const page = await live.conversationsApi.timeline(tenantId, id, cursor);
     live.busy = null;
+    if (live.openConversationId !== id) {
+      context.refresh();
+      return;
+    }
     if (!page.ok) {
       live.error = page.error;
       context.refresh();
@@ -341,7 +362,24 @@ export async function claimConversation(
       await refreshInboxLists(context);
       return false;
     }
-    live.openConversation = ready(result.data, context.now());
+    if (live.openConversationId !== result.data.id) {
+      // Claimed from a queue card while another thread was open. What was
+      // typed there belongs to that customer, exactly as when a thread is
+      // opened, and the previous thread's timeline is not this one's.
+      live.timeline = LOADING;
+      live.timelineCursor = null;
+      live.composer = '';
+      live.noteDraft = '';
+      live.editingNoteId = null;
+      live.noteEdit = '';
+      live.lifecyclePanel = null;
+      live.routingPanel = null;
+      live.routingChoice = '';
+      live.handoffNote = '';
+      live.assignees = { status: 'idle' };
+      live.lostAccess = false;
+    }
+    adoptConversation(live, result.data, context.now());
     live.openConversationId = result.data.id;
     context.state.inboxQueue = 'mine';
     context.state.listOpen = false;
@@ -351,6 +389,16 @@ export async function claimConversation(
       refreshInboxLists(context),
       loadTimeline(context, result.data.id),
       loadOpenContact(context, result.data.contactId),
+      // Notes, history and offers belong to the thread now on screen; a claim
+      // from the queue card used to leave the previous thread's in their place.
+      loadNotes(context, result.data.id),
+      loadEpisodes(context, result.data.id),
+      loadRouting(context, result.data.id),
+      // An older API answers a claim without the reply window; read it rather
+      // than leave a WhatsApp composer closed until a reload.
+      live.openConversation.status === 'ready' && live.openConversation.value.serviceWindow === undefined
+        ? refreshOpenConversation(context, result.data.id)
+        : Promise.resolve(),
     ]);
     pushToast(context.state, t(context, 'المحادثة الآن لديك.', 'The conversation is yours.'));
     return true;
@@ -550,6 +598,11 @@ export function startRealtime(context: LiveContext, wiring: RealtimeWiring, reco
   if (tenantId === null || live.subscription !== null) {
     return;
   }
+  // A new stream starts at the newest event, not at the beginning of history,
+  // so whatever happened between the lists being read and the stream opening
+  // is read once when it first opens. Later opens are `EventSource` resuming
+  // from its own Last-Event-ID, which misses nothing.
+  let opened = false;
   live.subscription = subscribe({
     baseUrl: wiring.baseUrl,
     tenantId,
@@ -558,6 +611,11 @@ export function startRealtime(context: LiveContext, wiring: RealtimeWiring, reco
       onConnect: () => {
         live.realtime = { status: 'live', since: context.now() };
         context.refresh();
+        if (opened) return;
+        opened = true;
+        if (context.state.route.screen === 'inbox') void refreshInboxLists(context);
+        const openId = live.openConversationId;
+        if (openId !== null && live.timeline.status === 'ready') void loadTimeline(context, openId);
       },
       onEvent: (event) => {
         if (event.type === 'notification.changed') {
@@ -651,20 +709,23 @@ export async function applyRealtimeEvent(
     live.supervisorAgentId !== null &&
     (event.type === 'conversation.state' || event.type === 'conversation.assigned' || event.type === 'conversation.routing')
   ) {
-    tasks.push(refreshSupervisorWorkload(context));
+    tasks.push(singleFlight(live, 'supervisor-workload', () => refreshSupervisorWorkload(context)));
   }
   if (event.scope.conversationId === live.openConversationId) {
-    if (event.type !== 'conversation.contact') tasks.push(loadTimeline(context, event.scope.conversationId));
+    const id = event.scope.conversationId;
+    // Folded per thread: a burst of events about the open thread is one read.
+    // A contact event changes the header, not the messages.
+    if (event.type !== 'conversation.contact') tasks.push(singleFlight(live, `timeline:${id}`, () => loadTimeline(context, id)));
     if (event.type === 'message.inbound') {
       // The new customer message is the durable evidence that reopens the
       // WhatsApp service window. Refresh the conversation capability projection
       // as well as its timeline so Reply can become available without a reload.
-      tasks.push(refreshOpenConversation(context, event.scope.conversationId));
+      tasks.push(singleFlight(live, `record:${id}`, () => refreshOpenConversation(context, id)));
     }
     if (event.type === 'conversation.handoff') {
       // The offers moved; the record did not. Re-reading the whole conversation
       // for an offer somebody made would be a request for a banner.
-      tasks.push(loadRouting(context, event.scope.conversationId));
+      tasks.push(singleFlight(live, `routing:${id}`, () => loadRouting(context, id)));
     }
     if (
       event.type === 'conversation.state' ||
@@ -674,7 +735,7 @@ export async function applyRealtimeEvent(
     ) {
       // State and assignment affect lifecycle controls; a resolved contact name
       // changes the visible header. Re-read the authorized detail in both cases.
-      tasks.push(refreshOpenConversation(context, event.scope.conversationId));
+      tasks.push(singleFlight(live, `record:${id}`, () => refreshOpenConversation(context, id)));
     }
   }
   await Promise.all(tasks);

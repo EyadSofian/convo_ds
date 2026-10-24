@@ -157,12 +157,32 @@ describe('URL round-trip', () => {
       queue: 'all', sort: 'priority_desc', cursor: null, limit: 50, search: 'private customer words',
       filters: [{ key: 'label_id', operator: 'eq', value: '11111111-1111-4111-8111-111111111111' }],
     };
+    state.inboxQueue = 'all';
     const params = routeParamsFor(state);
-    expect(params).toMatchObject({ scope: 'all', sort: 'priority_desc' });
+    // The tab carries the scope; `scope` is only for links written before the All tab existed.
+    expect(params).toMatchObject({ queue: 'all', sort: 'priority_desc' });
+    expect(params.scope).toBeUndefined();
     expect(params.search).toBeUndefined();
     const next = createState(NOW);
-    applyRoute(next, parseHash(`#/inbox?scope=${params.scope}&sort=${params.sort}&filters=${encodeURIComponent(params.filters as string)}`));
+    applyRoute(next, parseHash(`#/inbox?queue=${params.queue}&sort=${params.sort}&filters=${encodeURIComponent(params.filters as string)}`));
+    expect(next.inboxQueue).toBe('all');
     expect(next.live.inboxQuery).toMatchObject({ queue: 'all', sort: 'priority_desc', filters: state.live.inboxQuery.filters, search: null });
+    // An older link still opens All.
+    const legacy = createState(NOW);
+    applyRoute(legacy, parseHash('#/inbox?scope=all'));
+    expect(legacy.live.inboxQuery.queue).toBe('all');
+  });
+
+  it('keeps a reload on Unassigned on Unassigned, whatever query All left behind', () => {
+    const state = createState(NOW);
+    state.inboxQueue = 'unassigned';
+    state.live.inboxQuery = { ...state.live.inboxQuery, queue: 'all' };
+    const params = routeParamsFor(state);
+    expect(params.queue).toBeUndefined();
+    expect(params.scope).toBeUndefined();
+    const next = createState(NOW);
+    applyRoute(next, parseHash('#/inbox'));
+    expect(next.inboxQueue).toBe('unassigned');
   });
 
   it('ignores a role in the URL, as it always must', () => {

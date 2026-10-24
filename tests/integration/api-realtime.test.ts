@@ -2147,6 +2147,22 @@ describe('the stream', () => {
     });
   }
 
+  /**
+   * A cursor at the start of what the feed retains, for this caller. A stream
+   * opened with no cursor starts at the newest event, so a test that wants
+   * the history replayed asks for it from here — exactly what a cursorless
+   * stream used to do.
+   */
+  async function fromStart(browser: Browser): Promise<string> {
+    const current = await feed(browser);
+    const bounds = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ oldest: string | null }>('SELECT min(seq)::text AS oldest FROM realtime_events'),
+    );
+    const oldest = Number(bounds.rows[0]?.oldest ?? '1');
+    const cursor = encodeCursor({ tenantId: api.tenantId, seq: oldest - 1, authority: decodeAuthority(current.cursor) });
+    return `?cursor=${encodeURIComponent(cursor)}`;
+  }
+
   function framesOf(payload: string): { event: string; data: Record<string, unknown> }[] {
     return payload
       .split('\n\n')
@@ -2159,7 +2175,7 @@ describe('the stream', () => {
   }
 
   it('sends what happened, then closes on its own with a reason', async () => {
-    const response = await stream(owner);
+    const response = await stream(owner, await fromStart(owner));
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('text/event-stream');
     // A reconnect floor, so a fleet does not all come back on the same tick.
@@ -2217,7 +2233,7 @@ describe('the stream', () => {
     );
     const unclaimed = conversation.rows[0]?.id;
 
-    const response = await stream(agentA);
+    const response = await stream(agentA, await fromStart(agentA));
     const frames = framesOf(response.payload).filter((entry) => {
       const scope = entry.data['scope'] as { conversationId?: string } | undefined;
       return entry.event === 'message.inbound' && scope?.conversationId === unclaimed;
@@ -2252,6 +2268,23 @@ describe('the stream', () => {
     });
     expect(response.statusCode).toBe(401);
   });
+
+  it('starts a stream with no cursor at the newest event, not at the beginning of history', async () => {
+    // Every page load opens one of these right after reading its lists. A
+    // replay of the retained history re-read those lists once per old event.
+    const response = await stream(owner);
+    expect(framesOf(response.payload).filter((entry) => entry.event === 'message.inbound')).toHaveLength(0);
+  }, 20_000);
+
+  it('hands a reset back a cursor at the newest event, so it does not reset again', async () => {
+    const response = await stream(owner, '?cursor=not-a-cursor');
+    const reset = response.payload.split('\n\n').find((block) => block.includes('event: reset_required')) ?? '';
+    const restart = /id: (.+)/.exec(reset)?.[1] ?? '';
+    const bounds = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ newest: string }>('SELECT max(seq)::text AS newest FROM realtime_events'),
+    );
+    expect(Buffer.from(restart, 'base64url').toString('utf8').split('|')[2]).toBe(bounds.rows[0]?.newest);
+  }, 20_000);
 
   it('tells a client whose cursor is unusable to start again', async () => {
     const response = await stream(owner, '?cursor=not-a-cursor');

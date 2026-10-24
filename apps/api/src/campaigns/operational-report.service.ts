@@ -295,9 +295,10 @@ export class OperationalReportingService {
 export function parseOperationalReportFilters(query: unknown): OperationalReportFilters {
   if (query === null || typeof query !== 'object' || Array.isArray(query)) throw invalid();
   const value = query as Record<string, unknown>;
-  const allowed = new Set(['from','to','agentId','teamId','channel','connectionId','labelId','campaignId','priority','status']);
+  const allowed = new Set(['from','to','agentId','teamId','channel','connectionId','labelId','campaignId','priority','status','tz']);
   if (Object.keys(value).some((key) => !allowed.has(key))) throw invalid();
-  const fromAt = date(value['from'], false); const toExclusiveAt = date(value['to'], true);
+  const zone = timezone(value['tz']);
+  const fromAt = date(value['from'], false, zone); const toExclusiveAt = date(value['to'], true, zone);
   if (fromAt !== null && toExclusiveAt !== null && fromAt >= toExclusiveAt) throw invalid();
   const uuid = (key: string): string | null => {
     const candidate = value[key];
@@ -319,7 +320,27 @@ export function parseOperationalReportFilters(query: unknown): OperationalReport
     status: enumeration('status', ['open','pending','snoozed','resolved','archived']),
   };
 }
-function date(value: unknown, exclusive: boolean): Date | null { if (value === undefined || value === '') return null; if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw invalid(); const at = new Date(`${value}T00:00:00.000Z`); if (Number.isNaN(at.getTime()) || at.toISOString().slice(0,10) !== value) throw invalid(); if (exclusive) at.setUTCDate(at.getUTCDate()+1); return at; }
+/**
+ * A report day starts at midnight where the operator is, not in UTC. A day
+ * read as UTC put a Cairo business's work between midnight and 02:00/03:00 on
+ * the previous day. With no zone given the day stays UTC, as it always was.
+ */
+function date(value: unknown, exclusive: boolean, zone: string): Date | null { if (value === undefined || value === '') return null; if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw invalid(); const at = new Date(`${value}T00:00:00.000Z`); if (Number.isNaN(at.getTime()) || at.toISOString().slice(0,10) !== value) throw invalid(); if (exclusive) at.setUTCDate(at.getUTCDate()+1); return zonedMidnight(at, zone); }
+function timezone(value: unknown): string { if (value === undefined || value === '') return 'UTC'; if (typeof value !== 'string' || value.length > 100) throw invalid(); try { new Intl.DateTimeFormat('en-US', { timeZone: value }).format(); } catch { throw invalid(); } return value; }
+/** The instant `utcMidnight`'s calendar day begins in `zone`. */
+export function zonedMidnight(utcMidnight: Date, zone: string): Date {
+  if (zone === 'UTC') return utcMidnight;
+  // The zone's offset can differ either side of a DST change, so it is read
+  // at the first guess and once more at the corrected instant.
+  const first = new Date(utcMidnight.getTime() - offsetMs(utcMidnight, zone));
+  return new Date(utcMidnight.getTime() - offsetMs(first, zone));
+}
+function offsetMs(at: Date, zone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(at);
+  const part = (type: string): number => Number(parts.find((entry) => entry.type === type)?.value ?? 0);
+  const wall = Date.UTC(part('year'), part('month') - 1, part('day'), part('hour'), part('minute'), part('second'));
+  return wall - Math.floor(at.getTime() / 1000) * 1000;
+}
 function invalid(): ApiHttpError { return new ApiHttpError(400,'validation_failed','The report date range is invalid.'); }
 
 function eventConversationDimensions(conversation: string, channel: string): string {

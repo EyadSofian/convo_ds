@@ -103,10 +103,10 @@ export class AssignmentReportService {
 export function parseAssignmentReportQuery(query: unknown): AssignmentReportQuery {
   if (query === null || typeof query !== 'object' || Array.isArray(query)) throw invalidQuery();
   const raw = query as Record<string, unknown>;
-  const allowed = new Set(['from','to','agentId','teamId','channel','connectionId','labelId','campaignId','priority','status','cursor','limit']);
+  const allowed = new Set(['from','to','agentId','teamId','channel','connectionId','labelId','campaignId','priority','status','tz','cursor','limit']);
   if (Object.keys(raw).some((key) => !allowed.has(key))) throw invalidQuery();
   const filterInput: Record<string, unknown> = {};
-  for (const key of ['from','to','agentId','teamId','channel','connectionId','labelId','campaignId','priority','status']) {
+  for (const key of ['from','to','agentId','teamId','channel','connectionId','labelId','campaignId','priority','status','tz']) {
     if (raw[key] !== undefined) filterInput[key] = raw[key];
   }
   const cursor = raw['cursor'] === undefined || raw['cursor'] === '' ? null : raw['cursor'];

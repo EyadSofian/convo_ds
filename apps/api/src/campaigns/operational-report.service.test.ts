@@ -57,3 +57,18 @@ describe('operational report filters', () => {
     await expect(validateReportEntities(sql, principal, parseOperationalReportFilters({ campaignId: '91000000-0000-4000-8000-000000000007' }), [agentId])).rejects.toThrow(ApiHttpError);
   });
 });
+
+describe('report days in the operator’s zone', () => {
+  it('starts and ends a Cairo day at Cairo midnight, across the DST change', () => {
+    const summer = parseOperationalReportFilters({ from: '2026-10-24', to: '2026-10-24', tz: 'Africa/Cairo' });
+    expect(summer.fromAt?.toISOString()).toBe('2026-10-23T21:00:00.000Z');
+    expect(summer.toExclusiveAt?.toISOString()).toBe('2026-10-24T21:00:00.000Z');
+    const winter = parseOperationalReportFilters({ from: '2026-01-15', to: '2026-01-15', tz: 'Africa/Cairo' });
+    expect(winter.fromAt?.toISOString()).toBe('2026-01-14T22:00:00.000Z');
+  });
+
+  it('keeps UTC days when no zone is given, and refuses one it does not know', () => {
+    expect(parseOperationalReportFilters({ from: '2026-10-24' }).fromAt?.toISOString()).toBe('2026-10-24T00:00:00.000Z');
+    expect(() => parseOperationalReportFilters({ from: '2026-10-24', tz: 'Mars/Olympus' })).toThrow();
+  });
+});

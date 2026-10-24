@@ -2,7 +2,7 @@ import { previewContactCsv, type Contact } from '../api/contacts.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import type { NewContactField } from './contact-profile.js';
-import { forTenant, fromResult, LOADING, ready, refetching, rowsOf } from './store.js';
+import { claimRead, forTenant, fromResult, LOADING, ready, refetching, rowsOf } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadWhatsAppTemplates } from './audience-actions.js';
 import { templateDefinition } from './template-binding.js';
@@ -49,6 +49,10 @@ export async function loadOpenContact(context: LiveContext, contactId: string | 
     live.openContact = LOADING;
     context.refresh();
     const result = await live.contactsApi.read(tenantId, contactId);
+    // The customer beside the thread is the open thread's customer; an answer
+    // for the previous one must not take its place.
+    const open = live.openConversation;
+    if (open.status === 'ready' && open.value.contactId !== contactId) return;
     live.openContact = fromResult(result, context.now());
     context.refresh();
   });
@@ -59,6 +63,8 @@ export async function loadOpenContact(context: LiveContext, contactId: string | 
 export async function loadContactsScreen(context: LiveContext): Promise<void> {
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
+    // Each keystroke of a search is a read; only the newest may write.
+    const current = claimRead(live, 'contacts');
     live.contacts = refetching(live, live.contacts);
     context.refresh();
     const result = await live.contactsApi.list(tenantId, {
@@ -67,8 +73,10 @@ export async function loadContactsScreen(context: LiveContext): Promise<void> {
       fieldId: live.contactFilters.fieldId,
       fieldValue: live.contactFilters.fieldValue,
     });
-    live.contacts = fromResult(result, context.now());
-    context.refresh();
+    if (current()) {
+      live.contacts = fromResult(result, context.now());
+      context.refresh();
+    }
     if (live.labels.status === 'idle') await loadMetadataCatalog(context);
   });
 }

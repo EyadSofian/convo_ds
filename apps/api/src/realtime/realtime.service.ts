@@ -174,6 +174,13 @@ export class RealtimeService {
     cursor: string | null,
     limit: number,
     backlogLimit: number,
+    /**
+     * Where a caller with no cursor starts. The catch-up page reads from the
+     * oldest retained event; a live stream starts at the newest, because the
+     * screen that opens it has just read its lists over HTTP and replaying the
+     * company's whole history into it is a request storm, not a catch-up.
+     */
+    start: 'oldest' | 'latest' = 'oldest',
   ): Promise<FeedPage> {
     this.authorization.assertTenantId(tenantId);
     return withTenant(this.pool, tenantId, async (client) => {
@@ -187,14 +194,22 @@ export class RealtimeService {
         throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
       }
       const authority = this.authorityOf(principal);
-      const oldest = await oldestRetainedSeq(sql);
-      const check = checkCursor(cursor, { tenantId, authority, oldestRetainedSeq: oldest });
+      const bounds = await retainedBounds(sql);
+      const oldest = bounds.oldest;
+      // A reset means "reload your view, then carry on". The caller re-reads
+      // its lists, so it resumes from the newest event, not from the oldest:
+      // handing back `oldest - 1` sent a consumer that was too far behind
+      // straight back to the same backlog, and so to the same reset, forever.
+      const restart = encodeCursor({ tenantId, seq: bounds.newest, authority });
+      const check = cursor === null && start === 'latest'
+        ? { status: 'ok' as const, seq: bounds.newest }
+        : checkCursor(cursor, { tenantId, authority, oldestRetainedSeq: oldest });
       if (check.status === 'reset_required') {
         return {
           status: 'reset_required' as const,
           reason: check.reason,
           // A cursor to start again from: the caller reloads and resumes here.
-          cursor: encodeCursor({ tenantId, seq: oldest - 1, authority }),
+          cursor: restart,
         };
       }
 
@@ -206,7 +221,7 @@ export class RealtimeService {
         return {
           status: 'reset_required' as const,
           reason: 'too_far_behind' as const,
-          cursor: encodeCursor({ tenantId, seq: oldest - 1, authority }),
+          cursor: restart,
         };
       }
 
@@ -269,27 +284,29 @@ export class RealtimeService {
 }
 
 /**
- * The lowest sequence the feed can still produce for this company.
+ * The lowest sequence the feed can still produce for this company, and the
+ * newest one it has produced.
  *
  * With nothing retained, the next event's number is the floor — so a first
  * connection starts from "nothing has happened yet" rather than from zero,
- * which would look like an expired cursor once pruning has run.
+ * which would look like an expired cursor once pruning has run. The newest is
+ * then the position just below that floor.
  */
-async function oldestRetainedSeq(sql: SqlExecutor): Promise<number> {
-  const rows = await sql.query<{ oldest: string | null; next: string | null }>(
+async function retainedBounds(sql: SqlExecutor): Promise<{ readonly oldest: number; readonly newest: number }> {
+  const rows = await sql.query<{ oldest: string | null; newest?: string | null; next: string | null }>(
     `SELECT (SELECT min(seq)::text FROM realtime_events) AS oldest,
+            (SELECT max(seq)::text FROM realtime_events) AS newest,
             (SELECT next_seq::text FROM tenant_event_sequences) AS next`,
   );
   const row = rows.rows[0];
-  /* c8 ignore next 3 -- a scalar subquery pair always returns exactly one row */
+  /* c8 ignore next 3 -- a scalar subquery triple always returns exactly one row */
   if (row === undefined) {
-    return 1;
-  }
-  if (row.oldest !== null) {
-    return Number(row.oldest);
+    return { oldest: 1, newest: 0 };
   }
   // Nothing retained: the floor is one past whatever was last handed out.
-  return row.next === null ? 1 : Number(row.next) + 1;
+  const oldest = row.oldest !== null ? Number(row.oldest) : row.next === null ? 1 : Number(row.next) + 1;
+  const newest = row.newest === null || row.newest === undefined ? oldest - 1 : Number(row.newest);
+  return { oldest, newest };
 }
 
 async function backlogAfter(sql: SqlExecutor, seq: number): Promise<number> {

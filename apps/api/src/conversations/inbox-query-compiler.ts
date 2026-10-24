@@ -157,9 +157,7 @@ function searchPredicate(search: string, add: (value: unknown) => string): strin
 export function readableScope(principal: Principal, add: (value: unknown) => string): string {
   const grant = principal.grants['conversation.read'] ?? 'none';
   if (grant === 'tenant') return 'TRUE';
-  const teams = principal.scopes.filter((scope) => scope.type === 'team').map((scope) => scope.id);
-  const inboxes = principal.scopes.filter((scope) => scope.type === 'inbox').map((scope) => scope.id);
-  const scoped = principal.scopes.some((scope) => scope.type === 'tenant') ? 'TRUE' : `(c.team_id = ANY(${add(teams)}::uuid[]) OR c.connection_id = ANY(${add(inboxes)}::uuid[]))`;
+  const scoped = teamOrInboxScope(principal, add);
   if (grant === 'scoped') return scoped;
   if (grant === 'own') {
     const member = add(principal.membershipId);
@@ -168,12 +166,38 @@ export function readableScope(principal: Principal, add: (value: unknown) => str
   return 'FALSE';
 }
 
+/**
+ * The SQL twin of `authorize(principal, 'conversation.unassigned.preview', …)`
+ * for a queue card, which names its inbox and team and nobody's assignment.
+ *
+ * It exists so the queue's row cap applies to rows the caller may see. Capped
+ * first and filtered after, an agent scoped to one inbox could be shown an
+ * empty queue while other inboxes' cards filled the cap.
+ */
+export function previewScope(principal: Principal, add: (value: unknown) => string): string {
+  const grant = principal.grants['conversation.unassigned.preview'] ?? 'none';
+  if (grant === 'tenant') return 'TRUE';
+  // `own` needs an assignment or participation, and a queue card has neither.
+  if (grant === 'scoped') return teamOrInboxScope(principal, add);
+  return 'FALSE';
+}
+
+function teamOrInboxScope(principal: Principal, add: (value: unknown) => string): string {
+  if (principal.scopes.some((scope) => scope.type === 'tenant')) return 'TRUE';
+  const teams = principal.scopes.filter((scope) => scope.type === 'team').map((scope) => scope.id);
+  const inboxes = principal.scopes.filter((scope) => scope.type === 'inbox').map((scope) => scope.id);
+  return `(c.team_id = ANY(${add(teams)}::uuid[]) OR c.connection_id = ANY(${add(inboxes)}::uuid[]))`;
+}
+
 function sortOf(sort: InboxQuery['sort']): string {
   switch (sort) {
     case 'activity_asc': return 'c.last_activity_at ASC, c.id ASC';
     case 'created_desc': return 'c.created_at DESC, c.id DESC';
     case 'created_asc': return 'c.created_at ASC, c.id ASC';
-    case 'waiting_desc': return 'c.waiting_since DESC NULLS LAST, c.id DESC';
+    // "Waiting longest": the longest wait is the *earliest* waiting_since, so
+    // it sorts ascending. Ordering it descending put the newest arrivals first
+    // under a label that promised the opposite. Nobody waiting sorts last.
+    case 'waiting_desc': return "coalesce(c.waiting_since,'infinity'::timestamptz) ASC, c.id ASC";
     case 'priority_desc': return "CASE c.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END DESC, c.id DESC";
     default: return 'c.last_activity_at DESC, c.id DESC';
   }

@@ -23,7 +23,7 @@ import {
   rowOf,
   SELECT_COLUMNS,
 } from './record.js';
-import type { ConversationDetail, ConversationRow, RawConversation } from './record.js';
+import type { ConversationDetail, ConversationRow, RawConversation, WhatsAppServiceWindow } from './record.js';
 import { recordConversationAudit } from './routing.service.js';
 import {
   readTimeline,
@@ -35,7 +35,7 @@ import type { TimelinePage } from './timeline.js';
 import { MetadataService } from '../metadata/metadata.service.js';
 import type { EntityMetadata } from '../metadata/metadata.service.js';
 import { OpaqueCursorCodec } from '../pagination.js';
-import { compileInboxQuery, readableScope } from './inbox-query-compiler.js';
+import { compileInboxQuery, previewScope, readableScope } from './inbox-query-compiler.js';
 import { validateInboxQuery } from './inbox-query-validation.js';
 import { requireScopedSupervisorAgent, scopedSupervisorAgents } from './supervisor-directory.js';
 import { conversationEventBoundary, conversationUnrepliedPredicate, latestConversationInbound } from './event-boundary.js';
@@ -299,6 +299,11 @@ export class ConversationService {
       tenantId,
       'conversation.unassigned.preview',
       async ({ sql, principal }) => {
+        const params: unknown[] = [filters.connectionId, filters.priority, filters.channel, filters.labelIds];
+        const scope = previewScope(principal, (value) => {
+          params.push(value);
+          return `$${String(params.length)}`;
+        });
         const rows = await sql.query<
           RawConversation & { display_name: string; kind: string; contact_display_name: string | null }
         >(
@@ -321,9 +326,10 @@ export class ConversationService {
                  WHERE cl.conversation_id = c.id AND cl.removed_at IS NULL
                    AND cl.label_id = ANY($4::uuid[])
               ) = cardinality($4::uuid[]))
+              AND ${scope}
             ORDER BY c.waiting_since NULLS LAST, c.id
             LIMIT 200`,
-          [filters.connectionId, filters.priority, filters.channel, filters.labelIds],
+          params,
         );
         const cards: QueueCard[] = [];
         for (const row of rows.rows) {
@@ -599,12 +605,22 @@ export class ConversationService {
       if (!decision.allowed) {
         throw denied();
       }
+      if (existing.status === 'archived') {
+        // Archived history is immutable: nobody holds it, and a claim would
+        // give it an owner the lifecycle refuses everywhere else.
+        throw new ApiHttpError(
+          409,
+          'archived_conversation_is_immutable',
+          'This conversation is archived. Its history is kept as it was; a new message from the customer opens a new one.',
+        );
+      }
       const claimed = await sql.query<{ version: number; owner_version: number }>(
         `UPDATE conversations
             SET assignee_membership_id = $2, waiting_since = NULL,
                 owner_state = 'human_active', owner_version = owner_version + 1,
                 last_activity_at = now(), version = version + 1
           WHERE id = $1 AND version = $3 AND assignee_membership_id IS NULL
+            AND status <> 'archived' AND deleted_at IS NULL
           RETURNING version, owner_version`,
         [conversationId, principal.membershipId, expectedVersion],
       );
@@ -654,7 +670,11 @@ export class ConversationService {
         [await readDetail(sql, conversationId)].filter(present),
         'the conversation vanished after a claim',
       );
-      return { ...detail, ...(await this.metadata.conversationMetadata(sql, conversationId)) };
+      // The claimer's composer is drawn from this record. Without the window a
+      // WhatsApp thread claimed a moment ago read as "cannot verify the
+      // window" until somebody reloaded the page.
+      const serviceWindow = await serviceWindowOf(sql, detail);
+      return { ...detail, serviceWindow, ...(await this.metadata.conversationMetadata(sql, conversationId)) };
     });
   }
 
@@ -678,9 +698,7 @@ export class ConversationService {
         throw notFound();
       }
       requireReadable(principal, detail);
-      const serviceWindow = detail.channel !== 'whatsapp'
-        ? { status: 'not_applicable' as const, lastCustomerInboundAt: null, serviceWindowExpiresAt: null }
-        : await readWhatsAppWindow(sql, conversationId);
+      const serviceWindow = await serviceWindowOf(sql, detail);
       return { ...detail, serviceWindow, ...(await this.metadata.conversationMetadata(sql, conversationId)) };
     });
   }
@@ -727,7 +745,7 @@ export class ConversationService {
 
 function cursorValue(sort: InboxQuery['sort']): string {
   if (sort === 'created_desc' || sort === 'created_asc') return 'c.created_at::text';
-  if (sort === 'waiting_desc') return "coalesce(c.waiting_since,'-infinity'::timestamptz)::text";
+  if (sort === 'waiting_desc') return "coalesce(c.waiting_since,'infinity'::timestamptz)::text";
   if (sort === 'priority_desc') return "(CASE c.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END)::text";
   return 'c.last_activity_at::text';
 }
@@ -736,10 +754,20 @@ function cursorPredicate(sort: InboxQuery['sort'], value: string, id: string, ad
   const v=add(value);const i=add(id);
   if(sort==='created_desc')return ` AND (c.created_at, c.id)<(${v}::timestamptz,${i}::uuid)`;
   if(sort==='created_asc')return ` AND (c.created_at, c.id)>(${v}::timestamptz,${i}::uuid)`;
-  if(sort==='waiting_desc')return ` AND (coalesce(c.waiting_since,'-infinity'::timestamptz),c.id)<(${v}::timestamptz,${i}::uuid)`;
+  if(sort==='waiting_desc')return ` AND (coalesce(c.waiting_since,'infinity'::timestamptz),c.id)>(${v}::timestamptz,${i}::uuid)`;
   if(sort==='priority_desc')return ` AND ((CASE c.priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END),c.id)<(${v}::integer,${i}::uuid)`;
   if(sort==='activity_asc')return ` AND (c.last_activity_at,c.id)>(${v}::timestamptz,${i}::uuid)`;
   return ` AND (c.last_activity_at,c.id)<(${v}::timestamptz,${i}::uuid)`;
+}
+
+/** The customer-service window a reply to this conversation is bound by. */
+async function serviceWindowOf(
+  sql: SqlExecutor,
+  detail: { readonly id: string; readonly channel: string },
+): Promise<WhatsAppServiceWindow> {
+  return detail.channel !== 'whatsapp'
+    ? { status: 'not_applicable', lastCustomerInboundAt: null, serviceWindowExpiresAt: null }
+    : readWhatsAppWindow(sql, detail.id);
 }
 
 async function readWhatsAppWindow(

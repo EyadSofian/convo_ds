@@ -443,6 +443,29 @@ describe('the queue', () => {
     expect(root.querySelector('.convrow--record')).not.toBeNull();
   });
 
+  it('never shows the All rows under Mine after a stop on Unassigned', async () => {
+    const other = '77777777-7777-4777-8777-777777777777';
+    const api = inboxApi()
+      .on(`GET /tenants/${TENANT}/conversations?queue=mine`, { status: 200, body: { data: [conversation()] } })
+      .on(`GET /tenants/${TENANT}/conversations?queue=all`, {
+        status: 200,
+        body: { data: [conversation(), conversation({ id: other, peerIdentity: '15550002222' })] },
+      });
+    const { root, app } = await open(api);
+    click(root, '[data-act="live-inbox-queue"][data-arg="all"]');
+    await settle();
+    expect(root.querySelectorAll('.convrow--record')).toHaveLength(2);
+    click(root, '[data-act="live-inbox-queue"][data-arg="unassigned"]');
+    // The All query is kept for coming back, and a reload here stays here.
+    expect(app.state.live.inboxQuery.queue).toBe('all');
+    expect(app.state.route.params['scope']).toBeUndefined();
+    click(root, '[data-act="live-inbox-queue"][data-arg="mine"]');
+    await settle();
+    // Mine is read for what it is, not served from the All rows.
+    expect(app.state.live.inboxQuery.queue).toBe('mine');
+    expect(root.querySelectorAll('.convrow--record')).toHaveLength(1);
+  });
+
   it('appends one cursor page without duplicating a conversation already visible', async () => {
     const second = '66666666-6666-4666-8666-666666666666';
     const api = inboxApi()

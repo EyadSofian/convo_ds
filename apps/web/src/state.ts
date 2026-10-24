@@ -217,7 +217,9 @@ export function routeParamsFor(state: AppState): Record<string, string> {
   }
   if (state.route.screen === 'inbox') {
     const query = state.live.inboxQuery;
-    if (query.queue !== 'mine' && state.inboxQueue !== 'all') params.scope = query.queue;
+    // `queue` names the tab. On Unassigned the Mine/All query is kept for when
+    // the operator goes back, and it must not read as "All" on a reload.
+    if (query.queue !== 'mine' && state.inboxQueue === 'mine') params.scope = query.queue;
     if (query.sort !== 'activity_desc') params.sort = query.sort;
     if (query.filters.length > 0) params.filters = JSON.stringify(query.filters);
   }

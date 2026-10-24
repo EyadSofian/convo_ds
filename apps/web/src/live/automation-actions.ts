@@ -122,7 +122,8 @@ export async function useAutomationTemplate(context: LiveContext, key: string): 
   context.refresh();
   return forTenant(context, false, async (tenantId) => {
     const suffix = context.newKey().slice(-6).toUpperCase();
-    const result = await context.live.automationsApi.useTemplate(tenantId, key, `${source.name} · ${suffix}`);
+    // A template's schedule ("every day at 9") means 9 where the operator is.
+    const result = await context.live.automationsApi.useTemplate(tenantId, key, `${source.name} · ${suffix}`, Intl.DateTimeFormat().resolvedOptions().timeZone);
     context.live.busy = null;
     if (!result.ok) {
       context.live.error = result.error;

@@ -46,7 +46,7 @@ import { browserStore, readPreferences, writePreferences } from './preferences';
 import type { Route, RouterHost, ScreenId } from './router';
 import { onRouteChange, readRoute, writeRoute } from './router';
 import type { AppState } from './state';
-import { applyRoute, createState, NO_ANALYTICS_FILTERS, routeParamsFor } from './state';
+import { applyRoute, createState, NO_ANALYTICS_FILTERS, pushToast, routeParamsFor } from './state';
 import { renderAnalytics } from './ui/analytics-screen';
 import { renderGate, renderPublicAuth } from './ui/auth';
 import { renderBroadcasts } from './ui/campaigns-screen';
@@ -736,7 +736,11 @@ export function mount(options: MountOptions): AppHandle {
     const load = SCREEN_LOADERS[screen];
     let drew = false;
     const settled = load({ ...current, refresh: () => { drew = true; refresh(); } });
-    void settled.then(() => {
+    // The stream and the deep link follow the load whether or not it threw:
+    // a screen whose load failed still has to hear about new work.
+    void settled.catch((cause: unknown) => {
+      console.error(cause);
+    }).then(() => {
       afterLoad(screen, current);
     });
     return drew;
@@ -862,15 +866,36 @@ export function mount(options: MountOptions): AppHandle {
     void checkForUpdate();
   };
 
+  /**
+   * The last line under every server-backed action.
+   *
+   * An action that throws — a response shaped differently from what this
+   * build expects, say — used to leave its busy mark set, and with it every
+   * control gated on "nothing is busy" disabled until the page was reloaded.
+   * The marks are released, the failure is said once, and the screen redrawn.
+   */
+  const settle = (pending: Promise<unknown>, from: LiveContext): void => {
+    pending.catch((cause: unknown) => {
+      if (from !== liveContext || destroyed) return;
+      state.live.busy = null;
+      state.live.refreshing = null;
+      pushToast(state, state.lang === 'ar' ? 'تعذّر إكمال هذا الإجراء. حاول مرة أخرى.' : 'That did not complete. Please try again.', 'danger');
+      // Kept for whoever opens the console; the operator has the toast.
+      console.error(cause);
+      refresh();
+    });
+  };
+
   const dispatch = (name: string, arg = ''): void => {
+    const from = liveContext;
     const notification = runNotificationAction(liveContext, name, arg);
     if (notification !== null) {
-      void notification;
+      settle(notification, from);
       return;
     }
     const pending = runLiveAction(liveContext, name, arg);
     if (pending !== null) {
-      void pending;
+      settle(pending, from);
       return;
     }
     runAction(name, context, arg);
@@ -1199,6 +1224,18 @@ export function mount(options: MountOptions): AppHandle {
       const viewChanged = previousRoute.params['view'] !== route.params['view'];
       const draftChanged = previousRoute.params['edit'] !== route.params['edit'];
       if (viewChanged || draftChanged) loadedScreen = null;
+    }
+    if (!firstDraw && route.screen === 'inbox' && previousScreen === 'inbox') {
+      // Back and forward through the inbox: the query in the address bar was
+      // applied above, so the lists it names are read again — otherwise the
+      // rows of the previous sort or filter stayed under the new one.
+      const queryChanged = ['queue', 'scope', 'sort', 'filters'].some((key) => previousRoute.params[key] !== route.params[key]);
+      if (queryChanged) loadedScreen = null;
+      // And the thread it names is the one shown, not the one left open.
+      const deepLinked = route.conversationId;
+      if (!queryChanged && deepLinked !== null && deepLinked !== state.live.openConversationId && workspaceOpen(state)) {
+        void openConversation(liveContext, deepLinked);
+      }
     }
     syncUrl();
     refresh();

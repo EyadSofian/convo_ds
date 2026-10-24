@@ -2,7 +2,7 @@ import type { ApiError } from '../api/client.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { refreshInboxLists } from './inbox-lists.js';
-import { failed, forTenant, fromResult, IDLE, LOADING, ready } from './store.js';
+import { adoptConversation, failed, forTenant, fromResult, IDLE, LOADING, ready } from './store.js';
 
 /**
  * Moving a conversation between people, from the browser.
@@ -134,6 +134,8 @@ export async function loadRouting(context: LiveContext, conversationId: string):
       live.conversationsApi.handoffs(tenantId, conversationId),
       live.conversationsApi.collaborators(tenantId, conversationId),
     ]);
+    // These belong to the thread they were asked about, which may no longer be open.
+    if (live.openConversationId !== conversationId) return;
     const now = context.now();
     // A failure to read them is not a failure to read the conversation: the
     // thread stays usable and only these sections say they could not load.
@@ -187,7 +189,7 @@ export async function assignConversation(
     (tenantId) =>
       live.conversationsApi.assign(tenantId, conversation.id, conversation.version, membershipId),
     async (record) => {
-      live.openConversation = ready(record, context.now());
+      adoptConversation(live, record, context.now());
       live.routingPanel = null;
       live.routingChoice = '';
       await refreshInboxLists(context);
@@ -298,7 +300,7 @@ export async function setPriority(context: LiveContext, priority: string): Promi
     (tenantId) =>
       live.conversationsApi.setPriority(tenantId, conversation.id, conversation.version, priority),
     async (record) => {
-      live.openConversation = ready(record, context.now());
+      adoptConversation(live, record, context.now());
       live.routingPanel = null;
       await refreshInboxLists(context);
     },

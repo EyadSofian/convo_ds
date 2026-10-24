@@ -69,7 +69,14 @@ function proxyApi(request, response) {
     }
     response.end(JSON.stringify({ error: { code: 'api_unavailable', message: 'The API is unavailable.' } }));
   });
+  // A browser that goes away must take the upstream request with it. `aborted`
+  // alone is not enough: Node only emits it while the request body is still
+  // being read, so a GET whose (empty) body was already piped — every live
+  // stream — kept its upstream connection, and the API kept polling for it.
   request.on('aborted', () => upstream.destroy());
+  response.on('close', () => {
+    if (!response.writableFinished) upstream.destroy();
+  });
   request.pipe(upstream);
 }
 

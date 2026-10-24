@@ -159,7 +159,8 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
         ]) : segmented(
           [
             { value: 'unassigned', label: t(state, 'غير مسندة', 'Unassigned'), count: countOf(live.unassigned) },
-            { value: 'mine', label: t(state, 'محادثاتي', 'Mine'), count: live.inboxQuery.queue === 'mine' ? countOf(live.conversations) : undefined },
+            // Only a page is loaded; more beyond it reads as "50+", not "50".
+            { value: 'mine', label: t(state, 'محادثاتي', 'Mine'), count: live.inboxQuery.queue === 'mine' ? countOf(live.conversations) : undefined, more: live.inboxNextCursor !== null },
             { value: 'all', label: t(state, 'الكل', 'All') },
           ],
           state.inboxQueue,

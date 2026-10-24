@@ -98,6 +98,87 @@ export function fromResult<T>(result: ApiResult<T>, now: number): Resource<T> {
   return result.ok ? ready(result.data, now) : failed(result.error);
 }
 
+const readTickets = new WeakMap<object, Map<string, number>>();
+
+/**
+ * Starts a read whose answer only the newest read may write.
+ *
+ * The returned check says whether this read is still the newest of its name.
+ * Reads of one list overlap — a keystroke's search, the next keystroke's, a
+ * realtime refresh — and the last answer to *arrive* used to win, even when it
+ * answered an older question.
+ */
+export function claimRead(owner: object, name: string): () => boolean {
+  let named = readTickets.get(owner);
+  if (named === undefined) {
+    named = new Map();
+    readTickets.set(owner, named);
+  }
+  const ticket = (named.get(name) ?? 0) + 1;
+  named.set(name, ticket);
+  const table = named;
+  return () => table.get(name) === ticket;
+}
+
+interface Flight {
+  again: boolean;
+  done: Promise<void>;
+}
+
+const flights = new WeakMap<object, Map<string, Flight>>();
+
+/**
+ * Runs `work` once at a time per owner and name, folding overlapping calls.
+ *
+ * A call made while the work is running does not start a second copy beside
+ * it; it asks for one more run after the current one, however many calls
+ * asked. Every caller's promise settles once a run that started after its call
+ * has finished — so a caller that has just changed something still sees the
+ * change, and twenty realtime events in a burst cost two reads, not twenty.
+ */
+export function singleFlight(owner: object, name: string, work: () => Promise<void>): Promise<void> {
+  let named = flights.get(owner);
+  if (named === undefined) {
+    named = new Map();
+    flights.set(owner, named);
+  }
+  const running = named.get(name);
+  if (running !== undefined) {
+    running.again = true;
+    return running.done;
+  }
+  const flight: Flight = { again: false, done: Promise.resolve() };
+  const table = named;
+  table.set(name, flight);
+  flight.done = (async () => {
+    try {
+      do {
+        flight.again = false;
+        await work();
+      } while (flight.again);
+    } finally {
+      table.delete(name);
+    }
+  })();
+  return flight.done;
+}
+
+/**
+ * Puts the record a command answered with on screen as the open conversation.
+ *
+ * A command's answer is the record after the change, and not every command
+ * answers with the reply window: assigning or resolving does not move it. A
+ * missing window is therefore carried over from the same conversation already
+ * on screen rather than read as "unknown" — which closed a WhatsApp composer
+ * until the page was reloaded.
+ */
+export function adoptConversation(live: LiveState, record: Conversation, now: number): void {
+  const previous = live.openConversation;
+  const window = record.serviceWindow ??
+    (previous.status === 'ready' && previous.value.id === record.id ? previous.value.serviceWindow : undefined);
+  live.openConversation = ready(window === undefined ? record : { ...record, serviceWindow: window }, now);
+}
+
 export type SessionState =
   | { readonly status: 'unknown' }
   | {

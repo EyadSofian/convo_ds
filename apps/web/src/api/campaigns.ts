@@ -436,6 +436,12 @@ function reportFilterQuery(filters: OperationalReportFilterInput): URLSearchPara
     const value = filters[key];
     if (value !== '') query.set(key, value);
   }
+  // A picked day is the operator's day: the server starts it at their
+  // midnight rather than UTC's.
+  if (filters.from !== '' || filters.to !== '') {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (zone !== '' && zone !== 'UTC') query.set('tz', zone);
+  }
   return query;
 }
 
