@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, withTenant } from '@convo/database';
-import type { DeliveryFold, Offer, SendOutcome, SqlExecutor, WhatsAppTemplateSendComponent } from '@convo/domain';
+import type { ChannelKind, DeliveryFold, Offer, SendOutcome, SqlExecutor, WhatsAppTemplateSendComponent } from '@convo/domain';
 import { foldDelivery, permitSend } from '@convo/domain';
 import type { Pool } from 'pg';
 import { API_POOL, CHANNEL_TRANSPORT } from '../tokens.js';
@@ -14,6 +14,7 @@ import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
 import { capabilitiesOf } from './outbound.service.js';
 import { latestConversationInbound } from '../conversations/event-boundary.js';
+import { statusOf } from './channel.service.js';
 
 /**
  * The outbound dispatcher.
@@ -69,9 +70,15 @@ interface ClaimRow {
   readonly template_components: readonly WhatsAppTemplateSendComponent[];
   readonly dispatch_version: number;
   readonly attempts: number;
-  readonly kind: string;
+  readonly kind: ChannelKind;
   readonly capabilities: unknown;
-  readonly connection_status: string;
+  readonly asset_verified_at: Date | null;
+  readonly credential_verified_at: Date | null;
+  readonly webhook_subscribed_at: Date | null;
+  readonly first_inbound_at: Date | null;
+  readonly first_outbound_at: Date | null;
+  readonly last_error_code: string | null;
+  readonly last_error_at: Date | null;
   readonly disconnected_at: Date | null;
   readonly campaign_recipient_id: string | null;
   readonly campaign_test_send_id: string | null;
@@ -277,7 +284,9 @@ export class ChannelDispatcherService {
                     m.conversation_id::text AS conversation_id,
                     m.message_type, m.text_body, m.template_name, m.template_language, m.template_components,
                     m.dispatch_version, o.attempts,
-                    c.kind, c.capabilities, c.status AS connection_status,c.disconnected_at,
+                    c.kind, c.capabilities,c.disconnected_at,c.asset_verified_at,
+                    c.credential_verified_at,c.webhook_subscribed_at,c.first_inbound_at,
+                    c.first_outbound_at,c.last_error_code,c.last_error_at,
                     cr.id::text AS campaign_recipient_id,cts.id::text AS campaign_test_send_id`,
         [tenantId, trafficClass, limit, workerId, LEASE_SECONDS],
       );
@@ -387,8 +396,8 @@ export class ChannelDispatcherService {
     if (claim.disconnected_at !== null) {
       return { reason: 'channel_disconnected', detail: 'The channel was disconnected.' };
     }
-    if ((claim.campaign_recipient_id !== null || claim.campaign_test_send_id !== null) && claim.connection_status !== 'healthy') {
-      return { reason: 'channel_not_ready', detail: 'The campaign channel is not healthy.' };
+    if ((claim.campaign_recipient_id !== null || claim.campaign_test_send_id !== null) && statusOf(claim) !== 'healthy') {
+      return { reason: 'channel_not_ready', detail: 'The campaign channel readiness checks no longer pass.' };
     }
     const suppressed = await sql.query(
       'SELECT 1 FROM channel_suppressions WHERE kind = $1 AND peer_identity = $2',

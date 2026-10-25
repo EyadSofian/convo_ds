@@ -680,7 +680,9 @@ export async function refreshStatus(sql: SqlExecutor, connectionId: string): Pro
   ]);
 }
 
-function evidenceOf(row: ConnectionRow): EvidenceRecord {
+function evidenceOf(row: Pick<ConnectionRow,
+  'asset_verified_at' | 'credential_verified_at' | 'webhook_subscribed_at' |
+  'first_inbound_at' | 'first_outbound_at'>): EvidenceRecord {
   return {
     asset_verified: row.asset_verified_at !== null,
     credential_verified: row.credential_verified_at !== null,
@@ -690,7 +692,13 @@ function evidenceOf(row: ConnectionRow): EvidenceRecord {
   };
 }
 
-function statusOf(row: ConnectionRow): Readiness {
+export type ConnectionReadinessEvidence = Pick<ConnectionRow,
+  'kind' | 'facebook_page_id' | 'asset_verified_at' | 'credential_verified_at' |
+  'webhook_subscribed_at' | 'first_inbound_at' | 'first_outbound_at' |
+  'last_error_code' | 'last_error_at' | 'disconnected_at'>;
+
+/** One readiness calculation for the Channels screen and send gates. */
+export function statusOf(row: ConnectionReadinessEvidence): Readiness {
   return readinessOf({
     evidence: evidenceOf(row),
     disconnected: row.disconnected_at !== null,
