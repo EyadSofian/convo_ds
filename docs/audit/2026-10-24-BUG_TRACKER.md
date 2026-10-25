@@ -44,7 +44,7 @@ Root cause is server + browser together, not the tab click itself:
 | C15 | Web | Switching Mine ↔ All quickly: the slower answer won, so a tab could show the other tab's rows | **Fixed** by H6 (latest read wins) |
 | C9 | Web | "Mine" tab badge counted loaded rows only (showed 50 for 300) | **Fixed** — shows `50+` when more pages exist |
 | C10 | Web | Contacts search: an older keystroke's answer could overwrite a newer one | **Fixed** — latest-read-wins |
-| C11 | API (business) | Unassigning a `pending`/`snoozed` conversation hides it from both Unassigned (open-only) and Mine until the customer writes / it wakes | **Open** — decide: show non-open unassigned work in the queue, or block unassign outside `open` |
+| C11 | API (business) | Unassigning a `pending`/`snoozed` conversation hides it from both Unassigned (open-only) and Mine until the customer writes / it wakes | **Fixed** (2026-10-25, owner decision) — the Unassigned queue includes `pending` and `snoozed` work, shows its status on the card, and it stays claimable |
 | C12 | API | Unassigned queue is capped at 200 with no pagination or "more" signal | **Open** |
 | C13 | API | Any drift between the SQL inbox scope and the domain check turns the whole list into a 500 | **Open** — by design (fail closed); consider logging + dropping the row |
 

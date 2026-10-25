@@ -317,7 +317,9 @@ export class ConversationService {
              JOIN channel_connections n ON n.id = c.connection_id
              LEFT JOIN contacts contact ON contact.id = c.contact_id AND contact.deleted_at IS NULL
             WHERE c.assignee_membership_id IS NULL
-              AND c.status = 'open'
+              -- Unassigned pending or snoozed work stays claimable here; it is
+              -- in nobody's Mine, so leaving it out would hide it from everyone.
+              AND c.status IN ('open', 'pending', 'snoozed')
               AND ($1::uuid IS NULL OR c.connection_id = $1)
               AND ($2::text IS NULL OR c.priority = $2)
               AND ($3::text IS NULL OR n.kind = $3)

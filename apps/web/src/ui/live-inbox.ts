@@ -1,4 +1,5 @@
 import type { Conversation, QueueCard, TimelineMessage } from '../api/conversations.js';
+import type { Person } from '../api/people.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { clockTime, dayLabel, initials, relativeTime } from '../format.js';
@@ -461,7 +462,8 @@ function valueControl(state: AppState, live: LiveState, definition: InboxFilterD
 /** Converts server-backed resources into labels before they reach a picker. */
 function pickerOptions(live: LiveState, definition: InboxFilterDefinition): readonly { readonly value: string; readonly label: string }[] | null {
   if (definition.valueType === 'membership_id') {
-    return rowsOf(live.people).filter((person) => person.status === 'active').map((person) => ({ value: person.membership_id, label: person.email }));
+    const people = rowsOf(live.people).filter((person) => person.status === 'active');
+    return people.map((person) => ({ value: person.membership_id, label: personLabel(person, people) }));
   }
   if (definition.valueType === 'team_id') {
     return rowsOf(live.teams).filter((team) => !team.archived).map((team) => ({ value: team.id, label: team.name }));
@@ -513,13 +515,26 @@ function filterDescription(state: AppState, live: LiveState, filter: InboxFilter
 
 function filterValueLabel(live: LiveState, filter: InboxFilter, value: string): string {
   if (filter.key === 'assigned_agent_id' || filter.key === 'collaborator_id' || filter.key === 'participant_id' || filter.key === 'handoff_target_id') {
-    return rowsOf(live.people).find((person) => person.membership_id === value)?.email ?? pendingValue();
+    const people = rowsOf(live.people);
+    const person = people.find((entry) => entry.membership_id === value);
+    return person === undefined ? pendingValue() : personLabel(person, people);
   }
   if (filter.key === 'team_id') return rowsOf(live.teams).find((team) => team.id === value)?.name ?? pendingValue();
   if (filter.key === 'connection_id') return rowsOf(live.connections).find((connection) => connection.id === value)?.display_name ?? pendingValue();
   if (filter.key === 'label_id') return rowsOf(live.labels).find((label) => label.id === value)?.name ?? pendingValue();
   if (filter.key === 'campaign_id') return rowsOf(live.campaigns).find((campaign) => campaign.id === value)?.name ?? pendingValue();
   return value;
+}
+
+/**
+ * A member as people know them: by name, with the email only where two share a
+ * name or no name was given, so the right person is still told apart.
+ */
+function personLabel(person: Person, people: readonly Person[]): string {
+  const name = person.display_name?.trim() ?? '';
+  if (name === '') return person.email;
+  const shared = people.some((other) => other.membership_id !== person.membership_id && other.display_name?.trim() === name);
+  return shared ? `${name} · ${person.email}` : name;
 }
 
 /** The fallback avoids leaking opaque query identifiers into the visual UI. */
@@ -668,6 +683,8 @@ function queueRow(state: AppState, live: LiveState, card: QueueCard): HTMLElemen
       ]),
       h('div', { class: 'convrow__line convrow__meta' }, [
         h('span', { class: 'convrow__where' }, [`${phrase(state, CHANNEL_NAMES, card.channel)} · ${card.inboxLabel}`]),
+        // Pending and snoozed work also waits here once nobody holds it.
+        card.status === 'open' ? null : statusBadge(state, card.status),
         priorityCue(state, card.priority),
       ]),
     ]),

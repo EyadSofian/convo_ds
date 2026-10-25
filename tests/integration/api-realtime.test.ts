@@ -5288,6 +5288,33 @@ describe('what a reassigned agent keeps, and what they lose', () => {
     const mine = await send(api, agentA, 'GET', '/conversations?queue=mine');
     expect((mine.json() as { data: { id: string }[] }).data.map((e) => e.id)).toContain(id);
   });
+
+  it('keeps unassigned pending and snoozed work in the queue, where it can still be claimed', async () => {
+    const ids: Record<string, string> = {};
+    for (const [status, peer, mid] of [['pending', '15557000753', 'wamid.rt-753'], ['snoozed', '15557000754', 'wamid.rt-754']] as const) {
+      await customerWrites(INBOX_A, peer, 'ما زلت أنتظر', mid);
+      // Unassigned while not open: in nobody's Mine, so the queue is the only
+      // place anybody can find it.
+      const row = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+        `UPDATE conversations SET status=$2, assignee_membership_id=NULL, version=version+1
+          WHERE peer_identity=$1 RETURNING id::text`, [peer, status],
+      ));
+      ids[status] = row.rows[0]?.id as string;
+    }
+
+    const queue = await send(api, agentA, 'GET', '/conversations/unassigned');
+    const cards = (queue.json() as { data: { id: string; status: string; claimable: boolean }[] }).data;
+    expect(cards.find((card) => card.id === ids['pending'])).toMatchObject({ status: 'pending', claimable: true });
+    expect(cards.find((card) => card.id === ids['snoozed'])).toMatchObject({ status: 'snoozed', claimable: true });
+
+    const current = await withTenant(api.pool, api.tenantId, (client) => client.query<{ version: number }>(
+      'SELECT version FROM conversations WHERE id=$1', [ids['snoozed']],
+    ));
+    const claimed = await send(api, agentA, 'POST', `/conversations/${ids['snoozed']}/claim`, { version: current.rows[0]?.version });
+    expect(claimed.statusCode).toBe(200);
+    const after = await send(api, agentA, 'GET', '/conversations/unassigned');
+    expect((after.json() as { data: { id: string }[] }).data.map((card) => card.id)).not.toContain(ids['snoozed']);
+  });
 });
 
 function decodeAuthority(cursor: string): string {
