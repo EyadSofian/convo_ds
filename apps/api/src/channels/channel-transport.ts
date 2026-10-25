@@ -33,8 +33,11 @@ export interface ChannelTransportPort {
     endpoint?: string | null,
   ): Promise<ConnectionCheck>;
   send(kind: ChannelKind, credential: string, command: SendCommand): Promise<SendOutcome>;
-  /** Optional provider profile lookup. A missing name must never block inbound. */
-  fetchPeerProfile?(kind: ChannelKind, credential: string, peerIdentity: string): Promise<string | null>;
+  /**
+   * Optional provider profile lookup. A missing name must never block inbound.
+   * `pageId` is the Meta Page the sender wrote to, when the channel has one.
+   */
+  fetchPeerProfile?(kind: ChannelKind, credential: string, peerIdentity: string, pageId?: string | null): Promise<string | null>;
   /** Optional because only WhatsApp exposes the template catalogue. */
   fetchTemplates?(
     kind: ChannelKind,

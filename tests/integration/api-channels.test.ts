@@ -2751,7 +2751,9 @@ describe('durable Meta sender profile enrichment', () => {
       await normalizer.drain(api.tenantId);
       expect(await normalizer.pendingProfileTenants()).toContain(api.tenantId);
       expect(await normalizer.drainProfiles(api.tenantId)).toBe(1);
-      expect(profile).toHaveBeenCalledWith('messenger', 'synthetic-page-token-for-profile-test', '4528904674043162');
+      // The Page the sender wrote to travels with the lookup, so the transport
+      // can ask that Page's conversation when Graph withholds the profile.
+      expect(profile).toHaveBeenCalledWith('messenger', 'synthetic-page-token-for-profile-test', '4528904674043162', '483612954841071');
       const rows = await withTenant(api.pool, api.tenantId, (client) => client.query<{
         display_name: string; external_id: string;
       }>(`SELECT c.display_name, i.external_id FROM contacts c

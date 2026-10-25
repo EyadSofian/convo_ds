@@ -75,6 +75,14 @@ interface ProfileBody {
   readonly error?: GraphError;
 }
 
+/**
+ * Profile outcomes the conversation participants can still answer. A rejected
+ * token, a rate limit or an unavailable Graph would fail the same way there.
+ */
+const PARTICIPANT_FALLBACK: ReadonlySet<string> = new Set([
+  'profile_withheld', 'profile_permission_denied', 'profile_invalid_request', 'profile_unavailable',
+]);
+
 function profileFailureCode(status: number, error: GraphError | undefined): string {
   if (status === 429 || error?.code === 4 || error?.code === 80007) return 'profile_rate_limited';
   if (status === 401 || error?.code === 190) return 'profile_credential_rejected';
@@ -97,8 +105,14 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  /** Page-scoped Meta identities need a Page credential; webhook IDs are not names. */
-  async fetchPeerProfile(kind: ChannelKind, credential: string, peerIdentity: string): Promise<string | null> {
+  /**
+   * Page-scoped Meta identities need a Page credential; webhook IDs are not names.
+   *
+   * `pageId` is the Page the conversation runs through: the connection's own
+   * asset for Messenger, the linked Page for Instagram. It enables the
+   * participants fallback below and is never required for the profile lookup.
+   */
+  async fetchPeerProfile(kind: ChannelKind, credential: string, peerIdentity: string, pageId?: string | null): Promise<string | null> {
     if (kind !== 'messenger' && kind !== 'instagram') return null;
     if (!/^[0-9]{1,32}$/.test(peerIdentity)) return null;
     // A single unsupported field makes Graph reject the whole profile lookup.
@@ -120,15 +134,67 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     if (kind === 'instagram' && !result.response.ok && result.body?.error?.code === 100) {
       result = await request('id,username');
     }
-    if (!result.response.ok) throw new ProfileLookupError(profileFailureCode(result.response.status, result.body?.error));
-    const body = result.body;
-    if (body?.id !== peerIdentity) return null;
-    const name = typeof body.name === 'string' ? body.name.trim() : '';
-    const first = typeof body.first_name === 'string' ? body.first_name.trim() : '';
-    const last = typeof body.last_name === 'string' ? body.last_name.trim() : '';
-    const username = typeof body.username === 'string' ? body.username.trim() : '';
-    const candidate = name || [first, last].filter(Boolean).join(' ') || username;
-    return candidate.length > 0 && candidate.length <= 200 ? candidate : null;
+    let failure: string;
+    if (result.response.ok) {
+      const body = result.body;
+      // Another id is another person. That answer is wrong, not withheld, so
+      // nothing below is asked to guess who this sender might be instead.
+      if (body?.id !== undefined && body.id !== peerIdentity) return null;
+      const name = typeof body?.name === 'string' ? body.name.trim() : '';
+      const first = typeof body?.first_name === 'string' ? body.first_name.trim() : '';
+      const last = typeof body?.last_name === 'string' ? body.last_name.trim() : '';
+      const username = typeof body?.username === 'string' ? body.username.trim() : '';
+      const candidate = name || [first, last].filter(Boolean).join(' ') || username;
+      if (candidate.length > 0) return candidate.length <= 200 ? candidate : null;
+      // Without Advanced Access to "Business Asset User Profile Access", Graph
+      // answers 200 with an empty profile rather than an error. That used to
+      // look like a transient miss and was retried until it gave up for good.
+      failure = 'profile_withheld';
+    } else {
+      failure = profileFailureCode(result.response.status, result.body?.error);
+    }
+    if (PARTICIPANT_FALLBACK.has(failure)) {
+      const participant = await this.fetchParticipantName(kind, credential, peerIdentity, pageId);
+      if (participant !== null) return participant;
+    }
+    throw new ProfileLookupError(failure);
+  }
+
+  /**
+   * The sender's name as a participant of the Page's conversation with them.
+   *
+   * It needs only what a connected Page already has to receive and answer
+   * messages (`pages_messaging`, `pages_manage_metadata`), not the separate
+   * profile feature, so it still names senders when the profile lookup cannot.
+   * Any failure here is a miss: the profile lookup's reason is the one reported.
+   */
+  private async fetchParticipantName(
+    kind: 'messenger' | 'instagram', credential: string, peerIdentity: string, pageId: string | null | undefined,
+  ): Promise<string | null> {
+    if (pageId === null || pageId === undefined || !/^[0-9]{1,32}$/.test(pageId)) return null;
+    let response: Response;
+    try {
+      response = await this.fetchImpl(
+        `${this.graphBase}/${pageId}/conversations?platform=${kind}&user_id=${peerIdentity}&fields=participants`,
+        { method: 'GET', headers: { authorization: `Bearer ${credential}` }, signal: AbortSignal.timeout(this.timeoutMs) },
+      );
+    } catch {
+      return null;
+    }
+    if (!response.ok) return null;
+    const conversations = record(await readJson(response))?.['data'];
+    for (const conversation of Array.isArray(conversations) ? conversations : []) {
+      const participants = record(record(conversation)?.['participants'])?.['data'];
+      for (const participant of Array.isArray(participants) ? participants : []) {
+        const entry = record(participant);
+        if (entry?.['id'] !== peerIdentity) continue;
+        // Graph names Page-messaging participants and gives Instagram ones a username.
+        const value = kind === 'instagram' ? entry['username'] : entry['name'];
+        const candidate = typeof value === 'string' ? value.trim() : '';
+        return candidate.length > 0 && candidate.length <= 200 ? candidate : null;
+      }
+    }
+    return null;
   }
 
   /**

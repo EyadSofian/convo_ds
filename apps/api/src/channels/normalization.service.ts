@@ -89,6 +89,7 @@ export class ChannelNormalizationService {
     if (this.transport.fetchPeerProfile === undefined) return 0;
     const rows = await withTenant(this.pool, tenantId, async (client) => asExecutor(client).query<{
       contact_id: string; connection_id: string; peer_identity: string; kind: 'messenger' | 'instagram';
+      page_id: string | null;
     }>(
       `WITH claimed AS (
          SELECT q.tenant_id, q.contact_id, q.connection_id
@@ -102,7 +103,9 @@ export class ChannelNormalizationService {
              AND q.connection_id=x.connection_id
          RETURNING q.contact_id, q.connection_id
        )
-       SELECT l.contact_id::text, l.connection_id::text, i.external_id AS peer_identity, c.kind
+       SELECT l.contact_id::text, l.connection_id::text, i.external_id AS peer_identity, c.kind,
+              -- Instagram conversations run through the Page linked to the account.
+              CASE WHEN c.kind='instagram' THEN c.settings->>'facebook_page_id' ELSE c.external_asset_id END AS page_id
          FROM leased l
          JOIN channel_connections c ON c.id=l.connection_id
          JOIN contact_identities i ON i.contact_id=l.contact_id AND i.scope_id=l.connection_id
@@ -118,7 +121,7 @@ export class ChannelNormalizationService {
         name = await withTenant(this.pool, tenantId, async (client) =>
           this.credentials.withActive(asExecutor(client),
             { tenantId, connectionId: row.connection_id, purpose: 'access_token' },
-            (token) => this.transport.fetchPeerProfile!(row.kind, token, row.peer_identity)));
+            (token) => this.transport.fetchPeerProfile!(row.kind, token, row.peer_identity, row.page_id)));
       } catch (error) {
         if (error instanceof ProfileLookupError) failureCode = error.code;
         // A missing/rotating key or provider failure is retryable profile work,
