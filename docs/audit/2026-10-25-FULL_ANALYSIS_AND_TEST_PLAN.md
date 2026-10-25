@@ -1,6 +1,6 @@
 # تحليل شامل للمشروع وخطة الاختبار الكامل — 2026-10-25
 
-الفرع: `fix/messenger-sender-names` (مبني على `main` = `ef9a693`).
+الفرع: `fix/messenger-sender-names` (مبني على `main` = `207df67`).
 الهدف: تجهيز المشروع لاختبار كامل للـ Backend والـ Frontend (كل زرار، وكل قاعدة Business Logic)، وإصلاح عيوب الواجهة، وحل مشكلة اسم العميل في ماسنجر.
 
 ---
@@ -22,7 +22,7 @@
 | `apps/api` | NestJS 11 على Fastify 5. فيه REST `/api/v1` (159 route في `docs/api/openapi.v1.json`)، وwebhooks، وSSE، وكل الـ workers. |
 | `apps/web` | الواجهة: TypeScript + Vite، بدون framework (دالة `h()` بترسم DOM). `server.mjs` بيقدّم الواجهة وبيعمل proxy لـ `/api`. |
 | `packages/domain` | قواعد العمل المشتركة: القنوات، والسياسات، والصلاحيات، والقوالب، والـ fairness. |
-| `packages/database` | 52 migration (forward-only) وأوامر `bootstrap`/`migrate`. |
+| `packages/database` | 53 migration (forward-only) وأوامر `bootstrap`/`migrate`. |
 | `packages/contracts` | أنواع الأخطاء والعقود المشتركة. |
 | `apps/progress`, `apps/proposal` | بوابات عرض للعميل، منفصلة عن المنتج. |
 | `deploy/` | Docker Compose (مثال + Hostinger) و`start.sh`. |
@@ -123,7 +123,7 @@
 1. **مسار بديل للاسم:** لو الملف الشخصي رجع فاضي، أو اترفض بسبب صلاحية أو طلب غير صالح، الـ transport بيسأل `GET /{page-id}/conversations?platform=messenger&user_id={PSID}&fields=participants` وبيقرا `participants[].name`. ده محتاج `pages_messaging` و`pages_manage_metadata` بس ([Conversation reference](https://developers.facebook.com/docs/graph-api/reference/conversation/)). ودول نفس الصلاحيات اللي القناة محتاجاها أصلًا علشان تستقبل وترد. في إنستجرام بيقرا `username` عن طريق الـ Page المربوطة.
 2. **سبب واضح:** كود جديد `profile_withheld`، وتحته رسالة في شاشة القنوات بالعربي والإنجليزي بتقول بالظبط المطلوب في تطبيق Meta.
 3. **الـ worker بيبعت الـ Page ID:** `external_asset_id` لماسنجر، و`settings.facebook_page_id` لإنستجرام.
-4. **Migration `0052`:** بتعيد كل العملاء اللي لسه اسمهم = الـ PSID للطابور بعد الـ deploy، على نمط `0047` و`0048`. مابتلمسش أي اسم عدّله موظف.
+4. **Migration `0053`:** بتعيد كل العملاء اللي لسه اسمهم = الـ PSID للطابور بعد الـ deploy، على نمط `0047` و`0048`. مابتلمسش أي اسم عدّله موظف.
 5. **مش بيحصل طلب تاني** لو الخطأ token مرفوض، أو rate limit، أو Meta واقعة، لأن المسار البديل هيفشل بنفس الطريقة.
 
 ### اتأكدنا من إيه
@@ -144,12 +144,12 @@
 
 | # | العيب | الحالة |
 |---|---|---|
-| F1 | اسم ماسنجر/إنستجرام مابيظهرش (§4) | **اتصلح** + اختبارات + migration 0052 |
+| F1 | اسم ماسنجر/إنستجرام مابيظهرش (§4) | **اتصلح** + اختبارات + migration 0053 |
 | F2 | زرار "حفظ العرض الحالي" و"تحديث" في قائمة العروض المحفوظة (Inbox) ميتين: بيبعتوا `open-dialog` والـ registry مافيهوش غير `dialog` | **اتصلح** |
 | F3 | مفيش أي حماية من زرار باسم action مالوش handler | **اتصلح:** `apps/web/src/action-wiring.test.ts` بيقرأ كل أسماء الـ actions من الكود ويفشل لو أي واحد مالوش handler. واتأكدنا إنه بيمسك F2 لو اترجع. |
 | F4 | الـ E2E كلها على API وهمي، ومفيش اختبار full-stack | مفتوح، خطة في §6.3 |
 | F5 | كارت العميل في طابور "غير مُسند" بيرسم avatar فاضي لعميل ماسنجر من غير اسم، والـ thread header بيرسم "عم" | مفتوح (تجميلي) |
-| F6 | `scripts/deploy-railway.sh` مثبّت على migration `0044` والـ main وصل `0052`، يعني أي deploy على Railway هيترفض | مفتوح. Railway مابقاش مسار الإنتاج، فلازم يتحدّث أو يتشال. |
+| F6 | `scripts/deploy-railway.sh` مثبّت على migration `0044` والفرع ده وصل `0053`، يعني أي deploy على Railway هيترفض | مفتوح. Railway مابقاش مسار الإنتاج، فلازم يتحدّث أو يتشال. |
 | F7 | `docs/testing/strategy.md` بيقول إن الـ E2E "real backend, real DB" والواقع غير كده | مفتوح (توثيق) |
 
 ### 5.1 عيوب مفتوحة من مراجعة 2026-10-24 (`docs/audit/2026-10-24-BUG_TRACKER.md`)
