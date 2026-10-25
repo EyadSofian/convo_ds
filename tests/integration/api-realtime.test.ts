@@ -5296,7 +5296,9 @@ describe('what a reassigned agent keeps, and what they lose', () => {
       // Unassigned while not open: in nobody's Mine, so the queue is the only
       // place anybody can find it.
       const row = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
-        `UPDATE conversations SET status=$2, assignee_membership_id=NULL, version=version+1
+        `UPDATE conversations SET status=$2, assignee_membership_id=NULL, version=version+1,
+                snoozed_until=CASE WHEN $2='snoozed' THEN now() + interval '1 day' END,
+                snooze_timezone=CASE WHEN $2='snoozed' THEN 'Africa/Cairo' END
           WHERE peer_identity=$1 RETURNING id::text`, [peer, status],
       ));
       ids[status] = row.rows[0]?.id as string;
