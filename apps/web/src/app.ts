@@ -1248,7 +1248,7 @@ export function mount(options: MountOptions): AppHandle {
   const onScroll = (event: Event): void => {
     const target = event.target as HTMLElement;
     if (target.getAttribute('data-scroll') !== 'screen' || state.openMenu !== null) return;
-    const next = nextHeaderHidden(headerHidden, screenScrollTop, target.scrollTop);
+    const next = nextHeaderHidden(headerHidden, screenScrollTop, target.scrollTop, target.scrollHeight - target.clientHeight);
     screenScrollTop = target.scrollTop;
     if (next !== headerHidden) setHeaderHidden(next);
   };
