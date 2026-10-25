@@ -271,6 +271,7 @@ describe('connected integrations', () => {
   it.each([
     ['profile_credential_rejected', 'Meta rejected the token'],
     ['profile_rate_limited', 'Meta temporarily rate-limited'],
+    ['profile_withheld', 'Business Asset User Profile Access'],
     ['profile_provider_unavailable', 'Meta has not returned this name yet'],
   ])('explains sender profile error %s', (code, explanation) => {
     const { state, element } = screen([connection({ id: 'cn-ms', kind: 'messenger', sender_profiles: {

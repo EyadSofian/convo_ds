@@ -597,6 +597,7 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
 }
 
 function profileLookupHint(state: AppState, code: string): string {
+  if (code === 'profile_withheld') return t(state, 'Meta ردّت بدون اسم المرسل. اطلب Advanced Access لميزة Business Asset User Profile Access في App Review لتطبيق Meta، وتأكد أن Page token فيه pages_messaging وpages_manage_metadata، ثم أعد الجلب.', 'Meta answered without the sender\'s name. Request Advanced Access to Business Asset User Profile Access in your Meta app\'s App Review, make sure the Page token has pages_messaging and pages_manage_metadata, then retry.');
   if (code === 'profile_permission_denied') return t(state, 'توكن الصفحة لا يملك صلاحية قراءة ملف المرسل؛ راجع صلاحيات تطبيق Meta وجدد Page token.', 'The Page token cannot read the sender profile. Check Meta app permissions and refresh the Page token.');
   if (code === 'profile_credential_rejected') return t(state, 'Meta رفضت التوكن؛ استبدله بـ Page token صالح.', 'Meta rejected the token. Replace it with a valid Page token.');
   if (code === 'profile_rate_limited') return t(state, 'Meta حدّت طلبات الأسماء مؤقتًا؛ أعد المحاولة لاحقًا.', 'Meta temporarily rate-limited profile lookups. Retry later.');

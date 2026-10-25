@@ -530,9 +530,9 @@ function savedViewsMenu(state: AppState, live: LiveState): HTMLElement {
   return h('div', { class: 'popover inbox-saved-views', role: 'group', 'data-overlay': 'popover', 'aria-label': t(state, 'العروض المحفوظة', 'Saved views') }, [
     ...views.map((view) => button({ label: view.name, act: 'live-inbox-saved-view-apply', arg: view.id, variant: view.id === live.selectedSavedViewId ? 'primary' : 'ghost', small: true })),
     views.length === 0 ? h('p', { class: 'empty-copy' }, [t(state, 'لا توجد عروض محفوظة.', 'No saved views yet.')]) : null,
-    button({ label: t(state, 'حفظ العرض الحالي', 'Save current view'), act: 'open-dialog', arg: 'saved-inbox-view:create', variant: 'default', small: true }),
+    button({ label: t(state, 'حفظ العرض الحالي', 'Save current view'), act: 'dialog', arg: 'saved-inbox-view:create', variant: 'default', small: true }),
     live.selectedSavedViewId === null ? null : h('div', { class: 'inbox-saved-views__actions' }, [
-      button({ label: t(state, 'تحديث', 'Update'), act: 'open-dialog', arg: 'saved-inbox-view:update', variant: 'ghost', small: true }),
+      button({ label: t(state, 'تحديث', 'Update'), act: 'dialog', arg: 'saved-inbox-view:update', variant: 'ghost', small: true }),
       button({ label: t(state, 'حذف', 'Delete'), act: 'live-inbox-saved-view-retire', arg: live.selectedSavedViewId, variant: 'danger', small: true }),
     ]),
   ]);

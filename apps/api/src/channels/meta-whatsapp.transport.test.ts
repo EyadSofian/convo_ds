@@ -213,7 +213,10 @@ describe('Messenger and Instagram Graph contracts', () => {
     const handle = transport(() => json(200, { id: '123', username: ' eyad_sofian ' }));
     expect(await handle.adapter.fetchPeerProfile('instagram', TOKEN, '123')).toBe('eyad_sofian');
     const empty = transport(() => json(200, { id: '123', name: null, username: null, first_name: null, last_name: null }));
-    expect(await empty.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
+    await expect(empty.adapter.fetchPeerProfile('messenger', TOKEN, '123'))
+      .rejects.toMatchObject({ code: 'profile_withheld' });
+    // No Page to ask, so the participants fallback is never attempted.
+    expect(empty.calls).toHaveLength(1);
     const long = transport(() => json(200, { id: '123', name: 'x'.repeat(201) }));
     expect(await long.adapter.fetchPeerProfile('messenger', TOKEN, '123')).toBeNull();
     const down = transport(() => new Error('credential must never reach caller'));
@@ -256,6 +259,83 @@ describe('Messenger and Instagram Graph contracts', () => {
       `${GRAPH}/123?fields=id,name,username`,
       `${GRAPH}/123?fields=id,username`,
     ]);
+  });
+
+  it('names a Messenger sender from the Page conversation when Graph withholds the profile', async () => {
+    const PAGE = '483612954841071';
+    const { adapter, calls } = transport((call) => call.url.includes('/conversations?')
+      ? json(200, { data: [{ id: 't_1', participants: { data: [
+        { id: PAGE, name: 'I BOTS test Page', email: `${PAGE}@facebook.com` },
+        { id: '4528904674043162', name: '  Eyad Sofian ', email: '4528904674043162@facebook.com' },
+      ] } }] })
+      // The answer Graph gives without Business Asset User Profile Access.
+      : json(200, {}));
+    expect(await adapter.fetchPeerProfile('messenger', TOKEN, '4528904674043162', PAGE)).toBe('Eyad Sofian');
+    expect(calls.map((call) => call.url)).toEqual([
+      `${GRAPH}/4528904674043162?fields=id,first_name,last_name`,
+      `${GRAPH}/${PAGE}/conversations?platform=messenger&user_id=4528904674043162&fields=participants`,
+    ]);
+    expect(calls[1]?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it.each([
+    [403, 10],
+    [400, 100],
+    [400, 1],
+  ] as const)('asks the Page conversation after a %i/%i profile refusal', async (status, code) => {
+    const { adapter } = transport((call) => call.url.includes('/conversations?')
+      ? json(200, { data: [{ participants: { data: [{ id: '123', name: 'Mona Adel' }] } }] })
+      : graphError(status, code));
+    expect(await adapter.fetchPeerProfile('messenger', TOKEN, '123', '999')).toBe('Mona Adel');
+  });
+
+  it.each([
+    [429, 4, 'profile_rate_limited'],
+    [401, 190, 'profile_credential_rejected'],
+    [503, 1, 'profile_provider_unavailable'],
+  ] as const)('does not spend a second call after a %i/%i refusal the Page conversation would share', async (status, code, expected) => {
+    const { adapter, calls } = transport(() => graphError(status, code));
+    await expect(adapter.fetchPeerProfile('messenger', TOKEN, '123', '999')).rejects.toMatchObject({ code: expected });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('uses the Instagram username from the linked Page conversation', async () => {
+    const { adapter, calls } = transport((call) => call.url.includes('/conversations?')
+      ? json(200, { data: [{ participants: { data: [{ id: '17841400000000001', username: 'school_ig' }, { id: '123', username: ' eyad_sofian ' }] } }] })
+      : json(200, { id: '123' }));
+    expect(await adapter.fetchPeerProfile('instagram', TOKEN, '123', '999')).toBe('eyad_sofian');
+    expect(calls[1]?.url).toBe(`${GRAPH}/999/conversations?platform=instagram&user_id=123&fields=participants`);
+  });
+
+  it.each([
+    ['no Page id', null, () => json(200, {})],
+    ['a malformed Page id', '../me', () => json(200, {})],
+  ] as const)('reports the withheld profile when there is %s to ask', async (_label, pageId, responder) => {
+    const { adapter, calls } = transport(responder);
+    await expect(adapter.fetchPeerProfile('messenger', TOKEN, '123', pageId)).rejects.toMatchObject({ code: 'profile_withheld' });
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each([
+    ['the request fails', () => new Error('socket hang up')],
+    ['Graph refuses it', () => graphError(403, 10)],
+    ['the body is not an object', () => json(200, ['not', 'a', 'page'])],
+    ['data is not a list', () => json(200, { data: 'none' })],
+    ['participants are malformed', () => json(200, { data: [null, { participants: { data: 'none' } }, { participants: null }] })],
+    ['the sender is not a participant', () => json(200, { data: [{ participants: { data: [null, { id: '999', name: 'The Page' }] } }] })],
+    ['the participant has no name', () => json(200, { data: [{ participants: { data: [{ id: '123', name: '   ' }] } }] })],
+    ['the participant name is not text', () => json(200, { data: [{ participants: { data: [{ id: '123', name: 42 }] } }] })],
+    ['the participant name is too long', () => json(200, { data: [{ participants: { data: [{ id: '123', name: 'x'.repeat(201) }] } }] })],
+  ] as const)('keeps the profile reason when %s on the Page conversation', async (_label, participants) => {
+    const { adapter } = transport((call) => call.url.includes('/conversations?') ? participants() : json(200, {}));
+    await expect(adapter.fetchPeerProfile('messenger', TOKEN, '123', '999')).rejects.toMatchObject({ code: 'profile_withheld' });
+  });
+
+  it('treats a non-JSON profile answer as withheld and still asks the Page conversation', async () => {
+    const { adapter } = transport((call) => call.url.includes('/conversations?')
+      ? json(200, { data: [{ participants: { data: [{ id: '123', name: 'Nour' }] } }] })
+      : new Response('ok', { status: 200 }));
+    expect(await adapter.fetchPeerProfile('messenger', TOKEN, '123', '999')).toBe('Nour');
   });
 
   it('sends Messenger replies through the Page endpoint and preserves Meta message ids', async () => {
