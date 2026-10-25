@@ -899,6 +899,24 @@ describe('webhook ingress', () => {
     expect(connection.rows[0]?.webhook_subscribed_at).not.toBeNull();
   });
 
+  it('updates persisted readiness after signed inbound evidence', async () => {
+    await withTenant(api.pool, api.tenantId, (client) =>
+      client.query(
+        `UPDATE channel_connections
+            SET credential_verified_at = now(), status = 'webhook_pending'
+          WHERE id = $1`,
+        [connectionId],
+      ),
+    );
+    const response = await deliver(api, messageDelivery([textMessage('wamid.ready', 'ready')]));
+    expect(response.statusCode).toBe(200);
+
+    const connection = await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ status: string }>('SELECT status FROM channel_connections WHERE id = $1', [connectionId]),
+    );
+    expect(connection.rows[0]?.status).toBe('healthy');
+  });
+
   it('refuses an altered body, and writes nothing but a receipt', async () => {
     const body = messageDelivery([textMessage('wamid.tampered', 'original')]);
     const signature = `sha256=${createHmac('sha256', APP_SECRET).update(JSON.stringify(body)).digest('hex')}`;
