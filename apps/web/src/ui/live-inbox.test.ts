@@ -103,6 +103,14 @@ describe('Inbox list controls', () => {
       waitingSinceAt: null, claimable: true, version: 1 }] as never, 1);
     expect(renderInbox(app).querySelector('.convrow--card .convrow__name')?.textContent).toBe('Eyad Sofian');
     expect(renderInbox(app).querySelector('.convrow--card .convrow__preview')).toBeNull();
+    // An open card carries no status; unassigned pending or snoozed work says so.
+    expect(renderInbox(app).querySelector('.convrow--card .convrow__meta')?.textContent).not.toContain('Snoozed');
+    app.live.unassigned = ready([{ id: 'conversation-3', inboxLabel: 'Digital School', channel: 'messenger',
+      maskedLabel: '••••790', contactDisplayName: 'Mona', priority: 'normal', status: 'snoozed',
+      waitingSinceAt: null, claimable: true, version: 2 }] as never, 1);
+    const snoozed = renderInbox(app).querySelector('.convrow--card') as HTMLElement;
+    expect(snoozed.querySelector('.convrow__meta')?.textContent).toContain('Snoozed');
+    expect(snoozed.querySelector('.convrow__claim')?.hasAttribute('disabled')).toBe(false);
   });
   it('makes archived conversations discoverable without including them in the live queue by default', () => {
     const app = state();
@@ -261,6 +269,30 @@ describe('Inbox list controls', () => {
     expect(root.textContent).toContain('No saved views yet');
     expect(root.querySelector('[data-act="live-inbox-saved-view-retire"][data-arg="gone"]')).not.toBeNull();
     expect(root.textContent).toContain('…');
+  });
+
+  it('names agents in the filter by their display name, with the email only to tell namesakes apart', () => {
+    const app = state();
+    app.inboxQueue = 'mine';
+    app.live.people = ready([
+      { membership_id: 'agent-1', display_name: 'Ahmed Elhammady', email: 'aelhammady@example.test', status: 'active' },
+      { membership_id: 'agent-2', display_name: 'Ahmed Ibrahim', email: 'aibrahim@example.test', status: 'active' },
+      { membership_id: 'agent-3', display_name: ' Sara ', email: 'sara1@example.test', status: 'active' },
+      { membership_id: 'agent-4', display_name: 'Sara', email: 'sara2@example.test', status: 'active' },
+      { membership_id: 'agent-5', display_name: '', email: 'unnamed@example.test', status: 'active' },
+      // A member read before names existed carries no display_name at all.
+      { membership_id: 'agent-6', email: 'legacy@example.test', status: 'active' },
+    ] as never, 1);
+    app.openMenu = 'inbox-filters';
+    app.dialogForm = { inboxFilterKey: 'assigned_agent_id', inboxFilterOperator: 'eq' };
+    const options = [...renderInbox(app).querySelectorAll('select[data-form="inboxFilterValue"] option')].map((option) => option.textContent);
+    expect(options).toEqual(['Choose', 'Ahmed Elhammady', 'Ahmed Ibrahim', 'Sara · sara1@example.test', 'Sara · sara2@example.test', 'unnamed@example.test', 'legacy@example.test']);
+
+    app.openMenu = null;
+    app.live.inboxQuery = { ...app.live.inboxQuery, filters: [{ key: 'assigned_agent_id', operator: 'eq', value: 'agent-2' }] };
+    const chips = renderInbox(app).querySelector('.inbox-filter-chips') as HTMLElement;
+    expect(chips.textContent).toContain('Ahmed Ibrahim');
+    expect(chips.textContent).not.toContain('aibrahim@example.test');
   });
 
   it('uses current server catalogues for agent, team, connection, label and campaign filters', () => {
