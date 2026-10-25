@@ -196,6 +196,17 @@ describe('membership mutations', () => {
     await send(api, owner, 'PATCH', `/people/${agentMembership}`, { status: 'active' });
   });
 
+  it('updates the visible member name while preserving the login email and listing the saved name', async () => {
+    const renamed = await send(api, owner, 'PATCH', `/people/${agentMembership}`, { displayName: '  Ahmed Ibrahim  ' });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json()).toMatchObject({ data: { display_name: 'Ahmed Ibrahim', email: 'agent@people.test' } });
+
+    const listed = await send(api, owner, 'GET', '/people');
+    expect(listed.statusCode).toBe(200);
+    expect((listed.json() as { data: readonly { membership_id: string; display_name: string; email: string }[] }).data)
+      .toContainEqual(expect.objectContaining({ membership_id: agentMembership, display_name: 'Ahmed Ibrahim', email: 'agent@people.test' }));
+  });
+
   it('writes an audit row in the same transaction as the change', async () => {
     const actions = await auditActions(api);
     expect(actions.filter((action) => action === 'membership.update').length).toBeGreaterThan(0);

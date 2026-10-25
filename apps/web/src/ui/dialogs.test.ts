@@ -469,7 +469,7 @@ describe('inviting a member', () => {
 describe('offering ownership', () => {
   it('confirms in plain words before sending the offer', () => {
     const state = base();
-    state.live.people = { status: 'ready', loadedAt: 1, value: [{ membership_id: 'm-2', email: 'sara@school.example', status: 'active', role: { id: 'r', key: 'admin', name: 'Admin' }, scopes: [] }] };
+    state.live.people = { status: 'ready', loadedAt: 1, value: [{ membership_id: 'm-2', display_name: 'Sara', email: 'sara@school.example', status: 'active', role: { id: 'r', key: 'admin', name: 'Admin' }, scopes: [] }] };
     const dialog = open(state, 'ownership-offer', 'm-2');
     expect(dialog.textContent).toContain('sara@school.example');
     expect(dialog.textContent).toContain('they become the Owner');

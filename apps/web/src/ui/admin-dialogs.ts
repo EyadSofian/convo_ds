@@ -22,6 +22,7 @@ function gone(state: AppState, title: string): HTMLElement {
 }
 
 export function renderAdminDialog(state: AppState, kind: string, arg: string): HTMLElement | null {
+  if (kind === 'member-name') return memberName(state, arg);
   if (kind === 'member-role') return memberRole(state, arg);
   if (kind === 'member-revoke') return memberRevoke(state, arg);
   if (kind === 'member-teams') return memberTeams(state, arg);
@@ -35,6 +36,26 @@ export function renderAdminDialog(state: AppState, kind: string, arg: string): H
 }
 
 /* ---------------------------------------------------------------- members -- */
+
+function memberName(state: AppState, membershipId: string): HTMLElement {
+  const live = state.live;
+  const title = t(state, 'تعديل اسم المستخدم', 'Edit user name');
+  const person = rowsOf(live.people).find((entry) => entry.membership_id === membershipId);
+  if (person === undefined) return gone(state, title);
+  const name = state.dialogForm['memberName'] ?? person.display_name ?? '';
+  return dialogShell(state, title, [
+    field(t(state, 'الاسم الظاهر', 'Display name'), textInput('memberName', name, t(state, 'مثال: أحمد إبراهيم', 'e.g. Ahmed Ibrahim'), { act: 'form-toggle', id: 'member-name', required: true }),
+      t(state, 'يظهر هذا الاسم في المستخدمين والبحث. يظل البريد كما هو لتسجيل الدخول.', 'This name appears in the users list and search. The login email does not change.')),
+    state.formErrors['memberName'] === undefined ? null : h('p', { class: 'field__error', role: 'alert' }, [state.formErrors['memberName']]),
+    h('p', { class: 'field__hint' }, [h('bdi', {}, [person.email])]),
+    inlineError(state, live.error),
+  ], [
+    cancel(state),
+    button({ label: t(state, 'حفظ الاسم', 'Save name'), act: 'live-member-name', arg: membershipId, variant: 'primary',
+      disabled: name.trim().length < 1 || name.trim().length > 120 || name.trim() === person.display_name,
+      busy: live.busy === `name:${membershipId}` }),
+  ]);
+}
 
 function memberRole(state: AppState, membershipId: string): HTMLElement {
   const live = state.live;

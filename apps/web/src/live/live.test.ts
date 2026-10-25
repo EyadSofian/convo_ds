@@ -107,6 +107,7 @@ const NO_SESSION: Reply = {
 function person(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     membership_id: MEMBERSHIP,
+    display_name: 'Hana Ahmed',
     email: 'hana@digital-school.example',
     status: 'active',
     role: { id: AGENT_ROLE, key: 'agent', name: 'Agent' },
@@ -580,7 +581,7 @@ describe('the Users screen', () => {
     const api = signedInApi()
       .on(`GET /tenants/${TENANT}/people`, {
         status: 200,
-        body: { data: [person(), person({ membership_id: 'm-2', email: 'nadia@digital-school.example', status: 'suspended', scopes: [{ type: 'team', id: 't-1' }, { type: 'team', id: 't-2' }, { type: 'queue', id: 'q-1' }] })] },
+        body: { data: [person(), person({ membership_id: 'm-2', display_name: 'Nadia', email: 'nadia@digital-school.example', status: 'suspended', scopes: [{ type: 'team', id: 't-1' }, { type: 'team', id: 't-2' }, { type: 'queue', id: 'q-1' }] })] },
       })
       .on(`GET /tenants/${TENANT}/teams`, {
         status: 200,
@@ -590,6 +591,8 @@ describe('the Users screen', () => {
     await settle();
 
     const hana = text(find(root, `tr[data-membership="${MEMBERSHIP}"]`));
+    expect(hana).toContain('Hana Ahmed');
+    expect(hana).toContain('hana@digital-school.example');
     expect(hana).toContain('Agent');
     expect(hana).toContain('Admissions');
     expect(hana).toContain('No scope');
@@ -601,11 +604,62 @@ describe('the Users screen', () => {
     expect(nadia).toContain('queue');
     expect(text(find(root, '[role="tablist"]'))).toContain('Users2');
 
+    type(root, '[data-act="user-search"]', 'Hana Ahmed');
+    expect(app.state.userSearch).toBe('Hana Ahmed');
+    expect(root.querySelectorAll('tr[data-membership]')).toHaveLength(1);
+    type(root, '[data-act="user-search"]', 'hana@digital-school.example');
+    expect(root.querySelectorAll('tr[data-membership]')).toHaveLength(1);
+
     type(root, '[data-act="user-search"]', 'admissions');
     expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
     type(root, '[data-act="user-search"]', 'nobody-matches');
     expect(text(root)).toContain('No user matches this search.');
     expect(app.state.userSearch).toBe('nobody-matches');
+  });
+
+  it('edits a member display name without changing the login email', async () => {
+    const api = signedInApi().on(`PATCH /tenants/${TENANT}/people/${MEMBERSHIP}`, {
+      status: 200,
+      body: { data: person({ display_name: 'Ahmed Ibrahim' }) },
+    });
+    const { app, root } = start(api);
+    await settle();
+
+    openMenu(root, `member:${MEMBERSHIP}`);
+    click(root, `[data-act="dialog"][data-arg="member-name:${MEMBERSHIP}"]`);
+    expect((find(root, '#member-name') as HTMLInputElement).value).toBe('Hana Ahmed');
+    expect(isDisabled(root, '.dialog [data-act="live-member-name"]')).toBe(true);
+    type(root, '#member-name', '  Ahmed Ibrahim  ');
+    api.on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person({ display_name: 'Ahmed Ibrahim' })] } });
+    click(root, '.dialog [data-act="live-member-name"]');
+    await settle();
+
+    expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({ displayName: 'Ahmed Ibrahim' });
+    expect(text(find(root, `tr[data-membership="${MEMBERSHIP}"]`))).toContain('Ahmed Ibrahim');
+    expect(text(find(root, `tr[data-membership="${MEMBERSHIP}"]`))).toContain('hana@digital-school.example');
+    expect(app.state.toasts.at(-1)?.text).toContain('Name is now Ahmed Ibrahim');
+    type(root, '[data-act="user-search"]', 'Ahmed Ibrahim');
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+  });
+
+  it('handles an older people response without names and rejects blank name edits', async () => {
+    const oldPerson = person({ display_name: undefined });
+    const api = signedInApi().on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [oldPerson] } });
+    const { app, root } = start(api);
+    await settle();
+    expect(text(find(root, `tr[data-membership="${MEMBERSHIP}"]`))).toContain('hana@digital-school.example');
+    type(root, '[data-act="user-search"]', 'hana@digital-school.example');
+    expect(root.querySelectorAll('tr[data-membership]')).toHaveLength(1);
+
+    app.dispatch('dialog', 'member-name:missing');
+    expect(text(find(root, '.dialog'))).toContain('no longer exists');
+    app.dispatch('dialog', `member-name:${MEMBERSHIP}`);
+    expect((find(root, '#member-name') as HTMLInputElement).value).toBe('');
+    expect(isDisabled(root, '.dialog [data-act="live-member-name"]')).toBe(true);
+    app.dispatch('live-member-name', MEMBERSHIP);
+    await settle();
+    expect(api.calls.some((call) => call.method === 'PATCH')).toBe(false);
+    expect(text(find(root, '.dialog'))).toContain('Enter a name of 1–120 characters.');
   });
 
   it('keeps invitations on their own tab, with created and expiry dates', async () => {
@@ -983,14 +1037,16 @@ describe('the Users screen', () => {
     expect([...root.querySelectorAll('.nav__item')].map((item) => item.getAttribute('data-arg'))).toEqual(['people', 'teams', 'settings']);
   });
 
-  it('shows no menu at all when nothing can be done to a member', async () => {
+  it('keeps name editing available when other member actions are unavailable', async () => {
     const api = signedInApi()
       .on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person({ membership_id: 'own-membership', email: 'owner@digital-school.example', status: 'revoked', scopes: [{ type: 'tenant', id: null }] })] } })
       .on(`GET /tenants/${TENANT}/roles`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } })
       .on(`GET /tenants/${TENANT}/teams`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } });
     const { root } = start(api);
     await settle();
-    expect(root.querySelector('[data-arg="member:own-membership"]')).toBeNull();
+    openMenu(root, 'member:own-membership');
+    expect(root.querySelector('[data-arg="member-name:own-membership"]')).not.toBeNull();
+    expect(root.querySelector('[data-arg="member-role:own-membership"]')).toBeNull();
   });
 
   it('speaks Arabic by default, which is the workspace’s own language', async () => {

@@ -576,6 +576,15 @@ export function changeRole(
   );
 }
 
+export function changeMemberName(context: LiveContext, membershipId: string, displayName: string): Promise<boolean> {
+  return mutate(
+    context,
+    `name:${membershipId}`,
+    (tenantId) => context.live.api.updateMembership(tenantId, membershipId, { displayName }),
+    (person) => t(context.state, `الاسم الآن ${person.display_name}`, `Name is now ${person.display_name}`),
+  );
+}
+
 const MEMBER_STATUS_WORDS: Readonly<Record<string, { readonly ar: string; readonly en: string }>> = {
   active: { ar: 'نشط', en: 'Active' },
   suspended: { ar: 'موقوف', en: 'Suspended' },

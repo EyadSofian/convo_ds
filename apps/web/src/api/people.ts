@@ -45,6 +45,7 @@ export interface ScopeRef {
 
 export interface Person {
   readonly membership_id: string;
+  readonly display_name: string;
   readonly email: string;
   readonly status: string;
   readonly role: { readonly id: string; readonly key: string; readonly name: string };
@@ -200,7 +201,7 @@ export class PeopleApi {
   updateMembership(
     tenantId: string,
     membershipId: string,
-    body: { roleId?: string; status?: string; scopes?: readonly ScopeRef[] },
+    body: { displayName?: string; roleId?: string; status?: string; scopes?: readonly ScopeRef[] },
   ): Promise<ApiResult<Person>> {
     return this.client.patch<Person>(`/tenants/${tenantId}/people/${membershipId}`, { body });
   }

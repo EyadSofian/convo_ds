@@ -66,7 +66,7 @@ export class PeopleService {
   /* ------------------------------------------------------------ people -- */
 
   /**
-   * Changes a membership's role, status or scopes.
+   * Changes a membership's display name, role, status or scopes.
    *
    * The delegation ceiling applies to the *target* role, not to the act: an
    * Admin may change anyone's role to anything an Admin could hold. Removing
@@ -97,6 +97,13 @@ export class PeopleService {
         );
         if (target.rows.length === 0) {
           throw notFound();
+        }
+
+        if (request.displayName !== undefined) {
+          await sql.query('UPDATE memberships SET display_name = $2 WHERE id = $1', [
+            membershipId,
+            request.displayName,
+          ]);
         }
 
         if (request.roleId !== undefined) {
@@ -140,6 +147,7 @@ export class PeopleService {
           subjectType: 'membership',
           subjectId: membershipId,
           detail: {
+            display_name_changed: request.displayName !== undefined,
             role_changed: request.roleId !== undefined,
             status: request.status ?? null,
             scopes_changed: request.scopes !== undefined,
@@ -756,13 +764,14 @@ function keyFor(name: string): string {
 async function readPerson(sql: SqlExecutor, membershipId: string): Promise<PersonSummary> {
   const rows = await sql.query<{
     membership_id: string;
+    display_name: string;
     email: string;
     status: string;
     role_id: string;
     role_key: string;
     role_name: string;
   }>(
-    `SELECT m.id::text AS membership_id, u.email::text AS email, m.status,
+    `SELECT m.id::text AS membership_id, m.display_name, u.email::text AS email, m.status,
             r.id::text AS role_id, r.key AS role_key, r.name AS role_name
        FROM memberships m
        JOIN users u ON u.id = m.user_id
@@ -777,6 +786,7 @@ async function readPerson(sql: SqlExecutor, membershipId: string): Promise<Perso
   );
   return {
     membership_id: person.membership_id,
+    display_name: person.display_name,
     email: person.email,
     status: person.status,
     role: { id: person.role_id, key: person.role_key, name: person.role_name },

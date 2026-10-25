@@ -24,6 +24,7 @@ export interface RoleSummary {
 
 export interface PersonSummary {
   readonly membership_id: string;
+  readonly display_name: string;
   readonly email: string;
   readonly status: string;
   readonly role: { readonly id: string; readonly key: string; readonly name: string };
@@ -123,13 +124,14 @@ export class PermissionService {
     return this.authorization.authorized(session, tenantId, 'member.manage', async ({ sql }) => {
       const people = await sql.query<{
         membership_id: string;
+        display_name: string;
         email: string;
         status: string;
         role_id: string;
         role_key: string;
         role_name: string;
       }>(
-        `SELECT m.id::text AS membership_id, u.email::text AS email, m.status,
+        `SELECT m.id::text AS membership_id, m.display_name, u.email::text AS email, m.status,
                 r.id::text AS role_id, r.key AS role_key, r.name AS role_name
            FROM memberships m
            JOIN users u ON u.id = m.user_id
@@ -148,6 +150,7 @@ export class PermissionService {
 
       return people.rows.map((person) => ({
         membership_id: person.membership_id,
+        display_name: person.display_name,
         email: person.email,
         status: person.status,
         role: { id: person.role_id, key: person.role_key, name: person.role_name },

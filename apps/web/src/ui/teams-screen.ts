@@ -103,7 +103,7 @@ function teamDetail(state: AppState, teamId: string): HTMLElement {
   const people = rowsOf(live.people);
   const addable = people.filter((person) => !inTeam.has(person.membership_id) && person.status !== 'revoked');
   const members = team.members.map((member) => people.find((person) => person.membership_id === member.membership_id) ?? {
-    membership_id: member.membership_id, email: member.email, status: '—', role: { id: '', key: '', name: '—' }, scopes: [],
+    membership_id: member.membership_id, display_name: member.email, email: member.email, status: '—', role: { id: '', key: '', name: '—' }, scopes: [],
   });
   return page('teams', null, [
     adminHead(state, {
