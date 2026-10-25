@@ -10,6 +10,7 @@ import { adapterClaiming, META_KINDS } from './adapters.js';
 import { setUpCipher } from './credential-cipher.js';
 import { journalBatch, writeReceipt } from './ingress-journal.js';
 import { assetFingerprint, nodeChannelCrypto, sha256BytesHex } from './node-crypto.js';
+import { refreshStatus } from './channel.service.js';
 
 /**
  * Webhook ingress: the only door provider events come through.
@@ -269,6 +270,9 @@ export class ChannelIngressService {
           receiptId,
           batch,
         });
+        // The journal records first inbound evidence; campaigns and dispatch
+        // read the persisted status, so keep it in step with that evidence.
+        await refreshStatus(sql, resolved.value);
         const outcome: IngressOutcome = { status: 'accepted', receiptId, ...stored };
         return outcome;
       },

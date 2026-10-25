@@ -65,13 +65,15 @@ export function teamList(state: AppState, teams: readonly Team[]): Child {
   return h('span', { class: 'chip-list' }, teams.map((team) => h('span', { class: 'chip' }, [team.name])));
 }
 
-/** Avatar, email and a "you" marker. People have no display name in this API. */
+/** A membership's editable name, with the login email kept as context. */
 export function memberCell(state: AppState, person: Person): HTMLElement {
   const self = person.email === openSession(state.live).email;
+  const name = person.display_name?.trim() || person.email;
   return h('div', { class: 'member' }, [
-    avatar({ initials: initials(person.email.split('@')[0] as string), size: 'sm', seed: person.email }),
+    avatar({ initials: initials(name), size: 'sm', seed: person.email }),
     h('div', { class: 'member__text' }, [
-      h('span', { class: 'table__primary' }, [isolated(person.email)]),
+      h('span', { class: 'table__primary' }, [isolated(name)]),
+      name === person.email ? null : h('span', { class: 'table__sub' }, [isolated(person.email)]),
       self ? h('span', { class: 'table__sub' }, [t(state, 'أنت', 'You')]) : null,
     ]),
   ]);

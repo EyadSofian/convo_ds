@@ -21,6 +21,7 @@ export interface ScopeInput {
 
 export interface UpdateMembershipRequest {
   /** Absent means "leave it alone" — distinct from "set it to nothing". */
+  readonly displayName?: string | undefined;
   readonly roleId?: string | undefined;
   readonly status?: 'active' | 'suspended' | 'revoked' | undefined;
   readonly scopes?: readonly ScopeInput[] | undefined;
@@ -116,10 +117,20 @@ export function parseUpdateMembership(input: unknown): ParseResult<UpdateMembers
   }
   const details: ErrorDetail[] = [];
   const result: {
+    displayName?: string;
     roleId?: string;
     status?: 'active' | 'suspended' | 'revoked';
     scopes?: readonly ScopeInput[];
   } = {};
+
+  if ('displayName' in record) {
+    const displayName = record['displayName'];
+    if (typeof displayName !== 'string' || displayName.trim().length < 1 || displayName.trim().length > 120) {
+      details.push({ field: 'displayName', code: 'malformed', message: 'Provide a name of 1–120 characters.' });
+    } else {
+      result.displayName = displayName.trim();
+    }
+  }
 
   if ('roleId' in record) {
     if (!isUuid(record['roleId'])) {
@@ -148,13 +159,13 @@ export function parseUpdateMembership(input: unknown): ParseResult<UpdateMembers
   if (details.length > 0) {
     return { ok: false, details };
   }
-  if (result.roleId === undefined && result.status === undefined && result.scopes === undefined) {
+  if (result.displayName === undefined && result.roleId === undefined && result.status === undefined && result.scopes === undefined) {
     // An empty patch is a client bug, not a no-op to absorb silently: it means
     // the caller believes it changed something.
     return {
       ok: false,
       details: [
-        { field: 'body', code: 'empty', message: 'Provide at least one of roleId, status, scopes.' },
+        { field: 'body', code: 'empty', message: 'Provide at least one of displayName, roleId, status, scopes.' },
       ],
     };
   }

@@ -66,14 +66,14 @@ function missingOwnScopeNotice(state: AppState, live: LiveState): HTMLElement | 
 function usersPanel(state: AppState, live: LiveState): HTMLElement {
   return h('div', { class: 'admin-panel__body' }, [
     h('div', { class: 'admin-toolbar' }, [
-      searchBox(state.userSearch, 'user-search', t(state, 'ابحث بالبريد أو الدور أو الفريق', 'Search email, role or team'), t(state, 'بحث في المستخدمين', 'Search users')),
+      searchBox(state.userSearch, 'user-search', t(state, 'ابحث بالاسم أو البريد أو الدور أو الفريق', 'Search name, email, role or team'), t(state, 'بحث في المستخدمين', 'Search users')),
     ]),
     resourceView(state, live.people, {
       icon: 'users',
       title: t(state, 'لا يوجد مستخدمون', 'No users yet'),
       body: t(state, 'ادعُ زميلًا للبدء.', 'Invite a colleague to get started.'),
     }, (rows) => {
-      const visible = rows.filter((person) => matches(state.userSearch, person.email, person.role.name, ...teamsOf(live, person.membership_id).map((team) => team.name)));
+      const visible = rows.filter((person) => matches(state.userSearch, person.display_name ?? '', person.email, person.role.name, ...teamsOf(live, person.membership_id).map((team) => team.name)));
       return visible.length === 0
         ? h('p', { class: 'admin-empty-search', role: 'status' }, [t(state, 'لا يوجد مستخدم يطابق البحث.', 'No user matches this search.')])
         : usersTable(state, live, visible);
@@ -117,6 +117,7 @@ export function memberMenu(state: AppState, live: LiveState, person: Person): HT
   const actor = rowsOf(live.people).find((entry) => entry.email === openSession(live).email);
   const canGrantWorkspace = actor === undefined || actor.scopes.some((scope) => scope.type === 'tenant');
   return rowMenu(state, `member:${id}`, t(state, `إجراءات ${person.email}`, `Actions for ${person.email}`), [
+    { label: t(state, 'تعديل الاسم', 'Edit name'), icon: 'edit', act: 'dialog', arg: `member-name:${id}` },
     live.roles.status === 'ready' ? { label: t(state, 'تغيير الدور', 'Change role'), icon: 'shieldUser', act: 'dialog', arg: `member-role:${id}` } : null,
     live.teams.status === 'ready' ? { label: t(state, 'إدارة الفرق', 'Manage teams'), icon: 'team', act: 'dialog', arg: `member-teams:${id}` } : null,
     person.scopes.some((scope) => scope.type === 'tenant') || !canGrantWorkspace

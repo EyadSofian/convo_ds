@@ -364,6 +364,37 @@ describe('campaign API', () => {
     expect(refused.json()).toMatchObject({ error: { code: 'channel_not_ready' } });
   });
 
+  it('validates and dispatches when stored status lags verified channel evidence', async () => {
+    const isolated = await setup();
+    try {
+      await withTenant(isolated.pool, isolated.tenantId, (sql) =>
+        sql.query(`UPDATE channel_connections SET status='webhook_pending' WHERE id=$1`, [isolated.connectionId]));
+      await withTenant(isolated.pool, isolated.tenantId, (sql) =>
+        isolated.app.get(ChannelCredentialService).store(
+          sql,
+          { tenantId: isolated.tenantId, connectionId: isolated.connectionId, purpose: 'access_token' },
+          'stale-channel-test-token',
+          null,
+        ));
+      const created = await send(isolated, 'POST', '/campaigns', draft(isolated, {
+        name: 'Stale channel state', audienceFilter: { search: 'student 1' },
+        content: { template: { name: 'course_open', language: 'ar' } },
+      }), 'create-stale-channel');
+      expect(created.statusCode, created.body).toBe(201);
+      const id = dataOf(created).id;
+      const validated = await send(isolated, 'POST', `/campaigns/${id}/validate`);
+      expect(validated.statusCode, validated.body).toBe(201);
+      expect((await send(isolated, 'POST', `/campaigns/${id}/approve`)).statusCode).toBe(201);
+      expect((await send(isolated, 'POST', `/campaigns/${id}/launch`, { mode: 'now' }, 'launch-stale-channel')).statusCode).toBe(202);
+      expect(await isolated.app.get(CampaignPlannerService).plan(isolated.tenantId, 10)).toBe(1);
+      providerOutcomes.push({ status: 'accepted', providerMessageId: 'wamid.stale.channel', raw: {} });
+      const sent = await isolated.app.get(ChannelDispatcherService).dispatch(isolated.tenantId, 10, 'campaign-test', 'bulk');
+      expect(sent).toMatchObject({ claimed: 1, accepted: 1 });
+    } finally {
+      await isolated.app.close();
+    }
+  });
+
   it('rejects expired definitions and launches a future schedule exactly once', async () => {
     const expired = await send(api, 'POST', '/campaigns', draft(api, {
       name: 'Expired campaign', expiresAt: '2025-01-01T00:00:00.000Z',
@@ -1423,12 +1454,12 @@ describe('campaign API', () => {
     await send(api, 'POST', `/campaigns/${id}/launch`, { mode: 'now' }, 'launch-readiness-fence');
     expect(await api.app.get(CampaignPlannerService).plan(api.tenantId, 10)).toBe(1);
     await withTenant(api.pool, api.tenantId, (sql) => sql.query(
-      `UPDATE channel_connections SET status='degraded' WHERE id=$1`, [api.connectionId],
+      `UPDATE channel_connections SET status='degraded',last_error_code='test_provider_error',last_error_at=now() WHERE id=$1`, [api.connectionId],
     ));
     const dispatched = await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'campaign-test', 'bulk');
     expect(dispatched).toMatchObject({ claimed: 1, skipped: 1 });
     await withTenant(api.pool, api.tenantId, (sql) => sql.query(
-      `UPDATE channel_connections SET status='healthy' WHERE id=$1`, [api.connectionId],
+      `UPDATE channel_connections SET status='healthy',last_error_code=NULL,last_error_at=NULL WHERE id=$1`, [api.connectionId],
     ));
   });
 

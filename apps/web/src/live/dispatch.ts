@@ -100,6 +100,7 @@ import {
   assignRole,
   authorizeTestRecipient,
   changeRole,
+  changeMemberName,
   changeScopes,
   changeStatus,
   connectChannel,
@@ -1519,6 +1520,14 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     const roleId = form(context, 'memberRole');
     if (roleId === '') return false;
     return closeDialogAfter(context, await changeRole(context, arg, roleId));
+  },
+
+  'live-member-name': async (context, arg) => {
+    const name = form(context, 'memberName').trim();
+    if (invalid(context, name.length < 1 || name.length > 120
+      ? { memberName: text(context, 'اكتب اسمًا من ١ إلى ١٢٠ حرفًا.', 'Enter a name of 1–120 characters.') }
+      : {})) return false;
+    return closeDialogAfter(context, await changeMemberName(context, arg, name));
   },
 
   'live-member-revoke': async (context, arg) => closeDialogAfter(context, await changeStatus(context, arg, 'revoked')),

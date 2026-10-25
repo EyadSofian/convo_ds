@@ -3339,7 +3339,7 @@
     "/tenants/{tenantId}/people/{membershipId}": {
       "patch": {
         "operationId": "updateMembership",
-        "summary": "Change a membership role, status or scopes",
+        "summary": "Change a membership display name, role, status or scopes",
         "description": "Requires `member.manage` and CSRF. The delegation ceiling applies: an actor can never produce access wider than their own, which is enforced by comparing grants rather than by naming roles. Suspending or revoking your own membership is refused, and the database refuses any change that would leave the company with no active Owner.",
         "security": [
           {
@@ -9212,6 +9212,7 @@
         "additionalProperties": false,
         "required": [
           "membership_id",
+          "display_name",
           "email",
           "status",
           "role",
@@ -9222,6 +9223,12 @@
           "membership_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "example": "Ahmed Ibrahim"
           },
           "email": {
             "type": "string",
@@ -9844,6 +9851,12 @@
         "minProperties": 1,
         "description": "Only the fields present are changed. An empty body is rejected: it means the caller believes it changed something.",
         "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Membership display name; changing it does not change the login email."
+          },
           "roleId": {
             "type": "string",
             "format": "uuid"

@@ -12,6 +12,7 @@ import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG } from '../tokens.js';
 import { fieldText, prepareTemplate } from '../channels/template-send.js';
+import { statusOf, type ConnectionReadinessEvidence } from '../channels/channel.service.js';
 import { campaignCommandContent } from './campaign-dispatch.js';
 import { boundTemplateOf } from './campaign-request.js';
 import type { AudiencePreviewInput, CampaignDraftInput, CampaignTestSendInput, CampaignUpdateInput, TestRecipientInput } from './campaign-request.js';
@@ -937,9 +938,21 @@ async function requireCatalogueTemplate(sql: SqlExecutor, connectionId: string, 
 }
 
 async function requireConnection(sql: SqlExecutor, connectionId: string, requireHealthy: boolean): Promise<void> {
-  const row = await sql.query<{ status: string }>(`SELECT status FROM channel_connections WHERE id=$1 AND disconnected_at IS NULL`, [connectionId]);
-  if (row.rows[0] === undefined) throw notFound();
-  if (requireHealthy && row.rows[0].status !== 'healthy') throw conflict('channel_not_ready', 'Test and connect the selected channel before launch.');
+  const row = await sql.query<ConnectionReadinessEvidence>(
+    `SELECT kind,settings->>'facebook_page_id' AS facebook_page_id,
+            asset_verified_at,credential_verified_at,webhook_subscribed_at,
+            first_inbound_at,first_outbound_at,last_error_code,last_error_at,disconnected_at
+       FROM channel_connections WHERE id=$1 AND disconnected_at IS NULL`,
+    [connectionId],
+  );
+  const connection = row.rows[0];
+  if (connection === undefined) throw notFound();
+  if (requireHealthy) {
+    const readiness = statusOf(connection);
+    if (readiness !== 'healthy') {
+      throw conflict('channel_not_ready', `The selected channel is ${readiness.replaceAll('_', ' ')}. Check its readiness in Channels before sending.`);
+    }
+  }
 }
 
 async function locked(sql: SqlExecutor, campaignId: string): Promise<LockedCampaign> {

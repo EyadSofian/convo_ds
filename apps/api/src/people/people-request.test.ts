@@ -33,6 +33,11 @@ describe('parseUpdateMembership', () => {
     expect('roleId' in result.value).toBe(false);
   });
 
+  it('accepts and trims a membership display name without changing the email', () => {
+    const result = parseUpdateMembership({ displayName: '  Ahmed Ibrahim  ' });
+    expect(result).toEqual({ ok: true, value: { displayName: 'Ahmed Ibrahim' } });
+  });
+
   it('accepts every scope shape, including a tenant-wide one', () => {
     const result = parseUpdateMembership({
       scopes: [
@@ -56,6 +61,9 @@ describe('parseUpdateMembership', () => {
   it.each([
     ['a non-object body', ['nope'], ['body']],
     ['an empty patch', {}, ['body']],
+    ['a blank display name', { displayName: '   ' }, ['displayName']],
+    ['a long display name', { displayName: 'a'.repeat(121) }, ['displayName']],
+    ['a non-string display name', { displayName: 42 }, ['displayName']],
     ['a non-uuid role', { roleId: 'nope' }, ['roleId']],
     ['an unknown status', { status: 'deleted' }, ['status']],
     ['non-array scopes', { scopes: 'all' }, ['scopes']],
