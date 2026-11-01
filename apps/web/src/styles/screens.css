@@ -1121,6 +1121,20 @@
     cursor: not-allowed;
   }
 
+  .member-inbox-access {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .member-inbox-access__name {
+    flex: 1;
+    min-inline-size: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    overflow-wrap: anywhere;
+  }
+
   .pick-list {
     display: grid;
     max-block-size: min(46dvh, 360px);

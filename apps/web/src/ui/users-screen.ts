@@ -117,6 +117,7 @@ export function memberMenu(state: AppState, live: LiveState, person: Person): HT
   const actor = rowsOf(live.people).find((entry) => entry.email === openSession(live).email);
   const canGrantWorkspace = actor === undefined || actor.scopes.some((scope) => scope.type === 'tenant');
   return rowMenu(state, `member:${id}`, t(state, `إجراءات ${person.email}`, `Actions for ${person.email}`), [
+    { label: t(state, 'إدارة الإنبوكسات', 'Manage inboxes'), icon: 'inbox', act: 'dialog', arg: `member-inboxes:${id}`, disabled: busy || self },
     { label: t(state, 'تعديل الاسم', 'Edit name'), icon: 'edit', act: 'dialog', arg: `member-name:${id}` },
     live.roles.status === 'ready' ? { label: t(state, 'تغيير الدور', 'Change role'), icon: 'shieldUser', act: 'dialog', arg: `member-role:${id}` } : null,
     live.teams.status === 'ready' ? { label: t(state, 'إدارة الفرق', 'Manage teams'), icon: 'team', act: 'dialog', arg: `member-teams:${id}` } : null,

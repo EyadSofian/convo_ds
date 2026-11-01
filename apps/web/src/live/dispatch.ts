@@ -1,4 +1,5 @@
 import type { TransitionCommand } from '../api/conversations.js';
+import { readInboxAccess } from '../ui/inbox-access.js';
 import type { ScopeRef } from '../api/people.js';
 import { NO_ANALYTICS_FILTERS, pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
@@ -1464,7 +1465,10 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       ...(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? { inviteEmail: text(context, 'أدخل بريدًا إلكترونيًا صحيحًا.', 'Enter a valid email address.') } : {}),
       ...(roleId === '' ? { inviteRole: text(context, 'اختر دورًا.', 'Choose a role.') } : {}),
     })) return false;
-    const accepted = await invitePerson(context, email, roleId, []);
+    const scopes = readInboxAccess(context.state, 'invite', [], roleId);
+    if (invalid(context, scopes === null ? { inviteAccess: text(context, 'اختر إنبوكسًا واحدًا على الأقل ودورًا محدود النطاق، أو اختر كل الإنبوكسات للأدمن.', 'Choose at least one inbox and a scoped role, or all inboxes for an Admin.') } : {})) return false;
+    if (scopes === null) return false;
+    const accepted = await invitePerson(context, email, roleId, scopes);
     if (accepted) {
       context.state.dialog = null;
       clearForm(context, ['inviteEmail', 'inviteRole']);
@@ -1478,6 +1482,17 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-status': async (context, arg) => {
     const { id, value } = splitArg(arg);
     return changeStatus(context, id, value);
+  },
+
+  'live-member-inboxes': async (context, arg) => {
+    const person = rowsOf(context.live.people).find((p) => p.membership_id === arg);
+    if (person === undefined) return false;
+    const scopes = readInboxAccess(context.state, 'member', person.scopes, person.role.id);
+    if (invalid(context, scopes === null ? { memberAccess: text(context, 'اختر إنبوكسًا واحدًا على الأقل ودورًا محدود النطاق، أو اختر كل الإنبوكسات للأدمن.', 'Choose at least one inbox and a scoped role, or all inboxes for an Admin.') } : {})) return false;
+    if (scopes === null) return false;
+    const saved = await changeScopes(context, arg, scopes);
+    if (saved) closeDialogAfter(context, true);
+    return saved;
   },
 
   'live-scope-tenant': async (context, arg) => changeScopes(context, arg, TENANT_SCOPE),

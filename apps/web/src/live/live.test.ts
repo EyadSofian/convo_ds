@@ -150,6 +150,7 @@ function signedInApi(): FakeApi {
         ],
       },
     })
+    .on(`GET /tenants/${TENANT}/people/inboxes`, { status: 200, body: { data: [] } })
     .on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person()] } })
     .on(`GET /tenants/${TENANT}/roles`, {
       status: 200,
@@ -513,7 +514,7 @@ describe('what the user-management screens show before and instead of an answer'
     await settle();
 
     const reads = api.calls.slice(before).map((call) => call.path);
-    expect(reads).toHaveLength(6);
+    expect(reads).toHaveLength(7);
     expect(reads).not.toContain('/auth/session');
   });
 
@@ -785,6 +786,52 @@ describe('the Users screen', () => {
     expect(text(dialog)).toContain('Request ID: r-12');
     expect(app.state.toasts).toHaveLength(0);
     expect((find(root, '#invite-email') as HTMLInputElement).value).toBe('escalate@digital-school.example');
+  });
+
+  it('invites an agent with exactly the two selected inboxes', async () => {
+    const inboxes = [{ id: 'cn-a', display_name: 'WhatsApp 3904', kind: 'whatsapp', external_asset_id: 'phone-a' },
+      { id: 'cn-b', display_name: 'Instagram', kind: 'instagram', external_asset_id: 'ig-b' }];
+    const api = signedInApi()
+      .on(`GET /tenants/${TENANT}/people/inboxes`, { status: 200, body: { data: inboxes } })
+      .on(`POST /tenants/${TENANT}/invitations`, { status: 201, body: { data: invitation() } });
+    const { root } = start(api);
+    await settle();
+    fillInvite(root, 'tarek@digital-school.example');
+    choose(root, '#invite-mode', 'selected');
+    click(root, '[data-arg="inviteInbox_cn-a:true"]');
+    click(root, '[data-arg="inviteInbox_cn-b:true"]');
+    click(root, '.dialog [data-act="live-invite"]');
+    await settle();
+    expect(api.calls.find((c) => c.method === 'POST' && c.path.endsWith('/invitations'))?.body).toEqual({
+      email: 'tarek@digital-school.example', roleId: AGENT_ROLE,
+      scopes: [{ type: 'inbox', id: 'cn-a' }, { type: 'inbox', id: 'cn-b' }],
+    });
+  });
+
+  it('replaces whole-workspace and team scopes with one inbox, and can revoke all inbox access', async () => {
+    const api = signedInApi()
+      .on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person({ scopes: [{ type: 'tenant', id: null }, { type: 'team', id: 'team-a' }] })] } })
+      .on(`GET /tenants/${TENANT}/people/inboxes`, { status: 200, body: { data: [{ id: 'cn-a', display_name: 'WhatsApp 3904', kind: 'whatsapp', external_asset_id: 'phone-a' }] } })
+      .on(`PATCH /tenants/${TENANT}/people/${MEMBERSHIP}`, { status: 200, body: { data: person() } });
+    const { app, root } = start(api);
+    await settle();
+    openMenu(root, `member:${MEMBERSHIP}`);
+    click(root, `[data-act="dialog"][data-arg="member-inboxes:${MEMBERSHIP}"]`);
+    choose(root, '#member-mode', 'selected');
+    click(root, '.dialog [data-act="live-member-inboxes"]');
+    await settle();
+    expect(api.calls.some((c) => c.method === 'PATCH')).toBe(false);
+    expect(text(root.querySelector('.dialog'))).toContain('Choose at least one inbox');
+    click(root, '[data-arg="memberInbox_cn-a:true"]');
+    click(root, '.dialog [data-act="live-member-inboxes"]');
+    await settle();
+    expect(api.calls.filter((c) => c.method === 'PATCH').at(-1)?.body).toEqual({ scopes: [{ type: 'inbox', id: 'cn-a' }] });
+    expect(root.querySelector('.dialog')).toBeNull();
+    app.dispatch('dialog', `member-inboxes:${MEMBERSHIP}`);
+    choose(root, '#member-mode', 'none');
+    click(root, '.dialog [data-act="live-member-inboxes"]');
+    await settle();
+    expect(api.calls.filter((c) => c.method === 'PATCH').at(-1)?.body).toEqual({ scopes: [] });
   });
 
   it('changes a role from the row menu, re-reading the server afterwards', async () => {

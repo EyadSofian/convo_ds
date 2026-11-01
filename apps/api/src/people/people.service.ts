@@ -63,6 +63,20 @@ export interface OwnershipTransferSummary {
 export class PeopleService {
   constructor(@Inject(AuthorizationService) private readonly authorization: AuthorizationService) {}
 
+  /** Safe directory for member managers; never returns credentials or app secrets. */
+  async inboxes(session: AuthenticatedSession, tenantId: string) {
+    return this.authorization.authorized(session, tenantId, 'member.manage', async ({ sql, principal }) => {
+      const tenantWide = principal.scopes.some((scope) => scope.type === 'tenant');
+      const ids = principal.scopes.flatMap((scope) => scope.type === 'inbox' && scope.id !== null ? [scope.id] : []);
+      const rows = await sql.query<{ id: string; display_name: string; kind: string; external_asset_id: string }>(
+        `SELECT id::text, display_name, kind, external_asset_id FROM channel_connections
+         WHERE disconnected_at IS NULL AND ($1::boolean OR id = ANY($2::uuid[]))
+         ORDER BY display_name, id`, [tenantWide, ids],
+      );
+      return rows.rows;
+    });
+  }
+
   /* ------------------------------------------------------------ people -- */
 
   /**

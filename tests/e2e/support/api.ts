@@ -667,6 +667,9 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     if (path.endsWith('/channels')) {
       return json(route, paged(channelConnections()));
     }
+    if (path.endsWith('/people/inboxes')) {
+      return json(route, paged(channelConnections().map((inbox) => ({ id: inbox['id'], display_name: inbox['display_name'], kind: inbox['kind'], external_asset_id: inbox['external_asset_id'] }))));
+    }
     if (path.endsWith('/people')) {
       return json(route, paged(people()));
     }

@@ -231,6 +231,7 @@ export async function loadPeopleScreen(context: LiveContext, keep = false): Prom
   if (tenantId === null) {
     return;
   }
+  live.memberInboxes = reloading(live.memberInboxes, keep);
   live.people = reloading(live.people, keep);
   live.roles = reloading(live.roles, keep);
   live.teams = reloading(live.teams, keep);
@@ -239,7 +240,7 @@ export async function loadPeopleScreen(context: LiveContext, keep = false): Prom
   live.transfers = reloading(live.transfers, keep);
   context.refresh();
 
-  const [people, roles, teams, invitations, permissions, transfers] = await Promise.all([
+  const [people, roles, teams, invitations, permissions, transfers, memberInboxes] = await Promise.all([
     live.api.people(tenantId),
     live.api.roles(tenantId),
     live.api.teams(tenantId),
@@ -249,8 +250,10 @@ export async function loadPeopleScreen(context: LiveContext, keep = false): Prom
     // in a moment after the form appears is a select people click through.
     live.api.permissions(tenantId),
     live.api.ownershipTransfers(tenantId),
+    live.api.memberInboxes(tenantId),
   ]);
   const now = context.now();
+  live.memberInboxes = fromResult(memberInboxes, now);
   live.people = fromResult(people, now);
   live.roles = fromResult(roles, now);
   live.teams = fromResult(teams, now);

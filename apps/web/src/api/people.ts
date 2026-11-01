@@ -38,6 +38,13 @@ export interface MembershipSummary {
   readonly permissions: readonly string[];
 }
 
+export interface MemberInbox {
+  readonly id: string;
+  readonly display_name: string;
+  readonly kind: string;
+  readonly external_asset_id: string;
+}
+
 export interface ScopeRef {
   readonly type: string;
   readonly id: string | null;
@@ -152,6 +159,10 @@ export class PeopleApi {
 
   memberships(): Promise<ApiResult<readonly MembershipSummary[]>> {
     return this.client.get<readonly MembershipSummary[]>('/me/memberships');
+  }
+
+  memberInboxes(tenantId: string): Promise<ApiResult<readonly MemberInbox[]>> {
+    return this.client.get(`/tenants/${tenantId}/people/inboxes`);
   }
 
   people(tenantId: string): Promise<ApiResult<readonly Person[]>> {

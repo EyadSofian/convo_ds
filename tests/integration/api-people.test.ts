@@ -222,6 +222,30 @@ describe('membership mutations', () => {
     expect(stored.rows[0]?.detail).toMatchObject({ role_changed: true });
   });
 
+  it('lists only inboxes the member manager can grant, without exposing credentials', async () => {
+    const inboxes = await withTenant(api.pool, api.tenantId, async (client) => {
+      const rows = await client.query<{ id: string }>(
+        `INSERT INTO channel_connections (tenant_id, kind, external_asset_id, display_name)
+         VALUES ($1, 'whatsapp', '3904', 'Line 3904'), ($1, 'instagram', 'ig-test', 'Instagram') RETURNING id::text`, [api.tenantId]);
+      return rows.rows.map((r) => r.id);
+    });
+    const all = await send(api, owner, 'GET', '/people/inboxes');
+    expect(all.statusCode).toBe(200);
+    const list = (all.json() as { data: { id: string }[] }).data;
+    expect(list.map((r) => r.id).sort()).toEqual([...inboxes].sort());
+    expect(Object.keys(list[0]!).sort()).toEqual(['display_name', 'external_asset_id', 'id', 'kind']);
+    const membership = await addMember(api, 'inbox-manager@people.test', 'admin');
+    await send(api, owner, 'PATCH', `/people/${membership}`, { scopes: [{ type: 'inbox', id: inboxes[0] }] });
+    const manager = await login(api, 'inbox-manager@people.test', MEMBER_PASSWORD);
+    const scoped = await send(api, manager, 'GET', '/people/inboxes');
+    expect(scoped.statusCode).toBe(200);
+    expect((scoped.json() as { data: { id: string }[] }).data.map((r) => r.id)).toEqual([inboxes[0]]);
+    const refused = await send(api, manager, 'PATCH', `/people/${agentMembership}`, { scopes: [{ type: 'inbox', id: inboxes[1] }] });
+    expect(refused.statusCode).toBe(403);
+    const agent = await login(api, 'agent@people.test', MEMBER_PASSWORD);
+    expect((await send(api, agent, 'GET', '/people/inboxes')).statusCode).toBe(403);
+  });
+
   it('refuses an empty patch rather than absorbing it', async () => {
     const response = await send(api, owner, 'PATCH', `/people/${agentMembership}`, {});
     expect(response.statusCode).toBe(400);

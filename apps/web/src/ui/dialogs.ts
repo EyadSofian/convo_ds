@@ -10,6 +10,7 @@ import { channelTile } from './brand';
 import { broadcastWizard } from './broadcast-wizard';
 import { audienceSection } from './campaign-audience';
 import { contactCreateDialog } from './contact-create-dialog';
+import { inboxAccessFields } from './inbox-access.js';
 import { renderAdminDialog } from './admin-dialogs';
 
 function closeButton(state: AppState): HTMLElement {
@@ -580,6 +581,7 @@ function invite(state: AppState): HTMLElement {
           fieldError(state, 'inviteRole'),
         ]),
       ]),
+      inboxAccessFields(state, 'invite'),
       notice('plain', 'shield', t(state, 'الدعوة رابط يُستخدم مرة واحدة. لا توجد كلمة مرور افتراضية.', 'The invitation is a single-use link. No default password is created.')),
     ],
     [

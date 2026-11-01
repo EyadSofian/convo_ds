@@ -37,6 +37,7 @@ import type { SavedAudience, SavedView, SavedViewsApi } from '../api/saved-views
 import type { RealtimeSubscription } from './realtime.js';
 import type { Notification, NotificationsApi } from '../api/notifications.js';
 import type {
+  MemberInbox,
   Invitation,
   MembershipSummary,
   OwnershipTransfer,
@@ -222,6 +223,7 @@ export interface LiveState {
   pushStatus: 'idle' | 'checking' | 'enabling' | 'enabled' | 'denied' | 'unavailable' | 'error';
   pushPublicKey: string | null;
   session: SessionState;
+  memberInboxes: Resource<readonly MemberInbox[]>;
   people: Resource<readonly Person[]>;
   roles: Resource<readonly Role[]>;
   teams: Resource<readonly Team[]>;
@@ -425,6 +427,7 @@ export function createLiveState(
     supervisorAgentId: null,
     supervisorWorkload: IDLE,
     session: { status: 'unknown' },
+    memberInboxes: IDLE,
     people: IDLE,
     roles: IDLE,
     teams: IDLE,

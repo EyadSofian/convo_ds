@@ -168,6 +168,7 @@ describe('pinned OpenAPI contract', () => {
       "cancelOwnership",
       "acceptOwnership",
       "declineOwnership",
+      "listMemberInboxes",
       "listPeople",
       "updateMembership",
       "listPermissions",

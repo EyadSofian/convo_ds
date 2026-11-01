@@ -1,3 +1,4 @@
+import { inboxAccessFields } from './inbox-access.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { roleNameField, teamNameField } from '../live/dispatch.js';
@@ -22,6 +23,7 @@ function gone(state: AppState, title: string): HTMLElement {
 }
 
 export function renderAdminDialog(state: AppState, kind: string, arg: string): HTMLElement | null {
+  if (kind === 'member-inboxes') return memberInboxes(state, arg);
   if (kind === 'member-name') return memberName(state, arg);
   if (kind === 'member-role') return memberRole(state, arg);
   if (kind === 'member-revoke') return memberRevoke(state, arg);
@@ -36,6 +38,18 @@ export function renderAdminDialog(state: AppState, kind: string, arg: string): H
 }
 
 /* ---------------------------------------------------------------- members -- */
+
+function memberInboxes(state: AppState, membershipId: string): HTMLElement {
+  const person = rowsOf(state.live.people).find((p) => p.membership_id === membershipId);
+  const title = t(state, 'إدارة الإنبوكسات', 'Manage inboxes');
+  if (person === undefined) return gone(state, title);
+  return dialogShell(state, title, [
+    h('p', { class: 'dialog__lead' }, [person.display_name || person.email]),
+    inboxAccessFields(state, 'member', person.scopes),
+    inlineError(state, state.live.error),
+  ], [cancel(state), button({ label: t(state, 'حفظ الوصول', 'Save access'), act: 'live-member-inboxes', arg: membershipId,
+    variant: 'primary', busy: state.live.busy === `scopes:${membershipId}` })]);
+}
 
 function memberName(state: AppState, membershipId: string): HTMLElement {
   const live = state.live;

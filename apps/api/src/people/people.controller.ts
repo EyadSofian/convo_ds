@@ -38,6 +38,12 @@ export class PeopleController {
     return session;
   }
 
+  @Get('people/inboxes')
+  async inboxes(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return pageEnvelope(await this.people.inboxes(session, tenantId), null, request.id);
+  }
+
   @Patch('people/:membershipId')
   async updateMembership(
     @Param('tenantId') tenantId: string,
