@@ -10,6 +10,7 @@ import { ChannelCredentialService } from './credential.service.js';
 import { ContactService } from '../contacts/contact.service.js';
 import { normalizeSearchText } from '@convo/domain';
 import { ConversationService } from '../conversations/conversation.service.js';
+import { externalEcho } from '../conversations/event-boundary.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { inboundRowFrom } from './inbound-projection.js';
 import type { InboundRow } from './inbound-projection.js';
@@ -268,6 +269,10 @@ export class ChannelNormalizationService {
     inboundEventId: string,
     inbound: InboundRow,
   ): Promise<void> {
+    if (inbound.kind === 'echo') {
+      await this.recordEcho(sql, tenantId, connectionId, inboundEventId, inbound);
+      return;
+    }
     if (inbound.kind !== 'message') {
       return;
     }
@@ -326,6 +331,70 @@ export class ChannelNormalizationService {
         contentType: inbound.contentType,
         text: inbound.text,
       },
+    });
+  }
+
+  /**
+   * A message the business sent from outside CONVO, reported back by Meta.
+   *
+   * It joins the customer's open thread as something *we* said: it is bound to
+   * the conversation, moves its activity time so the list order matches what
+   * the customer sees, and tells authorized readers to re-read. It does not
+   * touch the lifecycle — an echo is also what Meta's automated replies look
+   * like, and an instant reply is not somebody answering the customer.
+   *
+   * Two cases record nothing beyond the row itself. An echo of a message CONVO
+   * sent (by provider id, or by Meta's app stamp) is already in the thread as
+   * that message. And an echo with no open
+   * thread does not open one: a conversation begins with the customer, and the
+   * row stays available to the opening-event interval when one is opened —
+   * which is how an instant reply drained before its first message is shown.
+   */
+  private async recordEcho(
+    sql: SqlExecutor,
+    tenantId: string,
+    connectionId: string,
+    inboundEventId: string,
+    echo: InboundRow,
+  ): Promise<void> {
+    // The same rule the timeline reads with, so the two cannot disagree.
+    const external = await sql.query(
+      `SELECT 1 FROM inbound_events x WHERE x.id=$1 AND ${externalEcho('x')}`,
+      [inboundEventId],
+    );
+    if (external.rows.length === 0) {
+      return;
+    }
+    const open = await sql.query<{
+      id: string; version: number; team_id: string | null; assignee_membership_id: string | null;
+    }>(
+      `SELECT id::text, version, team_id::text, assignee_membership_id::text
+         FROM conversations
+        WHERE tenant_id=$1 AND connection_id=$2 AND peer_identity=$3 AND status <> 'archived'`,
+      [tenantId, connectionId, echo.peerIdentity],
+    );
+    const conversation = open.rows[0];
+    if (conversation === undefined) {
+      return;
+    }
+    await sql.query(
+      `UPDATE inbound_events SET conversation_id=$2
+        WHERE id=$1 AND tenant_id=$3 AND conversation_id IS NULL`,
+      [inboundEventId, conversation.id, tenantId],
+    );
+    // Activity only, not the version: nothing an agent could be editing
+    // changed, so an in-flight claim or status change must not lose to this.
+    await sql.query(
+      `UPDATE conversations SET last_activity_at = GREATEST(last_activity_at, $2)
+        WHERE id=$1`,
+      [conversation.id, echo.occurredAt],
+    );
+    await this.realtime.emit(sql, tenantId, {
+      type: 'message.external', entityType: 'conversation',
+      entityId: conversation.id, entityVersion: conversation.version,
+      conversationId: conversation.id, connectionId,
+      teamId: conversation.team_id, assigneeMembershipId: conversation.assignee_membership_id,
+      occurredAt: echo.occurredAt, payload: {},
     });
   }
 }

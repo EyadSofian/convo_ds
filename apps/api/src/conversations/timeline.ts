@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import type { SqlExecutor } from '@convo/domain';
 import { OpaqueCursorCodec } from '../pagination.js';
 import type { CursorBinding } from '../pagination.js';
+import { conversationEventBoundary, externalEcho } from './event-boundary.js';
 
 /**
  * The conversation timeline: what the customer sent and what we sent back, in
@@ -28,7 +29,10 @@ export interface TimelineMessage {
   readonly text: string | null;
   readonly attachments: unknown;
   readonly author_membership_id: string | null;
-  /** Outbound only: what we asked the provider to do. */
+  /**
+   * Outbound only: what we asked the provider to do, or `sent_elsewhere` for a
+   * message the business sent outside CONVO that the provider reported back.
+   */
   readonly command_state: string | null;
   /** Outbound only: what the provider later said happened. */
   readonly delivery_state: string | null;
@@ -131,6 +135,24 @@ export async function readTimeline(
           AND (m.conversation_id=$1 OR (m.conversation_id IS NULL
             AND m.created_at >= (SELECT c.created_at FROM conversations c WHERE c.id=$1)
             AND m.created_at < COALESCE((SELECT c.archived_at FROM conversations c WHERE c.id=$1), 'infinity'::timestamptz)))
+       UNION ALL
+       -- Sent by the business from outside CONVO (a Meta echo). Shown on our
+       -- side of the thread; an echo of something CONVO sent is already above
+       -- as that message and is not shown twice.
+       SELECT x.id::text, 'out', x.occurred_at,
+              x.content_type, x.text_body, x.attachments,
+              NULL::text,
+              'sent_elsewhere', NULL::text,
+              NULL::text, x.provider_message_id,
+              NULL::text, NULL::text, NULL::text,
+              NULL::text
+         FROM inbound_events x
+         JOIN conversations c ON c.id = $1
+        -- The opening-event interval: Meta's instant reply is stamped before
+        -- the worker creates the thread, and must still belong to it.
+        WHERE x.kind = 'echo'
+          AND ${conversationEventBoundary('c', 'x', 'x.occurred_at', { inboundOpeningEvent: true })}
+          AND ${externalEcho('x')}
        UNION ALL
        SELECT r.id::text, 'reaction', r.occurred_at,
               r.content_type, r.text_body, r.attachments,

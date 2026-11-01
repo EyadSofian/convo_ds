@@ -2869,6 +2869,93 @@ describe('durable Meta sender profile enrichment', () => {
       await api.app.close();
     }
   }, 180_000);
+
+  it('shows replies sent from Meta Business Suite in the customer thread, and never our own sends twice', async () => {
+    const api = await createHarness({ channelTransport: {
+      name: 'echo-test',
+      validateConnection: async () => ({ ok: true, assetIdentity: '483612954841072', code: null, message: null }),
+      send: async () => ({ status: 'definitely_rejected', code: 'not_sent', message: 'Test only.', retryable: false }),
+      fetchPeerProfile: async () => null,
+    } });
+    try {
+      const owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+      const connected = await send(api, owner, 'POST', '/channels', {
+        kind: 'messenger', externalAssetId: '483612954841072', displayName: 'Echo test Page',
+        accessToken: 'synthetic-page-token-for-echo-test', appId: api.appId,
+      });
+      expect(connected.statusCode, connected.body).toBe(201);
+      const connectionId = (connected.json() as { data: { id: string } }).data.id;
+      const page = '483612954841072';
+      const customer = '4528904674043170';
+      const asked = Date.now() - 60_000;
+      const echo = (mid: string, text: string, at: number, appId: number): Record<string, unknown> => ({
+        object: 'page', entry: [{ id: page, messaging: [{
+          sender: { id: page }, recipient: { id: customer }, timestamp: at,
+          message: { mid, text, is_echo: true, app_id: appId },
+        }] }],
+      });
+      const normalizer = api.app.get(ChannelNormalizationService);
+      const realtimeTypes = async (): Promise<readonly string[]> => (await withTenant(api.pool, api.tenantId, (client) =>
+        client.query<{ type: string }>(`SELECT type FROM realtime_events WHERE tenant_id=$1 AND type='message.external'`, [api.tenantId]),
+      )).rows.map((row) => row.type);
+
+      // Meta's instant reply can be drained before the message it answers.
+      // There is no thread yet, so it opens none and is only recorded.
+      expect((await deliver(api, echo('mid.echo.instant', 'We received your information', asked + 500, 263902037430900))).statusCode).toBe(200);
+      await normalizer.drain(api.tenantId);
+      const early = await withTenant(api.pool, api.tenantId, (client) => client.query<{ kind: string; peer_identity: string; conversation_id: string | null }>(
+        `SELECT kind, peer_identity, conversation_id::text FROM inbound_events WHERE provider_message_id='mid.echo.instant'`,
+      ));
+      expect(early.rows).toEqual([{ kind: 'echo', peer_identity: customer, conversation_id: null }]);
+      expect(await realtimeTypes()).toEqual([]);
+
+      await deliver(api, { object: 'page', entry: [{ id: page, messaging: [{
+        sender: { id: customer }, recipient: { id: page }, timestamp: asked,
+        message: { mid: 'mid.echo.question', text: 'ممكن تفاصيل' },
+      }] }] });
+      await normalizer.drain(api.tenantId);
+      const thread = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+        `SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2`, [connectionId, customer],
+      ));
+      const conversationId = thread.rows[0]!.id;
+
+      // A reply typed in Business Suite joins the open thread as ours.
+      const repliedAt = Date.now() + 60_000;
+      await deliver(api, echo('mid.echo.suite', 'مساء الخير يا فندم', repliedAt, 263902037430900));
+      // Sent through this connection's own app: already shown as that send.
+      await deliver(api, echo('mid.echo.ours', 'Sent by CONVO', repliedAt - 1000, 100000000000001));
+      await normalizer.drain(api.tenantId);
+      const bound = await withTenant(api.pool, api.tenantId, (client) => client.query<{ provider_message_id: string; conversation_id: string | null }>(
+        `SELECT provider_message_id, conversation_id::text FROM inbound_events
+          WHERE kind='echo' AND provider_message_id IN ('mid.echo.suite', 'mid.echo.ours') ORDER BY provider_message_id`,
+      ));
+      expect(bound.rows).toEqual([
+        { provider_message_id: 'mid.echo.ours', conversation_id: null },
+        { provider_message_id: 'mid.echo.suite', conversation_id: conversationId },
+      ]);
+      expect(await realtimeTypes()).toEqual(['message.external']);
+      const activity = await withTenant(api.pool, api.tenantId, (client) => client.query<{ last_activity_at: Date }>(
+        'SELECT last_activity_at FROM conversations WHERE id=$1', [conversationId],
+      ));
+      expect(activity.rows[0]!.last_activity_at.getTime()).toBeGreaterThanOrEqual(repliedAt);
+
+      const timeline = await send(api, owner, 'GET', `/conversations/${conversationId}/messages`);
+      expect(timeline.statusCode, timeline.body).toBe(200);
+      const messages = (timeline.json() as { data: { direction: string; text: string | null; command_state: string | null }[] }).data;
+      expect(messages.map((message) => [message.direction, message.text, message.command_state])).toEqual([
+        ['in', 'ممكن تفاصيل', null],
+        ['out', 'We received your information', 'sent_elsewhere'],
+        ['out', 'مساء الخير يا فندم', 'sent_elsewhere'],
+      ]);
+      const listed = await send(api, owner, 'GET', '/conversations?queue=all');
+      const row = (listed.json() as { data: { id: string; lastMessagePreview: string | null }[] }).data.find(
+        (entry) => entry.id === conversationId,
+      );
+      expect(row?.lastMessagePreview).toBe('مساء الخير يا فندم');
+    } finally {
+      await api.app.close();
+    }
+  }, 180_000);
 });
 
 describe('the channels beyond WhatsApp', () => {

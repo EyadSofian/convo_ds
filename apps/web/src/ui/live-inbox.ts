@@ -72,6 +72,8 @@ const COMMAND_LABEL: Readonly<Record<string, Phrase>> = {
   cancelled: { ar: 'ملغاة', en: 'Cancelled' },
   failed: { ar: 'فشلت', en: 'Failed' },
   outcome_unknown: { ar: 'النتيجة غير معروفة', en: 'Outcome unknown' },
+  // Sent from Meta Business Suite or by Meta's automated replies, not from here.
+  sent_elsewhere: { ar: 'أُرسلت من Meta', en: 'Sent from Meta' },
 };
 
 /* ------------------------------------------------------------------ shell -- */
@@ -925,11 +927,13 @@ function messageBubble(state: AppState, message: TimelineMessage): HTMLElement {
       body,
       imageUrl === null ? null : h('img', {
         class: 'msg__attachment-image', src: imageUrl,
-        alt: t(state, 'صورة أرسلها العميل', 'Image sent by customer'),
+        alt: message.direction === 'out'
+          ? t(state, 'صورة مرسلة للعميل', 'Image sent to customer')
+          : t(state, 'صورة أرسلها العميل', 'Image sent by customer'),
         loading: 'lazy', referrerpolicy: 'no-referrer',
       }),
       body === null && imageUrl === null && Array.isArray(message.attachments) && message.attachments.length > 0
-        ? t(state, 'مرفق من العميل', 'Customer attachment') : null,
+        ? (message.direction === 'out' ? t(state, 'مرفق مرسل', 'Attachment sent') : t(state, 'مرفق من العميل', 'Customer attachment')) : null,
     ]),
     h('div', { class: 'msg__meta' }, [
       h('time', { datetime: message.at }, [clockTime(message.at, state.lang)]),

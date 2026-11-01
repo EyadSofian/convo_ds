@@ -426,6 +426,12 @@ describe('inboundRowFrom', () => {
     expect(inboundRowFrom({ detail: 'odd' }, FALLBACK).senderName).toBeNull();
   });
 
+  it('keeps an echo with its id, and degrades one without an id to unsupported', () => {
+    expect(inboundRowFrom({ kind: 'echo', providerMessageId: 'mid.1', peerIdentity: 'psid-1' }, FALLBACK))
+      .toMatchObject({ kind: 'echo', providerMessageId: 'mid.1', peerIdentity: 'psid-1' });
+    expect(inboundRowFrom({ kind: 'echo', peerIdentity: 'psid-1' }, FALLBACK).kind).toBe('unsupported');
+  });
+
   it('answers an empty object with defaults rather than throwing', () => {
     // Everything here came out of `jsonb`. A schema change, a replayed old
     // event or an adapter bug all arrive as a shape that does not match, and one

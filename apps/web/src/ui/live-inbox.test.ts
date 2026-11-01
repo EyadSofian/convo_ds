@@ -503,6 +503,32 @@ describe('Inbox list controls', () => {
     expect(root.querySelector<HTMLImageElement>('[data-message="sticker"] img')?.src).toBe('https://scontent.cdninstagram.com/sticker.png');
   });
 
+  it('shows what the business sent from Meta on our side, without calling it the customer’s', () => {
+    const app = state();
+    app.live.openConversationId = 'conversation-1';
+    app.live.openConversation = { status: 'ready', loadedAt: 1, value: {
+      id: 'conversation-1', contactId: null, connectionId: 'connection-1', peerIdentity: 'visitor',
+      inboxLabel: 'Messenger', channel: 'messenger', teamId: null, assigneeMembershipId: 'member-1',
+      status: 'open', priority: 'normal', version: 2, labels: [], customFields: [],
+    } as never };
+    const meta = { direction: 'out', command_state: 'sent_elsewhere', delivery_state: null, delivery_anomaly: null, at: NOW.toISOString() };
+    app.live.timeline = ready([
+      { ...meta, id: 'suite', text: 'مساء الخير', attachments: [] },
+      { ...meta, id: 'photo', text: null, attachments: [{ type: 'image', providerId: 'https://scontent.xx.fbcdn.net/offer.png' }] },
+      { ...meta, id: 'file', text: null, attachments: [{ type: 'file', providerId: 'https://example.test/brochure.pdf' }] },
+    ] as never, 1);
+    let root = renderInbox(app);
+    expect(root.querySelector('[data-message="suite"]')?.classList.contains('msg--out')).toBe(true);
+    expect(root.querySelector('[data-message="suite"]')?.textContent).toContain('Sent from Meta');
+    expect(root.querySelector('[data-message="photo"] img')?.getAttribute('alt')).toBe('Image sent to customer');
+    expect(root.querySelector('[data-message="file"]')?.textContent).toContain('Attachment sent');
+    expect(root.querySelector('[data-message="file"]')?.textContent).not.toContain('Customer attachment');
+    app.lang = 'ar';
+    root = renderInbox(app);
+    expect(root.querySelector('[data-message="suite"]')?.textContent).toContain('أُرسلت من Meta');
+    expect(root.querySelector('[data-message="file"]')?.textContent).toContain('مرفق مرسل');
+  });
+
   it('keeps free-form reply available in an open window but hides template controls in the supervisor lens', () => {
     const app = state();
     app.live.openConversationId = 'conversation-1';

@@ -52,6 +52,8 @@ export interface SignatureInput {
 
 export const INBOUND_KINDS = [
   'message',
+  /** A message the business sent, reported back by the provider (a Meta echo). */
+  'echo',
   'delivery_status',
   'read_status',
   'reaction',

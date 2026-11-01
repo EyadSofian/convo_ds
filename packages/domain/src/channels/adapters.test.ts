@@ -311,13 +311,34 @@ describe('MessengerAdapter', () => {
     expect(batch.events[0]?.dedupeKey).toBe('mg:postback:psid-1:1789000000000');
   });
 
-  it('marks an echo of our own message as not an inbound message', () => {
+  it('keeps an echo as the business speaking to the customer, not as an inbound message', () => {
+    // An echo is sent *by* the Page *to* the customer: the sender is the Page.
     const batch = adapter.normalize(
-      messengerItem({ message: { mid: 'mid.e', text: 'our reply', is_echo: true } }),
+      {
+        object: 'page',
+        entry: [{
+          id: 'page-1',
+          messaging: [{
+            sender: { id: 'page-1' },
+            recipient: { id: 'psid-1' },
+            timestamp: 1789000000000,
+            message: { mid: 'mid.e', text: 'مساء الخير', is_echo: true, app_id: 263902037430900 },
+          }],
+        }],
+      },
       NOW,
     );
     // A real event, and not one to show as something the customer typed.
-    expect(batch.events[0]).toMatchObject({ kind: 'unsupported', eventType: 'messaging.echo' });
+    expect(batch.events[0]).toMatchObject({
+      kind: 'echo',
+      eventType: 'messaging.echo',
+      providerMessageId: 'mid.e',
+      // Keyed on the customer, so it lands in the customer's thread.
+      peerIdentity: 'psid-1',
+      assetIdentity: 'page-1',
+      text: 'مساء الخير',
+      detail: { echo: true, app_id: '263902037430900' },
+    });
   });
 
   it('keeps an emoji-only Messenger customer message as text', () => {
@@ -474,6 +495,30 @@ describe('InstagramAdapter', () => {
       dedupeKey: 'ig:msg:ig.1',
       peerIdentity: 'igsid-1',
       text: 'أهلًا',
+    });
+  });
+
+  it('keeps an Instagram echo on the customer thread as the business speaking', () => {
+    const batch = adapter.normalize(
+      {
+        object: 'instagram',
+        entry: [{
+          id: 'ig-1',
+          messaging: [{
+            sender: { id: 'ig-1' },
+            recipient: { id: 'igsid-1' },
+            timestamp: 1789000000000,
+            message: { mid: 'ig.echo', text: 'Thanks!', is_echo: true },
+          }],
+        }],
+      },
+      NOW,
+    );
+    expect(batch.events[0]).toMatchObject({
+      kind: 'echo',
+      dedupeKey: 'ig:msg:ig.echo',
+      peerIdentity: 'igsid-1',
+      detail: { echo: true, app_id: null },
     });
   });
 

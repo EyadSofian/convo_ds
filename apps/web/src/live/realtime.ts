@@ -103,6 +103,7 @@ export interface RealtimeSubscription {
 const KNOWN_TYPES = new Set([
   'message.inbound',
   'message.delivery',
+  'message.external',
   'conversation.assigned',
   'conversation.state',
   'conversation.note',

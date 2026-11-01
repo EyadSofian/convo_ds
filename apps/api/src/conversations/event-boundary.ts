@@ -43,6 +43,24 @@ export function conversationEventBoundary(
     ))`;
 }
 
+/**
+ * An echo that is not a message CONVO itself sent.
+ *
+ * Two independent proofs that it is ours: the provider id matches one of our
+ * outbound messages, or Meta stamped it with the app this connection sends
+ * through. The second covers a send whose outcome was never learned, which
+ * has no provider id and would otherwise appear twice.
+ */
+export function externalEcho(alias: string): string {
+  return `NOT EXISTS (SELECT 1 FROM outbound_messages own
+                 WHERE own.tenant_id=${alias}.tenant_id AND own.connection_id=${alias}.connection_id
+                   AND own.provider_message_id=${alias}.provider_message_id)
+    AND NOT EXISTS (SELECT 1 FROM channel_connections sender
+                      JOIN channel_apps app ON app.id=sender.app_id
+                     WHERE sender.id=${alias}.connection_id
+                       AND app.external_app_id=${alias}.detail->>'app_id')`;
+}
+
 /** Human-authored messages, excluding explicit campaign test sends. */
 export function qualifyingHumanOutbound(alias: string): string {
   return `${alias}.author_membership IS NOT NULL

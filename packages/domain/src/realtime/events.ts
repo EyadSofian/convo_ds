@@ -35,6 +35,11 @@ export const REALTIME_EVENT_TYPES = [
   'message.inbound',
   /** A provider receipt moved an outbound message's delivery state. */
   'message.delivery',
+  /**
+   * The business sent a message from outside CONVO (a Meta echo). Carries no
+   * content: subscribers re-read the views they are authorized for.
+   */
+  'message.external',
   /** The conversation gained, lost or changed its assignee. */
   'conversation.assigned',
   /** The conversation opened, snoozed or resolved. */
