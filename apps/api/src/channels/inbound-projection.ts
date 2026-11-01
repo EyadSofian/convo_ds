@@ -35,8 +35,9 @@ export function inboundRowFrom(event: Record<string, unknown>, fallbackTime: Dat
     // A message with no provider id would violate the table's own check. It
     // cannot arise from the WhatsApp normalizer — a message without an id is
     // quarantined before it gets here — so an adapter bug degrades to
-    // `unsupported`, which is visible, rather than crashing the drain.
-    kind: kind === 'message' && providerMessageId === null ? 'unsupported' : kind,
+    // `unsupported`, which is visible, rather than crashing the drain. An echo
+    // is shown in the transcript the same way, so it needs an id just as much.
+    kind: (kind === 'message' || kind === 'echo') && providerMessageId === null ? 'unsupported' : kind,
     providerMessageId,
     peerIdentity: stringOrNull(event['peerIdentity']) ?? '',
     assetIdentity: stringOrNull(event['assetIdentity']) ?? '',

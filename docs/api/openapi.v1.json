@@ -10437,6 +10437,7 @@
             "enum": [
               "message.inbound",
               "message.delivery",
+              "message.external",
               "conversation.assigned",
               "conversation.state",
               "conversation.note",
@@ -10668,7 +10669,7 @@
               "string",
               "null"
             ],
-            "description": "Outbound only: what we asked the provider to do."
+            "description": "Outbound only: what we asked the provider to do, or sent_elsewhere for a message the business sent outside CONVO that the provider reported back."
           },
           "delivery_state": {
             "type": [

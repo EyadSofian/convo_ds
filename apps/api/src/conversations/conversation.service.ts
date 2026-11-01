@@ -38,7 +38,7 @@ import { OpaqueCursorCodec } from '../pagination.js';
 import { compileInboxQuery, previewScope, readableScope } from './inbox-query-compiler.js';
 import { validateInboxQuery } from './inbox-query-validation.js';
 import { requireScopedSupervisorAgent, scopedSupervisorAgents } from './supervisor-directory.js';
-import { conversationEventBoundary, conversationUnrepliedPredicate, latestConversationInbound } from './event-boundary.js';
+import { conversationEventBoundary, conversationUnrepliedPredicate, externalEcho, latestConversationInbound } from './event-boundary.js';
 
 export type { ConversationDetail, ConversationRow } from './record.js';
 
@@ -421,6 +421,12 @@ export class ConversationService {
                   FROM inbound_events e
                  WHERE e.kind='message' AND ${conversationEventBoundary('c', 'e', 'e.occurred_at', { inboundOpeningEvent: true })}
                  ORDER BY e.occurred_at DESC LIMIT 1)
+               UNION ALL
+               (SELECT x.text_body, x.occurred_at AS at, x.id
+                  FROM inbound_events x
+                 WHERE x.kind='echo' AND ${conversationEventBoundary('c', 'x', 'x.occurred_at', { inboundOpeningEvent: true })}
+                   AND ${externalEcho('x')}
+                 ORDER BY x.occurred_at DESC LIMIT 1)
                UNION ALL
                (SELECT COALESCE(m.template_preview, m.text_body) AS text_body, m.created_at AS at, m.id
                   FROM outbound_messages m

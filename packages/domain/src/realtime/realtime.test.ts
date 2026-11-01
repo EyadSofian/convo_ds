@@ -79,6 +79,7 @@ describe('the event contract', () => {
     expect([...REALTIME_EVENT_TYPES]).toEqual([
       'message.inbound',
       'message.delivery',
+      'message.external',
       'conversation.assigned',
       'conversation.state',
       'conversation.note',

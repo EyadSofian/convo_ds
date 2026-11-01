@@ -133,22 +133,34 @@ function normalizeItem(
     }
     const text = asString(message['text']);
     const attachments = attachmentsOf(message);
-    // An echo is our own message coming back. It is a real event that must not
-    // be shown as an inbound customer message, so it is kept with its own type.
+    // An echo is a message the business sent, coming back: from this app, from
+    // Meta Business Suite, or from Meta's own automated replies. It is kept as
+    // its own kind so it is shown on our side of the thread and never counted
+    // as the customer writing (which would reopen windows and wake queues).
+    // The customer is the *recipient* of an echo, and the thread is keyed on
+    // the customer, so the peer is the recipient rather than the sender.
     const isEcho = message['is_echo'] === true;
     const known = text !== null || attachments.length > 0;
+    const appId = message['app_id'];
     return [
       {
-        kind: isEcho ? 'unsupported' : known ? 'message' : 'unsupported',
+        kind: isEcho ? 'echo' : known ? 'message' : 'unsupported',
         dedupeKey: `${context.keyPrefix}:msg:${mid}`,
         eventType: isEcho ? 'messaging.echo' : 'messaging.message',
         providerMessageId: mid,
-        peerIdentity: context.senderId,
+        peerIdentity: isEcho ? context.recipientId : context.senderId,
         assetIdentity: context.assetId,
         contentType: text !== null ? 'text' : (attachments[0]?.type ?? 'unknown'),
         text,
         attachments,
-        detail: isEcho ? { echo: true } : known ? {} : { unsupported_message: true },
+        detail: isEcho
+          ? {
+              echo: true,
+              app_id: typeof appId === 'number' || typeof appId === 'string' ? String(appId) : null,
+            }
+          : known
+            ? {}
+            : { unsupported_message: true },
         occurredAt: context.occurredAt,
         source: item,
       },
