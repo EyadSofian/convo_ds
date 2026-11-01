@@ -1466,8 +1466,10 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
       ...(roleId === '' ? { inviteRole: text(context, 'اختر دورًا.', 'Choose a role.') } : {}),
     })) return false;
     const scopes = readInboxAccess(context.state, 'invite', [], roleId);
-    if (invalid(context, scopes === null ? { inviteAccess: text(context, 'اختر إنبوكسًا واحدًا على الأقل ودورًا محدود النطاق، أو اختر كل الإنبوكسات للأدمن.', 'Choose at least one inbox and a scoped role, or all inboxes for an Admin.') } : {})) return false;
-    if (scopes === null) return false;
+    if (scopes === null) {
+      invalid(context, { inviteAccess: text(context, 'اختر إنبوكسًا واحدًا على الأقل ودورًا محدود النطاق، أو اختر كل الإنبوكسات للأدمن.', 'Choose at least one inbox and a scoped role, or all inboxes for an Admin.') });
+      return false;
+    }
     const accepted = await invitePerson(context, email, roleId, scopes);
     if (accepted) {
       context.state.dialog = null;
@@ -1488,8 +1490,10 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     const person = rowsOf(context.live.people).find((p) => p.membership_id === arg);
     if (person === undefined) return false;
     const scopes = readInboxAccess(context.state, 'member', person.scopes, person.role.id);
-    if (invalid(context, scopes === null ? { memberAccess: text(context, 'اختر إنبوكسًا واحدًا على الأقل ودورًا محدود النطاق، أو اختر كل الإنبوكسات للأدمن.', 'Choose at least one inbox and a scoped role, or all inboxes for an Admin.') } : {})) return false;
-    if (scopes === null) return false;
+    if (scopes === null) {
+      invalid(context, { memberAccess: text(context, 'اختر إنبوكسًا واحدًا على الأقل ودورًا محدود النطاق، أو اختر كل الإنبوكسات للأدمن.', 'Choose at least one inbox and a scoped role, or all inboxes for an Admin.') });
+      return false;
+    }
     const saved = await changeScopes(context, arg, scopes);
     if (saved) closeDialogAfter(context, true);
     return saved;

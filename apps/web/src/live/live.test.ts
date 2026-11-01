@@ -788,6 +788,21 @@ describe('the Users screen', () => {
     expect((find(root, '#invite-email') as HTMLInputElement).value).toBe('escalate@digital-school.example');
   });
 
+  it('blocks an empty inbox invitation and refuses a stale member edit', async () => {
+    const api = signedInApi();
+    const { app, root } = start(api);
+    await settle();
+    fillInvite(root, 'tarek@digital-school.example');
+    choose(root, '#invite-mode', 'selected');
+    click(root, '.dialog [data-act="live-invite"]');
+    await settle();
+    expect(text(root.querySelector('.dialog'))).toContain('Choose at least one inbox');
+    expect(api.calls.some((c) => c.method === 'POST')).toBe(false);
+    app.dispatch('live-member-inboxes', 'deleted-member');
+    await settle();
+    expect(api.calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+
   it('invites an agent with exactly the two selected inboxes', async () => {
     const inboxes = [{ id: 'cn-a', display_name: 'WhatsApp 3904', kind: 'whatsapp', external_asset_id: 'phone-a' },
       { id: 'cn-b', display_name: 'Instagram', kind: 'instagram', external_asset_id: 'ig-b' }];

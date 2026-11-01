@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { createState } from '../state.js';
 import { ready } from '../live/store.js';
+import { renderAdminDialog } from './admin-dialogs.js';
 import { accessMode, inboxAccessFields, readInboxAccess, selectedInboxIds } from './inbox-access.js';
 
 function state() {
@@ -39,6 +40,21 @@ describe('member inbox access choices', () => {
     expect(inboxAccessFields(s, 'invite').textContent).toContain('The server couldn’t complete this');
     s.dialogForm['inviteMode'] = 'tenant';
     expect(readInboxAccess(s, 'invite', [], 'admin')).toEqual([{ type: 'tenant', id: null }]);
+  });
+
+  it('handles loading and empty directories, and names missing members honestly', () => {
+    const s = state();
+    s.live.people = ready([{ membership_id: 'owner', display_name: '', email: 'owner@test.example', status: 'active', role: { id: 'admin', key: 'admin', name: 'Admin' }, scopes: [{ type: 'tenant', id: null }] }], 1);
+    s.dialogForm = { memberMode: 'selected' };
+    s.live.memberInboxes = { status: 'loading' };
+    expect(inboxAccessFields(s, 'member').textContent).toContain('Loading inboxes');
+    s.live.memberInboxes = { status: 'idle' };
+    expect(inboxAccessFields(s, 'member').textContent).toContain('Loading inboxes');
+    s.live.memberInboxes = ready([], 1);
+    expect(inboxAccessFields(s, 'member').textContent).toContain('No inboxes available to grant');
+    expect(renderAdminDialog(s, 'member-inboxes', 'deleted')?.textContent).toContain('no longer exists');
+    expect(renderAdminDialog(s, 'member-inboxes', 'owner')?.textContent).toContain('owner@test.example');
+    expect(inboxAccessFields(s, 'member').querySelector('option[value="tenant"]')).not.toBeNull();
   });
 
   it('shows unavailable existing grants explicitly and offers their removal', () => {
