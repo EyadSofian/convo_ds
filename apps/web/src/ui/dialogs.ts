@@ -161,7 +161,7 @@ function quickWhatsAppDialog(state: AppState): HTMLElement {
   const selected = templates.find((entry) => entry.id === state.dialogForm['quickTemplateId']);
   const definition = selected === undefined ? null : templateDefinition(selected);
   return dialogShell(state, t(state, 'رسالة واتساب جديدة', 'New WhatsApp message'), [
-    notice('info', 'info', t(state, 'لبدء محادثة مع رقم جديد، استخدم قالبًا معتمدًا وسجّل مرجع موافقة العميل على استقبال رسائل واتساب. لن ننشئ جهة اتصال قبل أن يرد.', 'Start a new number with an approved template and record where the customer opted in to WhatsApp messages. A contact is created when they reply.')),
+    notice('info', 'info', t(state, 'لبدء محادثة مع رقم جديد، استخدم قالبًا معتمدًا. ستُنشأ جهة الاتصال عندما يرد العميل.', 'Start a new number with an approved template. A contact is created when they reply.')),
     resource.status === 'loading' ? h('p', { role: 'status' }, [t(state, 'جارٍ تحميل أرقام واتساب والقوالب…', 'Loading WhatsApp numbers and templates…')]) : null,
     resource.status === 'error' ? inlineError(state, resource.error) : null,
     connections.length === 0 && resource.status === 'ready' ? notice('warning', 'alert', t(state, 'لا يوجد رقم واتساب متاح لك.', 'No WhatsApp number is available to you.')) : null,
@@ -174,7 +174,6 @@ function quickWhatsAppDialog(state: AppState): HTMLElement {
       h('span', { class: 'field__label' }, [parameter.mediaFormat === undefined ? `${parameter.component} {{${parameter.name ?? String(parameter.position)}}}` : t(state, 'رابط وسائط HTTPS', 'HTTPS media URL')]),
       h('input', { class: 'input', type: parameter.mediaFormat === undefined ? 'text' : 'url', maxlength: 1024, value: state.dialogForm[`quickParam_${parameter.key.replaceAll(':', '_')}`] ?? '', placeholder: parameter.example ?? '', 'data-act': 'form', 'data-form': `quickParam_${parameter.key.replaceAll(':', '_')}` }),
     ])),
-    h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'مرجع الموافقة (مثال: رقم نموذج التسجيل)', 'Opt-in proof reference (for example, form submission ID)')]), textInput('quickConsentReference', state.dialogForm['quickConsentReference'] ?? '', t(state, 'مصدر الموافقة وتاريخها', 'Consent source and date'), { required: true })]),
     state.formErrors['quickWhatsApp'] ? notice('warning', 'alert', state.formErrors['quickWhatsApp']) : null,
     state.live.error === null ? null : inlineError(state, state.live.error),
   ], [closeButton(state), button({ label: t(state, 'إرسال القالب', 'Send template'), icon: 'send', act: 'live-quick-whatsapp-send', variant: 'primary', busy: state.live.busy === 'quick-whatsapp-send', disabled: connectionId === '' || definition === null || !definition.sendSupported })], { description: t(state, 'ستظهر المحادثة في صندوق الوارد بعد إضافة الرسالة إلى الطابور. التسليم الفعلي يعتمد على Meta.', 'The conversation appears in Inbox after queueing. Actual delivery depends on Meta.') });

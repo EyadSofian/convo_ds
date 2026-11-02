@@ -52,6 +52,8 @@ describe('renderDialog', () => {
     const dialog = open(state, 'quick-whatsapp');
     expect(dialog.textContent).toContain('Admissions WhatsApp');
     expect(dialog.textContent).toContain('course_followup');
+    expect(dialog.querySelector('[data-form="quickConsentReference"]')).toBeNull();
+    expect(dialog.textContent).not.toContain('Opt-in proof');
     expect(state.live.connections.status).toBe('idle');
   });
 
@@ -78,12 +80,12 @@ describe('renderDialog', () => {
       }],
     }, 1);
     state.dialogForm = { quickTemplateId: 'tpl-1', quickParam_body_customer_name: 'Mona', quickPeerIdentity: '+201001234567' };
-    state.formErrors = { quickWhatsApp: 'Check the opt-in proof' };
+    state.formErrors = { quickWhatsApp: 'Complete the template values' };
     state.live.error = { code: 'provider_error', message: 'Meta refused', status: 502, requestId: null, details: [] };
     state.live.busy = 'quick-whatsapp-send';
     const dialog = open(state, 'quick-whatsapp');
     expect(dialog.textContent).toContain('customer_name');
-    expect(dialog.textContent).toContain('Check the opt-in proof');
+    expect(dialog.textContent).toContain('Complete the template values');
     expect(dialog.textContent).toContain('The server couldn’t complete this');
     expect(dialog.querySelector('[data-form="quickParam_body_customer_name"]')).not.toBeNull();
     expect(dialog.querySelector('[data-act="live-quick-whatsapp-send"]')?.getAttribute('aria-busy')).toBe('true');

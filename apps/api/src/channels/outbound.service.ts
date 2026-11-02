@@ -249,9 +249,8 @@ export class OutboundService {
     const input = body !== null && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {};
     const rawNumber = typeof input['peerIdentity'] === 'string' ? input['peerIdentity'].trim() : '';
     const peerIdentity = rawNumber.replace(/[\s()+.-]/g, '');
-    const consentReference = typeof input['consentReference'] === 'string' ? input['consentReference'].trim() : '';
-    if (!/^[1-9][0-9]{7,14}$/.test(peerIdentity) || consentReference.length < 3 || consentReference.length > 500) {
-      throw new ApiHttpError(400, 'invalid_input', 'Enter an international WhatsApp number and a traceable opt-in reference.');
+    if (!/^[1-9][0-9]{7,14}$/.test(peerIdentity)) {
+      throw new ApiHttpError(400, 'invalid_input', 'Enter a valid international WhatsApp number.');
     }
     const parsed = parseSendMessage({
       peerIdentity,
@@ -310,7 +309,6 @@ export class OutboundService {
         );
       }
       const message = await this.queueAuthorized(sql, principal, tenantId, connectionId, parsed.value, conversation.id, false);
-      await sql.query(`UPDATE outbound_messages SET opt_in_proof_ref=$2 WHERE id=$1`, [message.id, consentReference]);
       return { conversationId: conversation.id, message };
     });
   }

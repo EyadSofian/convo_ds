@@ -9,7 +9,7 @@ describe('channel API routes', () => {
     const api = new ChannelsApi({ get, post } as unknown as ApiClient);
     await api.quickWhatsAppOptions('tenant-1');
     expect(get).toHaveBeenCalledWith('/tenants/tenant-1/quick-whatsapp/options');
-    const input = { peerIdentity: '+201001234567', consentReference: 'form-123', template: { id: 'template-1', parameters: { 'body:1': 'Mona' } }, clientMessageId: 'quick-key-1' };
+    const input = { peerIdentity: '+201001234567', template: { id: 'template-1', parameters: { 'body:1': 'Mona' } }, clientMessageId: 'quick-key-1' };
     await api.sendQuickWhatsApp('tenant-1', 'channel-1', input);
     expect(post).toHaveBeenCalledWith('/tenants/tenant-1/channels/channel-1/quick-messages', { body: input });
   });

@@ -59,16 +59,16 @@ describe('OutboundService defensive boundaries', () => {
     const message = { id: 'message-1', connection_id: id, peer_identity: '201001234567' };
     const queueAuthorized = vi.spyOn(service as never, 'queueAuthorized').mockResolvedValue(message as never);
     const send = () => service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, {
-      peerIdentity: '+201001234567', consentReference: 'form-123', template: { id, parameters: {} }, clientMessageId: 'quick-key-1',
+      peerIdentity: '+201001234567', template: { id, parameters: {} }, clientMessageId: 'quick-key-1',
     });
     return { service, query, ensure, queueAuthorized, send };
   }
 
   it('rejects malformed quick-send bodies and incomplete template selection', async () => {
     const { service } = quickHarness();
-    for (const body of [null, [], 42, { peerIdentity: 42, consentReference: 42 },
-      { peerIdentity: '+201001234567', consentReference: 'form-123', template: { name: 'legacy' }, clientMessageId: 'quick-key-1' },
-      { peerIdentity: '+201001234567', consentReference: 'form-123', template: null, clientMessageId: 'quick-key-1' }]) {
+    for (const body of [null, [], 42, { peerIdentity: 42 },
+      { peerIdentity: '+201001234567', template: { name: 'legacy' }, clientMessageId: 'quick-key-1' },
+      { peerIdentity: '+201001234567', template: null, clientMessageId: 'quick-key-1' }]) {
       await expect(service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, body)).rejects.toMatchObject({ status: 400 });
     }
   });
@@ -103,13 +103,13 @@ describe('OutboundService defensive boundaries', () => {
     const allowed = quickHarness({ locked });
     expect((await allowed.send()).conversationId).toBe(id);
     expect(allowed.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE conversations SET assignee_membership_id'), [id, id]);
-    expect(allowed.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE outbound_messages SET opt_in_proof_ref'), ['message-1', 'form-123']);
+    expect(allowed.queueAuthorized).toHaveBeenCalled();
   });
-  it('requires a real international number and an opt-in evidence reference before a quick send', async () => {
+  it('requires a real international number before a quick send', async () => {
     const authorization = { withPrincipal: vi.fn() } as unknown as AuthorizationService;
     const service = new OutboundService(authorization, {} as LifecycleService, {} as ConversationService);
     await expect(service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, {
-      peerIdentity: '01012345678', consentReference: '', template: { id, parameters: {} }, clientMessageId: 'quick-key-1',
+      peerIdentity: '01012345678', template: { id, parameters: {} }, clientMessageId: 'quick-key-1',
     })).rejects.toMatchObject({ status: 400, code: 'invalid_input' });
     expect(authorization.withPrincipal).not.toHaveBeenCalled();
   });
@@ -126,7 +126,7 @@ describe('OutboundService defensive boundaries', () => {
     const ensure = vi.fn();
     const service = new OutboundService(authorization, {} as LifecycleService, { ensure } as unknown as ConversationService);
     await expect(service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, {
-      peerIdentity: '+201001234567', consentReference: 'form-123', template: { id, parameters: {} }, clientMessageId: 'quick-key-1',
+      peerIdentity: '+201001234567', template: { id, parameters: {} }, clientMessageId: 'quick-key-1',
     })).rejects.toMatchObject({ status: 409, code: 'consent_withdrawn' });
     expect(ensure).not.toHaveBeenCalled();
   });

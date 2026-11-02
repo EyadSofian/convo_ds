@@ -216,7 +216,6 @@ export class ChannelsApi {
 
   sendQuickWhatsApp(tenantId: string, connectionId: string, input: {
     readonly peerIdentity: string;
-    readonly consentReference: string;
     readonly template: { readonly id: string; readonly parameters: Readonly<Record<string, string>> };
     readonly clientMessageId: string;
   }): Promise<ApiResult<QuickWhatsAppResult>> {

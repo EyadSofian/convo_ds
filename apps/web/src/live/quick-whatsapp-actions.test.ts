@@ -62,17 +62,17 @@ describe('quick WhatsApp actions', () => {
     expect(ctx.send).not.toHaveBeenCalled();
   });
 
-  it('validates number, opt-in and template values before a server mutation', async () => {
+  it('validates number and template values, then sends without a manual consent reference', async () => {
     const ctx = setup();
     ctx.state.dialog = { kind: 'quick-whatsapp', arg: '' };
     ctx.state.live.quickWhatsAppOptions = ready(options, 7);
     expect(await sendQuickWhatsApp(ctx.context)).toBe(false);
-    ctx.state.dialogForm = { quickTemplateId: 'template-1', quickPeerIdentity: '+201001234567', quickConsentReference: 'form-123' };
+    ctx.state.dialogForm = { quickTemplateId: 'template-1', quickPeerIdentity: '+201001234567' };
     expect(await sendQuickWhatsApp(ctx.context)).toBe(false);
     ctx.state.dialogForm.quickParam_body_name = 'Mona';
     expect(await sendQuickWhatsApp(ctx.context)).toBe(true);
     expect(ctx.send).toHaveBeenCalledWith('tenant-1', 'connection-1', {
-      peerIdentity: '+201001234567', consentReference: 'form-123',
+      peerIdentity: '+201001234567',
       template: { id: 'template-1', parameters: { 'body:name': 'Mona' } }, clientMessageId: 'quick-1',
     });
     expect(ctx.state.dialog).toBeNull();
@@ -86,7 +86,7 @@ describe('quick WhatsApp actions', () => {
     ctx.state.lang = 'ar';
     ctx.state.dialog = { kind: 'quick-whatsapp', arg: '' };
     ctx.state.live.quickWhatsAppOptions = ready(options, 7);
-    ctx.state.dialogForm = { quickConnectionId: 'connection-1', quickTemplateId: 'template-1', quickParam_body_name: 'Mona', quickPeerIdentity: '+201001234567', quickConsentReference: 'form-123' };
+    ctx.state.dialogForm = { quickConnectionId: 'connection-1', quickTemplateId: 'template-1', quickParam_body_name: 'Mona', quickPeerIdentity: '+201001234567' };
     ctx.send.mockResolvedValueOnce({ ok: false, error });
     expect(await sendQuickWhatsApp(ctx.context)).toBe(false);
     expect(ctx.state.live.error).toEqual(error);

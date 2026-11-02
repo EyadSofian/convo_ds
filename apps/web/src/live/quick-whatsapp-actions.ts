@@ -36,9 +36,8 @@ export async function sendQuickWhatsApp(context: LiveContext): Promise<boolean> 
   const definition = template === undefined ? null : templateDefinition(template);
   const parameters = Object.fromEntries((definition?.parameters ?? []).map((entry) => [entry.key, (state.dialogForm[`quickParam_${entry.key.replaceAll(':', '_')}`] ?? '').trim()]));
   const peerIdentity = (state.dialogForm['quickPeerIdentity'] ?? '').trim();
-  const consentReference = (state.dialogForm['quickConsentReference'] ?? '').trim();
-  if (connection === undefined || template === undefined || definition === null || !definition.sendSupported || buildWhatsAppTemplateComponents(definition, parameters) === null || !/^\+?[1-9][0-9\s().-]{7,20}$/.test(peerIdentity) || consentReference.length < 3 || consentReference.length > 500) {
-    state.formErrors = { quickWhatsApp: t(context, 'أدخل رقمًا دوليًا صحيحًا، وقالبًا معتمدًا مكتمل القيم، ومرجع موافقة العميل.', 'Enter a valid international number, complete approved template, and customer opt-in reference.') };
+  if (connection === undefined || template === undefined || definition === null || !definition.sendSupported || buildWhatsAppTemplateComponents(definition, parameters) === null || !/^\+?[1-9][0-9\s().-]{7,20}$/.test(peerIdentity)) {
+    state.formErrors = { quickWhatsApp: t(context, 'أدخل رقمًا دوليًا صحيحًا، وقالبًا معتمدًا مكتمل القيم.', 'Enter a valid international number and complete the approved template values.') };
     context.refresh();
     return false;
   }
@@ -47,11 +46,11 @@ export async function sendQuickWhatsApp(context: LiveContext): Promise<boolean> 
     live.error = null;
     state.formErrors = {};
     context.refresh();
-    const signature = JSON.stringify([connectionId, peerIdentity, template.id, parameters, consentReference]);
+    const signature = JSON.stringify([connectionId, peerIdentity, template.id, parameters]);
     const clientMessageId = state.dialogForm['quickSignature'] === signature && state.dialogForm['quickMessageId']
       ? state.dialogForm['quickMessageId']! : context.newKey();
     state.dialogForm = { ...state.dialogForm, quickSignature: signature, quickMessageId: clientMessageId };
-    const result = await live.channels.sendQuickWhatsApp(tenantId, connectionId, { peerIdentity, consentReference, template: { id: template.id, parameters }, clientMessageId });
+    const result = await live.channels.sendQuickWhatsApp(tenantId, connectionId, { peerIdentity, template: { id: template.id, parameters }, clientMessageId });
     live.busy = null;
     if (!result.ok) {
       live.error = result.error;

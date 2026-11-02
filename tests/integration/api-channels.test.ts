@@ -2349,7 +2349,7 @@ describe('the outbound path', () => {
     expect(invalidCursor.statusCode).toBe(400);
   });
 
-  it('starts a one-to-one WhatsApp conversation with an approved template and recorded opt-in evidence', async () => {
+  it('starts a one-to-one WhatsApp conversation without requiring a manual consent reference', async () => {
     const to = peer();
     const templateId = await syncApprovedTemplate('quick_registration_followup');
     const options = await send(api, owner, 'GET', '/quick-whatsapp/options');
@@ -2362,7 +2362,6 @@ describe('the outbound path', () => {
     const key = clientId();
     const payload = {
       peerIdentity: `+${to}`,
-      consentReference: 'Website course enquiry form submission DS-1024',
       template: { id: templateId, parameters: { 'body:1': 'DS-1024' } },
       clientMessageId: key,
     };
@@ -2373,7 +2372,7 @@ describe('the outbound path', () => {
       const conversation = await client.query<{ peer_identity: string; assignee_membership_id: string | null }>(
         `SELECT peer_identity,assignee_membership_id::text FROM conversations WHERE id=$1`, [result.data.conversationId],
       );
-      const message = await client.query<{ conversation_id: string; opt_in_proof_ref: string; template_name: string }>(
+      const message = await client.query<{ conversation_id: string; opt_in_proof_ref: string | null; template_name: string }>(
         `SELECT conversation_id::text,opt_in_proof_ref,template_name FROM outbound_messages WHERE id=$1`, [result.data.message.id],
       );
       const contacts = await client.query<{ count: string }>(
@@ -2384,7 +2383,7 @@ describe('the outbound path', () => {
     });
     expect(saved.conversation?.peer_identity).toBe(to);
     expect(saved.conversation?.assignee_membership_id).toBeTruthy();
-    expect(saved.message).toMatchObject({ conversation_id: result.data.conversationId, opt_in_proof_ref: payload.consentReference, template_name: 'quick_registration_followup' });
+    expect(saved.message).toMatchObject({ conversation_id: result.data.conversationId, opt_in_proof_ref: null, template_name: 'quick_registration_followup' });
     expect(saved.contacts?.count).toBe('0');
 
     const retry = await send(api, owner, 'POST', `/channels/${connectionId}/quick-messages`, payload);
