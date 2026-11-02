@@ -1,3 +1,4 @@
+import { inboxNumberCustomer } from './quick-whatsapp-customer.js';
 import type { Conversation, QueueCard, TimelineMessage } from '../api/conversations.js';
 import type { Person } from '../api/people.js';
 import type { Child } from '../dom.js';
@@ -226,6 +227,7 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
           }),
         ]),
       ]),
+      inboxNumberCustomer(state),
       h('div', { class: 'listhead__row listhead__row--sort' }, [
         h('span', { class: 'listhead__sortlabel', 'aria-hidden': 'true' }, [t(state, 'الترتيب', 'Sort')]),
         selectControl({

@@ -1,3 +1,5 @@
+import { quickWhatsAppCountries, quickWhatsAppNumber } from '../live/quick-whatsapp-phone.js';
+import { quickWhatsAppCustomer } from './quick-whatsapp-customer.js';
 import type { Child } from '../dom';
 import { h } from '../dom';
 import { rowsOf } from '../live/store';
@@ -160,23 +162,34 @@ function quickWhatsAppDialog(state: AppState): HTMLElement {
   const templates = resource.status === 'ready' ? resource.value.templates.filter((entry) => entry.connectionId === connectionId && entry.status === 'approved') : [];
   const selected = templates.find((entry) => entry.id === state.dialogForm['quickTemplateId']);
   const definition = selected === undefined ? null : templateDefinition(selected);
+  const country = state.dialogForm['quickCountry'] ?? 'EG';
+  const number = quickWhatsAppNumber(state.dialogForm['quickPeerIdentity'] ?? '', country);
+  const lookup = state.live.quickWhatsAppLookup?.result;
+  const customer = lookup?.status === 'ready' ? lookup.value.customer : null;
+  const existing = customer?.state === 'mine' || customer?.state === 'other';
   return dialogShell(state, t(state, 'رسالة واتساب جديدة', 'New WhatsApp message'), [
     notice('info', 'info', t(state, 'لبدء محادثة مع رقم جديد، استخدم قالبًا معتمدًا. ستُنشأ جهة الاتصال عندما يرد العميل.', 'Start a new number with an approved template. A contact is created when they reply.')),
     resource.status === 'loading' ? h('p', { role: 'status' }, [t(state, 'جارٍ تحميل أرقام واتساب والقوالب…', 'Loading WhatsApp numbers and templates…')]) : null,
     resource.status === 'error' ? inlineError(state, resource.error) : null,
     connections.length === 0 && resource.status === 'ready' ? notice('warning', 'alert', t(state, 'لا يوجد رقم واتساب متاح لك.', 'No WhatsApp number is available to you.')) : null,
-    h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'رقم العميل بكود الدولة', 'Customer number with country code')]), textInput('quickPeerIdentity', state.dialogForm['quickPeerIdentity'] ?? '', '+201234567890', { required: true, inputmode: 'tel' })]),
-    connections.length > 0 ? h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'رقم الإرسال', 'Send from')]), selectControl({ act: 'form-toggle', form: 'quickConnectionId', value: connectionId, options: connections.map((entry) => ({ value: entry.id, label: entry.displayName })) })]) : null,
-    templates.length === 0 && resource.status === 'ready' ? notice('warning', 'alert', t(state, 'لا توجد قوالب معتمدة لهذا الرقم؛ زامن القوالب من القنوات.', 'No approved templates for this number; sync them from Channels.')) : null,
-    templates.length > 0 ? h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'القالب المعتمد', 'Approved template')]), selectControl({ act: 'form-toggle', form: 'quickTemplateId', value: selected?.id ?? '', options: [{ value: '', label: t(state, 'اختر قالبًا', 'Choose a template') }, ...templates.map((entry) => ({ value: entry.id, label: `${entry.templateName} · ${entry.language}${templateDefinition(entry).sendSupported ? '' : ' (unsupported)'}` }))] })]) : null,
-    definition !== null && !definition.sendSupported ? notice('warning', 'alert', definition.unsupportedReason!) : null,
-    ...(definition?.parameters ?? []).map((parameter) => h('label', { class: 'field' }, [
+    h('div', { class: 'form-grid quick-phone' }, [
+      h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'الدولة', 'Country')]), selectControl({ act: 'live-quick-whatsapp-change', form: 'quickCountry', value: country, options: quickWhatsAppCountries(state.lang) })]),
+      h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'رقم العميل', 'Customer number')]), h('input', { class: 'input', type: 'tel', dir: 'ltr', autocomplete: 'tel', required: true, inputmode: 'tel', value: state.dialogForm['quickPeerIdentity'] ?? '', placeholder: '01012345678', 'data-act': 'live-quick-whatsapp-change', 'data-form': 'quickPeerIdentity' })]),
+    ]),
+    h('p', { class: 'field__hint' }, [number === null ? t(state, 'اكتب الرقم المحلي أو الصق الرقم الدولي؛ سنضيف كود الدولة تلقائيًا.', 'Enter a local number or paste an international number; we’ll add the country code automatically.') : t(state, `رقم الإرسال إليه: ${number}`, `Sending to: ${number}`)]),
+    fieldError(state, 'quickPeerIdentity'),
+    connections.length > 0 ? h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'رقم الإرسال', 'Send from')]), selectControl({ act: 'live-quick-whatsapp-change', form: 'quickConnectionId', value: connectionId, options: connections.map((entry) => ({ value: entry.id, label: entry.displayName })) })]) : null,
+    quickWhatsAppCustomer(state),
+    !existing && templates.length === 0 && resource.status === 'ready' ? notice('warning', 'alert', t(state, 'لا توجد قوالب معتمدة لهذا الرقم؛ زامن القوالب من القنوات.', 'No approved templates for this number; sync them from Channels.')) : null,
+    !existing && templates.length > 0 ? h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'القالب المعتمد', 'Approved template')]), selectControl({ act: 'form-toggle', form: 'quickTemplateId', value: selected?.id ?? '', options: [{ value: '', label: t(state, 'اختر قالبًا', 'Choose a template') }, ...templates.map((entry) => ({ value: entry.id, label: `${entry.templateName} · ${entry.language}${templateDefinition(entry).sendSupported ? '' : ' (unsupported)'}` }))] })]) : null,
+    !existing && definition !== null && !definition.sendSupported ? notice('warning', 'alert', definition.unsupportedReason!) : null,
+    ...(existing ? [] : definition?.parameters ?? []).map((parameter) => h('label', { class: 'field' }, [
       h('span', { class: 'field__label' }, [parameter.mediaFormat === undefined ? `${parameter.component} {{${parameter.name ?? String(parameter.position)}}}` : t(state, 'رابط وسائط HTTPS', 'HTTPS media URL')]),
       h('input', { class: 'input', type: parameter.mediaFormat === undefined ? 'text' : 'url', maxlength: 1024, value: state.dialogForm[`quickParam_${parameter.key.replaceAll(':', '_')}`] ?? '', placeholder: parameter.example ?? '', 'data-act': 'form', 'data-form': `quickParam_${parameter.key.replaceAll(':', '_')}` }),
     ])),
     state.formErrors['quickWhatsApp'] ? notice('warning', 'alert', state.formErrors['quickWhatsApp']) : null,
     state.live.error === null ? null : inlineError(state, state.live.error),
-  ], [closeButton(state), button({ label: t(state, 'إرسال القالب', 'Send template'), icon: 'send', act: 'live-quick-whatsapp-send', variant: 'primary', busy: state.live.busy === 'quick-whatsapp-send', disabled: connectionId === '' || definition === null || !definition.sendSupported })], { description: t(state, 'ستظهر المحادثة في صندوق الوارد بعد إضافة الرسالة إلى الطابور. التسليم الفعلي يعتمد على Meta.', 'The conversation appears in Inbox after queueing. Actual delivery depends on Meta.') });
+  ], [closeButton(state), button({ label: t(state, 'إرسال القالب', 'Send template'), icon: 'send', act: 'live-quick-whatsapp-send', variant: 'primary', busy: state.live.busy === 'quick-whatsapp-send', disabled: connectionId === '' || number === null || lookup?.status === 'loading' || lookup?.status === 'error' || existing || (customer?.state === 'unassigned' && customer.connectionId !== connectionId) || definition === null || !definition.sendSupported })], { description: t(state, 'ستظهر المحادثة في صندوق الوارد بعد إضافة الرسالة إلى الطابور. التسليم الفعلي يعتمد على Meta.', 'The conversation appears in Inbox after queueing. Actual delivery depends on Meta.') });
 }
 
 function whatsappParameterKey(key: string): string { return `whatsappTemplateParameter_${key.replaceAll(':', '_')}`; }

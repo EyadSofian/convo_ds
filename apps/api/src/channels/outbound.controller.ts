@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Inject, Param, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from '../auth/auth.service.js';
 import { pageEnvelope } from '../pagination.js';
@@ -42,6 +42,18 @@ export class OutboundController {
     this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
     const queued = await this.outbound.queue(session, tenantId, connectionId, body);
     await reply.status(202).send({ data: queued, request_id: request.id });
+  }
+
+  @Post('tenants/:tenantId/channels/:connectionId/quick-whatsapp-lookup')
+  @HttpCode(200)
+  async lookupQuickWhatsApp(
+    @Param('tenantId') tenantId: string, @Param('connectionId') connectionId: string,
+    @Body() body: unknown, @Headers('x-csrf-token') csrfHeader: string | string[] | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrfHeader);
+    return { data: await this.outbound.lookupQuickWhatsApp(session, tenantId, connectionId, body), request_id: request.id };
   }
 
   @Post('tenants/:tenantId/channels/:connectionId/quick-messages')

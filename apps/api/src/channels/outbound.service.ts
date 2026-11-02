@@ -17,6 +17,7 @@ import { LifecycleService } from '../conversations/lifecycle.service.js';
 import { ConversationService } from '../conversations/conversation.service.js';
 import { readConversation, readDetail } from '../conversations/record.js';
 import { latestConversationInbound } from '../conversations/event-boundary.js';
+import { findQuickWhatsAppCustomer } from './quick-whatsapp-customer.js';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
 import { parseSendMessage } from './outbound-request.js';
@@ -140,6 +141,20 @@ export class OutboundService {
         status: 'approved' as const, components: row.components, variables: row.variables,
         lastSyncedAt: row.last_synced_at.toISOString(),
       })) };
+    });
+  }
+
+  /** Customer assignment metadata only; a lookup never claims or opens a thread. */
+  async lookupQuickWhatsApp(session: AuthenticatedSession, tenantId: string, connectionId: string, body: unknown) {
+    const input = body !== null && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {};
+    const peerIdentity = typeof input['peerIdentity'] === 'string' ? input['peerIdentity'].replace(/[\s()+.-]/g, '') : '';
+    if (!/^[1-9][0-9]{7,14}$/.test(peerIdentity)) throw new ApiHttpError(400, 'invalid_input', 'Enter a valid international WhatsApp number.');
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const connection = await requireLiveConnection(sql, connectionId);
+      if (connection.kind !== 'whatsapp' || !authorize(principal, 'conversation.reply', { inboxId: connectionId, assigneeMembershipId: principal.membershipId }).allowed) {
+        throw new ApiHttpError(403, 'permission_denied', 'You cannot look up numbers from this inbox.');
+      }
+      return { customer: await findQuickWhatsAppCustomer(sql, principal, peerIdentity, connectionId) };
     });
   }
 
@@ -288,6 +303,11 @@ export class OutboundService {
         return { conversationId: previous.conversation_id, message: previousMessage };
       }
 
+      // Serialize quick starts for this number across the workspace's sending lines.
+      await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`quick-whatsapp:${tenantId}:${peerIdentity}`]);
+      const existing = await findQuickWhatsAppCustomer(sql, principal, peerIdentity, connectionId);
+      if (existing?.state === 'other') throw new ApiHttpError(409, 'conversation_owned_by_another', 'This customer is already assigned to another agent. Check the number to see their follow-up owner.');
+      if (existing !== null && existing.connectionId !== connectionId) throw new ApiHttpError(409, 'customer_already_assigned', 'This customer already has a conversation. Check the number to use its existing inbox.');
       const conversation = await this.conversations.ensure(sql, tenantId, connectionId, peerIdentity, 'outbound_contact');
       const locked = requireRow((await sql.query<{ id: string; team_id: string | null; assignee_membership_id: string | null; status: string }>(
         `SELECT id::text,team_id::text,assignee_membership_id::text,status FROM conversations WHERE id=$1 FOR UPDATE`,

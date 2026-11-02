@@ -16,6 +16,7 @@
     "vite": "6.1.0"
   },
   "dependencies": {
-    "fflate": "0.8.3"
+    "fflate": "0.8.3",
+    "libphonenumber-js": "1.13.15"
   }
 }

@@ -188,6 +188,9 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     await expect(LIVE_ACTIONS['live-quick-whatsapp-open']?.(context, '')).resolves.toBe(true);
     expect(state.dialog?.kind).toBe('quick-whatsapp');
     await expect(LIVE_ACTIONS['live-quick-whatsapp-send']?.(context, '')).resolves.toBe(false);
+    await expect(LIVE_ACTIONS['live-quick-whatsapp-change']?.(context, 'quickPeerIdentity:invalid')).resolves.toBe(true);
+    await expect(LIVE_ACTIONS['live-quick-whatsapp-check']?.(context, '')).resolves.toBe(false);
+    await expect(LIVE_ACTIONS['live-quick-whatsapp-existing']?.(context, '')).resolves.toBe(false);
   });
 
   it('normalizes automation state and sort before sending the list query', async () => {

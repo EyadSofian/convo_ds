@@ -2349,6 +2349,49 @@ describe('the outbound path', () => {
     expect(invalidCursor.statusCode).toBe(400);
   });
 
+  it('checks a number’s follow-up owner within allowed inboxes without exposing or stealing their conversation', async () => {
+    const email = `lookup-${randomUUID()}@channels.test`;
+    const hash = await argon2.hash(MEMBER_PASSWORD, { type: argon2.argon2id });
+    const user = await api.pool.query<{ id: string }>(`INSERT INTO users(email,password_hash,status) VALUES($1,$2,'active') RETURNING id::text`, [email, hash]);
+    const members = await withTenant(api.pool, api.tenantId, async (client) => {
+      const role = await client.query<{ id: string }>(`SELECT id::text FROM roles WHERE key='agent'`);
+      const mine = await client.query<{ id: string }>(`INSERT INTO memberships(tenant_id,user_id,role_id,status,display_name) VALUES($1,$2,$3,'active','Lookup Agent') RETURNING id::text`, [api.tenantId,user.rows[0]!.id,role.rows[0]!.id]);
+      await client.query(`INSERT INTO membership_scopes(tenant_id,membership_id,scope_type,scope_id) VALUES($1,$2,'inbox',$3)`, [api.tenantId,mine.rows[0]!.id,connectionId]);
+      const ownerMember = await client.query<{ id: string }>(`SELECT id::text FROM memberships WHERE user_id=(SELECT id FROM users WHERE email='owner@channels.test')`);
+      return { mine: mine.rows[0]!.id, owner: ownerMember.rows[0]!.id };
+    });
+    const agent = await login(api, email, MEMBER_PASSWORD);
+    const to = peer();
+    const thread = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `INSERT INTO conversations(tenant_id,connection_id,peer_identity,assignee_membership_id) VALUES($1,$2,$3,$4) RETURNING id::text`, [api.tenantId,connectionId,to,members.owner],
+    ));
+    const lookup = await send(api, agent, 'POST', `/channels/${connectionId}/quick-whatsapp-lookup`, { peerIdentity: `+${to}` });
+    expect(lookup.statusCode, lookup.body).toBe(200);
+    expect(lookup.json()).toMatchObject({ data: { customer: { state: 'other', conversationId: null, connectionId, assigneeName: expect.any(String) } } });
+    expect(lookup.body).not.toContain(thread.rows[0]!.id);
+    expect((await send(api, agent, 'GET', `/conversations/${thread.rows[0]!.id}`)).statusCode).toBe(403);
+    const templateId = await syncApprovedTemplate('lookup_assignment_guard');
+    const refused = await send(api, agent, 'POST', `/channels/${connectionId}/quick-messages`, { peerIdentity: to, template: { id: templateId, parameters: { 'body:1': 'test' } }, clientMessageId: clientId() });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ error: { code: 'conversation_owned_by_another' } });
+    const beforeOwner = await withTenant(api.pool, api.tenantId, (client) => client.query<{ assignee_membership_id: string }>(`SELECT assignee_membership_id::text FROM conversations WHERE id=$1`, [thread.rows[0]!.id]));
+    expect(beforeOwner.rows[0]!.assignee_membership_id).toBe(members.owner);
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`UPDATE conversations SET assignee_membership_id=$2 WHERE id=$1`, [thread.rows[0]!.id,members.mine]));
+    expect((await send(api, agent, 'POST', `/channels/${connectionId}/quick-whatsapp-lookup`, { peerIdentity: to })).json()).toMatchObject({ data: { customer: { state: 'mine', conversationId: thread.rows[0]!.id } } });
+    const hidden = await connect(api, owner, `hidden-lookup-${randomUUID()}`);
+    const hiddenId = hidden.json().data.id as string;
+    const hiddenPeer = peer();
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`INSERT INTO conversations(tenant_id,connection_id,peer_identity,assignee_membership_id) VALUES($1,$2,$3,$4)`, [api.tenantId,hiddenId,hiddenPeer,members.owner]));
+    expect((await send(api, agent, 'POST', `/channels/${connectionId}/quick-whatsapp-lookup`, { peerIdentity: hiddenPeer })).json()).toMatchObject({ data: { customer: null } });
+    expect((await send(api, agent, 'POST', `/channels/${hiddenId}/quick-whatsapp-lookup`, { peerIdentity: hiddenPeer })).statusCode).toBe(403);
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`INSERT INTO membership_scopes(tenant_id,membership_id,scope_type,scope_id) VALUES($1,$2,'inbox',$3)`, [api.tenantId,members.mine,hiddenId]));
+    expect((await send(api, agent, 'POST', `/channels/${connectionId}/quick-whatsapp-lookup`, { peerIdentity: hiddenPeer })).json()).toMatchObject({ data: { customer: { state: 'other', connectionId: hiddenId, conversationId: null } } });
+    const crossLine = await send(api, agent, 'POST', `/channels/${connectionId}/quick-messages`, { peerIdentity: hiddenPeer, template: { id: templateId, parameters: { 'body:1': 'test' } }, clientMessageId: clientId() });
+    expect(crossLine.statusCode).toBe(409);
+    expect(crossLine.json()).toMatchObject({ error: { code: 'conversation_owned_by_another' } });
+
+  });
+
   it('starts a one-to-one WhatsApp conversation without requiring a manual consent reference', async () => {
     const to = peer();
     const templateId = await syncApprovedTemplate('quick_registration_followup');

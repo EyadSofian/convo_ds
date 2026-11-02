@@ -1007,6 +1007,32 @@
         }
       }
     },
+    "/tenants/{tenantId}/channels/{connectionId}/quick-whatsapp-lookup": {
+      "post": {
+        "operationId": "lookupQuickWhatsAppCustomer",
+        "summary": "Check an exact WhatsApp number and its follow-up owner",
+        "description": "Requires conversation.reply in the chosen inbox and CSRF. Searches only available WhatsApp inboxes. Returns assignment metadata without messages or a colleague's conversation identifier. Does not claim, create, or send anything.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/ConnectionId" },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "additionalProperties": false, "required": ["peerIdentity"],
+          "properties": { "peerIdentity": { "type": "string", "pattern": "^\\+?[1-9][0-9\\s().-]{7,20}$" } }
+        } } } },
+        "responses": {
+          "200": { "description": "Assignment metadata or no matching conversation.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QuickWhatsAppLookupResponse" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/quick-whatsapp/options": {
       "get": {
         "operationId": "getQuickWhatsAppOptions",
@@ -9648,6 +9674,27 @@
           },
           "request_id": {
             "type": "string"
+          }
+        }
+      },
+      "QuickWhatsAppLookupResponse": {
+        "type": "object", "additionalProperties": false, "required": ["data", "request_id"],
+        "properties": {
+          "request_id": { "type": "string" },
+          "data": {
+            "type": "object", "additionalProperties": false, "required": ["customer"],
+            "properties": { "customer": {
+              "type": "object", "nullable": true, "additionalProperties": false,
+              "required": ["state", "conversationId", "connectionId", "connectionName", "customerName", "assigneeName"],
+              "properties": {
+                "state": { "type": "string", "enum": ["mine", "other", "unassigned"] },
+                "conversationId": { "type": "string", "format": "uuid", "nullable": true },
+                "connectionId": { "type": "string", "format": "uuid" },
+                "connectionName": { "type": "string" },
+                "customerName": { "type": "string", "nullable": true },
+                "assigneeName": { "type": "string", "nullable": true }
+              }
+            } }
           }
         }
       },

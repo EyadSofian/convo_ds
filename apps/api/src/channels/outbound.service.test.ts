@@ -35,12 +35,14 @@ describe('OutboundService defensive boundaries', () => {
     kind?: string; grants?: Principal['grants']; scopes?: Principal['scopes'];
     duplicate?: { id: string; conversation_id: string | null; author_membership: string | null };
     previousConnection?: string; previousPeer?: string;
+    customer?: { id: string; connection_id: string; connection_name: string; assignee_membership_id: string | null; team_id: string | null; assignee_name: string | null; customer_name: string | null };
     locked?: { id: string; team_id: string | null; assignee_membership_id: string | null; status: string };
   } = {}) {
     const principal: Principal = { membershipId: id, membershipStatus: 'active', tenantStatus: 'active',
       grants: options.grants ?? { 'conversation.reply': 'tenant', 'conversation.claim': 'tenant' },
       scopes: options.scopes ?? [], delegationCeiling: null };
     const query = vi.fn(async <T>(statement: string) => {
+      if (statement.includes('FROM conversations c')) return { rows: (options.customer === undefined ? [] : [options.customer]) as T[], rowCount: 0 };
       if (statement.includes('FROM channel_connections')) return { rows: [{ id, kind: options.kind ?? 'whatsapp', capabilities: null, disconnected_at: null }] as T[], rowCount: 1 };
       if (statement.includes('FROM channel_suppressions')) return { rows: [] as T[], rowCount: 0 };
       if (statement.includes('FROM outbound_messages WHERE tenant_id')) return { rows: (options.duplicate ? [options.duplicate] : []) as T[], rowCount: options.duplicate ? 1 : 0 };
@@ -76,6 +78,25 @@ describe('OutboundService defensive boundaries', () => {
   it('requires a WhatsApp connection and a reply grant before quick sending', async () => {
     await expect(quickHarness({ kind: 'messenger' }).send()).rejects.toMatchObject({ status: 422, code: 'template_not_sendable' });
     await expect(quickHarness({ grants: {} }).send()).rejects.toMatchObject({ status: 403, code: 'permission_denied' });
+  });
+
+  it('validates directory lookup input and scopes before returning metadata', async () => {
+    const ctx = quickHarness();
+    for (const body of [null, [], 42, { peerIdentity: 42 }, { peerIdentity: 'bad' }]) {
+      await expect(ctx.service.lookupQuickWhatsApp({ userId: 'user' } as never, id, id, body)).rejects.toMatchObject({ status: 400 });
+    }
+    await expect(quickHarness({ kind: 'messenger' }).service.lookupQuickWhatsApp({ userId: 'user' } as never, id, id, { peerIdentity: '201012345678' })).rejects.toMatchObject({ status: 403 });
+    expect(await ctx.service.lookupQuickWhatsApp({ userId: 'user' } as never, id, id, { peerIdentity: '201012345678' })).toEqual({ customer: null });
+  });
+
+  it('rechecks assignments across available lines before creating any conversation', async () => {
+    const customer = { id, connection_id: 'other-line', connection_name: 'Second line', assignee_membership_id: id as string | null, team_id: null, assignee_name: 'Me', customer_name: null };
+    await expect(quickHarness({ customer }).send()).rejects.toMatchObject({ status: 409, code: 'customer_already_assigned' });
+    await expect(quickHarness({ customer: { ...customer, assignee_membership_id: null } }).send()).rejects.toMatchObject({ status: 409, code: 'customer_already_assigned' });
+    const colleague = quickHarness({ customer: { ...customer, assignee_membership_id: 'colleague' } });
+    await expect(colleague.send()).rejects.toMatchObject({ status: 409, code: 'conversation_owned_by_another' });
+    expect(colleague.ensure).not.toHaveBeenCalled();
+    expect(await quickHarness({ customer: { ...customer, connection_id: id } }).send()).toMatchObject({ conversationId: id });
   });
 
   it('refuses a reused key from another author or without a conversation', async () => {

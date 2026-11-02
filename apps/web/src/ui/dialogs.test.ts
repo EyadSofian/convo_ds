@@ -57,6 +57,28 @@ describe('renderDialog', () => {
     expect(state.live.connections.status).toBe('idle');
   });
 
+  it('defaults to Egypt, accepts local entry, and blocks duplicate templates for existing assignments', () => {
+    const state = base();
+    state.dialogForm = { quickPeerIdentity: '01012345678' };
+    state.live.quickWhatsAppOptions = ready({ connections: [{ id: 'cn-1', displayName: 'Sales' }], templates: [] }, 1);
+    let dialog = open(state, 'quick-whatsapp');
+    expect((dialog.querySelector('[data-form="quickCountry"]') as HTMLSelectElement).value).toBe('EG');
+    expect(dialog.textContent).toContain('+201012345678');
+    state.formErrors = { quickPeerIdentity: 'Invalid number' };
+    expect(open(state, 'quick-whatsapp').textContent).toContain('Invalid number');
+    for (const status of ['mine', 'other', 'unassigned'] as const) {
+      for (const line of ['cn-1', 'other']) {
+        state.live.quickWhatsAppLookup = { key: 'number', result: ready({ customer: { state: status, conversationId: status === 'mine' ? 'own' : null, connectionId: line, connectionName: 'Sales', customerName: 'Mona', assigneeName: 'Ahmed' } }, 1) };
+        dialog = open(state, 'quick-whatsapp');
+        expect(dialog.querySelector('[data-act="live-quick-whatsapp-send"]')?.hasAttribute('disabled')).toBe(true);
+      }
+    }
+    state.live.quickWhatsAppLookup = { key: 'number', result: { status: 'loading' } };
+    expect(open(state, 'quick-whatsapp').textContent).toContain('Checking number');
+    state.live.quickWhatsAppLookup = { key: 'number', result: { status: 'error', error: { code: 'unavailable', message: 'Try again', status: 503, requestId: null, details: [] } } };
+    expect(open(state, 'quick-whatsapp').querySelector('[data-act="live-quick-whatsapp-send"]')?.hasAttribute('disabled')).toBe(true);
+  });
+
   it('explains loading, lookup failure, and empty quick WhatsApp catalogues', () => {
     const state = base();
     state.live.quickWhatsAppOptions = { status: 'loading' };

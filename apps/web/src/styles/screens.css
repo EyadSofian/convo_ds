@@ -3955,3 +3955,9 @@
     }
   }
 }
+
+@layer components {
+  .quick-customer { padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--surface-1); }
+  .quick-customer p { margin-block: var(--space-2); }
+  .quick-phone { align-items: end; }
+}

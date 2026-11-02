@@ -129,6 +129,17 @@ export interface QueuedContactMessage {
   readonly command_state: string;
 }
 
+export interface QuickWhatsAppLookup {
+  readonly customer: {
+    readonly state: 'mine' | 'other' | 'unassigned';
+    readonly conversationId: string | null;
+    readonly connectionId: string;
+    readonly connectionName: string;
+    readonly customerName: string | null;
+    readonly assigneeName: string | null;
+  } | null;
+}
+
 export interface QuickWhatsAppResult {
   readonly conversationId: string;
   readonly message: QueuedContactMessage;
@@ -150,6 +161,10 @@ export interface ConnectChannelInput {
 
 export class ChannelsApi {
   constructor(private readonly client: ApiClient) {}
+
+  lookupQuickWhatsApp(tenantId: string, connectionId: string, peerIdentity: string): Promise<ApiResult<QuickWhatsAppLookup>> {
+    return this.client.post<QuickWhatsAppLookup>(`/tenants/${tenantId}/channels/${connectionId}/quick-whatsapp-lookup`, { body: { peerIdentity } });
+  }
 
   quickWhatsAppOptions(tenantId: string): Promise<ApiResult<QuickWhatsAppOptions>> {
     return this.client.get<QuickWhatsAppOptions>(`/tenants/${tenantId}/quick-whatsapp/options`);

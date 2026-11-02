@@ -1,3 +1,4 @@
+import { lookupInboxNumber } from './inbox-number-lookup.js';
 import type { TransitionCommand } from '../api/conversations.js';
 import { readInboxAccess } from '../ui/inbox-access.js';
 import type { ScopeRef } from '../api/people.js';
@@ -60,7 +61,7 @@ import { manageArchived, tickArchived } from './archived-actions.js';
 import { goToBroadcastStep, jumpToBroadcastStep, submitBroadcast, syncBroadcastTemplates } from './broadcast.js';
 import { clearBroadcastUpload, previewBroadcastUpload } from './broadcast-import.js';
 import { setSimpleFilter } from './inbox-query.js';
-import { openQuickWhatsApp, sendQuickWhatsApp } from './quick-whatsapp-actions.js';
+import { changeQuickWhatsApp, checkQuickWhatsApp, openQuickWhatsAppCustomer, openQuickWhatsApp, sendQuickWhatsApp } from './quick-whatsapp-actions.js';
 import { INBOX_FILTER_CATALOGUE, INBOX_SORTS, type InboxFilter, type InboxSort } from '@convo/domain';
 import { applySavedView, retireSavedView, saveCurrentInboxView } from './saved-view-actions.js';
 import {
@@ -1280,6 +1281,9 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-inbox-send': async (context) => sendReply(context),
+  'live-quick-whatsapp-change': async (context, arg) => changeQuickWhatsApp(context, arg),
+  'live-quick-whatsapp-check': async (context) => checkQuickWhatsApp(context),
+  'live-quick-whatsapp-existing': async (context) => openQuickWhatsAppCustomer(context),
   'live-quick-whatsapp-open': async (context) => openQuickWhatsApp(context),
   'live-quick-whatsapp-send': async (context) => sendQuickWhatsApp(context),
   'live-whatsapp-template-open': async (context) => openWhatsAppTemplates(context),
@@ -1649,6 +1653,7 @@ function scheduleInboxSearch(context: LiveContext, value: string): void {
   // Keep the controlled input stable through unrelated renders while the
   // request is debounced. Search itself stays intentionally out of the URL.
   context.live.inboxSearchDraft = value;
+  context.live.inboxNumberLookup = null;
   if (inboxSearchTimer !== null) clearTimeout(inboxSearchTimer);
   inboxSearchTimer = setTimeout(() => {
     inboxSearchTimer = null;
@@ -1659,6 +1664,7 @@ function scheduleInboxSearch(context: LiveContext, value: string): void {
     context.live.selectedSavedViewId = null;
     context.state.inboxQueue = 'mine';
     void loadInboxScreen(context);
+    void lookupInboxNumber(context, search);
   }, 250);
 }
 
