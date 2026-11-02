@@ -1659,12 +1659,12 @@ function scheduleInboxSearch(context: LiveContext, value: string): void {
     inboxSearchTimer = null;
     const search = value.trim().slice(0, 200);
     context.live.inboxSearchDraft = search;
+    void lookupInboxNumber(context, search);
     if (context.live.inboxQuery.search === (search === '' ? null : search)) return;
     context.live.inboxQuery = { ...context.live.inboxQuery, search: search === '' ? null : search, cursor: null };
     context.live.selectedSavedViewId = null;
     context.state.inboxQueue = 'mine';
     void loadInboxScreen(context);
-    void lookupInboxNumber(context, search);
   }, 250);
 }
 

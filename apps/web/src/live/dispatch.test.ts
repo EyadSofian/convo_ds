@@ -629,6 +629,25 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     expect(state.dialogForm['inboxFilterValue']).toBe('label-a');
   });
 
+  it('rechecks a repeated phone search without losing the follow-up owner result', async () => {
+    const { context } = active();
+    inboxReads(context);
+    const lookup = vi.fn().mockResolvedValue({ ok: true, data: { customer: null } });
+    Object.defineProperty(context.live, 'channels', { value: {
+      quickWhatsAppOptions: vi.fn().mockResolvedValue({ ok: true, data: { connections: [{ id: 'line' }], templates: [] } }),
+      lookupQuickWhatsApp: lookup,
+    } });
+    vi.useFakeTimers();
+    try {
+      await LIVE_ACTIONS['live-inbox-search']?.(context, '01012345678');
+      await vi.advanceTimersByTimeAsync(250);
+      await LIVE_ACTIONS['live-inbox-search']?.(context, '01012345678');
+      await vi.advanceTimersByTimeAsync(250);
+      expect(lookup).toHaveBeenCalledTimes(2);
+      expect(context.live.inboxNumberLookup?.result.status).toBe('ready');
+    } finally { vi.useRealTimers(); }
+  });
+
   it('debounces Inbox search and avoids reloading an unchanged query', async () => {
     const { state, context } = active();
     inboxReads(context);
