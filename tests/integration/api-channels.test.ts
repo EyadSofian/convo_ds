@@ -159,7 +159,7 @@ async function login(api: Harness, email: string, password: string): Promise<Bro
 async function send(
   api: Harness,
   browser: Browser,
-  method: 'GET' | 'POST' | 'DELETE',
+  method: 'GET' | 'POST' | 'DELETE' | 'PATCH',
   path: string,
   payload?: Record<string, unknown>,
   key = `channel-${String(Math.random()).slice(2)}`,
@@ -2347,6 +2347,90 @@ describe('the outbound path', () => {
     expect(second.json()).toMatchObject({ page: { next_cursor: null, has_more: false } });
     const invalidCursor = await send(api, owner, 'GET', `/conversations/${conversationId}/whatsapp-templates?cursor=-1`);
     expect(invalidCursor.statusCode).toBe(400);
+  });
+
+  it('restricts template discovery and sending to selected teams, preserves access through sync, and audits bulk updates', async () => {
+    const tpl = await syncApprovedTemplate('team_sales_followup');
+    const templateBefore = templateCatalogue;
+    const email = `template-team-${randomUUID()}@channels.test`;
+    const user = await api.pool.query<{id:string}>(`INSERT INTO users(email,password_hash,status) VALUES($1,$2,'active') RETURNING id::text`, [email,await argon2.hash(MEMBER_PASSWORD,{type:argon2.argon2id})]);
+    const data = await withTenant(api.pool,api.tenantId,async(client)=>{
+      const team=await client.query<{id:string}>(`INSERT INTO teams(tenant_id,name) VALUES($1,$2) RETURNING id::text`,[api.tenantId,`Sales ${randomUUID()}`]);
+      const role=await client.query<{id:string}>(`SELECT id::text FROM roles WHERE key='agent'`);
+      const member=await client.query<{id:string}>(`INSERT INTO memberships(tenant_id,user_id,role_id,status) VALUES($1,$2,$3,'active') RETURNING id::text`,[api.tenantId,user.rows[0]!.id,role.rows[0]!.id]);
+      await client.query(`INSERT INTO membership_scopes(tenant_id,membership_id,scope_type,scope_id) VALUES($1,$2,'inbox',$3)`,[api.tenantId,member.rows[0]!.id,connectionId]);
+      return {team:team.rows[0]!.id,member:member.rows[0]!.id};
+    });
+    const agent=await login(api,email,MEMBER_PASSWORD);
+    for(const template of [[],{}]) {
+      const legacy=await send(api,owner,'POST','/campaigns',{name:`Legacy validation ${randomUUID()}`,connectionId,content:{template}});
+      expect(legacy.statusCode,legacy.body).toBe(201);
+    }
+    const library=await send(api,owner,'GET','/template-library');
+    expect(library.statusCode,library.body).toBe(200);
+    expect(library.json()).toMatchObject({data:{templates:expect.arrayContaining([expect.objectContaining({id:tpl,visibility:'all',version:1,body:'تحديث الطلب {{1}}'})]),teams:expect.arrayContaining([expect.objectContaining({id:data.team})])}});
+    expect(library.body).not.toContain('accessToken');
+    expect((await send(api,agent,'GET','/template-library')).statusCode).toBe(403);
+    const path='/template-library/access';
+    const change={templates:[{id:tpl,version:1}],visibility:'teams',teamIds:[data.team]};
+    expect((await send(api,agent,'PATCH',path,change)).statusCode).toBe(403);
+    const noCsrf=await api.server.inject({method:'PATCH',url:`/api/v1/tenants/${api.tenantId}${path}`,headers:{cookie:owner.cookie},payload:change});
+    expect(noCsrf.statusCode).toBe(403);
+    const update=await send(api,owner,'PATCH',path,change);
+    expect(update.statusCode,update.body).toBe(200);
+    expect(update.json()).toMatchObject({data:{updated:1}});
+    const options=await send(api,agent,'GET','/quick-whatsapp/options');
+    expect(options.json().data.templates.some((row:{id:string})=>row.id===tpl)).toBe(false);
+    const to=peer();
+    const denied=await send(api,agent,'POST',`/channels/${connectionId}/quick-messages`,{peerIdentity:to,template:{id:tpl,parameters:{'body:1':'test'}},clientMessageId:clientId()});
+    expect(denied.statusCode,denied.body).toBe(403);
+    expect(denied.json()).toMatchObject({error:{code:'template_access_denied'}});
+    await withTenant(api.pool,api.tenantId,async(client)=>{
+      const role=await client.query<{id:string}>(`INSERT INTO roles(tenant_id,key,name) VALUES($1,$2,'Template operator') RETURNING id::text`,[api.tenantId,`template_operator_${randomUUID()}`]);
+      await client.query(`INSERT INTO role_permissions(tenant_id,role_id,permission_key,scope_level) SELECT tenant_id,$2,permission_key,scope_level FROM role_permissions WHERE role_id=(SELECT role_id FROM memberships WHERE id=$1)`,[data.member,role.rows[0]!.id]);
+      for(const key of ['automation.read','automation.create','campaign.draft'])await client.query(`INSERT INTO role_permissions(tenant_id,role_id,permission_key,scope_level) VALUES($1,$2,$3,'tenant')`,[api.tenantId,role.rows[0]!.id,key]);
+      await client.query(`UPDATE memberships SET role_id=$2 WHERE id=$1`,[data.member,role.rows[0]!.id]);
+    });
+    expect((await send(api,agent,'GET','/whatsapp-templates')).json().data.some((row:{id:string})=>row.id===tpl)).toBe(false);
+    const workflow={version:1,trigger:{type:'manual',config:{}},target:{type:'single_customer',config:{}},steps:[{id:'send',type:'send_whatsapp_template',config:{templateId:tpl}}],safety:{approvalRequired:false,duplicateWindowSeconds:60}};
+    const automation=await send(api,agent,'POST','/automations',{name:`Restricted automation ${randomUUID()}`,timezone:'UTC',workflow});
+    expect(automation.statusCode,automation.body).toBe(403);
+    for(const template of [{id:tpl,parameters:{'body:1':{source:'static',value:'test'}}},{name:'team_sales_followup',language:'ar'}]) {
+      const broadcast=await send(api,agent,'POST','/campaigns',{name:`Restricted campaign ${randomUUID()}`,connectionId,content:{type:'template',template}});
+      expect(broadcast.statusCode,broadcast.body).toBe(403);
+    }
+
+    expect((await send(api,owner,'PATCH',path,change)).statusCode).toBe(409);
+    expect((await send(api,owner,'PATCH',path,{...change,templates:[{id:randomUUID(),version:1}]})).statusCode).toBe(404);
+    expect((await send(api,owner,'PATCH',path,{...change,templates:[{id:tpl,version:2}],teamIds:[randomUUID()]})).statusCode).toBe(400);
+    await withTenant(api.pool,api.tenantId,(client)=>client.query(`INSERT INTO team_members(tenant_id,team_id,membership_id) VALUES($1,$2,$3)`,[api.tenantId,data.team,data.member]));
+    expect((await send(api,agent,'GET','/quick-whatsapp/options')).json().data.templates.some((row:{id:string})=>row.id===tpl)).toBe(true);
+    expect((await send(api,agent,'GET','/whatsapp-templates')).json().data.some((row:{id:string})=>row.id===tpl)).toBe(true);
+    const legacyAllowed=await send(api,agent,'POST','/campaigns',{name:`Allowed legacy campaign ${randomUUID()}`,connectionId,content:{type:'template',template:{name:'team_sales_followup',language:'ar'}}});
+    expect(legacyAllowed.statusCode,legacyAllowed.body).toBe(201);
+    await withTenant(api.pool,api.tenantId,(client)=>client.query(`UPDATE teams SET archived_at=now() WHERE id=$1`,[data.team]));
+    expect((await send(api,agent,'GET','/quick-whatsapp/options')).json().data.templates.some((row:{id:string})=>row.id===tpl)).toBe(false);
+    await withTenant(api.pool,api.tenantId,(client)=>client.query(`UPDATE teams SET archived_at=NULL WHERE id=$1`,[data.team]));
+
+
+    const allowed=await send(api,agent,'POST',`/channels/${connectionId}/quick-messages`,{peerIdentity:to,template:{id:tpl,parameters:{'body:1':'test'}},clientMessageId:clientId()});
+    expect(allowed.statusCode,allowed.body).toBe(202);
+    const conversationId=allowed.json().data.conversationId as string;
+    expect((await send(api,agent,'GET',`/conversations/${conversationId}/whatsapp-templates?search=تحديث`)).json().data.some((row:{id:string})=>row.id===tpl)).toBe(true);
+    templateCatalogue=templateBefore;
+    expect((await send(api,owner,'POST',`/channels/${connectionId}/templates/sync`)).statusCode).toBe(201);
+    const after=(await send(api,owner,'GET','/template-library')).json().data.templates.find((row:{id:string})=>row.id===tpl);
+    expect(after).toMatchObject({visibility:'teams',teamIds:[data.team],version:2});
+    await withTenant(api.pool,api.tenantId,(client)=>client.query(`DELETE FROM team_members WHERE membership_id=$1`,[data.member]));
+    expect((await send(api,agent,'GET',`/conversations/${conversationId}/whatsapp-templates`)).json().data.some((row:{id:string})=>row.id===tpl)).toBe(false);
+    const direct=await send(api,agent,'POST',`/conversations/${conversationId}/messages`,{messageType:'template',text:'',template:{id:tpl,parameters:{'body:1':'test'}},clientMessageId:clientId()});
+    expect(direct.statusCode).toBe(403);
+    expect((await send(api,owner,'GET','/quick-whatsapp/options')).json().data.templates.some((row:{id:string})=>row.id===tpl)).toBe(true);
+    expect((await send(api,owner,'PATCH',path,{templates:[{id:tpl,version:2}],visibility:'all',teamIds:[]})).statusCode).toBe(200);
+    expect((await send(api,agent,'GET','/quick-whatsapp/options')).json().data.templates.some((row:{id:string})=>row.id===tpl)).toBe(true);
+    const audit=await withTenant(api.pool,api.tenantId,(client)=>client.query(`SELECT detail FROM admin_audit_events WHERE subject_id=$1 AND action='template_access.updated'`,[tpl]));
+    expect(audit.rows).toHaveLength(2);
+    await withTenant(api.pool,api.tenantId,(client)=>client.query(`DELETE FROM outbox WHERE message_id=$1`,[allowed.json().data.message.id]));
   });
 
   it('checks a number’s follow-up owner within allowed inboxes without exposing or stealing their conversation', async () => {

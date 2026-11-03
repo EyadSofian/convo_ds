@@ -193,7 +193,7 @@ export function renderChannels(state: AppState): HTMLElement {
   const live = state.live;
   return page('channels', toolbar(
     t(state, 'اربط القنوات التي يتواصل عبرها عملاؤك. تظهر القناة «متصلة» فقط بعد أن يؤكد الخادم جاهزيتها.', 'Connect the channels your customers use. A channel shows as connected only after the server confirms it is healthy.'),
-    [refreshButton(state, 'live-channels-reload', live.connections.status === 'loading')],
+    [button({ label: t(state, 'مكتبة القوالب والتيمات', 'Template library & teams'), icon: 'template', act: 'live-template-library-open' }), refreshButton(state, 'live-channels-reload', live.connections.status === 'loading')],
   ), catalogueBody(state, live));
 }
 

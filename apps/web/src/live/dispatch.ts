@@ -1,3 +1,4 @@
+import { editTemplateAccess, pickLibraryResults, openTemplateLibrary, saveTemplateAccess } from './template-library.js';
 import { lookupInboxNumber } from './inbox-number-lookup.js';
 import type { TransitionCommand } from '../api/conversations.js';
 import { readInboxAccess } from '../ui/inbox-access.js';
@@ -1284,6 +1285,12 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-quick-whatsapp-change': async (context, arg) => changeQuickWhatsApp(context, arg),
   'live-quick-whatsapp-check': async (context) => checkQuickWhatsApp(context),
   'live-quick-whatsapp-existing': async (context) => openQuickWhatsAppCustomer(context),
+  'live-template-library-edit': async (context,arg) => editTemplateAccess(context,arg),
+  'live-template-library-pick-results': async (context) => pickLibraryResults(context),
+  'live-template-library-clear': async (context) => pickLibraryResults(context,true),
+  'live-template-library-open': async (context) => openTemplateLibrary(context),
+  'live-template-library-reload': async (context) => openTemplateLibrary(context, true),
+  'live-template-library-save': async (context) => saveTemplateAccess(context),
   'live-quick-whatsapp-open': async (context) => openQuickWhatsApp(context),
   'live-quick-whatsapp-send': async (context) => sendQuickWhatsApp(context),
   'live-whatsapp-template-open': async (context) => openWhatsAppTemplates(context),

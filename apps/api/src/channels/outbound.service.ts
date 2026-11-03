@@ -1,3 +1,4 @@
+import { requireTemplateAccess, templateAccessPredicate } from './template-access.js';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
   CapabilityMatrix,
@@ -127,14 +128,16 @@ export class OutboundService {
         inboxId: row.id, assigneeMembershipId: principal.membershipId,
       }).allowed).map((row) => ({ id: row.id, displayName: row.display_name }));
       if (connections.length === 0) return { connections, templates: [] };
+      const templateValues: unknown[] = [tenantId, connections.map((row) => row.id)];
+      const access = templateAccessPredicate(principal, (value) => { templateValues.push(value); return `$${templateValues.length}`; });
       const templates = await sql.query<{
         id: string; connection_id: string; provider_template_id: string; template_name: string;
         language: string; category: string; components: unknown[]; variables: string[]; last_synced_at: Date;
       }>(`SELECT id::text, connection_id::text, provider_template_id, template_name,
                  language, category, components, variables, last_synced_at
           FROM whatsapp_templates
-          WHERE tenant_id=$1 AND connection_id=ANY($2::uuid[]) AND status='approved'
-          ORDER BY lower(template_name), language, id`, [tenantId, connections.map((row) => row.id)]);
+          WHERE tenant_id=$1 AND connection_id=ANY($2::uuid[]) AND status='approved' AND ${access}
+          ORDER BY lower(template_name), language, id`, templateValues);
       return { connections, templates: templates.rows.map((row) => ({
         id: row.id, connectionId: row.connection_id, providerTemplateId: row.provider_template_id,
         templateName: row.template_name, language: row.language, category: row.category,
@@ -183,7 +186,8 @@ export class OutboundService {
       const values: unknown[] = [tenantId, connectionId];
       const where = ['tenant_id=$1', 'connection_id=$2'];
       const add = (value: unknown): string => { values.push(value); return `$${values.length}`; };
-      if (query.search !== '') where.push(`(lower(template_name) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\' OR lower(language) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\' OR lower(category) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\')`);
+      if (query.search !== '') where.push(`(lower(template_name) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\' OR lower(components::text) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\' OR lower(language) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\' OR lower(category) LIKE ${add(`%${escapeLike(query.search.toLowerCase())}%`)} ESCAPE '\\')`);
+      where.push(templateAccessPredicate(principal, add));
       if (query.language !== '') where.push(`language=${add(query.language)}`);
       if (query.category !== '') where.push(`category=${add(query.category.toLowerCase())}`);
       if (query.status !== '') where.push(`status=${add(query.status)}`);
@@ -372,6 +376,7 @@ export class OutboundService {
             [request.template.id, tenantId, connectionId],
           )).rows[0];
           if (stored === undefined || stored.status !== 'approved') throw new ApiHttpError(409, 'template_not_sendable', 'This WhatsApp template is no longer approved. Refresh the catalogue and choose an approved template.');
+          await requireTemplateAccess(sql, principal, request.template.id);
           const definition = defineWhatsAppTemplate(stored.components);
           // The parser produces a parameter map whenever an id is present;
           // the legacy {name,language} shape is rejected immediately above.

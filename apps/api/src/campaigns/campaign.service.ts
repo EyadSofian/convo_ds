@@ -1,3 +1,5 @@
+import { requireTemplateAccess } from '../channels/template-access.js';
+import type { Principal } from '@convo/domain';
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { CampaignState, SqlExecutor } from '@convo/domain';
@@ -222,7 +224,7 @@ export class CampaignService {
     }, async (sql) => {
       const principal = await this.authorization.requirePermission(sql, session, 'campaign.draft');
       await requireConnection(sql, input.connectionId, false);
-      input = await withCatalogueTemplate(sql, input);
+      input = await withCatalogueTemplate(sql, input, principal);
       const campaign = await sql.query<{ id: string }>(
         `INSERT INTO campaigns (tenant_id,name,objective,connection_id,created_by_membership_id)
          VALUES ($1,$2,$3,$4,$5) RETURNING id::text`,
@@ -268,7 +270,7 @@ export class CampaignService {
       if (campaign.version !== input.expectedVersion) throw conflict('version_conflict', 'The campaign changed after you opened it. Reload before saving.');
       await requireConnection(sql, input.connectionId, false);
       await requireImportedAudience(sql, campaignId, campaign.connection_id, input.connectionId, input.audienceFilter);
-      input = { ...await withCatalogueTemplate(sql, input), expectedVersion: input.expectedVersion };
+      input = { ...await withCatalogueTemplate(sql, input, principal), expectedVersion: input.expectedVersion };
       const hash = revisionHash(input);
       if (hash === campaign.revision_hash) {
         await sql.query(
@@ -384,6 +386,7 @@ export class CampaignService {
       if (campaign.version !== input.expectedVersion) {
         throw conflict('version_conflict', 'The campaign changed after you opened it. Reload before sending a test.');
       }
+      await requireCatalogueTemplate(sql, campaign.connection_id, campaign.content, principal);
       await requireConnection(sql, campaign.connection_id, true);
       const recipient = await sql.query<{ authorization_id: string; external_id: string; label: string; rendered_variables: Readonly<Record<string, unknown>> }>(
         `SELECT tr.id::text AS authorization_id,i.external_id,tr.label,
@@ -440,9 +443,9 @@ export class CampaignService {
     return this.authorization.authorized(session, tenantId, 'campaign.draft', async ({ sql, principal }) => {
       const campaign = await locked(sql, campaignId);
       const started = transition(campaign.control_state, 'validate');
+      await requireCatalogueTemplate(sql, campaign.connection_id, campaign.content, principal);
       await requireConnection(sql, campaign.connection_id, true);
       await requireImportedAudience(sql, campaignId, campaign.connection_id, campaign.connection_id, campaign.audience_filter);
-      await requireCatalogueTemplate(sql, campaign.connection_id, campaign.content);
       await sql.query(`UPDATE campaigns SET control_state=$2,version=version+1,updated_at=now() WHERE id=$1`, [campaignId, started.to]);
       const frozen = await freezeAudience(sql, tenantId, campaignId, campaign.current_revision_id,
         campaign.connection_id, campaign.audience_filter);
@@ -486,6 +489,7 @@ export class CampaignService {
     }, async (sql) => {
       const principal = await this.authorization.requirePermission(sql, session, 'campaign.launch');
       const campaign = await locked(sql, campaignId);
+      await requireCatalogueTemplate(sql, campaign.connection_id, campaign.content, principal);
       await requireConnection(sql, campaign.connection_id, true);
       if (campaign.expires_at !== null && campaign.expires_at.getTime() <= Date.now()) {
         throw conflict('campaign_expired', 'This campaign has expired.');
@@ -912,9 +916,10 @@ function renderedVariables(variables: string): string {
  * and every field it reads a live contact field. The stored name and language
  * are the catalogue's, never a client's.
  */
-async function withCatalogueTemplate<T extends CampaignDraftInput>(sql: SqlExecutor, input: T): Promise<T> {
+async function withCatalogueTemplate<T extends CampaignDraftInput>(sql: SqlExecutor, input: T, principal: Principal): Promise<T> {
   const bound = boundTemplateOf(input.content);
-  if (bound === null) return input;
+  if (bound === null) { await requireLegacyTemplateAccess(sql,principal,input.connectionId,input.content); return input; }
+  await requireTemplateAccess(sql, principal, bound.id);
   const template = (await sql.query<{ template_name: string; language: string; components: unknown }>(
     `SELECT template_name,language,components FROM whatsapp_templates WHERE id=$1 AND connection_id=$2 AND status='approved'`,
     [bound.id, input.connectionId],
@@ -930,9 +935,10 @@ async function withCatalogueTemplate<T extends CampaignDraftInput>(sql: SqlExecu
 }
 
 /** A catalogue template can be paused or disabled after the draft was saved. */
-async function requireCatalogueTemplate(sql: SqlExecutor, connectionId: string, content: Readonly<Record<string, unknown>>): Promise<void> {
+async function requireCatalogueTemplate(sql: SqlExecutor, connectionId: string, content: Readonly<Record<string, unknown>>, principal: Principal): Promise<void> {
   const bound = boundTemplateOf(content);
-  if (bound === null) return;
+  if (bound === null) { await requireLegacyTemplateAccess(sql,principal,connectionId,content); return; }
+  await requireTemplateAccess(sql, principal, bound.id);
   const found = await sql.query(`SELECT 1 FROM whatsapp_templates WHERE id=$1 AND connection_id=$2 AND status='approved'`, [bound.id, connectionId]);
   if (found.rows.length === 0) throw conflict('campaign_template_unavailable', 'The template is no longer approved on this number. Choose another before validating.');
 }
@@ -1085,4 +1091,14 @@ function idempotencyConflict(): ApiHttpError { return conflict('idempotency_key_
 function idempotentBody(outcome: IdempotencyResult): unknown {
   if (outcome.status === 'conflict') throw idempotencyConflict();
   return outcome.response.body;
+}
+
+/** Old name-based campaign definitions obey the same team policy as catalogue selections. */
+async function requireLegacyTemplateAccess(sql: SqlExecutor, principal: Principal, connectionId: string, content: Readonly<Record<string, unknown>>): Promise<void> {
+  const raw = content['template'];
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return;
+  const template = raw as Record<string, unknown>;
+  if (typeof template['name'] !== 'string') return;
+  const matches = await sql.query<{ id: string }>(`SELECT id::text FROM whatsapp_templates WHERE connection_id=$1 AND template_name=$2`, [connectionId,template['name']]);
+  for (const row of matches.rows) await requireTemplateAccess(sql,principal,row.id);
 }

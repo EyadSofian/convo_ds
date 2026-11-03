@@ -52,6 +52,9 @@ describe('renderDialog', () => {
     const dialog = open(state, 'quick-whatsapp');
     expect(dialog.textContent).toContain('Admissions WhatsApp');
     expect(dialog.textContent).toContain('course_followup');
+    state.dialogForm.quickTemplateSearch='missing';
+    expect(open(state,'quick-whatsapp').textContent).toContain('No matching templates');
+    state.dialogForm.quickTemplateSearch='';
     expect(dialog.querySelector('[data-form="quickConsentReference"]')).toBeNull();
     expect(dialog.textContent).not.toContain('Opt-in proof');
     expect(state.live.connections.status).toBe('idle');

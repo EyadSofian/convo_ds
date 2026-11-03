@@ -1,3 +1,4 @@
+import { normalizeSearchText } from '@convo/domain';
 import type { TemplateBindings, WhatsAppTemplateDefinition, WhatsAppTemplateParameterDefinition } from '@convo/domain';
 import type { WhatsAppTemplate } from '../api/automations.js';
 import type { Child } from '../dom.js';
@@ -39,9 +40,13 @@ export function templateComposer(state: AppState, options: ComposerOptions): HTM
   const fields = rowsOf(state.live.customFields).filter((field) => field.target === 'contact' && field.state === 'active');
   const draft = definition === null ? null : bindingsFromForm(state.dialogForm, options.prefix, definition, options.stored);
   const values = definition === null || draft === null ? {} : sampleValues(definition, draft.bindings, fields, options.sample);
+  const search = normalizeSearchText(state.dialogForm[`${options.prefix}Search`] ?? '');
+  const visible = options.templates.filter((template) => normalizeSearchText(`${template.templateName} ${JSON.stringify(template.components)} ${template.language}`).includes(search));
   return h('div', { class: `tpl-composer${options.compact === true ? ' tpl-composer--compact' : ''}` }, [
     h('div', { class: 'tpl-composer__pick' }, [
-      h('div', { class: 'tpl-list', role: 'listbox', 'aria-label': t(state, 'القوالب المعتمدة', 'Approved templates') }, options.templates.map((template) => {
+      h('input',{class:'input',type:'search','aria-label':t(state,'ابحث عن قالب','Find a template'),placeholder:t(state,'اسم القالب أو نص الرسالة…','Template name or message text…'),value:state.dialogForm[`${options.prefix}Search`] ?? '', 'data-act':'form-toggle','data-form':`${options.prefix}Search`}),
+      visible.length === 0 ? h('p',{class:'field__hint'},[t(state,'لا توجد قوالب مطابقة.','No matching templates.')]) : null,
+      h('div', { class: 'tpl-list', role: 'listbox', 'aria-label': t(state, 'القوالب المعتمدة', 'Approved templates') }, visible.map((template) => {
         const own = templateDefinition(template);
         const chosen = template.id === options.selectedId;
         const body = own.components.find((component) => component.type === 'body')?.text ?? '';

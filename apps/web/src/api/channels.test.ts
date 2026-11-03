@@ -7,6 +7,8 @@ describe('channel API routes', () => {
     const get = vi.fn().mockResolvedValue({ ok: true, data: { connections: [], templates: [] } });
     const post = vi.fn().mockResolvedValue({ ok: true, data: { conversationId: 'conversation-1' } });
     const api = new ChannelsApi({ get, post } as unknown as ApiClient);
+    await api.templateLibrary('tenant-1');
+    expect(get).toHaveBeenCalledWith('/tenants/tenant-1/template-library');
     await api.quickWhatsAppOptions('tenant-1');
     expect(get).toHaveBeenCalledWith('/tenants/tenant-1/quick-whatsapp/options');
     await api.lookupQuickWhatsApp('tenant-1', 'channel-1', '+201001234567');
@@ -51,4 +53,12 @@ describe('channel API routes', () => {
       body: { peerIdentity: '201500000000', messageType: 'template', text: '', template: { id: 'template-1', parameters: { 'body:1': 'Mona' } }, clientMessageId: 'message-key-123', trafficClass: 'interactive' },
     });
   });
+  it('patches selected template versions and team availability', async () => {
+    const patch=vi.fn().mockResolvedValue({ok:true,data:{updated:1}});
+    const api=new ChannelsApi({patch} as unknown as ApiClient);
+    const input={templates:[{id:'tpl',version:1}],visibility:'teams' as const,teamIds:['sales']};
+    await api.updateTemplateAccess('tenant-1',input);
+    expect(patch).toHaveBeenCalledWith('/tenants/tenant-1/template-library/access',{body:input});
+  });
+
 });

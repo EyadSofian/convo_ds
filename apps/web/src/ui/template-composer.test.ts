@@ -159,4 +159,11 @@ describe('the WhatsApp preview', () => {
     expect(bare.querySelector('.wa-bubble__body, .wa-bubble__header, .wa-bubble__footer')).toBeNull();
     expect(bare.querySelector('.wa-buttons')).toBeNull();
   });
+  it('searches template body text without losing the selected preview',()=>{
+    const s=state();s.dialogForm={[`${OPTIONS.prefix}Search`]:'nonexistent'};
+    const root=templateComposer(s,{...OPTIONS,templates:[template()],selectedId:'wa-1'});
+    expect(root.querySelectorAll('.tpl-card')).toHaveLength(0);
+    expect(root.textContent).toContain('No matching templates');
+  });
+
 });

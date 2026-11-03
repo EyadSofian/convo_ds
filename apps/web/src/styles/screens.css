@@ -3961,3 +3961,22 @@
   .quick-customer p { margin-block: var(--space-2); }
   .quick-phone { align-items: end; }
 }
+
+@layer components {
+  .template-library { display: grid; gap: var(--space-4); }
+  .template-library__filters, .template-library__meta, .template-library__cardhead, .template-library__modes, .template-library__teams, .template-library__count { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+  .template-library__search { display: grid; gap: var(--space-3); }
+  .template-library__filters > .select { flex: 1 1 140px; }
+  .template-library__workspace { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(240px,1fr); gap: var(--space-4); align-items: start; }
+  .template-library__catalog { display: grid; gap: var(--space-3); max-block-size: 55vh; overflow: auto; padding: var(--space-1); }
+  .template-library__card { border: 1px solid var(--border); border-radius: var(--radius-xl); padding: var(--space-4); background: var(--surface-1); }
+  .template-library__card.is-selected { border-color: var(--accent); background: var(--surface-selected); }
+  .template-library__cardhead { justify-content: space-between; }
+  .template-library__cardhead .btn { max-inline-size: 100%; overflow-wrap: anywhere; }
+  .template-library__body { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; margin-block: var(--space-3); }
+  .template-library__settings { display: grid; gap: var(--space-3); padding: var(--space-4); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-xl); }
+  .template-library__settings h3, .template-library__settings p { margin: 0; }
+  .template-library__preview { background: var(--surface-1); border-radius: var(--radius-lg); padding: var(--space-4); overflow-wrap: anywhere; }
+  .template-library__preview p { white-space: pre-wrap; }
+  @media (max-width: 760px) { .template-library__workspace { grid-template-columns: 1fr; } .template-library__catalog { max-block-size: 40vh; } }
+}

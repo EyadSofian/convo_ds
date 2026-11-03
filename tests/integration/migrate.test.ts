@@ -155,6 +155,7 @@ describe('migrate', () => {
       'user_sessions',
       'users',
       'webhook_receipts',
+      'whatsapp_template_teams',
       'whatsapp_templates',
     ]);
   });

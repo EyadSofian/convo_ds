@@ -140,6 +140,16 @@ export interface QuickWhatsAppLookup {
   } | null;
 }
 
+export interface TemplateLibraryItem {
+  readonly id: string; readonly connectionId: string; readonly connectionName: string;
+  readonly name: string; readonly language: string; readonly category: string; readonly status: string;
+  readonly body: string; readonly visibility: 'all' | 'teams'; readonly version: number; readonly teamIds: readonly string[];
+}
+export interface TemplateLibrary {
+  readonly templates: readonly TemplateLibraryItem[];
+  readonly teams: readonly { readonly id: string; readonly name: string }[];
+}
+
 export interface QuickWhatsAppResult {
   readonly conversationId: string;
   readonly message: QueuedContactMessage;
@@ -164,6 +174,13 @@ export class ChannelsApi {
 
   lookupQuickWhatsApp(tenantId: string, connectionId: string, peerIdentity: string): Promise<ApiResult<QuickWhatsAppLookup>> {
     return this.client.post<QuickWhatsAppLookup>(`/tenants/${tenantId}/channels/${connectionId}/quick-whatsapp-lookup`, { body: { peerIdentity } });
+  }
+
+  templateLibrary(tenantId: string): Promise<ApiResult<TemplateLibrary>> {
+    return this.client.get<TemplateLibrary>(`/tenants/${tenantId}/template-library`);
+  }
+  updateTemplateAccess(tenantId: string, input: { readonly templates: readonly { readonly id: string; readonly version: number }[]; readonly visibility: 'all' | 'teams'; readonly teamIds: readonly string[] }): Promise<ApiResult<{ readonly updated: number }>> {
+    return this.client.patch<{ readonly updated: number }>(`/tenants/${tenantId}/template-library/access`, { body: input });
   }
 
   quickWhatsAppOptions(tenantId: string): Promise<ApiResult<QuickWhatsAppOptions>> {

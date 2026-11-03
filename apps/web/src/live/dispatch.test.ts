@@ -648,6 +648,19 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it('dispatches template library loading, selection, editing and saving',async()=>{
+    const {state,context}=active();
+    const template={id:'tpl',connectionId:'cn',connectionName:'Sales',name:'welcome',language:'ar',category:'utility',status:'approved',body:'hello',visibility:'all',version:1,teamIds:[]};
+    Object.defineProperty(context.live,'channels',{value:{templateLibrary:vi.fn().mockResolvedValue({ok:true,data:{templates:[template],teams:[]}}),updateTemplateAccess:vi.fn().mockResolvedValue({ok:true,data:{updated:1}})}});
+    expect(await LIVE_ACTIONS['live-template-library-open']?.(context,'')).toBe(true);
+    expect(await LIVE_ACTIONS['live-template-library-reload']?.(context,'')).toBe(true);
+    expect(await LIVE_ACTIONS['live-template-library-edit']?.(context,'tpl')).toBe(true);
+    expect(await LIVE_ACTIONS['live-template-library-clear']?.(context,'')).toBe(true);
+    expect(await LIVE_ACTIONS['live-template-library-pick-results']?.(context,'')).toBe(true);
+    delete state.dialogForm['libraryVisibility'];
+    expect(await LIVE_ACTIONS['live-template-library-save']?.(context,'')).toBe(true);
+  });
+
   it('debounces Inbox search and avoids reloading an unchanged query', async () => {
     const { state, context } = active();
     inboxReads(context);

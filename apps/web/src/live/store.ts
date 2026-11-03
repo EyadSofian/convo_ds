@@ -1,4 +1,4 @@
-import type { ChannelCatalogueEntry, ChannelConnection, ChannelTestRecipient, ChannelsApi, CreatedMetaApp, MetaAppSummary, QuickWhatsAppOptions, QuickWhatsAppLookup } from '../api/channels.js';
+import type { TemplateLibrary, ChannelCatalogueEntry, ChannelConnection, ChannelTestRecipient, ChannelsApi, CreatedMetaApp, MetaAppSummary, QuickWhatsAppOptions, QuickWhatsAppLookup } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type {
   Collaborator,
@@ -234,6 +234,7 @@ export interface LiveState {
   metaApps: Resource<readonly MetaAppSummary[]>;
   createdMetaApp: CreatedMetaApp | null;
   catalogue: Resource<readonly ChannelCatalogueEntry[]>;
+  templateLibrary: Resource<TemplateLibrary>;
   testRecipients: Resource<readonly ChannelTestRecipient[]>;
   /**
    * The Unassigned queue, as **cards**.
@@ -440,6 +441,7 @@ export function createLiveState(
     metaApps: IDLE,
     createdMetaApp: null,
     catalogue: IDLE,
+    templateLibrary: IDLE,
     testRecipients: IDLE,
     unassigned: IDLE,
     openConversationId: null,

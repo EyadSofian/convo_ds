@@ -1,3 +1,5 @@
+import { TemplateLibraryController } from './channels/template-library.controller.js';
+import { TemplateLibraryService } from './channels/template-library.service.js';
 import {
   Inject,
   Injectable,
@@ -144,6 +146,7 @@ export class ApiModule {
         InvitationController,
         PeopleController,
         ChannelController,
+        TemplateLibraryController,
         ChannelAppController,
         ChannelIngressController,
         OutboundController,
@@ -201,6 +204,7 @@ export class ApiModule {
         PeopleService,
         ChannelCredentialService,
         ChannelService,
+        TemplateLibraryService,
         ChannelAppService,
         ChannelIngressService,
         SelfHostedIngressService,

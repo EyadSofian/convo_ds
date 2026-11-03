@@ -1,3 +1,5 @@
+import { normalizeSearchText } from '@convo/domain';
+import { templateLibraryDialog } from './template-library.js';
 import { quickWhatsAppCountries, quickWhatsAppNumber } from '../live/quick-whatsapp-phone.js';
 import { quickWhatsAppCustomer } from './quick-whatsapp-customer.js';
 import type { Child } from '../dom';
@@ -46,6 +48,7 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'automation-delete') return automationDelete(state, dialog.arg);
   if (dialog.kind === 'whatsapp-template') return whatsappTemplatePicker(state);
   if (dialog.kind === 'contact-template') return contactTemplatePicker(state, dialog.arg);
+  if (dialog.kind === 'template-library') return templateLibraryDialog(state);
   if (dialog.kind === 'quick-whatsapp') return quickWhatsAppDialog(state);
   const admin = renderAdminDialog(state, dialog.kind, dialog.arg);
   if (admin !== null) return admin;
@@ -159,7 +162,9 @@ function quickWhatsAppDialog(state: AppState): HTMLElement {
   const resource = state.live.quickWhatsAppOptions;
   const connections = resource.status === 'ready' ? resource.value.connections : [];
   const connectionId = state.dialogForm['quickConnectionId'] ?? connections[0]?.id ?? '';
-  const templates = resource.status === 'ready' ? resource.value.templates.filter((entry) => entry.connectionId === connectionId && entry.status === 'approved') : [];
+  const allTemplates = resource.status === 'ready' ? resource.value.templates.filter((entry) => entry.connectionId === connectionId && entry.status === 'approved') : [];
+  const search = normalizeSearchText(state.dialogForm['quickTemplateSearch'] ?? '');
+  const templates = allTemplates.filter((entry) => normalizeSearchText(`${entry.templateName} ${JSON.stringify(entry.components)} ${entry.language}`).includes(search));
   const selected = templates.find((entry) => entry.id === state.dialogForm['quickTemplateId']);
   const definition = selected === undefined ? null : templateDefinition(selected);
   const country = state.dialogForm['quickCountry'] ?? 'EG';
@@ -180,7 +185,9 @@ function quickWhatsAppDialog(state: AppState): HTMLElement {
     fieldError(state, 'quickPeerIdentity'),
     connections.length > 0 ? h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'رقم الإرسال', 'Send from')]), selectControl({ act: 'live-quick-whatsapp-change', form: 'quickConnectionId', value: connectionId, options: connections.map((entry) => ({ value: entry.id, label: entry.displayName })) })]) : null,
     quickWhatsAppCustomer(state),
-    !existing && templates.length === 0 && resource.status === 'ready' ? notice('warning', 'alert', t(state, 'لا توجد قوالب معتمدة لهذا الرقم؛ زامن القوالب من القنوات.', 'No approved templates for this number; sync them from Channels.')) : null,
+    !existing && allTemplates.length === 0 && resource.status === 'ready' ? notice('warning', 'alert', t(state, 'لا توجد قوالب معتمدة لهذا الرقم؛ زامن القوالب من القنوات.', 'No approved templates for this number; sync them from Channels.')) : null,
+    !existing && allTemplates.length > 0 ? h('label', {class:'field'}, [h('span',{class:'field__label'},[t(state,'ابحث عن القالب','Find a template')]),h('input',{class:'input',type:'search',value:state.dialogForm['quickTemplateSearch'] ?? '',placeholder:t(state,'اسم القالب أو نص الرسالة…','Template name or message text…'),'data-act':'form-toggle','data-form':'quickTemplateSearch'})]) : null,
+    !existing && allTemplates.length > 0 && templates.length === 0 ? notice('info','info',t(state,'لا توجد قوالب مطابقة للبحث.','No matching templates.')) : null,
     !existing && templates.length > 0 ? h('label', { class: 'field' }, [h('span', { class: 'field__label' }, [t(state, 'القالب المعتمد', 'Approved template')]), selectControl({ act: 'form-toggle', form: 'quickTemplateId', value: selected?.id ?? '', options: [{ value: '', label: t(state, 'اختر قالبًا', 'Choose a template') }, ...templates.map((entry) => ({ value: entry.id, label: `${entry.templateName} · ${entry.language}${templateDefinition(entry).sendSupported ? '' : ' (unsupported)'}` }))] })]) : null,
     !existing && definition !== null && !definition.sendSupported ? notice('warning', 'alert', definition.unsupportedReason!) : null,
     ...(existing ? [] : definition?.parameters ?? []).map((parameter) => h('label', { class: 'field' }, [

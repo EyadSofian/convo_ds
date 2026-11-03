@@ -123,6 +123,8 @@ describe('pinned OpenAPI contract', () => {
       "listOutboundMessages",
       "queueOutboundMessage",
       "lookupQuickWhatsAppCustomer",
+      "getTemplateLibrary",
+      "updateTemplateTeamAccess",
       "getQuickWhatsAppOptions",
       "queueQuickWhatsAppMessage",
       "syncWhatsAppTemplates",
