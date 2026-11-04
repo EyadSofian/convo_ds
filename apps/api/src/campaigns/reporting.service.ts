@@ -179,7 +179,7 @@ export function reportQuery(sql: SqlExecutor, filters: CampaignReportFilters) {
       SELECT course_name AS name,count(*)::int AS total,
              count(*) FILTER (WHERE status='won')::int AS won,
              count(*) FILTER (WHERE status='lost')::int AS lost
-        FROM scoped_leads GROUP BY course_name ORDER BY total DESC,name
+        FROM scoped_leads WHERE course_name <> '' GROUP BY course_name ORDER BY total DESC,name
     ),
     lead_sources AS (
       SELECT source AS name,count(*)::int AS total,

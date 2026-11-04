@@ -1,6 +1,6 @@
 import type { unzipSync as UnzipSync } from 'fflate';
 
-/** The six-column broadcast import. Parsing never changes contacts or sends. */
+/** Broadcast lead rows use an empty course name when the sheet has no course. */
 export interface LeadSheetRow {
   readonly leadName: string;
   readonly mobile: string;
@@ -14,7 +14,10 @@ export type LeadSheetResult =
   | { readonly ok: true; readonly rows: readonly LeadSheetRow[] }
   | { readonly ok: false; readonly message: string };
 
-const HEADERS = ['lead name', 'mobile', 'course name', 'label', 'assign to', 'campaign name'] as const;
+export const LEAD_SHEET_HEADERS = {
+  withCourse: ['Lead Name', 'Mobile', 'Course Name', 'Label', 'Assign To', 'Campaign Name'],
+  withoutCourse: ['Lead Name', 'Mobile', 'Label', 'Assign To', 'Campaign Name'],
+} as const;
 const LIMIT = 2_000_000;
 
 export async function parseLeadSheet(file: Pick<File, 'name' | 'size' | 'text' | 'arrayBuffer'>): Promise<LeadSheetResult> {
@@ -31,15 +34,19 @@ export async function parseLeadSheet(file: Pick<File, 'name' | 'size' | 'text' |
     return { ok: false, message: 'The spreadsheet could not be read. Save it as .xlsx or UTF-8 CSV and try again.' };
   }
   const header = table.shift()?.map((value) => value.replace(/^\uFEFF/, '').trim().toLowerCase()) ?? [];
-  if (header.length !== HEADERS.length || HEADERS.some((value, index) => header[index] !== value)) {
-    return { ok: false, message: `Expected columns, in order: ${HEADERS.join(', ')}.` };
+  const headers = Object.values(LEAD_SHEET_HEADERS).find((format) =>
+    format.length === header.length && format.every((value, index) => header[index] === value.toLowerCase()));
+  if (headers === undefined) {
+    return { ok: false, message: 'Expected columns in order: Lead Name, Mobile, optional Course Name, Label, Assign To, Campaign Name.' };
   }
   const data = table.filter((row) => row.some((cell) => cell.trim() !== ''));
   if (data.length === 0 || data.length > 500) return { ok: false, message: 'Import between 1 and 500 leads per file.' };
-  if (data.some((row) => row.length > 6)) return { ok: false, message: 'A row has more than six columns.' };
+  if (data.some((row) => row.length > headers.length)) return { ok: false, message: 'A row has more columns than the header.' };
+  const hasCourse = headers === LEAD_SHEET_HEADERS.withCourse;
+  const labelIndex = hasCourse ? 3 : 2;
   return { ok: true, rows: data.map((row) => ({
-    leadName: row[0]!.trim(), mobile: row[1]?.trim() ?? '', courseName: row[2]?.trim() ?? '',
-    label: row[3]?.trim() ?? '', assignTo: row[4]?.trim() ?? '', campaignName: row[5]?.trim() ?? '',
+    leadName: row[0]?.trim() ?? '', mobile: row[1]?.trim() ?? '', courseName: hasCourse ? row[2]?.trim() ?? '' : '',
+    label: row[labelIndex]?.trim() ?? '', assignTo: row[labelIndex + 1]?.trim() ?? '', campaignName: row[labelIndex + 2]?.trim() ?? '',
   })) };
 }
 
@@ -119,9 +126,10 @@ function xlsxRows(bytes: Uint8Array, unzipSync: typeof UnzipSync): string[][] {
       const valueNode = nodes(cell, 'v')[0];
       const value = type === 'inlineStr' ? nodes(cell, 't').map((node) => node.textContent!).join('')
         : valueNode === undefined ? '' : valueNode.textContent!;
-      cells[column - 1] = type === 's' ? strings[Number(value)] ?? '' : value;
+      const text = type === 's' ? strings[Number(value)] ?? '' : value;
+      if (text.trim() !== '') cells[column - 1] = text;
     }
-    result.push(Array.from({ length: 6 }, (_, index) => cells[index] ?? ''));
+    result.push(cells);
     if (result.length > 501) throw new Error('Too many rows');
   }
   return result;

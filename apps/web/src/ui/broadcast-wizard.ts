@@ -4,6 +4,7 @@ import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { dateFormat, formatNumber } from '../format.js';
 import { icon } from '../icons.js';
+import { LEAD_SHEET_HEADERS } from '../lead-sheet.js';
 import { hasPermission } from '../live/ability.js';
 import { editorAudience, previewKey } from '../live/audience.js';
 import { BROADCAST_PREFIX, broadcastName, broadcastStep, broadcastTemplate, whatsappNumbers } from '../live/broadcast.js';
@@ -183,16 +184,20 @@ function leadSheetCard(state: AppState): HTMLElement {
       h('span', { class: 'broadcast__import-icon', 'aria-hidden': 'true' }, [icon('contacts', 20)]),
       h('div', {}, [
         h('strong', {}, [t(state, 'ارفع قائمة الليدز', 'Import lead list')]),
-        h('p', {}, [t(state, 'اختياري · ملف Excel أو CSV بستة أعمدة. معاينة قبل الإرسال.', 'Optional · Six-column Excel or CSV. Review before sending.')]),
+        h('p', {}, [t(state, 'ارفع ملف Excel أو CSV. عمود Course Name اختياري، وممكن تسيبه فاضي.', 'Upload an Excel or CSV file. You can omit Course Name or leave it blank.')]),
       ]),
+    ]),
+    h('div', { class: 'broadcast__finish' }, [
+      leadSheetDownload(LEAD_SHEET_HEADERS.withCourse, 'broadcast-leads-with-course.csv', t(state, 'CSV باسم الكورس', 'CSV with course name')),
+      leadSheetDownload(LEAD_SHEET_HEADERS.withoutCourse, 'broadcast-leads-without-course.csv', t(state, 'CSV بدون اسم الكورس', 'CSV without course name')),
     ]),
     h('label', { class: 'broadcast__import-picker' }, [
       h('span', {}, [upload?.fileName ?? t(state, 'اختر ملف .xlsx أو .csv', 'Choose .xlsx or .csv')]),
       h('input', { type: 'file', accept: '.xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'data-act': 'live-broadcast-import-file', 'aria-label': t(state, 'ملف الليدز', 'Lead sheet') }),
     ]),
-    upload === null ? h('p', { class: 'field__hint' }, [t(state,
-      'الأعمدة: Lead Name, Mobile, Course Name, Label, Assign To, Campaign Name. بدون ملف، استخدم اختيار الجمهور المعتاد.',
-      'Columns: Lead Name, Mobile, Course Name, Label, Assign To, Campaign Name. Without a file, choose the audience normally.')]) : null,
+    h('p', { class: 'field__hint' }, [t(state,
+      'اكتب نفس اسم البث في عمود Campaign Name. لو مش هترفع ملف، اختار الجمهور من خطوة الجمهور.',
+      'Use the same name in Campaign Name and in broadcast setup. You can also choose an audience without uploading a file.')]),
     upload?.error === null && upload.rows.length > 0 && preview === null ? button({ label: t(state, 'افحص الملف', 'Check file'), act: 'live-broadcast-import-preview', small: true, busy: state.live.busy === 'broadcast-import-preview' }) : null,
     upload !== null && upload.error === null && upload.rows.length === 0
       ? h('p', { class: 'field__hint', role: 'status' }, [t(state, 'جارٍ قراءة ملف الليدز…', 'Reading the lead sheet…')]) : null,
@@ -203,6 +208,11 @@ function leadSheetCard(state: AppState): HTMLElement {
     upload === null ? null : button({ label: t(state, 'إزالة الملف', 'Remove file'), act: 'live-broadcast-import-clear', variant: 'ghost', small: true }),
     fieldError(state, 'campaignLeadSheet'),
   ]);
+}
+
+function leadSheetDownload(headers: readonly string[], fileName: string, label: string): HTMLElement {
+  const csv = encodeURIComponent(`${headers.join(',')}\r\n`);
+  return h('a', { class: 'btn btn--sm', href: `data:text/csv;charset=utf-8,${csv}`, download: fileName }, [icon('download', 14), label]);
 }
 
 function messageStep(state: AppState, campaign: Campaign | undefined): HTMLElement {

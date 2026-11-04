@@ -169,10 +169,12 @@ describe('the detail', () => {
     expect(renderBroadcasts(state).querySelector('.campaign-lead-list [aria-busy="true"]')).not.toBeNull();
     state.live.campaignLeads = { status: 'error', error: { code: 'x', message: 'x', requestId: 'req', status: 500, details: [] } };
     expect(renderBroadcasts(state).querySelector('.campaign-lead-list')?.textContent).toContain('req');
-    state.live.campaignLeads = { status: 'ready', loadedAt: 1, value: [lead] };
+    state.live.campaignLeads = { status: 'ready', loadedAt: 1, value: [{ ...lead, course_name: '' }] };
     state.live.session = { ...state.live.session, memberships: [{ id: 'm', tenant: { id: 't', name: 'School', slug: 'school' },
       role: { id: 'r', key: 'x', name: 'X' }, permissions: ALL }] } as typeof state.live.session;
-    expect(renderBroadcasts(state).querySelector('[data-act="live-campaign-lead-save"]')).toBeNull();
+    const readOnly = renderBroadcasts(state);
+    expect(readOnly.querySelector('[data-act="live-campaign-lead-save"]')).toBeNull();
+    expect(readOnly.querySelector('.campaign-lead-card__identity > span')?.textContent).toBe(lead.mobile);
   });
 
   it('shows imported lead outcomes and recorded revenue for a campaign', () => {

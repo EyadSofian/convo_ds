@@ -295,9 +295,10 @@ async function inspect(sql: SqlExecutor, tenantId: string, input: LeadImportInpu
   let duplicate = 0;
   for (const [index, row] of input.rows.entries()) {
     const number = index + 2;
-    const required = [row.leadName, row.mobile, row.courseName, row.label, row.campaignName];
-    if (required.some((value) => value === '')) {
-      missing += 1; issues.push({ row: number, code: 'missing', message: `Row ${number}: complete name, mobile, course, label and campaign.` }); continue;
+    const required = { 'Lead Name': row.leadName, Mobile: row.mobile, Label: row.label, 'Campaign Name': row.campaignName };
+    const missingFields = Object.entries(required).filter(([, value]) => value === '').map(([field]) => field);
+    if (missingFields.length > 0) {
+      missing += 1; issues.push({ row: number, code: 'missing', message: `Row ${number}: fill in ${missingFields.join(', ')}.` }); continue;
     }
     if (row.leadName.length > 200 || row.courseName.length > 160 || row.label.length > 60 || row.campaignName.length > 160) {
       issues.push({ row: number, code: 'length', message: `Row ${number}: a value is too long.` }); continue;
@@ -306,7 +307,7 @@ async function inspect(sql: SqlExecutor, tenantId: string, input: LeadImportInpu
     if (mobile === null) { invalidMobile += 1; issues.push({ row: number, code: 'mobile', message: `Row ${number}: use an Egyptian 01… number or an international +country-code number.` }); continue; }
     if (seen.has(mobile)) { duplicate += 1; issues.push({ row: number, code: 'duplicate', message: `Row ${number}: this mobile already occurs in the sheet and will be skipped.` }); continue; }
     seen.add(mobile);
-    if (row.campaignName !== input.campaignName) issues.push({ row: number, code: 'campaign', message: `Row ${number}: Campaign Name differs from the broadcast name.` });
+    if (row.campaignName !== input.campaignName) issues.push({ row: number, code: 'campaign', message: `Row ${number}: Campaign Name must match the broadcast name “${input.campaignName}”.` });
     if (row.assignTo !== '' && matchAssignee(people, row.assignTo) === null) issues.push({ row: number, code: 'assignee', message: `Row ${number}: Assign To must exactly match one active agent name or email.` });
     if (await matchingContact(sql, tenantId, mobile) !== null) existing += 1;
   }

@@ -243,7 +243,7 @@ describe('campaign API', () => {
     const secondId = dataOf(second).id;
     const secondImport = await send(api, 'POST', `/campaigns/${secondId}/leads/import`, {
       connectionId: api.connectionId, campaignName: secondName,
-      rows: [{ ...rows[1], campaignName: secondName, label: 'NOVEMBER_PMP' }],
+      rows: [{ ...rows[1], courseName: '', campaignName: secondName, label: 'NOVEMBER_PMP' }],
     });
     expect(secondImport.statusCode, secondImport.body).toBe(201);
     expect((secondImport.json() as { data: { contactIds: string[] } }).data.contactIds).toEqual([contactIds.find((id) => id !== stored.leads[0]!.contact_id)]);
@@ -253,9 +253,12 @@ describe('campaign API', () => {
     const repeatHistory = await send(api, 'GET', `/contacts/${contactIds.find((id) => id !== stored.leads[0]!.contact_id)}/campaign-history`);
     expect(repeatHistory.statusCode, repeatHistory.body).toBe(200);
     expect(repeatHistory.json()).toMatchObject({ data: [
-      { campaign_id: secondId, campaign_name: secondName, send_state: null },
+      { campaign_id: secondId, campaign_name: secondName, course_name: '', send_state: null },
       { campaign_id: campaign.data.id, campaign_name: name, status: 'won', send_state: 'delivered' },
     ] });
+    const courseFreeReport = await send(api, 'GET', `/reports/campaigns?campaignId=${secondId}`);
+    expect(courseFreeReport.statusCode, courseFreeReport.body).toBe(200);
+    expect(courseFreeReport.json()).toMatchObject({ data: { leads: { total: 1, by_course: [] } } });
 
     const invalid = await send(api, 'POST', '/campaigns/lead-import-preview', {
       connectionId: api.connectionId, campaignName: secondName,

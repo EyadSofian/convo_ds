@@ -18,7 +18,7 @@ describe('broadcast lead sheet', () => {
     expect(await parseLeadSheet(file('leads.xls', strToU8(wide)))).toMatchObject({ ok: false, message: 'Choose an .xlsx or .csv file.' });
     expect(await parseLeadSheet(file('leads.csv', strToU8(`${headers.join(',')}\n`)))).toMatchObject({ ok: false, message: 'Import between 1 and 500 leads per file.' });
     expect(await parseLeadSheet(file('leads.csv', strToU8('')))).toMatchObject({ ok: false, message: expect.stringContaining('Expected columns') });
-    expect(await parseLeadSheet(file('leads.csv', strToU8(wide)))).toMatchObject({ ok: false, message: 'A row has more than six columns.' });
+    expect(await parseLeadSheet(file('leads.csv', strToU8(wide)))).toMatchObject({ ok: false, message: 'A row has more columns than the header.' });
     expect(await parseLeadSheet(file('leads.csv', strToU8(`${headers.join(',')}\n${'Mona,01012345678,PMP,PMP,,October\n'.repeat(501)}`)))).toMatchObject({ ok: false, message: 'Import between 1 and 500 leads per file.' });
   });
 
@@ -82,6 +82,17 @@ describe('broadcast lead sheet', () => {
     const parsed = await parseLeadSheet(file('leads.xlsx', compressed));
     expect(parsed.ok, JSON.stringify(parsed)).toBe(true);
     expect(parsed).toMatchObject({ ok: true, rows: [{ leadName: 'Mona', courseName: 'PMP' }] });
+  });
+
+  it.each([true, false])('imports CSV and Excel with a missing course value (column present: %s)', async (hasCourse) => {
+    const columns = hasCourse ? headers : headers.filter((name) => name !== 'Course Name');
+    const cells = ['Mona', '01012345678', ...(hasCourse ? [''] : []), 'Autumn', 'Agent A', 'Autumn Offer'];
+    const sheet = workbook([{ name: 'Leads', rows: [columns, cells, ['', ...cells.slice(1)]] }],
+      { rightToLeft: false, at: new Date('2026-11-04T00:00:00Z') });
+    const csv = `${columns.join(',')}\n${cells.join(',')}`;
+    const expected = { leadName: 'Mona', mobile: '01012345678', courseName: '', label: 'Autumn', assignTo: 'Agent A', campaignName: 'Autumn Offer' };
+    expect(await parseLeadSheet(file('leads.csv', strToU8(csv)))).toEqual({ ok: true, rows: [expected] });
+    expect(await parseLeadSheet(file('leads.xlsx', sheet))).toEqual({ ok: true, rows: [expected, { ...expected, leadName: '' }] });
   });
 
   it('rejects an unsafe header and formula cells', async () => {

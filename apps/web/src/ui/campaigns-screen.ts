@@ -359,7 +359,7 @@ function leadRow(state: AppState, live: LiveState, campaign: Campaign, lead: Cam
   return h('article', { class: 'campaign-lead-card', 'data-lead': lead.id }, [
     h('div', { class: 'campaign-lead-card__identity' }, [
       h('strong', {}, [lead.display_name]),
-      h('span', {}, [isolated(lead.mobile, true), ` · ${lead.course_name}`]),
+      h('span', {}, [isolated(lead.mobile, true), lead.course_name === '' ? '' : ` · ${lead.course_name}`]),
       h('small', {}, [lead.label, ' · ', lead.source, lead.assigned_to === null ? '' : ` · ${lead.assigned_to}`]),
     ]),
     h('div', { class: 'campaign-lead-card__editor' }, [

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 import { CONNECTION, CONVERSATION, installApi, PASSWORD } from './support/api';
 import { freezeClock, openInbox, openScreen } from './support/workspace';
 
@@ -114,6 +115,7 @@ test.describe('focused product UX repairs', () => {
     await expect(dialog.locator('.wa-bubble__body')).toHaveText('Hi Mona, your class starts on Sunday.');
     await dialog.locator('.dialog__footer [data-act="live-broadcast-step"][data-arg="2"]').click();
     await expect(dialog.locator('.audience')).toBeVisible();
+    await dialog.getByRole('radio', { name: /Everyone on the channel/ }).click();
     await dialog.locator('.dialog__footer [data-act="live-broadcast-step"][data-arg="3"]').click();
     await expect(dialog.locator('.broadcast__review')).toContainText('9 will receive it, of 12');
     await expect(dialog.locator('.broadcast__review')).toContainText('class_reminder · en');
@@ -125,6 +127,43 @@ test.describe('focused product UX repairs', () => {
       content: { template: { id: 'wa-class', parameters: { 'body:1': { source: 'display_name' }, 'body:2': { source: 'static', value: 'on Sunday' } } } },
     });
     expect(calls[4]?.body).toEqual({ mode: 'now' });
+  });
+
+  test('downloads and previews both broadcast CSV formats with an optional course name', async ({ page }) => {
+    await openScreen(page, 'broadcasts', '?lang=en');
+    const requests: unknown[] = [];
+    await page.route('**/campaigns/lead-import-preview', async (route) => {
+      requests.push(route.request().postDataJSON());
+      await route.fulfill({ json: { data: {
+        totalRows: 1, validLeads: 1, newContacts: 1, existingContacts: 0, duplicateLeads: 0,
+        invalidMobileNumbers: 0, missingRequiredFields: 0, readyToSend: 1, issues: [],
+      } } });
+    });
+    await page.locator('[data-act="live-campaign-editor"][data-arg=""]').first().click();
+    const dialog = page.locator('.dialog');
+    await dialog.locator('#campaign-name').fill('Autumn offer');
+    for (const [index, variant] of ['with', 'without'].entries()) {
+      const fileName = `broadcast-leads-${variant}-course.csv`;
+      const [download] = await Promise.all([
+        page.waitForEvent('download'),
+        dialog.locator(`a[download="${fileName}"]`).click(),
+      ]);
+      expect(download.suggestedFilename()).toBe(fileName);
+      const headers = await readFile((await download.path())!, 'utf8');
+      const courseCell = variant === 'with' ? ',' : '';
+      const checked = page.waitForResponse('**/campaigns/lead-import-preview');
+      await dialog.getByLabel('Lead sheet').setInputFiles({
+        name: fileName, mimeType: 'text/csv',
+        buffer: Buffer.from(`${headers}Example Lead,01000000000,${courseCell}Autumn,Agent A,Autumn offer\r\n`),
+      });
+      await checked;
+      await expect(dialog.locator('.broadcast__import-stats > div').filter({ hasText: 'Ready' }).locator('strong')).toHaveText('1');
+      expect(requests[index]).toEqual({ connectionId: CONNECTION, campaignName: 'Autumn offer', rows: [{
+        leadName: 'Example Lead', mobile: '01000000000', courseName: '', label: 'Autumn', assignTo: 'Agent A', campaignName: 'Autumn offer',
+      }] });
+    }
+    await dialog.locator('.dialog__footer [data-act="live-broadcast-step"]').click();
+    await expect(dialog.locator('.broadcast__step.is-current')).toContainText('Message');
   });
 
   test('using an automation template opens the newly-created draft editor', async ({ page }) => {

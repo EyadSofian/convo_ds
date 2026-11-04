@@ -1249,7 +1249,7 @@ describe('contact campaign history', () => {
       { lead_id: 'lead-1', campaign_id: 'campaign-1', campaign_name: 'PMP October', course_name: 'PMP',
         label: 'CODE_ONE', assigned_to: 'Mona', source: 'excel_import', status: 'won', lost_reason: null,
         imported_at: NOW.toISOString(), send_state: 'accepted', sent_at: NOW.toISOString() },
-      { lead_id: 'lead-2', campaign_id: 'campaign-2', campaign_name: 'CFM Retargeting', course_name: 'CFM',
+      { lead_id: 'lead-2', campaign_id: 'campaign-2', campaign_name: 'CFM Retargeting', course_name: '',
         label: 'CFM', assigned_to: null, source: 'excel_import', status: 'unknown_from_server', lost_reason: null,
         imported_at: NOW.toISOString(), send_state: null, sent_at: null },
     ] } });
@@ -1264,6 +1264,7 @@ describe('contact campaign history', () => {
     expect(section?.textContent).toContain('لم تُرسل');
     expect(section?.textContent).toContain('غير مسند');
     expect(section?.textContent).toContain('unknown_from_server');
+    expect(section?.querySelector('[data-campaign-lead="lead-2"] .contact-campaign-history__meta')?.textContent).toBe('CFM · excel_import');
     expect(section?.querySelectorAll('[data-campaign-lead]')).toHaveLength(2);
   });
 

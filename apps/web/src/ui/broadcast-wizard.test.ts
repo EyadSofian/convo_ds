@@ -104,6 +104,12 @@ describe('the steps', () => {
     state.dialogForm = { broadcastStep: '2', campaignName: 'Autumn offer' };
     const root = render(state);
     expect(root.querySelector('input[data-act="live-broadcast-import-file"]')).not.toBeNull();
+    expect(Array.from(root.querySelectorAll<HTMLAnchorElement>('a[download]'), (link) => [
+      link.download, decodeURIComponent(link.getAttribute('href')!.split(',')[1]!).trim(),
+    ])).toEqual([
+      ['broadcast-leads-with-course.csv', 'Lead Name,Mobile,Course Name,Label,Assign To,Campaign Name'],
+      ['broadcast-leads-without-course.csv', 'Lead Name,Mobile,Label,Assign To,Campaign Name'],
+    ]);
     expect(text(root)).toContain('Choose an audience explicitly');
     expect(root.querySelector('.audience-source[aria-checked="true"]')).toBeNull();
   });

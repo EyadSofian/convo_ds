@@ -95,6 +95,8 @@ describe('campaign lead import boundary', () => {
     ] });
     expect(preview).toMatchObject({ totalRows: 5, missingRequiredFields: 1, invalidMobileNumbers: 1, duplicateLeads: 1, readyToSend: 0 });
     expect(preview.issues.map((issue) => issue.code)).toEqual(['missing', 'mobile', 'campaign', 'assignee', 'duplicate', 'length']);
+    expect(preview.issues[0]?.message).toBe('Row 2: fill in Lead Name.');
+    expect(preview.issues[2]?.message).toContain('“PMP October”');
   });
 
   it('imports one clean lead, checks permissions and keeps the link idempotent', async () => {

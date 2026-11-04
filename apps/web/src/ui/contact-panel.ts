@@ -204,7 +204,8 @@ function campaignHistoryRow(state: AppState, entry: ContactCampaignHistory): HTM
       badge(t(state, ar, en), tone),
     ]),
     h('p', { class: 'contact-campaign-history__meta' }, [
-      isolated(entry.course_name), ' · ', isolated(entry.label), ' · ', isolated(entry.source),
+      ...(entry.course_name === '' ? [] : [isolated(entry.course_name), ' · ']),
+      isolated(entry.label), ' · ', isolated(entry.source),
     ]),
     h('p', { class: 'contact-campaign-history__meta' }, [
       entry.assigned_to === null ? t(state, 'غير مسند', 'Unassigned') : isolated(entry.assigned_to),
