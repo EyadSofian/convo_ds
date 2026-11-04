@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import argon2 from 'argon2';
@@ -2525,6 +2526,85 @@ describe('the outbound path', () => {
     await withTenant(api.pool, api.tenantId, (client) =>
       client.query('DELETE FROM outbox WHERE message_id=$1', [result.data.message.id]),
     );
+  });
+
+  it.each([false, true])('receives quick-template button replies in the original thread, including stored unsupported replies (repair=%s)', async (repair) => {
+    const to = peer();
+    const templateId = await syncApprovedTemplate(`button_followup_${String(repair)}`);
+    const first = await send(api, owner, 'POST', `/channels/${connectionId}/quick-messages`, {
+      peerIdentity: to, template: { id: templateId, parameters: { 'body:1': 'Shahd' } }, clientMessageId: clientId(),
+    });
+    expect(first.statusCode, first.body).toBe(202);
+    const { conversationId, message } = first.json().data as { conversationId: string; message: { id: string } };
+    await withTenant(api.pool, api.tenantId, client => client.query('DELETE FROM outbox WHERE message_id=$1', [message.id]));
+    const replies = [
+      { type: 'button', button: { text: 'مهتم', payload: 'interest-key' } },
+      { type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: 'yes-key', title: 'نعم' } } },
+      { type: 'interactive', interactive: { type: 'list_reply', list_reply: { id: 'course-key', title: 'برمجة' } } },
+      { type: 'button', button: { payload: 'not-a-message-label' } },
+      { type: 'interactive', interactive: { type: 'nfm_reply', nfm_reply: { response_json: '{}' } } },
+    ].map((reply, i) => ({ ...textMessage(`wamid.buttons-${String(repair)}-${i}`, '', to), text: undefined, context: { id: 'wamid.original-template' }, ...reply }));
+    const delivery = messageDelivery(replies);
+    // The normalizer also needs the profile next to the message, not a second API call.
+    const value = ((delivery['entry'] as { changes: { value: Record<string, unknown> }[] }[])[0]!.changes[0]!.value);
+    value['contacts'] = [{ wa_id: to, profile: { name: 'Button customer' } }];
+    expect((await deliver(api, delivery)).statusCode).toBe(200);
+    const migrationPool = scratchMigrationPool(api.names);
+    const archivedPeer = peer();
+    const archivedMessageId = `wamid.archived-button-${String(repair)}`;
+    const repairSql = readFileSync(new URL('../../packages/database/migrations/0056_whatsapp_reply_replay.sql', import.meta.url), 'utf8');
+    const runRepair = async () => {
+      const client = await migrationPool.connect();
+      try { await client.query('BEGIN'); await client.query(repairSql); await client.query('COMMIT'); }
+      catch (error) { await client.query('ROLLBACK'); throw error; }
+      finally { client.release(); }
+    };
+    try {
+      if (repair) {
+        await withTenant(api.pool, api.tenantId, client => client.query(`INSERT INTO conversations(tenant_id,connection_id,peer_identity,status,archived_at) VALUES($1,$2,$3,'archived',now())`, [api.tenantId,connectionId,archivedPeer]));
+        await deliver(api,messageDelivery([{ ...textMessage(archivedMessageId,'',archivedPeer),type:'button',button:{text:'Old reply'} }]));
+        await withTenant(migrationPool,api.tenantId,client=>client.query(`UPDATE channel_events SET normalized=jsonb_set(jsonb_set(normalized,'{kind}','"unsupported"'),'{text}','null') WHERE normalized->>'peerIdentity'=$1`,[archivedPeer]));
+        await withTenant(migrationPool, api.tenantId, client => client.query(`UPDATE channel_events SET normalized=jsonb_set(jsonb_set(normalized,'{kind}','"unsupported"'),'{text}','null') WHERE normalized->>'peerIdentity'=$1`, [to]));
+        await normalizer.drain(api.tenantId);
+        const before = await send(api, owner, 'GET', `/conversations/${conversationId}/messages`);
+        expect(before.json().data.filter((row: { direction: string }) => row.direction === 'in')).toHaveLength(0);
+        await runRepair();
+        // Running the repair again must not create another queued event.
+        await runRepair();
+      }
+      const drained = await normalizer.drain(api.tenantId);
+      expect(drained.failed).toBe(0);
+      const timeline = await send(api, owner, 'GET', `/conversations/${conversationId}/messages`);
+      expect(timeline.statusCode, timeline.body).toBe(200);
+      const inbound = timeline.json().data.filter((row: { direction: string }) => row.direction === 'in');
+      expect(inbound.map((row: { text: string }) => row.text).sort()).toEqual(['مهتم', 'نعم', 'برمجة'].sort());
+      const state = await withTenant(api.pool, api.tenantId, async client => ({
+        conversations: (await client.query(`SELECT id::text,contact_id::text,assignee_membership_id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2`, [connectionId,to])).rows,
+        name: (await client.query(`SELECT display_name FROM contacts WHERE id=(SELECT contact_id FROM conversations WHERE id=$1)`, [conversationId])).rows[0]?.display_name,
+        events: (await client.query(`SELECT kind,count(*)::int AS count FROM inbound_events WHERE connection_id=$1 AND peer_identity=$2 GROUP BY kind ORDER BY kind`, [connectionId,to])).rows,
+        raw: (await client.query(`SELECT payload->'button'->>'payload' AS payload FROM channel_events WHERE dedupe_key=$1`, [`wa:msg:wamid.buttons-${String(repair)}-0`])).rows[0]?.payload,
+      }));
+      expect(state.conversations).toHaveLength(1);
+      expect(state.conversations[0]).toMatchObject({ id: conversationId, contact_id: expect.any(String), assignee_membership_id: expect.any(String) });
+      expect(state.name).toBe('Button customer');
+      expect(state.events).toEqual([{ kind: 'message', count: 3 }, { kind: 'unsupported', count: 2 }]);
+      expect(state.raw).toBe('interest-key');
+      const detail = await send(api,owner,'GET',`/conversations/${conversationId}`);
+      expect(detail.json()).toMatchObject({data:{serviceWindow:{status:'open'},contactDisplayName:'Button customer'}});
+      if(repair){
+        const old=await withTenant(api.pool,api.tenantId,client=>client.query(`SELECT kind FROM inbound_events WHERE provider_message_id=$1`,[archivedMessageId]));
+        expect(old.rows).toEqual([{kind:'unsupported'}]);
+        const oldThreads=await withTenant(api.pool,api.tenantId,client=>client.query(`SELECT status FROM conversations WHERE connection_id=$1 AND peer_identity=$2`,[connectionId,archivedPeer]));
+        expect(oldThreads.rows).toEqual([{status:'archived'}]);
+      }
+      const answer = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, { messageType: 'text', text: 'أهلًا بحضرتك', clientMessageId: clientId() });
+      expect(answer.statusCode, answer.body).toBe(202);
+      await withTenant(api.pool, api.tenantId, client => client.query('DELETE FROM outbox WHERE message_id=$1', [answer.json().data.id]));
+      // Provider retries and a later repair cannot add messages or repeat lifecycle effects.
+      expect((await deliver(api, delivery)).statusCode).toBe(200);
+      await runRepair();
+      expect((await normalizer.drain(api.tenantId)).projected).toBe(0);
+    } finally { await migrationPool.end(); }
   });
 
   it('fails closed for conversation sends without inbound evidence and revalidates template identity, status and values', async () => {

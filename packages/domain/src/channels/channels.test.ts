@@ -400,6 +400,32 @@ describe('WhatsAppAdapter.normalize', () => {
     ]);
   });
 
+  it('treats template buttons and interactive selections as messages with their visible label', () => {
+    const replies = [
+      { type: 'button', button: { text: 'مهتم', payload: 'opaque-interest-id' } },
+      { type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: 'yes', title: 'نعم' } } },
+      { type: 'interactive', interactive: { type: 'list_reply', list_reply: { id: 'course-1', title: 'برمجة', description: 'A course' } } },
+    ];
+    const batch = adapter.normalize(delivery({ metadata, contacts: [{ wa_id: '1', profile: { name: 'Mona' } }], messages: replies.map((reply, i) => ({ ...textIn(`wamid.reply.${i}`), ...reply })) }), NOW);
+    expect(batch.quarantined).toEqual([]);
+    expect(batch.events.map(event => ({ kind: event.kind, text: event.text, detail: event.detail, attachments: event.attachments }))).toEqual(['مهتم', 'نعم', 'برمجة'].map(text => ({ kind: 'message', text, detail: { sender_name: 'Mona' }, attachments: [] })));
+    expect(batch.events[0]?.source).toMatchObject({ button: { payload: 'opaque-interest-id' } });
+  });
+
+  it('retains malformed selections and unsupported interactive variants without inventing a reply', () => {
+    const replies = [
+      { type: 'button', button: { payload: 'not-the-visible-label' } },
+      { type: 'button', button: { text: '' } },
+      { type: 'interactive' },
+      { type: 'interactive', interactive: { type: 'nfm_reply', nfm_reply: { response_json: '{}' } } },
+      { type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: 'yes' } } },
+      { type: 'interactive', interactive: { type: 'list_reply', list_reply: { title: 42 } } },
+    ];
+    const batch = adapter.normalize(delivery({ metadata, messages: replies.map((reply, i) => ({ ...textIn(`wamid.bad-reply.${i}`), ...reply })) }), NOW);
+    expect(batch.events.every(event => event.kind === 'unsupported' && event.text === null)).toBe(true);
+    expect(batch.quarantined).toEqual([]);
+  });
+
   it('normalizes a media message into an attachment', () => {
     const batch = adapter.normalize(
       delivery({

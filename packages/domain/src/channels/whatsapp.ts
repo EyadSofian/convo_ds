@@ -152,7 +152,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
     const type = asString(message['type']) ?? 'unknown';
     const occurredAt = timestampOf(message['timestamp'], receivedAt);
 
-    const text = type === 'text' ? asString(asRecord(message['text'])?.['body']) : null;
+    const text = messageText(message, type);
     const attachments = this.attachmentsOf(message, type);
 
     // An unrecognised message type is still a message from a real customer: it
@@ -262,6 +262,18 @@ function asArray(value: unknown): readonly unknown[] {
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/** Template quick replies and interactive selections are customer messages,
+ * just like typed text. Display the label, never the business's opaque payload. */
+function messageText(message: Record<string, unknown>, type: string): string | null {
+  if (type === 'text') return asString(asRecord(message['text'])?.['body']);
+  if (type === 'button') return asString(asRecord(message['button'])?.['text']);
+  if (type !== 'interactive') return null;
+  const interactive = asRecord(message['interactive']);
+  const replyType = interactive?.['type'];
+  if (replyType !== 'button_reply' && replyType !== 'list_reply') return null;
+  return asString(asRecord(interactive?.[replyType])?.['title']);
 }
 
 /**
