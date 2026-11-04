@@ -11,7 +11,7 @@ import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
 import { adoptConversation, currentTenantId, failed, forTenant, fromResult, LOADING, ready, refetching, rowsOf, singleFlight } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadSavedViews } from './saved-view-actions.js';
-import { loadNotifications, refreshNotificationCount } from './notification-actions.js';
+import { loadNotifications } from './notification-actions.js';
 
 /**
  * The Inbox, against the real API.
@@ -612,6 +612,7 @@ export function startRealtime(context: LiveContext, wiring: RealtimeWiring, reco
         live.realtime = { status: 'live', since: context.now() };
         context.refresh();
         if (opened) return;
+        void loadNotifications(context,true);
         opened = true;
         if (context.state.route.screen === 'inbox') void refreshInboxLists(context);
         const openId = live.openConversationId;
@@ -619,8 +620,7 @@ export function startRealtime(context: LiveContext, wiring: RealtimeWiring, reco
       },
       onEvent: (event) => {
         if (event.type === 'notification.changed') {
-          if (context.state.openMenu === 'notifications') void loadNotifications(context, true);
-          else void refreshNotificationCount(context);
+          void loadNotifications(context, true,event.entity.id);
           return;
         }
         void applyRealtimeEvent(context, event);
@@ -739,6 +739,7 @@ export async function applyRealtimeEvent(
     }
   }
   await Promise.all(tasks);
+  if(event.type === 'message.inbound' && event.scope.conversationId === live.openConversationId && live.timeline.status === 'ready' && live.supervisorAgentId === null) await markConversationRead(context,event.scope.conversationId);
 }
 
 /** Refresh only the selected workload projection after relevant realtime work. */

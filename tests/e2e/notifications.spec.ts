@@ -18,8 +18,8 @@ test('a durable notification opens its exact authorized conversation and stays r
   const row = page.locator('[data-act="notification-open"]');
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('رسالة عميل جديدة');
-  await expect(page.locator('[data-act="notification-enable-push"]')).toBeDisabled();
-  await expect(page.locator('.notification-menu__hint')).toContainText('لم تُضبط بعد');
+  await expect(page.locator('[data-act="notification-enable-push"]')).toBeEnabled();
+
   await row.click();
 
   await expect(page).toHaveURL(new RegExp(`/#/inbox/${CONVERSATION}$`));

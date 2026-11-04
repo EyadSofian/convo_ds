@@ -118,7 +118,7 @@ export function renderInbox(state: AppState): HTMLElement {
       open
         ? renderContactPanel(state, live, [
             live.openConversation.status === 'ready'
-              ? metadataSection(state, live, 'conversation', live.openConversation.value, { readOnly: supervisorMode })
+              ? metadataSection(state, live, 'conversation', live.openConversation.value, { readOnly: supervisorMode || (live.openConversation.value.capabilities?.reply === false && live.openConversation.value.capabilities.note === false) })
               : null,
             !supervisorMode && live.openConversation.status === 'ready'
               ? routingSection(state, live, live.openConversation.value, routingAbility(live))
@@ -692,7 +692,11 @@ function queueRow(state: AppState, live: LiveState, card: QueueCard): HTMLElemen
         priorityCue(state, card.priority),
       ]),
     ]),
-    button({
+    card.readable ? button({
+      icon: 'eye', title: t(state, 'فتح المحادثة', 'View conversation'),
+      act: 'live-inbox-open', arg: card.id, variant: 'ghost', small: true,
+    }) : null,
+    !card.claimable && card.readable ? null : button({
       label: t(state, 'استلام', 'Claim'),
       act: 'live-inbox-claim',
       // The version travels with the click, so the claim carries the version
@@ -738,6 +742,7 @@ function conversationRow(state: AppState, live: LiveState, conversation: Convers
             ? h('span', { class: 'convrow__dot' }, [h('span', { class: 'visually-hidden' }, [t(state, 'غير مقروءة', 'Unread')])])
             : null,
         ]),
+        h('span', { class: 'convrow__assignee' }, [icon('user', 12), conversation.assigneeMembershipId === null ? t(state,'غير مسندة','Unassigned') : t(state,`مسندة إلى ${conversation.assigneeName || 'موظف'}`,`Assigned to ${conversation.assigneeName || 'an agent'}`)]),
         conversation.lastMessagePreview
           ? h('span', { class: 'convrow__preview' }, [isolated(conversation.lastMessagePreview)])
           : null,
@@ -815,6 +820,7 @@ function threadHeader(state: AppState, live: LiveState, conversation: Conversati
       h('h2', { class: 'thread__name' }, [isolated(customerName)]),
       h('p', { class: 'thread__sub' }, [
         `${phrase(state, CHANNEL_NAMES, conversation.channel)} · ${conversation.inboxLabel}`,
+        conversation.assigneeName ? h('span', {class:'thread__assignee'},[t(state,`مسندة إلى ${conversation.assigneeName}`,`Assigned to ${conversation.assigneeName}`)]) : null,
       ]),
     ]),
     h('div', { class: 'thread__badges' }, [
@@ -822,7 +828,7 @@ function threadHeader(state: AppState, live: LiveState, conversation: Conversati
       conversation.priority === 'normal' ? null : priorityBadge(state, conversation.priority),
     ]),
     h('div', { class: 'thread__toolbar' }, [
-      supervisorMode ? h('span', { class: 'badge badge--neutral' }, [t(state, 'قراءة فقط', 'Read-only')]) : lifecycleControls(state, live, conversation),
+      supervisorMode || conversation.capabilities?.close === false ? h('span', { class: 'badge badge--neutral' }, [t(state, 'قراءة فقط', 'Read-only')]) : lifecycleControls(state, live, conversation),
       supervisorMode ? null : button({
         icon: 'mail', act: 'live-inbox-mark-unread', variant: 'ghost', small: true,
         title: t(state, 'تحديد كغير مقروءة', 'Mark unread'),
@@ -938,9 +944,11 @@ function messageBubble(state: AppState, message: TimelineMessage): HTMLElement {
         ? (message.direction === 'out' ? t(state, 'مرفق مرسل', 'Attachment sent') : t(state, 'مرفق من العميل', 'Customer attachment')) : null,
     ]),
     h('div', { class: 'msg__meta' }, [
+      message.author_name ? h('span',{class:'msg__author'},[t(state,`أرسلها ${message.author_name}`,`Sent by ${message.author_name}`)]) : null,
       h('time', { datetime: message.at }, [clockTime(message.at, state.lang)]),
       ...deliveryNote(state, message),
     ]),
+    message.seen_by && message.seen_by.length > 0 ? h('div',{class:'msg__team-seen',title:message.seen_by.map(reader=>`${reader.name} · ${clockTime(reader.seenAt,state.lang)}`).join('\n')},[icon('eye',12),t(state,`شاهدها ${message.seen_by.map(reader=>reader.name).join('، ')}`,`Seen by ${message.seen_by.map(reader=>reader.name).join(', ')}`)]) : null,
   ]);
 }
 
@@ -1009,6 +1017,7 @@ function deliveryNote(state: AppState, message: TimelineMessage): readonly Child
  * that sends to two places is how an internal remark reaches a customer.
  */
 function composer(state: AppState, live: LiveState, conversation: Conversation): HTMLElement {
+  if(conversation.capabilities?.reply === false && conversation.capabilities.note === false) return h('div',{class:'composer composer--readonly',role:'status'},[icon('eye',16),h('span',{},[t(state,'عرض للقراءة فقط — المحادثة مع مسؤولها الحالي.','Read-only — this conversation stays with its current assignee.')])]);
   const mode = state.composerTab;
   const tabs = h('div', { class: 'composer__tabs', role: 'tablist', 'aria-label': t(state, 'نوع الرسالة', 'Message type') }, [
     composerTab(state, 'reply', t(state, 'رد', 'Reply'), 'reply'),
@@ -1016,7 +1025,7 @@ function composer(state: AppState, live: LiveState, conversation: Conversation):
   ]);
   return h('div', { class: `composer composer--${mode}` }, [
     h('div', { class: 'composer__panel', role: 'tabpanel', id: 'composer-panel', 'aria-labelledby': `composer-tab-${mode}` }, [
-      mode === 'note' ? noteComposer(state, live, tabs) : replyComposer(state, live, conversation, tabs),
+      (mode === 'note' && conversation.capabilities?.note === false || mode === 'reply' && conversation.capabilities?.reply === false) ? h('p',{class:'composer__blocked'},[tabs,t(state,'دورك يسمح بقراءة هذه المحادثة فقط.','Your role allows reading this conversation only.')]) : mode === 'note' ? noteComposer(state, live, tabs) : replyComposer(state, live, conversation, tabs),
     ]),
   ]);
 }

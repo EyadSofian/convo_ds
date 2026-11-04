@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ready } from '../live/store.js';
 import { createState } from '../state.js';
 import { renderInbox } from './live-inbox.js';
+import { routingSection } from './routing-panel.js';
 
 const NOW = new Date('2026-09-20T10:00:00.000Z');
 
@@ -22,6 +23,42 @@ function state() {
 }
 
 describe('Inbox list controls', () => {
+  it('shows the server assignee, message author and readers while respecting read-only capabilities',()=>{
+    const app=state();app.inboxQueue='all';const conversation={id:'thread',connectionId:'line',peerIdentity:'201001234567',contactId:null,teamId:null,assigneeMembershipId:'member',assigneeName:'Ahmed',channel:'whatsapp',inboxLabel:'School',status:'open',priority:'normal',version:1,lastActivityAt:NOW.toISOString(),capabilities:{reply:false,note:false,close:false,assign:false,handoff:false}};
+    app.live.conversations=ready([conversation]as never,1);app.live.openConversationId='thread';app.live.openConversation=ready(conversation as never,1);
+    app.live.timeline=ready([{id:'message',direction:'out',at:NOW.toISOString(),content_type:'text',text:'Hello',attachments:[],author_name:'Ahmed',author_membership_id:'member',seen_by:[{membershipId:'reader',name:'Sara',seenAt:NOW.toISOString()}],command_state:null,delivery_state:'read',delivery_anomaly:null,provider_message_id:'test'}]as never,1);
+    const root=renderInbox(app);expect(root.querySelector('.convrow__assignee')?.textContent).toContain('Ahmed');expect(root.querySelector('.msg__author')?.textContent).toBe('Sent by Ahmed');expect(root.querySelector('.msg__team-seen')?.textContent).toBe('Seen by Sara');expect(root.querySelector('.composer--readonly')).not.toBeNull();expect(root.querySelector('[data-act="live-routing-assign"]')).toBeNull();
+    app.lang='ar';expect(renderInbox(app).querySelector('.msg__team-seen')?.textContent).toBe('شاهدها Sara');
+  });
+
+  it('lets a scoped reader open unassigned work without offering claim or note editing', () => {
+    const app = state();
+    app.live.unassigned = ready([{
+      id: 'thread', inboxLabel: 'School', channel: 'whatsapp', maskedLabel: '•••123',
+      contactDisplayName: 'Mona', priority: 'normal', status: 'open', waitingSinceAt: null,
+      claimable: false, readable: true, version: 1,
+    }], 1);
+    expect(renderInbox(app).querySelector('[data-act="live-inbox-open"]')).not.toBeNull();
+    expect(renderInbox(app).querySelector('[data-act="live-inbox-claim"]')).toBeNull();
+    const conversation = {
+      id: 'thread', channel: 'whatsapp', peerIdentity: '201001234567', inboxLabel: 'School',
+      assigneeMembershipId: 'other', status: 'open', priority: 'normal',
+      capabilities: { reply: false, note: false, assign: false, handoff: false, close: false },
+    };
+    app.live.openConversationId = 'thread';
+    app.live.openConversation = ready(conversation as never, 1);
+    app.live.notes = ready([{ id: 'note', conversationId: 'thread', authorMembershipId: 'other', body: 'Internal note', createdAt: NOW.toISOString(), editedAt: null, deletedAt: null }], 1);
+    expect(renderInbox(app).textContent).toContain('Internal note');
+    expect(renderInbox(app).querySelector('[data-act="live-note-edit"]')).toBeNull();
+    expect(renderInbox(app).querySelector('[data-act="live-note-delete"]')).toBeNull();
+    expect(routingSection(app, app.live, conversation as never, { mayAssign: true, mayAsk: true })).toBeNull();
+    for (const mode of ['note', 'reply'] as const) {
+      app.composerTab = mode;
+      app.live.openConversation = ready({ ...conversation, capabilities: { ...conversation.capabilities, note: mode !== 'note', reply: mode !== 'reply' } } as never, 1);
+      expect(renderInbox(app).querySelector('.composer__blocked')?.textContent).toContain('Your role allows reading');
+    }
+  });
+
   it('offers only supported filters on Unassigned and requires an explicit value', () => {
     const app = state();
     app.openMenu = 'inbox-filters';

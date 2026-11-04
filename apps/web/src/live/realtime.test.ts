@@ -294,13 +294,13 @@ describe('the stream an open workspace holds', () => {
       scope: { conversationId: '', inboxId: '', teamId: null, assigneeMembershipId: null }, payload: {} }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(unreadCount).toHaveBeenCalledTimes(1);
-    expect(list).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledTimes(1);
     state.openMenu = 'notifications';
     source!.emit('notification.changed', event({ id: 'n2', seq: 2, type: 'notification.changed',
       entity: { type: 'notification', id: 'notice', version: 1 },
       scope: { conversationId: '', inboxId: '', teamId: null, assigneeMembershipId: null }, payload: {} }));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledTimes(2);
     expect(unreadCount).toHaveBeenCalledTimes(2);
     stopRealtime(context);
   });

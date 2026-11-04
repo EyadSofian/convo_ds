@@ -1874,3 +1874,9 @@
     background: currentColor;
   }
 }
+
+/* Team activity stays secondary to the customer and message. */
+.convrow__assignee{display:flex;align-items:center;gap:var(--space-1);font-size:var(--text-xs);color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.thread__assignee{display:block;font-size:var(--text-xs);color:var(--text-muted)}
+.msg__author{font-weight:600}.msg__team-seen{display:flex;align-items:center;gap:var(--space-1);font-size:var(--text-xs);color:var(--text-muted);max-width:100%;flex-wrap:wrap;margin-block-start:var(--space-1)}
+.composer--readonly{display:flex;gap:var(--space-2);align-items:center;color:var(--text-muted)}

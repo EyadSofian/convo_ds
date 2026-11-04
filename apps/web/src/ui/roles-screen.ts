@@ -231,6 +231,7 @@ function permissionsTab(state: AppState, live: LiveState, role: Role, grants: Re
     .map((group) => ({ group, keys: group.keys.filter((key) => matches(query, key, labelOf(state, key), (byKey.get(key) as Permission).description)) }))
     .filter((entry) => entry.keys.length > 0);
   return h('div', { class: 'admin-panel__body permissions' }, [
+    notice('info','eye',t(state,'لعرض محادثات الزملاء: اجعل «قراءة المحادثات» ضمن النطاق، و«الرد» الخاص به فقط. اترك إسناد المحادثات غير مفعّل لمنع سحب محادثة زميل. الوصول يظل داخل الإنبوكسات المحددة للمستخدم.','To view colleagues’ conversations, set Read conversations to Scoped and Reply to Own only. Leave Assign conversations off to prevent taking a colleague’s thread. Access stays within the user’s selected inboxes.')),
     // The tab already says "Permissions": the head only explains and counts.
     h('div', { class: 'permissions__head' }, [
       h('p', { class: 'permissions__lede' }, [t(state, 'حدّد العمليات التي يستطيع هذا الدور الوصول إليها بدقة.', 'Define the exact operations this role may access.')]),

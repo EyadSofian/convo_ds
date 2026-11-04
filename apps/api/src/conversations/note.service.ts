@@ -206,8 +206,27 @@ export class NoteService {
         [tenantId, conversationId, principal.membershipId, through],
       );
       const row = requireRow(rows.rows, 'the read cursor was not recorded');
-      // Deliberately no realtime event and no receipt: this is one person's
-      // bookkeeping, and telling the customer about it would be a lie.
+      await sql.query(
+        `INSERT INTO conversation_read_receipts (tenant_id, conversation_id, membership_id, read_through)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (tenant_id, conversation_id, membership_id) DO UPDATE
+           SET read_through = EXCLUDED.read_through, seen_at = now()
+         WHERE EXCLUDED.read_through > conversation_read_receipts.read_through`,
+        [tenantId, conversationId, principal.membershipId, row.read_through],
+      );
+      // Internal invalidation for authorized teammates only.
+      await this.realtime.emit(sql, tenantId, {
+        type: 'conversation.read',
+        entityType: 'conversation',
+        entityId: conversationId,
+        entityVersion: detail.version,
+        conversationId,
+        connectionId: detail.connectionId,
+        teamId: detail.teamId,
+        assigneeMembershipId: detail.assigneeMembershipId,
+        occurredAt: through,
+        payload: {},
+      });
       return { readThrough: row.read_through };
     });
   }

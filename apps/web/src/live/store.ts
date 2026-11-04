@@ -220,7 +220,7 @@ export interface LiveState {
   notifications: Resource<readonly Notification[]>;
   notificationNextCursor: string | null;
   notificationUnreadCount: Resource<number>;
-  pushStatus: 'idle' | 'checking' | 'enabling' | 'enabled' | 'denied' | 'unavailable' | 'error';
+  pushStatus: 'idle' | 'checking' | 'enabling' | 'enabled' | 'browser' | 'denied' | 'unavailable' | 'error';
   pushPublicKey: string | null;
   session: SessionState;
   memberInboxes: Resource<readonly MemberInbox[]>;

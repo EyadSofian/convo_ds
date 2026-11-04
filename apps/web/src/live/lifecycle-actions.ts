@@ -268,6 +268,7 @@ export async function markConversationRead(
   conversationId: string,
 ): Promise<void> {
   const { live } = context;
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
   return forTenant(context, undefined, async (tenantId) => {
     const result = await live.conversationsApi.markRead(tenantId, conversationId);
     if (result.ok) {

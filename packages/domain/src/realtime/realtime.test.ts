@@ -86,6 +86,7 @@ describe('the event contract', () => {
       'conversation.handoff',
       'conversation.routing',
       'conversation.contact',
+      'conversation.read',
       'notification.changed',
     ]);
   });

@@ -62,6 +62,7 @@ export function routingSection(
   conversation: Conversation,
   ability: RoutingAbility,
 ): Child {
+  ability = {mayAssign:ability.mayAssign && conversation.capabilities?.assign !== false,mayAsk:ability.mayAsk && conversation.capabilities?.handoff !== false};
   if (!ability.mayAssign && !ability.mayAsk) {
     return null;
   }
@@ -88,7 +89,7 @@ function assigneeLine(
         ? // Said in words, not left blank: "unassigned" is a state somebody has
           // to act on, and an empty field reads as a loading failure.
           h('span', { class: 'routing__nobody' }, [t(state, 'لا أحد بعد', 'Nobody yet')])
-        : isolated(assigneeLabel(state, live, conversation.assigneeMembershipId)),
+        : isolated(conversation.assigneeName || assigneeLabel(state, live, conversation.assigneeMembershipId)),
     ]),
     h('div', { class: 'routing__actions' }, [
       priorityBadge(state, conversation.priority),

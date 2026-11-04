@@ -1,6 +1,8 @@
 /* global self, URL */
 /* DS Omnichannel push worker. No session, credential, transcript, or privileged content
  * is cached here. The app rechecks access through its normal API on open. */
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TITLES = {
   new_message: ['رسالة عميل جديدة', 'New customer message'],

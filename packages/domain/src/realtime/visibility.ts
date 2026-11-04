@@ -59,7 +59,7 @@ export function visibilityOf(
   // preview an unclaimed conversation has no business learning that colleagues
   // are discussing it, or negotiating who takes it. Filtered by the event's own
   // type, before any payload is read.
-  if (event.type === 'conversation.note' || event.type === 'conversation.handoff') {
+  if (event.type === 'conversation.note' || event.type === 'conversation.handoff' || event.type === 'conversation.read') {
     return 'hidden';
   }
 

@@ -29,6 +29,8 @@ export interface TimelineMessage {
   readonly text: string | null;
   readonly attachments: unknown;
   readonly author_membership_id: string | null;
+  readonly author_name?: string | null;
+  readonly seen_by?: readonly { readonly membershipId: string; readonly name: string; readonly seenAt: string }[];
   /**
    * Outbound only: what we asked the provider to do, or `sent_elsewhere` for a
    * message the business sent outside CONVO that the provider reported back.
@@ -53,6 +55,8 @@ interface TimelineRow {
   readonly text_body: string | null;
   readonly attachments: unknown;
   readonly author_membership_id: string | null;
+  readonly author_name?: string | null;
+  readonly seen_by?: readonly { readonly membershipId: string; readonly name: string; readonly seenAt: string }[];
   readonly command_state: string | null;
   readonly delivery_state: string | null;
   readonly delivery_anomaly: string | null;
@@ -116,7 +120,7 @@ export async function readTimeline(
               NULL::text AS command_state, NULL::text AS delivery_state,
               NULL::text AS delivery_anomaly, e.provider_message_id,
               NULL::text AS template_name, NULL::text AS template_language, NULL::text AS template_preview,
-              NULL::text AS reaction_action
+              NULL::text AS reaction_action, e.observed_at AS visible_at
         FROM inbound_events e
         WHERE e.connection_id = $2 AND e.peer_identity = $3 AND e.kind = 'message'
           AND (e.conversation_id=$1 OR (e.conversation_id IS NULL
@@ -129,7 +133,7 @@ export async function readTimeline(
               m.command_state, m.delivery_state,
               m.delivery_anomaly, m.provider_message_id,
               m.template_name,m.template_language,m.template_preview,
-              NULL::text AS reaction_action
+              NULL::text AS reaction_action, m.created_at AS visible_at
          FROM outbound_messages m
         WHERE m.connection_id = $2 AND m.peer_identity = $3
           AND (m.conversation_id=$1 OR (m.conversation_id IS NULL
@@ -145,7 +149,7 @@ export async function readTimeline(
               'sent_elsewhere', NULL::text,
               NULL::text, x.provider_message_id,
               NULL::text, NULL::text, NULL::text,
-              NULL::text
+              NULL::text, x.observed_at
          FROM inbound_events x
          JOIN conversations c ON c.id = $1
         -- The opening-event interval: Meta's instant reply is stamped before
@@ -159,7 +163,7 @@ export async function readTimeline(
               NULL::text, NULL::text, NULL::text, NULL::text,
               r.provider_message_id,
               NULL::text, NULL::text, NULL::text,
-              r.detail->>'action'
+              r.detail->>'action', r.observed_at
          FROM inbound_events r
         WHERE r.connection_id=$2 AND r.peer_identity=$3 AND r.kind='reaction'
           AND EXISTS (
@@ -173,9 +177,13 @@ export async function readTimeline(
                  AND target.created_at < COALESCE((SELECT c.archived_at FROM conversations c WHERE c.id=$1), 'infinity'::timestamptz)))
           )
      )
-     SELECT * FROM merged
-      WHERE $4::timestamptz IS NULL OR (at, id) < ($4::timestamptz, $5::text)
-      ORDER BY at DESC, id DESC
+     SELECT merged.*, author.display_name AS author_name,
+            coalesce((SELECT jsonb_agg(jsonb_build_object('membershipId',reader.id::text,'name',reader.display_name,'seenAt',seen.seen_at) ORDER BY seen.seen_at,reader.id)
+                        FROM conversation_read_receipts seen JOIN memberships reader ON reader.id=seen.membership_id
+                       WHERE seen.conversation_id=$1 AND seen.read_through >= merged.visible_at),'[]'::jsonb) AS seen_by
+       FROM merged LEFT JOIN memberships author ON author.id=merged.author_membership_id::uuid
+      WHERE $4::timestamptz IS NULL OR (at, merged.id) < ($4::timestamptz, $5::text)
+      ORDER BY at DESC, merged.id DESC
       LIMIT $6`,
     [conversationId, connectionId, peerIdentity, after?.at ?? null, after?.id ?? null, limit + 1],
   );
@@ -197,6 +205,8 @@ function messageOf(row: TimelineRow): TimelineMessage {
     text: row.text_body,
     attachments: row.attachments,
     author_membership_id: row.author_membership_id,
+    author_name: row.author_name ?? null,
+    seen_by: row.seen_by ?? [],
     command_state: row.command_state,
     delivery_state: row.delivery_state,
     delivery_anomaly: row.delivery_anomaly,

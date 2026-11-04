@@ -2,9 +2,98 @@ import type { Notification } from '../api/notifications.js';
 import type { LiveContext } from './actions.js';
 import { openConversation } from './inbox-actions.js';
 import { currentTenantId, failed, LOADING, ready } from './store.js';
-import { routeParamsWithLanguage } from '../state.js';
+import { pushToast, routeParamsWithLanguage } from '../state.js';
 
 const DEVICE_KEY = 'convo.push.deviceId';
+const ALERTS_KEY = 'convo.notifications.enabled';
+const knownNotifications = new WeakMap<LiveContext['live'], Set<string>>();
+function rememberAlerts(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(ALERTS_KEY, String(enabled));
+  } catch {
+    // Browser storage may be disabled.
+  }
+}
+
+function alertsEnabled(): boolean {
+  try {
+    return window.localStorage.getItem(ALERTS_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function browserPushStatus(): LiveContext['live']['pushStatus'] {
+  if (typeof Notification === 'undefined') return 'unavailable';
+  if (Notification.permission === 'denied') return 'denied';
+  return Notification.permission === 'granted' && alertsEnabled() ? 'browser' : 'idle';
+}
+
+async function activeWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (!('serviceWorker' in navigator)) return null;
+  const registered = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  if (registered.active !== null) return registered;
+
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('worker_activation_timeout')), 10_000);
+  });
+  try {
+    return await Promise.race([navigator.serviceWorker.ready, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+async function browserAlert(context: LiveContext, entry: Notification | null): Promise<void> {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
+    context.live.pushStatus = browserPushStatus();
+    context.refresh();
+    return;
+  }
+  const ar = context.state.lang === 'ar';
+  const title = entry === null
+    ? (ar ? 'اختبار الإشعارات' : 'Notification test')
+    : (ar ? 'نشاط جديد في DS Omnichannel' : 'New DS Omnichannel activity');
+  const target = entry === null ? { screen: 'inbox', conversationId: null, params: {} } : targetOf(entry);
+  const thread = target.conversationId === null ? '' : `/${encodeURIComponent(target.conversationId)}`;
+  const query = new URLSearchParams(target.params).toString();
+  const url = `/#/${target.screen}${thread}${query === '' ? '' : `?${query}`}`;
+  const options = {
+    body: ar ? 'افتح DS Omnichannel لعرض التفاصيل.' : 'Open DS Omnichannel to view details.',
+    icon: '/brand/ds-icon-192.png', tag: entry?.id ?? 'convo-test', data: { url },
+  };
+  const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration('/') : undefined;
+  if (registration?.active) {
+    await registration.showNotification(title, options);
+    return;
+  }
+  const notification = new Notification(title, options);
+  notification.onclick = () => {
+    window.focus();
+    window.location.hash = url.slice(1);
+    notification.close();
+  };
+}
+
+function announceNewNotifications(context: LiveContext, latest: readonly Notification[], alertId?: string): void {
+  const known = knownNotifications.get(context.live);
+  const next = new Set(known);
+  for (const entry of latest) next.add(entry.id);
+  knownNotifications.set(context.live, new Set([...next].slice(-250)));
+  if (known === undefined && alertId === undefined) return;
+  for (const entry of latest) {
+    if ((known?.has(entry.id) ?? entry.id !== alertId) || entry.readAt !== null) continue;
+    const ar = context.state.lang === 'ar';
+    const title = ar ? 'إشعار جديد' : 'New notification';
+    const sender = entry.senderName ? (ar ? ` من ${entry.senderName}` : ` from ${entry.senderName}`) : '';
+    pushToast(context.state, title + sender);
+    // Server push owns background alerts. The fallback covers an open app.
+    if (alertsEnabled() && context.live.pushStatus !== 'enabled') {
+      void browserAlert(context, entry).catch(() => undefined);
+    }
+  }
+}
 function syncAppBadge(count: number): void {
   if (typeof navigator === 'undefined') return;
   const app = navigator as Navigator & { setAppBadge?: (value: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
@@ -35,13 +124,11 @@ async function enableBrowserPush(context: LiveContext): Promise<void> {
   const tenantId = currentTenantId(context.live);
   const api = context.live.notificationsApi;
   if (tenantId === null || api === null) return;
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+  if (typeof Notification === 'undefined') {
     context.live.pushStatus = 'unavailable'; context.refresh(); return;
   }
   const publicKey = context.live.pushPublicKey;
-  if (publicKey === null) {
-    context.live.pushStatus = 'unavailable'; context.refresh(); return;
-  }
+  if (context.live.pushStatus === 'enabling') return;
   context.live.pushStatus = 'enabling'; context.refresh();
   try {
     // This function is reached only from the explicit Enable button. Never
@@ -52,12 +139,19 @@ async function enableBrowserPush(context: LiveContext): Promise<void> {
     if (permission !== 'granted') {
       context.live.pushStatus = 'denied'; context.refresh(); return;
     }
-    const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    rememberAlerts(true);
+    const registration = await activeWorker();
+    if (publicKey === null || registration === null || !('PushManager' in window)) {
+      context.live.pushStatus = 'browser';
+      context.refresh();
+      return;
+    }
     const existing = await registration.pushManager.getSubscription();
     const subscription = existing ?? await registration.pushManager.subscribe({
       userVisibleOnly: true, applicationServerKey: applicationServerKey(publicKey),
     });
     const result = await api.registerDevice(tenantId, deviceId(), subscription.toJSON());
+    if (currentTenantId(context.live) !== tenantId) return;
     context.live.pushStatus = result.ok ? 'enabled' : 'error';
   } catch {
     context.live.pushStatus = 'error';
@@ -74,7 +168,7 @@ async function loadPushConfig(context: LiveContext): Promise<void> {
   const result = await api.pushConfig(tenantId);
   if (currentTenantId(context.live) !== tenantId) return;
   context.live.pushPublicKey = result.ok ? result.data.publicKey : null;
-  const status = result.ok ? (result.data.publicKey === null ? 'unavailable' : await existingPushState(api, tenantId)) : 'error';
+  const status = result.ok ? (result.data.publicKey === null ? browserPushStatus() : await existingPushState(api, tenantId)) : 'error';
   if (currentTenantId(context.live) !== tenantId) return;
   context.live.pushStatus = status;
   context.refresh();
@@ -108,6 +202,8 @@ async function existingPushState(api: NonNullable<LiveContext['live']['notificat
 /** Explicit logout stops this browser receiving even generic lock-screen hints. */
 export async function disableBrowserPush(context: LiveContext): Promise<void> {
   syncAppBadge(0);
+  rememberAlerts(false);
+  knownNotifications.delete(context.live);
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
   try {
     const registration = await navigator.serviceWorker.getRegistration('/');
@@ -127,7 +223,7 @@ export async function disableBrowserPush(context: LiveContext): Promise<void> {
 }
 
 /** Server records, never SSE payloads, are the notification source of truth. */
-export async function loadNotifications(context: LiveContext, keep = false): Promise<void> {
+export async function loadNotifications(context: LiveContext, keep = false, alertId?: string): Promise<void> {
   const tenantId = currentTenantId(context.live);
   const api = context.live.notificationsApi;
   if (tenantId === null || api === null) return;
@@ -139,6 +235,7 @@ export async function loadNotifications(context: LiveContext, keep = false): Pro
   if (currentTenantId(context.live) !== tenantId) return;
   if (page.ok) {
     const latest = page.data.data;
+    announceNewNotifications(context,latest,alertId);
     const latestIds = new Set(latest.map((entry) => entry.id));
     context.live.notifications = ready(previous === null ? latest :
       [...latest, ...previous.filter((entry) => !latestIds.has(entry.id))], context.now());
@@ -192,6 +289,7 @@ function targetOf(notification: Notification): { screen: 'inbox' | 'broadcasts' 
 
 export function runNotificationAction(context: LiveContext, name: string, arg: string): Promise<void> | null {
   if (name === 'notification-enable-push') return enableBrowserPush(context);
+  if (name === 'notification-test')return browserAlert(context,null).catch(()=>{context.live.pushStatus='error';context.refresh();});
   if (name === 'notification-toggle') {
     context.state.openMenu = context.state.openMenu === 'notifications' ? null : 'notifications';
     context.refresh();

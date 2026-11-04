@@ -110,6 +110,7 @@ const KNOWN_TYPES = new Set([
   'conversation.handoff',
   'conversation.routing',
   'conversation.contact',
+  'conversation.read',
   'notification.changed',
 ]);
 

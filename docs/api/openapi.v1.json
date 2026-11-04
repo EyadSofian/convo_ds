@@ -10506,6 +10506,10 @@
             ],
             "format": "date-time"
           },
+          "readable": {
+            "type": "boolean",
+            "description": "Whether the caller can open this unassigned conversation with their current read scope."
+          },
           "claimable": {
             "type": "boolean"
           },
@@ -10576,11 +10580,17 @@
             "example": "15559998888"
           },
           "contactDisplayName": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Current contact name if available; otherwise the client may show the channel identity."
           },
           "lastMessagePreview": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "maxLength": 160,
             "description": "Short preview of the latest message on authorized Inbox list rows only. Not returned on unassigned queue cards."
           },
@@ -10715,6 +10725,40 @@
             "items": {
               "$ref": "#/components/schemas/CustomFieldValueEntry"
             }
+          },
+          "assigneeName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "reply",
+              "note",
+              "close",
+              "assign",
+              "handoff"
+            ],
+            "properties": {
+              "reply": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": "boolean"
+              },
+              "close": {
+                "type": "boolean"
+              },
+              "assign": {
+                "type": "boolean"
+              },
+              "handoff": {
+                "type": "boolean"
+              }
+            }
           }
         }
       },
@@ -10788,6 +10832,7 @@
               "conversation.handoff",
               "conversation.routing",
               "conversation.contact",
+              "conversation.read",
               "notification.changed"
             ]
           },
@@ -11040,6 +11085,37 @@
               "string",
               "null"
             ]
+          },
+          "author_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "seen_by": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "membershipId",
+                "name",
+                "seenAt"
+              ],
+              "properties": {
+                "membershipId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "seenAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
           }
         }
       },

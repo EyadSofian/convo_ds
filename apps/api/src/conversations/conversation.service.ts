@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { InboxQuery, QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
+import type { InboxQuery, Principal, QueueCard, ResourceRef, SqlExecutor } from '@convo/domain';
 import { authorize, projectQueueCard, reachFor, REALTIME_SCHEMA_VERSION } from '@convo/domain';
 import type { Pool } from 'pg';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
@@ -21,6 +21,7 @@ import {
   recordParticipation,
   requireReadable,
   rowOf,
+  resourceOf,
   SELECT_COLUMNS,
 } from './record.js';
 import type { ConversationDetail, ConversationRow, RawConversation, WhatsAppServiceWindow } from './record.js';
@@ -333,7 +334,7 @@ export class ConversationService {
             LIMIT 200`,
           params,
         );
-        const cards: QueueCard[] = [];
+        const cards: (QueueCard & { readable?: boolean })[] = [];
         for (const row of rows.rows) {
           // Authorized per row, not once for the list: a supervisor scoped to
           // one inbox must not see another inbox's queue because the list route
@@ -345,31 +346,35 @@ export class ConversationService {
           if (!decision.allowed) {
             continue;
           }
-          cards.push(
-            projectQueueCard({
-              schemaVersion: REALTIME_SCHEMA_VERSION,
-              id: row.id,
-              seq: 0,
-              type: 'conversation.state',
-              entity: { type: 'conversation', id: row.id, version: row.version },
-              scope: {
-                conversationId: row.id,
-                inboxId: row.connection_id,
-                teamId: row.team_id,
-                assigneeMembershipId: row.assignee_membership_id,
-              },
-              occurredAt: (row.waiting_since ?? new Date(0)).toISOString(),
-              payload: {
-                inboxLabel: row.display_name,
-                channel: row.kind,
-                peerIdentity: row.peer_identity,
-                contactDisplayName: row.contact_display_name,
-                priority: row.priority,
-                status: row.status,
-                waitingSinceAt: row.waiting_since?.toISOString() ?? null,
-              },
-            }),
-          );
+          const card = projectQueueCard({
+            schemaVersion: REALTIME_SCHEMA_VERSION,
+            id: row.id,
+            seq: 0,
+            type: 'conversation.state',
+            entity: { type: 'conversation', id: row.id, version: row.version },
+            scope: {
+              conversationId: row.id,
+              inboxId: row.connection_id,
+              teamId: row.team_id,
+              assigneeMembershipId: row.assignee_membership_id,
+            },
+            occurredAt: (row.waiting_since ?? new Date(0)).toISOString(),
+            payload: {
+              inboxLabel: row.display_name,
+              channel: row.kind,
+              peerIdentity: row.peer_identity,
+              contactDisplayName: row.contact_display_name,
+              priority: row.priority,
+              status: row.status,
+              waitingSinceAt: row.waiting_since?.toISOString() ?? null,
+            },
+          });
+          const resource = { inboxId: row.connection_id, teamId: row.team_id ?? undefined };
+          cards.push({
+            ...card,
+            claimable: authorize(principal, 'conversation.claim', resource).allowed,
+            ...(authorize(principal, 'conversation.read', resource).allowed ? { readable: true } : {}),
+          });
         }
         return cards;
       },
@@ -400,12 +405,12 @@ export class ConversationService {
       if(query.cursor!==null){const decoded=codec.decode(query.cursor,binding);if(decoded.status==='rejected')throw new ApiHttpError(400,decoded.code,decoded.message);cursor=cursorPredicate(query.sort,decoded.after.value,decoded.after.id,add);}
       const viewer=add(principal.membershipId);const limit=add(query.limit+1);
       const rows = await sql.query<
-        RawConversation & { display_name: string; kind: string; contact_display_name: string | null; last_message_preview: string | null; read_through: Date | null; cursor_value:string; participant_membership_ids: readonly string[] }
+        RawConversation & { display_name: string; kind: string; contact_display_name: string | null; assignee_name: string | null; last_message_preview: string | null; read_through: Date | null; cursor_value:string; participant_membership_ids: readonly string[] }
       >(
         // The read cursor is joined for THIS membership only. Unread is a fact
         // about a person, so a row's unread flag is not a property of the row —
         // two agents looking at the same list see different answers, correctly.
-        `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, contact.display_name AS contact_display_name,
+        `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, contact.display_name AS contact_display_name, assignee.display_name AS assignee_name,
                 left(btrim(preview.text_body), 160) AS last_message_preview, r.read_through, ${cursorValue(query.sort)} AS cursor_value,
                 ARRAY(SELECT participant.membership_id::text FROM conversation_participants participant WHERE participant.conversation_id = c.id
                       UNION
@@ -413,6 +418,7 @@ export class ConversationService {
            FROM conversations c
            JOIN channel_connections n ON n.id = c.connection_id
            LEFT JOIN contacts contact ON contact.id=c.contact_id AND contact.deleted_at IS NULL
+           LEFT JOIN memberships assignee ON assignee.id=c.assignee_membership_id
            LEFT JOIN conversation_reads r
              ON r.conversation_id = c.id AND r.membership_id = ${viewer}
            LEFT JOIN LATERAL (
@@ -460,6 +466,7 @@ export class ConversationService {
           inboxLabel: row.display_name,
           channel: row.kind,
           contactDisplayName: row.contact_display_name ?? null,
+          assigneeName: row.assignee_name ?? null,
           lastMessagePreview: row.last_message_preview?.trim().slice(0, 160) || null,
           participantMembershipIds: participants,
           unread:
@@ -682,7 +689,7 @@ export class ConversationService {
       // WhatsApp thread claimed a moment ago read as "cannot verify the
       // window" until somebody reloaded the page.
       const serviceWindow = await serviceWindowOf(sql, detail);
-      return { ...detail, serviceWindow, ...(await this.metadata.conversationMetadata(sql, conversationId)) };
+      return { ...detail, serviceWindow, capabilities: conversationCapabilities(principal, detail), ...(await this.metadata.conversationMetadata(sql, conversationId)) };
     });
   }
 
@@ -707,7 +714,7 @@ export class ConversationService {
       }
       requireReadable(principal, detail);
       const serviceWindow = await serviceWindowOf(sql, detail);
-      return { ...detail, serviceWindow, ...(await this.metadata.conversationMetadata(sql, conversationId)) };
+      return { ...detail, serviceWindow, capabilities: conversationCapabilities(principal, detail), ...(await this.metadata.conversationMetadata(sql, conversationId)) };
     });
   }
 
@@ -749,6 +756,17 @@ export class ConversationService {
       return { connectionId: detail.connectionId, peerIdentity: detail.peerIdentity, resource };
     });
   }
+}
+
+function conversationCapabilities(principal: Principal, detail: ConversationDetail) {
+  const resource = resourceOf(detail);
+  return {
+    reply: authorize(principal, 'conversation.reply', resource).allowed,
+    note: authorize(principal, 'conversation.note', resource).allowed,
+    close: authorize(principal, 'conversation.close', resource).allowed,
+    assign: authorize(principal, 'conversation.assign', resource).allowed,
+    handoff: authorize(principal, 'conversation.handoff.request', resource).allowed,
+  };
 }
 
 function cursorValue(sort: InboxQuery['sort']): string {

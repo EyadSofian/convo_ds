@@ -21,6 +21,7 @@ export { INBOX_QUERY_DEFAULT as DEFAULT_INBOX_QUERY } from '@convo/domain';
  */
 
 export interface QueueCard {
+  readonly readable?: boolean;
   readonly id: string;
   readonly inboxLabel: string;
   readonly channel: string;
@@ -50,6 +51,8 @@ export interface Conversation extends EntityMetadata {
   /** Resolved from the customer's first message; null until somebody writes. */
   readonly contactId: string | null;
   readonly contactDisplayName?: string | null;
+  readonly assigneeName?: string | null;
+  readonly capabilities?: { readonly reply: boolean; readonly note: boolean; readonly close: boolean; readonly assign: boolean; readonly handoff: boolean };
   /** Why an agent said they were waiting. Only while the status is `pending`. */
   readonly pendingReason: string | null;
   readonly snoozedUntil: string | null;
@@ -158,6 +161,8 @@ export interface TimelineMessage {
   readonly text: string | null;
   readonly attachments: readonly unknown[];
   readonly author_membership_id: string | null;
+  readonly author_name?: string | null;
+  readonly seen_by?: readonly { readonly membershipId: string; readonly name: string; readonly seenAt: string }[];
   readonly command_state: string | null;
   readonly delivery_state: string | null;
   readonly delivery_anomaly: string | null;

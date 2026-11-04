@@ -398,12 +398,12 @@ function renderNotifications(state: AppState): HTMLElement {
       state.live.notificationNextCursor === null ? null : h('button', { type: 'button', role: 'menuitem', class: 'notification-menu__more',
         'data-act': 'notification-more', disabled: state.live.busy === 'notification-more' }, [t(state, 'تحميل المزيد', 'Load more')]),
       h('div', { class: 'notification-menu__push' }, [
-        state.live.pushStatus === 'enabled'
-          ? h('span', {}, [t(state, 'تنبيهات هذا الجهاز مفعّلة', 'Device alerts enabled')])
+        (state.live.pushStatus === 'enabled' || state.live.pushStatus === 'browser')
+          ? h('div', {}, [h('span', {}, [state.live.pushStatus==='browser'?t(state,'تنبيهات المتصفح مفعّلة أثناء فتح التطبيق','Browser alerts enabled while the app is open'):t(state, 'تنبيهات هذا الجهاز مفعّلة', 'Device alerts enabled')]),h('button',{type:'button',role:'menuitem',class:'notification-menu__more','data-act':'notification-test'},[t(state,'اختبار الإشعارات','Test notification')])])
           : state.live.pushStatus === 'checking'
             ? h('span', {}, [t(state, 'جارٍ فحص تنبيهات الجهاز…', 'Checking device alerts…')])
           : h('button', { type: 'button', role: 'menuitem', class: 'notification-menu__more',
-              'data-act': 'notification-enable-push', disabled: state.live.pushStatus === 'enabling' || state.live.pushPublicKey === null,
+              'data-act': 'notification-enable-push', disabled: state.live.pushStatus === 'enabling' || state.live.pushStatus === 'unavailable',
               'aria-busy': state.live.pushStatus === 'enabling' ? 'true' : undefined },
               [state.live.pushStatus === 'enabling'
                 ? t(state, 'جارٍ التفعيل…', 'Enabling…')
@@ -413,7 +413,7 @@ function renderNotifications(state: AppState): HTMLElement {
           : state.live.pushStatus === 'unavailable'
             ? h('span', { class: 'notification-menu__hint' }, [t(state, 'التنبيهات غير متاحة على هذا الجهاز أو لم تُضبط بعد.', 'Device alerts are unavailable or not configured.')])
             : state.live.pushStatus === 'error'
-              ? h('span', { class: 'notification-menu__hint' }, [t(state, 'تعذّر تسجيل هذا الجهاز.', 'Could not register this device.')]) : null,
+              ? h('span', { class: 'notification-menu__hint' }, [t(state, 'تعذّر إكمال التفعيل. جرّب مرة أخرى وتأكد أن إشعارات الموقع مسموحة.', 'Could not finish activation. Retry and allow notifications in site settings.')]) : null,
       ]),
     ]) : null,
   ]);

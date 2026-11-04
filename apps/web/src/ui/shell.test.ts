@@ -118,7 +118,7 @@ describe('header', () => {
     expect(open.querySelector('.notification-row__preview')?.textContent).toBe('Controlled message preview');
     expect(open.querySelector('.notification-menu__more[data-act="notification-more"]')).not.toBeNull();
     expect(open.querySelector('[data-act="notification-enable-push"]')).not.toBeNull();
-    for (const status of ['enabled', 'checking', 'denied', 'unavailable', 'error'] as const) {
+    for (const status of ['enabled', 'browser', 'checking', 'denied', 'unavailable', 'error'] as const) {
       state.live.pushStatus = status;
       expect(bell().querySelector('.notification-menu__push')?.textContent).toBeTruthy();
     }

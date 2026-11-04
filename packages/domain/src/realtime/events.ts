@@ -64,6 +64,8 @@ export const REALTIME_EVENT_TYPES = [
   'conversation.routing',
   /** A sender's display name was resolved; clients re-read authorized views. */
   'conversation.contact',
+  /** A teammate read the thread. Internal visibility only; never a provider receipt. */
+  'conversation.read',
   /** Recipient-only invalidation. The notification table owns the content. */
   'notification.changed',
 ] as const;

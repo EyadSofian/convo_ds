@@ -726,6 +726,56 @@ describe('claiming', () => {
     );
   });
 
+  it('shows scoped colleagues read-only, with assignee, message author and actual team read activity', async () => {
+    const claimerId=await addMember(api,'activity-claimer@realtime.test','agent',[{type:'inbox',id:inboxA}]);
+    const viewerId=await addMember(api,'activity-viewer@realtime.test','agent',[{type:'inbox',id:inboxA}]);
+    await withTenant(api.pool,api.tenantId,async client=>{
+      await client.query(`UPDATE memberships SET display_name=CASE WHEN id=$1 THEN 'Ahmed Activity' ELSE 'Sara Viewer' END WHERE id=ANY($2::uuid[])`,[claimerId,[claimerId,viewerId]]);
+      const role=await client.query<{id:string}>(`INSERT INTO roles(tenant_id,key,name,is_builtin) VALUES($1,'activity_viewer','Activity viewer',false) RETURNING id::text`,[api.tenantId]);
+      await client.query(`INSERT INTO role_permissions(tenant_id,role_id,permission_key,scope_level) SELECT $1,$2,permission_key,CASE WHEN permission_key='conversation.read' THEN 'scoped' ELSE scope_level END FROM role_permissions WHERE role_id=(SELECT id FROM roles WHERE key='agent') AND permission_key NOT IN ('conversation.assign','conversation.claim')`,[api.tenantId,role.rows[0]!.id]);
+      await client.query(`UPDATE memberships SET role_id=$2 WHERE id=$1`,[viewerId,role.rows[0]!.id]);
+    });
+    const claimer=await login(api,'activity-claimer@realtime.test',MEMBER_PASSWORD);
+    const viewer=await login(api,'activity-viewer@realtime.test',MEMBER_PASSWORD);
+    const peer='15557008861';
+    await customerWrites(INBOX_A,peer,'Activity question','wamid.team-activity-1');
+    const card=await cardFor(claimer,peer);
+    const unassigned = await send(api, viewer, 'GET', '/conversations/unassigned');
+    expect(unassigned.json().data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: card.id, readable: true, claimable: false }),
+    ]));
+    expect((await send(api, viewer, 'GET', `/conversations/${card.id}`)).statusCode).toBe(200);
+
+    const claimed=await send(api,claimer,'POST',`/conversations/${card.id}/claim`,{version:card.version});
+    expect(claimed.json()).toMatchObject({data:{assigneeName:'Ahmed Activity'}});
+    const all=await send(api,viewer,'GET',`/conversations?queue=all&search=${peer}`);
+    expect(all.json().data).toEqual(expect.arrayContaining([expect.objectContaining({id:card.id,assigneeName:'Ahmed Activity'})]));
+    const detail=await send(api,viewer,'GET',`/conversations/${card.id}`);
+    expect(detail.json()).toMatchObject({data:{capabilities:{reply:false,note:false,assign:false,handoff:false,close:false}}});
+    expect((await send(api,agentB,'GET',`/conversations/${card.id}`)).statusCode).toBe(403);
+    expect((await send(api,viewer,'POST',`/conversations/${card.id}/assignments`,{version:detail.json().data.version,assigneeMembershipId:viewerId})).statusCode).toBe(403);
+    expect((await send(api,viewer,'POST',`/conversations/${card.id}/messages`,{messageType:'text',text:'Unauthorized',clientMessageId:'viewer-must-not-send'})).statusCode).toBe(403);
+    expect((await send(api,viewer,'POST',`/conversations/${card.id}/claim`,{version:detail.json().data.version})).statusCode).toBe(403);
+    const reply=await send(api,claimer,'POST',`/conversations/${card.id}/messages`,{messageType:'text',text:'Answer from Ahmed',clientMessageId:'activity-author-send'});
+    expect(reply.statusCode,reply.body).toBe(202);
+    await withTenant(api.pool,api.tenantId,client=>client.query('DELETE FROM outbox WHERE message_id=$1',[reply.json().data.id]));
+    const cursor=(await feed(owner)).cursor;
+    expect((await send(api,viewer,'POST',`/conversations/${card.id}/read`,{})).statusCode).toBe(200);
+    const timeline=await send(api,viewer,'GET',`/conversations/${card.id}/messages`);
+    expect(timeline.json().data).toEqual(expect.arrayContaining([expect.objectContaining({text:'Answer from Ahmed',author_name:'Ahmed Activity',seen_by:expect.arrayContaining([expect.objectContaining({membershipId:viewerId,name:'Sara Viewer'})])})]));
+    await send(api,viewer,'POST',`/conversations/${card.id}/unread`,{});
+    const afterUnread=await send(api,viewer,'GET',`/conversations/${card.id}/messages`);
+    expect(afterUnread.json().data.find((row:{text:string})=>row.text==='Answer from Ahmed').seen_by).toEqual(expect.arrayContaining([expect.objectContaining({membershipId:viewerId})]));
+    const events=await feed(owner,cursor);
+    expect(events.events).toEqual(expect.arrayContaining([expect.objectContaining({type:'conversation.read',scope:expect.objectContaining({conversationId:card.id})})]));
+    // Late provider timestamps must not pretend an earlier viewer saw a new arrival.
+    await deliver(api,messageDelivery(INBOX_A,[{...textMessage('wamid.team-activity-late','Late message',peer),timestamp:String(Math.floor(Date.now()/1000)-3600)}]));
+    await normalizer.drain(api.tenantId);
+    const late=await send(api,viewer,'GET',`/conversations/${card.id}/messages`);
+    const arrival=late.json().data.find((row:{text:string})=>row.text==='Late message');
+    expect(arrival.seen_by.some((reader:{membershipId:string})=>reader.membershipId===viewerId)).toBe(false);
+  });
+
   it('lets an agent mark only their cursor unread and release only their own claim', async () => {
     const peer = '15557000991';
     await customerWrites(INBOX_A, peer, 'Controlled queue message', 'wamid.rt-own-release');

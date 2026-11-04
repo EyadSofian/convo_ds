@@ -400,7 +400,8 @@ function noteRow(state: AppState, live: LiveState, note: Note): HTMLElement {
     ]);
   }
   const busy = live.busy === `note:${note.id}`;
-  if (live.editingNoteId === note.id) {
+  const readOnly = live.openConversation.status === 'ready' && live.openConversation.value.capabilities?.note === false;
+  if (!readOnly && live.editingNoteId === note.id) {
     return h('li', { class: 'notes__item notes__item--editing' }, [
       h('textarea', {
         class: 'input notes__field',
@@ -437,7 +438,7 @@ function noteRow(state: AppState, live: LiveState, note: Note): HTMLElement {
         : // Marked, always: a corrected remark must not read as the one that
           // was there when the decision it describes was taken.
           h('span', { class: 'notes__edited' }, [t(state, 'مُعدّلة', 'edited')]),
-      button({
+      readOnly ? null : button({
         label: t(state, 'تعديل', 'Edit'),
         act: 'live-note-edit',
         arg: note.id,
@@ -445,7 +446,7 @@ function noteRow(state: AppState, live: LiveState, note: Note): HTMLElement {
         variant: 'ghost',
         disabled: busy,
       }),
-      button({
+      readOnly ? null : button({
         label: t(state, 'حذف', 'Delete'),
         act: 'live-note-delete',
         arg: note.id,

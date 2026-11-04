@@ -5,6 +5,7 @@ import type { ConversationsApi } from '../api/conversations.js';
 import type { LiveContext } from './actions.js';
 import { createState } from '../state.js';
 import { ready } from './store.js';
+import { markConversationRead } from './lifecycle-actions.js';
 import { disableBrowserPush, loadNotifications, refreshNotificationCount, runNotificationAction } from './notification-actions.js';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -227,6 +228,137 @@ describe('durable notification browser actions', () => {
     expect(context.live.pushStatus).toBe('enabled');
   });
 
+  it('waits for service-worker activation before subscribing, and ignores a second enable click',async()=>{
+    const {context,api}=setup();context.live.pushPublicKey=Buffer.alloc(65,7).toString('base64url');
+    let activate!:(worker:unknown)=>void;
+    const subscribe=vi.fn().mockResolvedValue({toJSON:()=>({endpoint:'opaque'})});
+    const worker={active:{},pushManager:{getSubscription:vi.fn().mockResolvedValue(null),subscribe}};
+    Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{register:vi.fn().mockResolvedValue({active:null}),ready:new Promise(resolve=>{activate=resolve;})}});
+    vi.stubGlobal('PushManager',class{});const permission=vi.fn().mockResolvedValue('granted');vi.stubGlobal('Notification',{permission:'granted',requestPermission:permission});
+    const enabling=runNotificationAction(context,'notification-enable-push','');
+    await Promise.resolve();await Promise.resolve();
+    expect(subscribe).not.toHaveBeenCalled();
+    await runNotificationAction(context,'notification-enable-push','');expect(permission).toHaveBeenCalledTimes(1);
+    activate(worker);await enabling;
+    expect(subscribe).toHaveBeenCalledTimes(1);expect(api.registerDevice).toHaveBeenCalledTimes(1);expect(context.live.pushStatus).toBe('enabled');
+  });
+
+  it('times out a worker that never activates so retry becomes possible',async()=>{
+    vi.useFakeTimers();
+    try{
+      const {context}=setup();context.live.pushPublicKey='key';
+      Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{register:vi.fn().mockResolvedValue({active:null}),ready:new Promise(()=>{})}});
+      vi.stubGlobal('Notification',{requestPermission:vi.fn().mockResolvedValue('granted')});
+      const enabling=runNotificationAction(context,'notification-enable-push','');await vi.advanceTimersByTimeAsync(10001);await enabling;
+      expect(context.live.pushStatus).toBe('error');
+    }finally{vi.useRealTimers();}
+  });
+
+  it('enables browser alerts without server push, restores permission state and tests the current browser',async()=>{
+    const {context,api}=setup();context.state.lang='en';const showNotification=vi.fn().mockResolvedValue(undefined);
+    const worker={active:{},showNotification,pushManager:{}};
+    Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{register:vi.fn().mockResolvedValue(worker),getRegistration:vi.fn().mockResolvedValue(worker)}});
+    const permission=vi.fn().mockResolvedValue('granted');vi.stubGlobal('Notification',{permission:'granted',requestPermission:permission});
+    await runNotificationAction(context,'notification-enable-push','');expect(context.live.pushStatus).toBe('browser');expect(api.registerDevice).not.toHaveBeenCalled();
+    await runNotificationAction(context,'notification-test','');expect(showNotification).toHaveBeenCalledWith('Notification test',expect.objectContaining({data:{url:'/#/inbox'}}));
+    context.live.pushStatus='idle';await runNotificationAction(context,'notification-toggle','');expect(context.live.pushStatus).toBe('browser');expect(permission).toHaveBeenCalledTimes(1);
+    vi.stubGlobal('Notification',{permission:'denied',requestPermission:permission});context.live.pushStatus='idle';context.state.openMenu=null;
+    await runNotificationAction(context,'notification-toggle','');expect(context.live.pushStatus).toBe('denied');
+    await runNotificationAction(context,'notification-test','');expect(showNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('announces only newly arrived unread records and keeps lock-screen content generic',async()=>{
+    const {context,api}=setup();context.state.lang='ar';window.localStorage.setItem('convo.notifications.enabled','true');
+    const showNotification=vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{getRegistration:vi.fn().mockResolvedValue({active:{},showNotification})}});
+    vi.stubGlobal('Notification',{permission:'granted'});
+    api.list.mockResolvedValue(page([record('old')]));await loadNotifications(context);expect(showNotification).not.toHaveBeenCalled();
+    api.list.mockResolvedValue(page([{...record('new'),senderName:'Ahmed',messagePreview:'Private customer text'},record('old'),record('already-read','2026-09-09T09:30:00Z')]));
+    await loadNotifications(context,true);await Promise.resolve();
+    expect(showNotification).toHaveBeenCalledTimes(1);expect(showNotification.mock.calls[0]?.[1]).not.toHaveProperty('messagePreview');
+    expect(context.state.toasts.at(-1)?.text).toContain('Ahmed');
+    await loadNotifications(context,true);expect(showNotification).toHaveBeenCalledTimes(1);
+    context.live.pushStatus='enabled';api.list.mockResolvedValue(page([record('push-owned')]));await loadNotifications(context,true);expect(showNotification).toHaveBeenCalledTimes(1);
+    showNotification.mockRejectedValue(new Error('OS blocked'));await runNotificationAction(context,'notification-test','');expect(context.live.pushStatus).toBe('error');
+  });
+
+  it('handles browser-only alerts, blocked storage, and changes in permission', async () => {
+    const { context, api } = setup();
+    context.state.lang = 'en';
+    const close = vi.fn();
+    const instance = { onclick: () => undefined, close };
+    const native = vi.fn(function () { return instance; });
+    Object.assign(native, { permission: 'granted', requestPermission: vi.fn().mockResolvedValue('granted') });
+    vi.stubGlobal('Notification', native);
+    vi.spyOn(window, 'focus').mockImplementation(() => undefined);
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw Error('blocked'); });
+    await runNotificationAction(context, 'notification-enable-push', '');
+    expect(context.live.pushStatus).toBe('browser');
+    storage.mockRestore();
+    await runNotificationAction(context, 'notification-test', '');
+    instance.onclick();
+    expect(close).toHaveBeenCalled();
+
+    const unavailable = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw Error('blocked'); });
+    await runNotificationAction(context, 'notification-toggle', '');
+    expect(context.live.pushStatus).toBe('idle');
+    unavailable.mockRestore();
+    context.state.lang = 'ar';
+    await runNotificationAction(context, 'notification-test', '');
+    expect(native).toHaveBeenLastCalledWith('اختبار الإشعارات', expect.anything());
+    Object.assign(native, { permission: 'default' });
+    await runNotificationAction(context, 'notification-test', '');
+    expect(context.live.pushStatus).toBe('idle');
+    vi.stubGlobal('Notification', undefined);
+    await runNotificationAction(context, 'notification-test', '');
+    expect(context.live.pushStatus).toBe('unavailable');
+    expect(api.registerDevice).not.toHaveBeenCalled();
+    await disableBrowserPush(context);
+    vi.mocked(window.focus).mockRestore();
+  });
+
+  it('shows the first live alert, routes campaign notifications, and tolerates an OS failure', async () => {
+    const { context, api } = setup();
+    context.state.lang = 'en';
+    window.localStorage.setItem('convo.notifications.enabled', 'true');
+    const showNotification = vi.fn().mockRejectedValue(new Error('OS declined'));
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: {
+      getRegistration: vi.fn().mockResolvedValue({ active: {}, showNotification }),
+    } });
+    vi.stubGlobal('Notification', { permission: 'granted' });
+    api.list.mockResolvedValue(page([record('history'), { ...record('new'), targetType: 'campaign', senderName: 'Ahmed' }]));
+    await loadNotifications(context, true, 'new');
+    expect(context.state.toasts.map(toast => toast.text)).toEqual(['New notification from Ahmed']);
+    expect(showNotification).toHaveBeenCalledWith('New DS Omnichannel activity', expect.objectContaining({
+      data: { url: `/#/broadcasts?campaign=${TARGET}` },
+    }));
+  });
+
+  it('ignores a stale registration result and does not mark a hidden tab as seen', async () => {
+    const { context, api } = setup();
+    const markRead = vi.fn();
+    Object.assign(context.live, { conversationsApi: { markRead } });
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    await markConversationRead(context, TARGET);
+    expect(markRead).not.toHaveBeenCalled();
+    visibility.mockRestore();
+
+    context.live.pushPublicKey = 'key';
+    vi.stubGlobal('PushManager', class {});
+    vi.stubGlobal('Notification', { requestPermission: vi.fn().mockResolvedValue('granted') });
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: {
+      register: vi.fn().mockResolvedValue({ active: {}, pushManager: {
+        getSubscription: vi.fn().mockResolvedValue({ toJSON: () => ({ endpoint: 'opaque' }) }),
+      } }),
+    } });
+    api.registerDevice.mockImplementation(async () => {
+      context.live.session = { status: 'signed_out', error: null };
+      return { ok: true, data: { registered: true } };
+    });
+    await runNotificationAction(context, 'notification-enable-push', '');
+    expect(context.live.pushStatus).not.toBe('enabled');
+  });
+
   it('does not register a device when browser permission is denied', async () => {
     const { context, api } = setup();
     context.live.pushPublicKey = 'public';
@@ -315,11 +447,11 @@ describe('durable notification browser actions', () => {
     const { context, api } = setup();
     await runNotificationAction(context, 'notification-enable-push', '');
     expect(context.live.pushStatus).toBe('unavailable');
-    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { register: vi.fn() } });
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { register: vi.fn().mockResolvedValue({active:{}}) } });
     vi.stubGlobal('PushManager', class {});
     vi.stubGlobal('Notification', { requestPermission: vi.fn().mockResolvedValue('granted') });
     await runNotificationAction(context, 'notification-enable-push', '');
-    expect(context.live.pushStatus).toBe('unavailable');
+    expect(context.live.pushStatus).toBe('browser');
     context.live.pushPublicKey = Buffer.alloc(65, 6).toString('base64url');
     (navigator.serviceWorker.register as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('private provider detail'));
     await runNotificationAction(context, 'notification-enable-push', '');

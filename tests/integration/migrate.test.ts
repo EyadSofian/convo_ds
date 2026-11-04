@@ -117,6 +117,7 @@ describe('migrate', () => {
       'conversation_labels',
       'conversation_notes',
       'conversation_participants',
+      'conversation_read_receipts',
       'conversation_reads',
       'conversation_wakes',
       'conversations',
