@@ -4,6 +4,7 @@ import type { SqlExecutor } from '@convo/domain';
 import type { Pool } from 'pg';
 import { prepareTemplate } from '../channels/template-send.js';
 import { API_POOL } from '../tokens.js';
+import { ConversationService } from '../conversations/conversation.service.js';
 import { campaignCommandContent } from './campaign-dispatch.js';
 
 interface QueueRow {
@@ -29,19 +30,23 @@ interface RecipientRow {
 /** Turns frozen campaign recipients into ordinary fenced bulk send commands. */
 @Injectable()
 export class CampaignPlannerService {
-  constructor(@Inject(API_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(API_POOL) private readonly pool: Pool,
+    @Inject(ConversationService) private readonly conversations: ConversationService,
+  ) {}
 
   async pendingTenants(limit = 100): Promise<readonly string[]> {
     const result = await asExecutor(this.pool).query<{ tenant_id: string }>(
-      `SELECT DISTINCT tenant_id::text FROM campaign_work_queue
-        WHERE available_at <= now() ORDER BY tenant_id LIMIT $1`,
+      `SELECT tenant_id::text FROM campaign_work_queue WHERE available_at <= now()
+       UNION SELECT tenant_id::text FROM campaign_inbox_repairs ORDER BY tenant_id LIMIT $1`,
       [limit],
     );
     return result.rows.map((row) => row.tenant_id);
   }
 
   async plan(tenantId: string, limit = 100): Promise<number> {
-    return withTenant(this.pool, tenantId, async (client) => {
+    const repaired = await this.repairInbox(tenantId, limit);
+    return repaired + await withTenant(this.pool, tenantId, async (client) => {
       const sql = asExecutor(client);
       const candidate = await sql.query<{ execution_id: string }>(
         `SELECT execution_id::text FROM campaign_work_queue
@@ -136,6 +141,34 @@ export class CampaignPlannerService {
       const remaining = await sql.query(`SELECT 1 FROM campaign_recipients WHERE execution_id=$1 AND state='planned' LIMIT 1`, [work.execution_id]);
       if (remaining.rowCount === 0) await sql.query(`DELETE FROM campaign_work_queue WHERE execution_id=$1`, [work.execution_id]);
       return planned;
+    });
+  }
+
+  private async repairInbox(tenantId: string, limit: number): Promise<number> {
+    return withTenant(this.pool, tenantId, async (client) => {
+      const sql = asExecutor(client);
+      const queued = await sql.query<{ id: string; connection_id: string; peer_identity: string }>(
+        `SELECT message.id::text,message.connection_id::text,message.peer_identity
+           FROM campaign_inbox_repairs repair JOIN outbound_messages message ON message.id=repair.outbound_message_id
+          WHERE repair.tenant_id=$1 ORDER BY repair.outbound_message_id LIMIT $2 FOR UPDATE OF repair SKIP LOCKED`, [tenantId, limit]);
+      for (const message of queued.rows) {
+        const archived = await sql.query(
+          `SELECT 1 FROM campaign_conversation_attributions attribution
+             JOIN conversations conversation ON conversation.id=attribution.conversation_id
+            WHERE attribution.outbound_message_id=$1 AND conversation.status='archived'
+           UNION ALL
+           SELECT 1 FROM conversations conversation JOIN outbound_messages message ON message.id=$1
+            WHERE conversation.connection_id=message.connection_id AND conversation.peer_identity=message.peer_identity
+              AND conversation.archived_at > message.created_at LIMIT 1`, [message.id]);
+        if (archived.rows.length === 0) {
+          const conversation = await this.conversations.ensure(sql, tenantId, message.connection_id, message.peer_identity, 'outbound_contact');
+          await this.conversations.noteDelivery(sql, tenantId, conversation, {
+            messageId: message.id, state: 'sent', at: new Date(), anomaly: null,
+          });
+        }
+        await sql.query('DELETE FROM campaign_inbox_repairs WHERE tenant_id=$1 AND outbound_message_id=$2', [tenantId, message.id]);
+      }
+      return queued.rows.length;
     });
   }
 }

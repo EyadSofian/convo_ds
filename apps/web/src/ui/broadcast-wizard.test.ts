@@ -76,6 +76,32 @@ describe('before the wizard can start', () => {
 });
 
 describe('the steps', () => {
+  it.each(['ar', 'en'] as const)('shows matched, missing and inaccessible owners in the %s import preview', (lang) => {
+    const state = wizard(ALL_WITH_CHANNELS, lang);
+    state.dialogForm = { campaignName: 'Autumn offer' };
+    setBroadcastUpload(state, 'leads.csv', { ok: true, rows: [
+      { leadName: 'Imported Lead', mobile: '01012345678', courseName: '', label: 'Offer', assignTo: 'Ahmed Ibrahim', campaignName: 'Autumn offer' },
+    ] });
+    Object.assign(broadcastUpload(state)!, { previewKey: uploadKey(state), preview: {
+      totalRows: 4, readyToSend: 0, newContacts: 4, existingContacts: 0, duplicateLeads: 0,
+      invalidMobileNumbers: 0, missingRequiredFields: 0, validLeads: 4, issues: [], assignments: [
+        { row: 2, leadName: 'One', requested: 'Ahmed', matchedName: 'Ahmed Ibrahim', status: 'matched' },
+        { row: 3, leadName: 'Two', requested: '', matchedName: null, status: 'unassigned' },
+        { row: 4, leadName: 'Three', requested: 'Other', matchedName: 'Other', status: 'no_access' },
+        { row: 5, leadName: 'Four', requested: 'Unknown', matchedName: null, status: 'not_found' },
+      ],
+    } });
+    const assignments = render(state).querySelector('.broadcast__assignments');
+    expect(assignments?.querySelectorAll('li')).toHaveLength(4);
+    expect(assignments?.textContent).toContain('Ahmed Ibrahim');
+    expect(assignments?.textContent).toContain('Unknown');
+    state.dialogForm = { ...state.dialogForm, broadcastStep: '1', campaignTemplate: TEMPLATE.id };
+    const message = render(state);
+    expect(message.querySelector('.wa-bubble__body')?.textContent).toContain('Imported Lead');
+    state.dialogForm['campaignParam_body_1_source'] = 'phone';
+    expect(render(state).querySelector('.wa-bubble__body')?.textContent).toContain('01012345678');
+  });
+
   it('shows sheet errors, pending checks and the validated audience without a second picker', () => {
     const state = wizard();
     state.dialogForm = { campaignName: 'Autumn offer' };

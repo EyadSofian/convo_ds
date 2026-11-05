@@ -205,6 +205,21 @@ function leadSheetCard(state: AppState): HTMLElement {
     preview === null ? null : h('div', { class: 'broadcast__import-stats', 'aria-live': 'polite' }, stats.map(([label, count]) =>
       h('div', {}, [h('strong', {}, [formatNumber(count, state.lang)]), h('span', {}, [label])]))),
     preview?.issues.length ? h('div', { class: 'broadcast__import-issues', role: 'status' }, preview.issues.slice(0, 8).map((issue) => h('p', {}, [issue.message]))) : null,
+    preview?.assignments?.length ? h('div', { class: 'broadcast__assignments' }, [
+      h('strong', {}, [t(state, 'مسؤول المتابعة من الملف', 'Follow-up owner from sheet')]),
+      h('p', { class: 'field__hint' }, [t(state,
+        'المطابقة بالاسم أو البريد الإلكتروني. المحادثة التي لها مسؤول بالفعل تحتفظ بمسؤولها الحالي.',
+        'Matched by name or email. A conversation that already has an owner keeps its current owner.')]),
+      h('ul', { class: 'broadcast__assignment-list' }, preview.assignments.map((assignment) => h('li', {}, [
+        h('span', {}, [assignment.leadName]),
+        h('span', { class: assignment.status === 'matched' ? 'text-success' : 'field__hint' }, [
+          assignment.status === 'matched' ? `${t(state, 'إسناد إلى', 'Assign to')} ${assignment.matchedName!}`
+            : assignment.status === 'unassigned' ? t(state, 'بدون مسؤول في الملف', 'No owner in sheet')
+              : assignment.status === 'no_access' ? t(state, 'يحتاج صلاحية على الإنبوكس', 'Needs inbox access')
+                : `${t(state, 'لم تتم مطابقة', 'No match for')} ${assignment.requested}`,
+        ]),
+      ]))),
+    ]) : null,
     upload === null ? null : button({ label: t(state, 'إزالة الملف', 'Remove file'), act: 'live-broadcast-import-clear', variant: 'ghost', small: true }),
     fieldError(state, 'campaignLeadSheet'),
   ]);
@@ -260,7 +275,10 @@ function messageStep(state: AppState, campaign: Campaign | undefined): HTMLEleme
       templates,
       selectedId: template,
       stored,
-      sample: { name: t(state, 'منى', 'Mona'), phone: '+20 100 000 0000' },
+      sample: {
+        name: broadcastUpload(state)?.rows[0]?.leadName ?? t(state, 'منى', 'Mona'),
+        phone: broadcastUpload(state)?.rows[0]?.mobile ?? '+20 100 000 0000',
+      },
       sender: connection.display_name,
       showMissing: problem !== undefined,
     }),

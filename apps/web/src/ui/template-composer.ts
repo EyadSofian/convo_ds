@@ -133,6 +133,7 @@ function variablesEditor(
           h('span', { class: 'tpl-var__place' }, [parameterPlace(state, parameter)]),
         ]),
         selectControl({
+          act: 'form-toggle',
           form: key('source'),
           value: source,
           ariaLabel: t(state, 'مصدر القيمة', 'Value source'),
@@ -146,6 +147,7 @@ function variablesEditor(
         h('div', { class: 'tpl-var__inputs' }, [
           source === 'field'
             ? selectControl({
+                act: 'form-toggle',
                 form: key('field'),
                 value: binding?.fieldId ?? state.dialogForm[key('field')] ?? '',
                 ariaLabel: t(state, 'الحقل', 'Field'),

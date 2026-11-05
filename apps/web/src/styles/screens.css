@@ -3344,6 +3344,8 @@
   .broadcast__import-stats span { color: var(--text-muted); font-size: var(--text-xs); }
   .broadcast__import-issues { max-block-size: 160px; overflow: auto; color: var(--danger); font-size: var(--text-sm); }
   .broadcast__import-issues p { margin: var(--space-1) 0; }
+  .broadcast__assignment-list { margin: var(--space-2) 0 0; padding: 0; list-style: none; max-block-size: 220px; overflow: auto; }
+  .broadcast__assignment-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); border-block-end: 1px solid var(--border-subtle); font-size: var(--text-sm); }
 
   .broadcast__numbers,
   .broadcast__when {

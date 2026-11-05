@@ -500,6 +500,12 @@ export class ChannelDispatcherService {
         await sql.query('DELETE FROM outbox WHERE message_id = $1', [claim.message_id]);
         // A receipt may already have arrived for this id, before we knew it.
         await reconcileHeldReceipts(sql, claim.message_id, outcome.providerMessageId);
+        if (claim.campaign_recipient_id !== null) {
+          const conversation = await this.conversations.ensure(sql, tenantId, claim.connection_id, claim.peer_identity, 'outbound_contact');
+          await this.conversations.noteDelivery(sql, tenantId, conversation, {
+            messageId: claim.message_id, state: 'sent', at: new Date(), anomaly: null,
+          });
+        }
         return 'accepted';
       }
 
@@ -669,6 +675,7 @@ export class ChannelDispatcherService {
           tenantId,
           receipt.connection_id,
           receipt.peer_identity,
+          'outbound_contact',
         );
         await this.conversations.noteDelivery(sql, tenantId, conversation, {
           messageId: receipt.message_id,

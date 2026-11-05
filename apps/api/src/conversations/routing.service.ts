@@ -109,6 +109,30 @@ export class RoutingService {
     @Inject(API_POOL) private readonly pool: Pool,
   ) {}
 
+  /** Apply the imported lead owner once, without taking an operator's work. */
+  async assignCampaignLead(sql: SqlExecutor, tenantId: string, conversationId: string): Promise<void> {
+    const lead = await sql.query<{ assigned_membership_id: string | null; actor_id: string | null }>(
+      `SELECT lead.assigned_membership_id::text,campaign.created_by_membership_id::text AS actor_id
+         FROM campaign_conversation_attributions attribution
+         JOIN campaign_recipients recipient ON recipient.id=attribution.recipient_id
+         JOIN campaign_leads lead ON lead.campaign_id=attribution.campaign_id AND lead.contact_id=recipient.contact_id
+         JOIN campaigns campaign ON campaign.id=lead.campaign_id
+        WHERE attribution.conversation_id=$1
+        ORDER BY attribution.sent_at DESC,attribution.id DESC LIMIT 1`, [conversationId]);
+    const target = lead.rows[0];
+    if (target === undefined || target.assigned_membership_id === null) return;
+    await sql.query('SELECT id FROM conversations WHERE id=$1 FOR UPDATE', [conversationId]);
+    const detail = await requireConversation(sql, conversationId);
+    if (detail.assigneeMembershipId !== null || detail.status === 'archived') return;
+    const changedByOperator = await sql.query(
+      `SELECT 1 FROM conversation_audit WHERE conversation_id=$1
+        AND act IN ('claim','assign','unassign','handoff','handoff_accepted') LIMIT 1`, [conversationId]);
+    if (changedByOperator.rows.length > 0) return;
+    const candidate = await loadPrincipalForMembership(sql, target.assigned_membership_id);
+    if (candidate === null || !canWork(candidate, detail)) return;
+    await this.moveAssignee(sql, tenantId, detail, detail.version, target.assigned_membership_id, target.actor_id, 'assign');
+  }
+
   /* ------------------------------------------------------------ assign -- */
 
   /**
@@ -188,7 +212,7 @@ export class RoutingService {
     detail: ConversationDetail,
     expectedVersion: number,
     toMembershipId: string | null,
-    actorMembershipId: string,
+    actorMembershipId: string | null,
     act: AssignmentAct,
   ): Promise<number> {
     const updated = await sql.query<{ version: number; owner_version: number }>(

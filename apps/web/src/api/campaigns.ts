@@ -318,6 +318,10 @@ export interface LeadImportPreview {
   readonly invalidMobileNumbers: number;
   readonly missingRequiredFields: number;
   readonly readyToSend: number;
+  readonly assignments?: readonly {
+    readonly row: number; readonly leadName: string; readonly requested: string;
+    readonly matchedName: string | null; readonly status: 'matched' | 'unassigned' | 'not_found' | 'no_access';
+  }[];
   readonly issues: readonly { readonly row: number; readonly code: string; readonly message: string }[];
 }
 

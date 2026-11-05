@@ -25,7 +25,7 @@ function harness(rows: readonly Record<string, unknown>[], currentPrincipal: Pri
   const sql = { query: vi.fn(async <T>(text: string) => text.includes('FROM conversations c') ? { rows: rows as T[], rowCount: rows.length } : { rows: [], rowCount: 0 }) } as unknown as SqlExecutor;
   const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal: currentPrincipal, tenantId })) } as unknown as AuthorizationService;
   const metadata = { conversationMetadataBatch: vi.fn(async () => new Map()) } as unknown as MetadataService;
-  const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never);
+  const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never, {} as never);
   return { service, sql };
 }
 
@@ -40,7 +40,7 @@ describe('ConversationService Inbox boundaries', () => {
       }) } as unknown as SqlExecutor;
       const authorization = { assertTenantId: vi.fn(), withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal, tenantId })) } as unknown as AuthorizationService;
       const metadata = { conversationMetadata: vi.fn(async () => ({})) } as unknown as MetadataService;
-      const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never);
+      const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never, {} as never);
       return service;
     };
 
@@ -103,7 +103,7 @@ describe('ConversationService Inbox boundaries', () => {
       : { rows: [], rowCount: 0 }) } as unknown as SqlExecutor;
     const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal, tenantId })) } as unknown as AuthorizationService;
     const metadata = { conversationMetadataBatch: vi.fn(async () => new Map()) } as unknown as MetadataService;
-    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never);
+    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, metadata, {} as never, {} as never);
     await expect(service.supervisorWorkload({ userId: 'user' } as never, tenantId, member)).rejects.toThrow('supervisor workload returned no row');
   });
 });
@@ -122,7 +122,7 @@ describe('the queue and the claim, at their guards', () => {
       rowCount: 2,
     })) } as unknown as SqlExecutor;
     const authorization = { authorized: vi.fn(async (_session, _tenant, _permission, work) => work({ sql, principal: inboxOnly, tenantId })) } as unknown as AuthorizationService;
-    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, {} as never, {} as never);
+    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, {} as never, {} as never, {} as never);
     const cards = await service.unassigned({ userId: 'user' } as never, tenantId, { connectionId: null, priority: null, channel: null, labelIds: [] });
     expect(cards.map((card) => card.id)).toEqual([idA]);
     // The scope is in the query, so the 200-row cap counts visible cards only.
@@ -136,7 +136,7 @@ describe('the queue and the claim, at their guards', () => {
       ? { rows: [{ ...raw(idA, ''), status: 'archived', assignee_membership_id: null }] as T[], rowCount: 1 }
       : { rows: [] as T[], rowCount: 0 }) } as unknown as SqlExecutor;
     const authorization = { assertTenantId: vi.fn(), withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal: inboxOnly, tenantId })) } as unknown as AuthorizationService;
-    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, {} as never, {} as never);
+    const service = new ConversationService({} as never, config, authorization, {} as never, {} as never, {} as never, {} as never, {} as never);
     await expect(service.claim({ userId: 'user' } as never, tenantId, idA, 1)).rejects.toMatchObject({ status: 409, code: 'archived_conversation_is_immutable' });
     expect((sql.query as ReturnType<typeof vi.fn>).mock.calls.some(([text]) => String(text).includes('UPDATE conversations'))).toBe(false);
   });

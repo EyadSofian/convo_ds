@@ -136,7 +136,10 @@ export async function readTimeline(
               NULL::text AS reaction_action, m.created_at AS visible_at
          FROM outbound_messages m
         WHERE m.connection_id = $2 AND m.peer_identity = $3
-          AND (m.conversation_id=$1 OR (m.conversation_id IS NULL
+          AND (m.conversation_id=$1 OR EXISTS (
+            SELECT 1 FROM campaign_conversation_attributions attribution
+             WHERE attribution.outbound_message_id=m.id AND attribution.conversation_id=$1
+          ) OR (m.conversation_id IS NULL
             AND m.created_at >= (SELECT c.created_at FROM conversations c WHERE c.id=$1)
             AND m.created_at < COALESCE((SELECT c.archived_at FROM conversations c WHERE c.id=$1), 'infinity'::timestamptz)))
        UNION ALL
@@ -172,7 +175,10 @@ export async function readTimeline(
                AND target.connection_id=r.connection_id
                AND target.peer_identity=r.peer_identity
                AND target.provider_message_id=r.provider_message_id
-               AND (target.conversation_id=$1 OR (target.conversation_id IS NULL
+               AND (target.conversation_id=$1 OR EXISTS (
+                 SELECT 1 FROM campaign_conversation_attributions attribution
+                  WHERE attribution.outbound_message_id=target.id AND attribution.conversation_id=$1
+               ) OR (target.conversation_id IS NULL
                  AND target.created_at >= (SELECT c.created_at FROM conversations c WHERE c.id=$1)
                  AND target.created_at < COALESCE((SELECT c.archived_at FROM conversations c WHERE c.id=$1), 'infinity'::timestamptz)))
           )

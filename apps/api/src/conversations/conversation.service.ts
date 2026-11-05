@@ -25,7 +25,7 @@ import {
   SELECT_COLUMNS,
 } from './record.js';
 import type { ConversationDetail, ConversationRow, RawConversation, WhatsAppServiceWindow } from './record.js';
-import { recordConversationAudit } from './routing.service.js';
+import { recordConversationAudit, RoutingService } from './routing.service.js';
 import {
   readTimeline,
   TIMELINE_PAGE_SIZE,
@@ -103,6 +103,7 @@ export class ConversationService {
     @Inject(LifecycleService) private readonly lifecycle: LifecycleService,
     @Inject(MetadataService) private readonly metadata: MetadataService,
     @Inject(NotificationService) private readonly notifications: NotificationService,
+    @Inject(RoutingService) private readonly routing: RoutingService,
   ) {}
 
   /**
@@ -136,28 +137,32 @@ export class ConversationService {
       // A thread never exists without an episode to account for it, or the
       // first report to ask "how long did this take" finds nothing to measure.
       await this.lifecycle.openFirstEpisode(sql, tenantId, created.id, openedBy, new Date());
-      if (openedBy === 'customer_inbound') {
-        // An archived conversation is historical evidence, not an active
-        // thread. A response after its archival boundary therefore belongs to
-        // this newly created conversation. Every qualifying campaign send is
-        // bound once; no campaign delivery can create a conversation itself.
-        await sql.query(
-          `UPDATE campaign_conversation_attributions attribution
-              SET conversation_id=$1,bound_at=now()
-            WHERE attribution.tenant_id=$2
-              AND attribution.connection_id=$3
-              AND attribution.peer_identity=$4
-              AND attribution.conversation_id IS NULL
-              AND attribution.sent_at <= (SELECT created_at FROM conversations WHERE id=$1)
-              AND attribution.sent_at >= COALESCE((
-                SELECT max(previous.archived_at) FROM conversations previous
-                 WHERE previous.tenant_id=$2 AND previous.connection_id=$3 AND previous.peer_identity=$4
-                   AND previous.status='archived' AND previous.id <> $1
-              ), '-infinity'::timestamptz)`,
-          [created.id, tenantId, connectionId, peerIdentity],
-        );
-      }
     }
+    const active = await sql.query<{ id: string }>(
+      `SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> 'archived' FOR UPDATE`,
+      [connectionId, peerIdentity]);
+    const conversationId = requireRow(active.rows, 'the active conversation vanished').id;
+    // A receipt can open the thread before its customer reply. Bind outreach
+    // for existing threads too, while respecting the last archival boundary.
+    await sql.query(
+      `UPDATE campaign_conversation_attributions attribution
+          SET conversation_id=$1,bound_at=now()
+        WHERE attribution.tenant_id=$2
+          AND attribution.connection_id=$3
+          AND attribution.peer_identity=$4
+          AND attribution.conversation_id IS NULL
+          AND attribution.sent_at >= COALESCE((
+            SELECT max(previous.archived_at) FROM conversations previous
+             WHERE previous.tenant_id=$2 AND previous.connection_id=$3 AND previous.peer_identity=$4
+               AND previous.status='archived' AND previous.id <> $1
+          ), '-infinity'::timestamptz)`,
+      [conversationId, tenantId, connectionId, peerIdentity]);
+    await sql.query(
+      `UPDATE conversations conversation SET contact_id=recipient.contact_id
+         FROM campaign_conversation_attributions attribution
+         JOIN campaign_recipients recipient ON recipient.id=attribution.recipient_id
+        WHERE conversation.id=$1 AND attribution.conversation_id=conversation.id AND conversation.contact_id IS NULL`, [conversationId]);
+    await this.routing.assignCampaignLead(sql, tenantId, conversationId);
     const rows = await sql.query<RawConversation>(
       `SELECT ${SELECT_COLUMNS} FROM conversations
         WHERE connection_id = $1 AND peer_identity = $2 AND status <> 'archived'`,
@@ -436,7 +441,9 @@ export class ConversationService {
                UNION ALL
                (SELECT COALESCE(m.template_preview, m.text_body) AS text_body, m.created_at AS at, m.id
                   FROM outbound_messages m
-                 WHERE ${conversationEventBoundary('c', 'm', 'm.created_at')}
+                 WHERE (${conversationEventBoundary('c', 'm', 'm.created_at')})
+                    OR EXISTS (SELECT 1 FROM campaign_conversation_attributions attribution
+                                WHERE attribution.conversation_id=c.id AND attribution.outbound_message_id=m.id)
                  ORDER BY m.created_at DESC LIMIT 1)
              ) latest ORDER BY latest.at DESC, latest.id DESC LIMIT 1
            ) preview ON true

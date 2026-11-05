@@ -24,6 +24,8 @@ function harness(answer: (statement: string, values: readonly unknown[]) => read
 }
 
 function ordinary(statement: string): readonly unknown[] {
+  if (statement.includes('FROM memberships m') && statement.includes('WHERE m.id = $1')) return [{ membership_id: 'member-1', membership_status: 'active', tenant_status: 'active', role_id: 'role-1' }];
+  if (statement.includes('FROM role_permissions')) return [{ permission_key: 'conversation.reply', scope_level: 'tenant' }];
   if (statement.includes('FROM channel_connections')) return [{ kind: 'whatsapp' }];
   if (statement.includes('FROM labels WHERE state')) return [{ name: 'pmp' }];
   if (statement.includes('FROM memberships')) return [{ id: 'member-1', name: 'Mona Agent', email: 'mona@school.test' }];
@@ -99,12 +101,34 @@ describe('campaign lead import boundary', () => {
     expect(preview.issues[2]?.message).toContain('“PMP October”');
   });
 
+  it('shows normalized matches and flags agents without access to the selected inbox', async () => {
+    const { service } = harness(ordinary);
+    const preview = await service.preview(SESSION, TENANT, { ...INPUT, rows: [
+      { ...INPUT.rows[0]!, assignTo: ' MONA   Agent ' },
+      { ...INPUT.rows[0]!, mobile: '01112345678', assignTo: 'MONA@school.test' },
+      { ...INPUT.rows[0]!, mobile: '01212345678', assignTo: '' },
+    ] });
+    expect(preview.assignments.map((entry) => [entry.matchedName, entry.status])).toEqual([
+      ['Mona Agent', 'matched'], ['Mona Agent', 'matched'], [null, 'unassigned'],
+    ]);
+    for (const membershipVisible of [false, true]) {
+      const denied = harness((statement) => {
+        if (statement.includes('FROM memberships m') && statement.includes('WHERE m.id = $1') && !membershipVisible) return [];
+        if (statement.includes('FROM role_permissions')) return [];
+        return ordinary(statement);
+      });
+      expect(await denied.service.preview(SESSION, TENANT, INPUT)).toMatchObject({ readyToSend: 0,
+        assignments: [{ matchedName: 'Mona Agent', status: 'no_access' }], issues: [{ code: 'assignee_access' }],
+      });
+    }
+  });
+
   it('imports one clean lead, checks permissions and keeps the link idempotent', async () => {
     const { service, query, requirePermission } = harness(ordinary);
     const imported = await service.commit(SESSION, TENANT, CAMPAIGN, INPUT);
     expect(imported).toMatchObject({ contactIds: ['contact-1'], preview: { readyToSend: 1, newContacts: 1 } });
     expect(query.mock.calls.some(([statement]) => statement.includes('INSERT INTO campaign_leads'))).toBe(true);
-    expect(requirePermission.mock.calls.map((call) => call[2])).toEqual(['campaign.draft', 'contact.edit']);
+    expect(requirePermission.mock.calls.map((call) => call[2])).toEqual(['campaign.draft', 'contact.edit', 'conversation.assign']);
     const replay = harness((statement) => statement.includes('FROM campaign_leads WHERE campaign_id')
       ? [{ mobile: '201012345678', contact_id: 'contact-1' }] : ordinary(statement));
     expect(await replay.service.commit(SESSION, TENANT, CAMPAIGN, INPUT)).toMatchObject({ contactIds: ['contact-1'] });

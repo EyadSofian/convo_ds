@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { normalizeSearchText } from '@convo/domain';
+import { authorize, normalizeSearchText } from '@convo/domain';
 import type { SqlExecutor } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
-import { AuthorizationService } from '../authorization/authorization.service.js';
+import { AuthorizationService, loadPrincipalForMembership } from '../authorization/authorization.service.js';
 import { ApiHttpError } from '../http-error.js';
 
 export interface LeadImportRow {
@@ -29,6 +29,10 @@ export interface LeadImportPreview {
   readonly invalidMobileNumbers: number;
   readonly missingRequiredFields: number;
   readonly readyToSend: number;
+  readonly assignments: readonly {
+    readonly row: number; readonly leadName: string; readonly requested: string;
+    readonly matchedName: string | null; readonly status: 'matched' | 'unassigned' | 'not_found' | 'no_access';
+  }[];
   readonly issues: readonly { readonly row: number; readonly code: string; readonly message: string }[];
 }
 
@@ -169,7 +173,7 @@ export class CampaignLeadImportService {
       await this.authorization.requirePermission(sql, session, 'campaign.draft', { inboxId: input.connectionId });
       await this.authorization.requirePermission(sql, session, 'contact.edit', { inboxId: input.connectionId });
       await requireWhatsApp(sql, input.connectionId);
-      await this.requireLabelCreationPermission(sql, session, input);
+      await this.requireImportPermissions(sql, session, input);
       return inspect(sql, tenantId, input);
     });
   }
@@ -183,7 +187,7 @@ export class CampaignLeadImportService {
       await this.authorization.requirePermission(sql, session, 'campaign.draft', { inboxId: input.connectionId });
       await this.authorization.requirePermission(sql, session, 'contact.edit', { inboxId: input.connectionId });
       await requireWhatsApp(sql, input.connectionId);
-      await this.requireLabelCreationPermission(sql, session, input);
+      await this.requireImportPermissions(sql, session, input);
       const campaign = await sql.query<{ name: string; connection_id: string; control_state: string }>(
         `SELECT name,connection_id::text,control_state FROM campaigns WHERE id=$1 FOR UPDATE`, [campaignId]);
       const found = campaign.rows[0];
@@ -246,7 +250,10 @@ export class CampaignLeadImportService {
     });
   }
 
-  private async requireLabelCreationPermission(sql: SqlExecutor, session: AuthenticatedSession, input: LeadImportInput): Promise<void> {
+  private async requireImportPermissions(sql: SqlExecutor, session: AuthenticatedSession, input: LeadImportInput): Promise<void> {
+    if (input.rows.some((row) => row.assignTo !== '')) {
+      await this.authorization.requirePermission(sql, session, 'conversation.assign', { inboxId: input.connectionId });
+    }
     const names = [...new Set(input.rows.map((row) => row.label.toLocaleLowerCase()).filter(Boolean))];
     const found = await sql.query<{ name: string }>(
       `SELECT lower(name) AS name FROM labels WHERE state='active' AND lower(name)=ANY($1::text[])`, [names]);
@@ -267,7 +274,8 @@ async function assignees(sql: SqlExecutor): Promise<readonly Assignee[]> {
 }
 
 function matchAssignee(people: readonly Assignee[], value: string): string | null {
-  const matches = people.filter((person) => person.name.toLocaleLowerCase() === value.toLocaleLowerCase() || person.email.toLocaleLowerCase() === value.toLocaleLowerCase());
+  const key = (text: string): string => normalizeSearchText(text).replace(/\s+/gu, ' ');
+  const matches = people.filter((person) => key(person.name) === key(value) || key(person.email) === key(value));
   return matches.length === 1 ? matches[0]!.id : null;
 }
 
@@ -288,6 +296,8 @@ async function matchingContact(sql: SqlExecutor, tenantId: string, mobile: strin
 async function inspect(sql: SqlExecutor, tenantId: string, input: LeadImportInput): Promise<LeadImportPreview> {
   const people = await assignees(sql);
   const issues: { row: number; code: string; message: string }[] = [];
+  const assignments: LeadImportPreview['assignments'][number][] = [];
+  const access = new Map<string, boolean>();
   const seen = new Set<string>();
   let existing = 0;
   let invalidMobile = 0;
@@ -308,13 +318,27 @@ async function inspect(sql: SqlExecutor, tenantId: string, input: LeadImportInpu
     if (seen.has(mobile)) { duplicate += 1; issues.push({ row: number, code: 'duplicate', message: `Row ${number}: this mobile already occurs in the sheet and will be skipped.` }); continue; }
     seen.add(mobile);
     if (row.campaignName !== input.campaignName) issues.push({ row: number, code: 'campaign', message: `Row ${number}: Campaign Name must match the broadcast name “${input.campaignName}”.` });
-    if (row.assignTo !== '' && matchAssignee(people, row.assignTo) === null) issues.push({ row: number, code: 'assignee', message: `Row ${number}: Assign To must exactly match one active agent name or email.` });
+    const matchedId = matchAssignee(people, row.assignTo);
+    const matched = people.find((person) => person.id === matchedId);
+    let status: LeadImportPreview['assignments'][number]['status'] = row.assignTo === '' ? 'unassigned' : 'not_found';
+    if (matched !== undefined) {
+      if (!access.has(matched.id)) {
+        const candidate = await loadPrincipalForMembership(sql, matched.id);
+        access.set(matched.id, candidate !== null && authorize(candidate, 'conversation.reply', {
+          inboxId: input.connectionId, assigneeMembershipId: matched.id,
+        }).allowed);
+      }
+      status = access.get(matched.id) === true ? 'matched' : 'no_access';
+    }
+    assignments.push({ row: number, leadName: row.leadName, requested: row.assignTo, matchedName: matched?.name ?? null, status });
+    if (status === 'not_found') issues.push({ row: number, code: 'assignee', message: `Row ${number}: Assign To must match one active agent name or email. Check “${row.assignTo}”.` });
+    if (status === 'no_access') issues.push({ row: number, code: 'assignee_access', message: `Row ${number}: ${matched!.name} needs reply access to the selected inbox.` });
     if (await matchingContact(sql, tenantId, mobile) !== null) existing += 1;
   }
   const ready = seen.size;
   return { totalRows: input.rows.length, validLeads: ready, newContacts: ready - existing, existingContacts: existing,
     duplicateLeads: duplicate, invalidMobileNumbers: invalidMobile, missingRequiredFields: missing,
-    readyToSend: issues.some((issue) => issue.code !== 'duplicate') ? 0 : ready, issues };
+    readyToSend: issues.some((issue) => issue.code !== 'duplicate') ? 0 : ready, assignments, issues };
 }
 
 async function ensureLabel(sql: SqlExecutor, tenantId: string, name: string): Promise<string> {

@@ -72,6 +72,10 @@ test.describe('focused product UX repairs', () => {
   test('a WhatsApp broadcast goes from template and audience to sending in one confirmation', async ({ page }) => {
     // The workspace first: routes added after it answer before its defaults.
     await openScreen(page, 'broadcasts', '?lang=en');
+    await page.route('**/api/v1/tenants/*/custom-fields', (route) => route.fulfill({ json: { data: [{
+      id: '11111111-1111-4111-8111-111111111119', target: 'contact', key: 'course', name: 'Course',
+      type: 'text', options: [], state: 'active', version: 1,
+    }], page: { next_cursor: null, has_more: false } } }));
     const calls: { path: string; body: unknown }[] = [];
     const campaign = {
       id: 'campaign-broadcast', name: 'Sunday reminder', objective: null, connection_id: CONNECTION, state: 'draft', version: 1,
@@ -111,6 +115,11 @@ test.describe('focused product UX repairs', () => {
     await dialog.locator('.dialog__footer [data-act="live-broadcast-step"]').click();
     await dialog.locator('.tpl-card').click();
     await expect(dialog.locator('.wa-bubble__body')).toHaveText('Hi Mona, your class starts {{2}}.');
+    await dialog.locator('[data-form="campaignParam_body_2_source"]').selectOption('field');
+    await expect(dialog.locator('[data-form="campaignParam_body_2_field"]')).toBeVisible();
+    await dialog.locator('[data-form="campaignParam_body_2_field"]').selectOption('11111111-1111-4111-8111-111111111119');
+    await expect(dialog.locator('.wa-bubble__body')).toHaveText('Hi Mona, your class starts [Course].');
+    await dialog.locator('[data-form="campaignParam_body_2_source"]').selectOption('static');
     await dialog.locator('[data-form="campaignParam_body_2_value"]').fill('on Sunday');
     await expect(dialog.locator('.wa-bubble__body')).toHaveText('Hi Mona, your class starts on Sunday.');
     await dialog.locator('.dialog__footer [data-act="live-broadcast-step"][data-arg="2"]').click();
@@ -137,6 +146,7 @@ test.describe('focused product UX repairs', () => {
       await route.fulfill({ json: { data: {
         totalRows: 1, validLeads: 1, newContacts: 1, existingContacts: 0, duplicateLeads: 0,
         invalidMobileNumbers: 0, missingRequiredFields: 0, readyToSend: 1, issues: [],
+        assignments: [{ row: 2, leadName: 'Example Lead', requested: 'Agent A', matchedName: 'Ahmed Ibrahim', status: 'matched' }],
       } } });
     });
     await page.locator('[data-act="live-campaign-editor"][data-arg=""]').first().click();
@@ -158,6 +168,7 @@ test.describe('focused product UX repairs', () => {
       });
       await checked;
       await expect(dialog.locator('.broadcast__import-stats > div').filter({ hasText: 'Ready' }).locator('strong')).toHaveText('1');
+      await expect(dialog.locator('.broadcast__assignments')).toContainText('Assign to Ahmed Ibrahim');
       expect(requests[index]).toEqual({ connectionId: CONNECTION, campaignName: 'Autumn offer', rows: [{
         leadName: 'Example Lead', mobile: '01000000000', courseName: '', label: 'Autumn', assignTo: 'Agent A', campaignName: 'Autumn offer',
       }] });

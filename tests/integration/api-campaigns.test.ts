@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApiApplication } from '../../apps/api/src/app.js';
 import { CampaignPlannerService } from '../../apps/api/src/campaigns/campaign-planner.service.js';
 import { ConversationService } from '../../apps/api/src/conversations/conversation.service.js';
+import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
 import { parseReportFilters } from '../../apps/api/src/campaigns/campaign-request.js';
 import { CampaignReportExportService } from '../../apps/api/src/campaigns/report-export.service.js';
 import { reportQuery } from '../../apps/api/src/campaigns/reporting.service.js';
@@ -138,6 +139,126 @@ describe('campaign API', () => {
 
   beforeAll(async () => { api = await setup(); }, 120_000);
   afterAll(async () => { if (api !== undefined) await api.app.close(); });
+
+  it('routes imported lead owners and shows accepted outreach before and after customer replies', async () => {
+    const api = await setup();
+    try {
+      const name = 'Assigned broadcast';
+      const template = await withTenant(api.pool, api.tenantId, async (sql) => {
+        await sql.query('UPDATE memberships SET display_name=$2 WHERE id=$1', [api.ownerMembershipId, 'Ahmed Ibrahim']);
+        await api.app.get(ChannelCredentialService).store(sql,
+          { tenantId: api.tenantId, connectionId: api.connectionId, purpose: 'access_token' }, 'test-token', null);
+        return (await sql.query<{ id: string }>(
+          `INSERT INTO whatsapp_templates (tenant_id,connection_id,provider_template_id,template_name,language,category,status,components,variables,last_synced_at)
+           VALUES ($1,$2,'meta-owned','owned_offer','en','marketing','approved',$3::jsonb,'[]'::jsonb,now()) RETURNING id::text`,
+          [api.tenantId, api.connectionId, JSON.stringify([{ type: 'BODY', text: 'Hello {{1}}, your course is ready.' }])])).rows[0]!.id;
+      });
+      const input = { connectionId: api.connectionId, campaignName: name, rows: [
+        { leadName: 'Imported Lead', mobile: '01012345678', courseName: '', label: 'Offer', assignTo: ' ahmed   IBRAHIM ', campaignName: name },
+        { leadName: 'Unassigned Lead', mobile: '01112345678', courseName: '', label: 'Offer', assignTo: '', campaignName: name },
+      ] };
+      const preview = await send(api, 'POST', '/campaigns/lead-import-preview', input);
+      expect(preview.statusCode, preview.body).toBe(200);
+      expect(preview.json()).toMatchObject({ data: { readyToSend: 2, assignments: [
+        { row: 2, matchedName: 'Ahmed Ibrahim', status: 'matched' },
+        { row: 3, status: 'unassigned' },
+      ] } });
+      const campaign = await send(api, 'POST', '/campaigns', draft(api, { name,
+        content: { template: { id: template, parameters: { 'body:1': { source: 'display_name' } } } },
+        audienceFilter: { contactIds: ['00000000-0000-4000-8000-000000000000'] },
+      }), 'assigned-broadcast-create');
+      expect(campaign.statusCode, campaign.body).toBe(201);
+      const saved = campaign.json() as { data: { id: string; version: number } };
+      const imported = await send(api, 'POST', `/campaigns/${saved.data.id}/leads/import`, input);
+      expect(imported.statusCode, imported.body).toBe(201);
+      const contactIds = (imported.json() as { data: { contactIds: string[] } }).data.contactIds;
+      const revised = await send(api, 'PATCH', `/campaigns/${saved.data.id}`, { ...draft(api, { name,
+        content: { template: { id: template, parameters: { 'body:1': { source: 'display_name' } } } }, audienceFilter: { contactIds },
+      }), expectedVersion: saved.data.version }, 'assigned-broadcast-audience');
+      expect(revised.statusCode, revised.body).toBe(200);
+      expect((await send(api, 'POST', `/campaigns/${saved.data.id}/validate`)).statusCode).toBe(201);
+      expect((await send(api, 'POST', `/campaigns/${saved.data.id}/approve`)).statusCode).toBe(201);
+      expect((await send(api, 'POST', `/campaigns/${saved.data.id}/launch`, { mode: 'now' }, 'assigned-launch')).statusCode).toBe(202);
+      const planner = api.app.get(CampaignPlannerService);
+      expect(await planner.plan(api.tenantId, 10)).toBe(2);
+      providerOutcomes.push(
+        { status: 'accepted', providerMessageId: 'wamid.assigned.1', raw: {} },
+        { status: 'accepted', providerMessageId: 'wamid.assigned.2', raw: {} });
+      expect(await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'assigned-test', 'bulk')).toMatchObject({ accepted: 2 });
+      const threads = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{
+        id: string; version: number; peer_identity: string; contact_id: string; assignee_membership_id: string | null;
+      }>(`SELECT id::text,version,peer_identity,contact_id::text,assignee_membership_id::text
+           FROM conversations ORDER BY peer_identity`));
+      expect(threads.rows).toHaveLength(2);
+      const owned = threads.rows[0]!;
+      expect(owned).toMatchObject({ peer_identity: '201012345678', assignee_membership_id: api.ownerMembershipId, contact_id: contactIds[0] });
+      expect(threads.rows[1]?.assignee_membership_id).toBeNull();
+      const mine = await send(api, 'GET', '/conversations?queue=mine');
+      expect(mine.statusCode, mine.body).toBe(200);
+      expect(mine.json()).toMatchObject({ data: [expect.objectContaining({ id: owned.id, assigneeName: 'Ahmed Ibrahim', lastMessagePreview: 'Hello Imported Lead, your course is ready.' })] });
+      const timeline = await send(api, 'GET', `/conversations/${owned.id}/messages`);
+      expect(timeline.statusCode, timeline.body).toBe(200);
+      expect(timeline.json()).toMatchObject({ data: [expect.objectContaining({ direction: 'out', template_preview: 'Hello Imported Lead, your course is ready.' })] });
+      // An ordinary positive text reply and a button label must join the same
+      // owned thread without hiding the preceding outbound template.
+      await withTenant(api.pool, api.tenantId, async (sql) => {
+        const receipt = (await sql.query<{ id: string }>(
+          `INSERT INTO webhook_receipts (route_key,body_sha256,body_bytes,signature_valid,outcome,tenant_id)
+           VALUES ('test',$1,0,true,'routed',$2) RETURNING id::text`, ['a'.repeat(64), api.tenantId])).rows[0]!.id;
+        for (const [index, text] of ['Interested', 'نعم'].entries()) {
+          const event = (await sql.query<{ id: string }>(
+            `INSERT INTO channel_events (tenant_id,connection_id,receipt_id,dedupe_key,event_type,payload,normalized)
+             VALUES ($1,$2,$3,$4,'message','{}'::jsonb,$5::jsonb) RETURNING id::text`,
+            [api.tenantId, api.connectionId, receipt, `reply-${index}`, JSON.stringify({ kind: 'message',
+              providerMessageId: `wamid.reply.${index}`, peerIdentity: owned.peer_identity, assetIdentity: 'phone-campaign',
+              contentType: 'text', text, occurredAt: new Date().toISOString(), attachments: [], detail: {},
+            })])).rows[0]!.id;
+          await sql.query('INSERT INTO channel_event_queue (tenant_id,event_id) VALUES ($1,$2)', [api.tenantId, event]);
+        }
+      });
+      expect(await api.app.get(ChannelNormalizationService).drain(api.tenantId)).toMatchObject({ projected: 2, failed: 0 });
+      const replied = await send(api, 'GET', `/conversations/${owned.id}/messages`);
+      expect((replied.json() as { data: { direction: string; text: string | null }[] }).data.filter((message) => message.direction === 'in').map((message) => message.text)).toEqual(['Interested', 'نعم']);
+      expect((replied.json() as { data: unknown[] }).data).toHaveLength(3);
+      expect((await send(api, 'GET', `/conversations/${owned.id}`)).json()).toMatchObject({ data: { assigneeMembershipId: api.ownerMembershipId } });
+      // An explicit release wins over the imported owner on later traffic.
+      const current = (await send(api, 'GET', `/conversations/${owned.id}`)).json() as { data: { version: number } };
+      const released = await send(api, 'POST', `/conversations/${owned.id}/release`, { version: current.data.version });
+      expect(released.statusCode, released.body).toBe(200);
+      const afterRelease = await withTenant(api.pool, api.tenantId, (sql) =>
+        api.app.get(ConversationService).ensure(sql, api.tenantId, api.connectionId, owned.peer_identity));
+      expect(afterRelease.assigneeMembershipId).toBeNull();
+      const migration = scratchMigrationPool(api.names);
+      try {
+        await withTenant(migration, api.tenantId, (sql) => sql.query(`INSERT INTO campaign_inbox_repairs (tenant_id,outbound_message_id)
+          SELECT tenant_id,id FROM outbound_messages WHERE tenant_id=$1`, [api.tenantId]));
+      } finally { await migration.end(); }
+      expect(await planner.pendingTenants()).toContain(api.tenantId);
+      expect(await planner.plan(api.tenantId, 10)).toBe(2);
+      expect(await planner.plan(api.tenantId, 10)).toBe(0);
+      expect((await send(api, 'GET', `/conversations/${owned.id}`)).json()).toMatchObject({ data: { assigneeMembershipId: null } });
+      const archivedId = threads.rows[1]!.id;
+      const resolved = await send(api, 'POST', `/conversations/${archivedId}/transitions`, {
+        command: 'resolve', version: threads.rows[1]!.version, resolution: 'Completed',
+      });
+      expect(resolved.statusCode, resolved.body).toBe(200);
+      const archive = await send(api, 'POST', `/conversations/${archivedId}/transitions`, {
+        command: 'archive', version: (resolved.json() as { data: { version: number } }).data.version,
+      });
+      expect(archive.statusCode, archive.body).toBe(200);
+      const archiveQueue = scratchMigrationPool(api.names);
+      try {
+        await withTenant(archiveQueue, api.tenantId, (sql) => sql.query(`INSERT INTO campaign_inbox_repairs (tenant_id,outbound_message_id)
+          SELECT tenant_id,id FROM outbound_messages WHERE tenant_id=$1 AND peer_identity='201112345678'`, [api.tenantId]));
+      } finally { await archiveQueue.end(); }
+      expect(await planner.plan(api.tenantId, 10)).toBe(1);
+      const historical = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ status: string }>(
+        'SELECT status FROM conversations WHERE id=$1', [archivedId]));
+      expect(historical.rows).toEqual([{ status: 'archived' }]);
+    } finally {
+      await api.app.close();
+    }
+  });
 
   it('previews and imports a deduplicated lead sheet, then labels only accepted sends', async () => {
     const api = await setup();
@@ -688,6 +809,9 @@ describe('campaign API', () => {
     });
     expect(afterInbound).toMatchObject({ conversation_id: conversation.id });
     expect(afterInbound.bound_at).toBeInstanceOf(Date);
+    const outreachTimeline = await send(api, 'GET', `/conversations/${conversation.id}/messages`);
+    expect(outreachTimeline.statusCode, outreachTimeline.body).toBe(200);
+    expect(outreachTimeline.json()).toMatchObject({ data: [expect.objectContaining({ direction: 'out', text: planned.text_body })] });
     const campaignFilter = encodeURIComponent(JSON.stringify({ key: 'campaign_id', operator: 'eq', value: id }));
     const attributedInbox = await send(api, 'GET', `/conversations?queue=all&filter=${campaignFilter}`);
     expect(attributedInbox.statusCode).toBe(200);
