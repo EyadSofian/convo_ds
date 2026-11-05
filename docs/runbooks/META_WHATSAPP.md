@@ -27,6 +27,7 @@ successful form submission or webhook challenge alone.
 | Messenger outbound text | yes — Page-scoped Graph `/{page-id}/messages` |
 | Instagram outbound text | yes — Facebook Login with linked Page token, Graph `/{page-id}/messages` |
 | Messenger / Instagram media | **no** — explicit `attachment_not_supported`; never silently downgraded |
+| Messenger / Instagram history | yes — **Fetch messages from Meta**, through the normal inbound journal |
 
 Messenger and Instagram share the app registration and webhook signature
 scheme, but not the send contract, messaging window or template rules. CONVO
@@ -126,6 +127,20 @@ projection so the composer can become writable without a browser refresh.
    misconfiguration. Existing Instagram connections without a Page ID show
    `instagram_page_required`; use **Verify & save** to bind the correct Page
    only after its stored credential passes Page + Instagram identity checks.
+   **Messenger and Instagram.** Publish the Meta app and get **Advanced Access**
+   to `pages_messaging` (and `instagram_manage_messages`) through App Review. With
+   Standard Access Meta only delivers events, and only returns conversations, for
+   people who have a role on the app, so an inbox can look like it works with the
+   team's own test accounts while real customers never appear. In the dashboard,
+   subscribe the app to `messages`, `message_echoes`, `message_deliveries`,
+   `message_reads`, `message_reactions`, `messaging_postbacks`,
+   `messaging_handovers` and `standby`. Then press **Fetch messages from Meta** on
+   the connection: it subscribes the Page with its own token (which needs
+   `pages_manage_metadata`) and imports the last 30 days, up to 100 conversations
+   and Meta's limit of 20 messages each. Repeating it is safe. Imported messages
+   show the customer and what was said, never reopen a resolved thread and never
+   notify anybody, and a thread archived after them stays archived. Meta's own
+   refusal is what the button shows, because it is the next step to take.
 9. Subscribe only the fields required for the connected products. For WhatsApp,
    use **Subscribe WhatsApp events** on the Channels connection to subscribe
    the app once per WABA with the connection's encrypted, management-scoped

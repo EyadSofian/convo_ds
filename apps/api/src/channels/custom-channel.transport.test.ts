@@ -151,8 +151,16 @@ describe('the installation transport with our own channels in front', () => {
       fetchTemplates(this: ChannelTransportPort) {
         return Promise.resolve({ ok: true, templates: [] });
       },
+      syncMetaPage(this: ChannelTransportPort) {
+        return Promise.resolve({ ok: false, code: this.name, message: 'bound', retryable: false });
+      },
+      fetchInboundMedia(this: ChannelTransportPort) {
+        return Promise.resolve({ ok: false, code: this.name, message: 'bound', retryable: false });
+      },
     };
     const routed = withOwnChannels(base);
+    expect(await routed.fetchInboundMedia!('messenger', 't', 'm')).toMatchObject({ code: 'provider' });
+    expect(await routed.syncMetaPage!('messenger', 't', '1', new Date())).toMatchObject({ code: 'provider' });
     expect(await routed.fetchPeerProfile!('messenger', 't', 'p')).toBe('provider');
     expect(await routed.fetchTemplates!('whatsapp', 't', 'a')).toEqual({ ok: true, templates: [] });
   });

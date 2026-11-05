@@ -14,9 +14,9 @@
     display: grid;
     gap: var(--space-2);
     flex: none;
-    padding: var(--space-3) var(--space-3) var(--space-2);
+    padding: var(--space-2) var(--space-3);
     border-block-end: 1px solid var(--border);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 60%, var(--surface-1)), var(--surface-1));
+    background: var(--surface-1);
   }
 
   .listhead__row {
@@ -56,10 +56,28 @@
     padding-inline: var(--space-1);
   }
 
-  .listhead__quick .inbox-quick-message {
-    inline-size: 100%;
+  .listhead__row--actions .inbox-quick-message {
+    flex: none;
     justify-content: center;
     border-radius: var(--radius-md);
+  }
+
+  /* The picker takes what is left, and its options open across the whole list. */
+  .listhead__row--actions .inbox-lines {
+    position: static;
+    flex: 1 1 0;
+    min-inline-size: 0;
+  }
+
+  .listhead__row--actions .inbox-lines > .btn {
+    inline-size: 100%;
+    justify-content: flex-start;
+  }
+
+  .listhead__row--actions .inbox-lines .btn__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .listhead__supervisor {
@@ -373,7 +391,7 @@
   }
 
   .convrow--unread .convrow__name {
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
   }
 
   .convrow--unread .convrow__time {
@@ -404,7 +422,7 @@
     display: block;
     min-inline-size: 0;
     overflow: hidden;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: var(--text-xs);
     line-height: 1.35;
     text-overflow: ellipsis;
@@ -445,6 +463,9 @@
 
   .thread {
     position: relative;
+    /* The tools in this column depend on how much of it is left, and the customer
+       panel beside it decides that far more than the size of the window does. */
+    container: thread / inline-size;
   }
 
   .thread__placeholder {
@@ -462,8 +483,7 @@
     flex: none;
     padding-inline: var(--space-4) var(--space-3);
     border-block-end: 1px solid var(--glass-edge);
-    background: var(--glass-strong);
-    box-shadow: inset 0 -1px 0 var(--glass-rim);
+    background: var(--surface-1);
   }
 
   .thread__header .avatar {
@@ -510,7 +530,7 @@
     gap: var(--space-1);
   }
 
-  @container screen (max-width: 1100px) {
+  @container thread (max-width: 820px) {
     .thread__badges {
       display: none;
     }
@@ -564,10 +584,6 @@
   }
 
   .daysep span {
-    padding: var(--space-half) var(--space-3);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-full);
-    background: var(--surface-1);
     color: var(--text-muted);
     font-size: var(--text-2xs);
     font-weight: var(--weight-medium);
@@ -604,16 +620,14 @@
 
   .msg__reaction-time { font-size: var(--text-2xs); }
 
-  /* Customer bubbles are white cards on the tinted thread; ours are the brand
-     gradient with white text, so who said what reads at a glance. */
+  /* White for the customer, a quiet blue tint for us, ink text in both: long Arabic
+     messages stay easy to read, and who said what is still plain at a glance. */
   .msg__bubble {
-    padding: var(--space-2) var(--space-4);
-    padding-block: 10px;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-xl);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     border-end-start-radius: var(--radius-xs);
     background: var(--bubble-in);
-    box-shadow: var(--shadow-sm);
     font-size: var(--text-md);
     line-height: var(--leading-normal);
     white-space: pre-wrap;
@@ -633,16 +647,10 @@
   }
 
   .msg--out .msg__bubble {
-    border-color: transparent;
-    border-end-start-radius: var(--radius-xl);
+    border-color: var(--bubble-out-edge);
+    border-end-start-radius: var(--radius-lg);
     border-end-end-radius: var(--radius-xs);
-    background: var(--grad-brand);
-    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--accent) 70%, transparent);
-    color: var(--on-accent);
-  }
-
-  .msg--out .msg__bubble a {
-    color: var(--on-accent);
+    background: var(--bubble-out);
   }
 
   .msg__template-label {
@@ -685,11 +693,7 @@
     color: var(--unknown);
   }
 
-  .msg__anomaly {
-    color: var(--warning);
-  }
-
-  /* ------------------------------------------------------------ lifecycle -- */
+    /* ------------------------------------------------------------ lifecycle -- */
 
   .lifecycle__form {
     display: grid;
@@ -743,10 +747,10 @@
   .composer {
     flex: none;
     margin: 0 var(--space-4) var(--space-4);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-xl);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     background: var(--surface-1);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-xs);
     transition: border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
   }
 
@@ -762,7 +766,7 @@
     flex: none;
     gap: 2px;
     padding: 2px;
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-md);
     background: var(--surface-3);
   }
 
@@ -773,7 +777,7 @@
     block-size: 28px;
     padding-inline: var(--space-3);
     border: 0;
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text-muted);
     font-size: var(--text-xs);
@@ -787,9 +791,8 @@
 
   .composer__tab[aria-selected='true'] {
     background: var(--surface-1);
-    box-shadow: var(--shadow-sm);
     color: var(--accent-text);
-    font-weight: var(--weight-semibold);
+    font-weight: var(--weight-medium);
   }
 
   .composer--note .composer__tabs {
@@ -813,7 +816,7 @@
   .composer__send.btn--primary {
     background: var(--brand-highlight);
     color: var(--on-highlight);
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
   }
 
   .composer__send.btn--primary:hover:not([disabled]),
@@ -830,12 +833,7 @@
   }
 
   .composer__templates {
-    border-color: color-mix(in srgb, var(--brand-whatsapp) 35%, var(--border));
-    color: var(--success);
-  }
-
-  .composer__templates:hover:not([disabled]) {
-    background: var(--success-soft);
+    color: var(--text-secondary);
   }
 
   .composer__box {
@@ -862,11 +860,12 @@
     outline: none;
   }
 
-  /* The box, not the bare textarea, carries the ring: a 2px ring in the
-     contrast-tested focus colour, the same weight as every other control. */
+  /* The box, not the bare textarea, carries the focus: the contrast-tested colour
+     on the border and a soft ring, the same as the search field. It is focused
+     most of the working day, so a heavy outline would never leave the screen. */
   .composer:focus-within {
     border-color: var(--focus-ring);
-    box-shadow: 0 0 0 1px var(--focus-ring);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
   .composer__toolbar {
@@ -907,9 +906,14 @@
     padding: var(--space-2);
   }
 
-  @container screen (max-width: 520px) {
+  /* The hint gives way first, then the templates label, so Send stays on the row. */
+  @container thread (max-width: 760px) {
     .composer__hint {
       display: none;
+    }
+
+    .composer__toolbar .composer__send {
+      margin-inline-start: 0;
     }
 
     .composer__toolbar .composer__templates {
@@ -921,6 +925,310 @@
     /* Icon-only on a phone so Reply/Note, Templates and Send share one row;
        the label stays the accessible name, and the title names it on hover. */
     .composer__toolbar .composer__templates .btn__label {
+      position: absolute;
+      inline-size: 1px;
+      block-size: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+
+  /* The emoji popover opens upwards from its button. It is a `.popover`, which
+     opens downwards, so that edge has to be released: with both set and no height
+     it collapses to a sliver and its contents spill off the bottom of the screen. */
+  .composer__emoji {
+    position: relative;
+  }
+
+  .composer__emoji-picker {
+    inset-block: auto calc(100% + var(--space-2));
+    inset-inline: 0 auto;
+    grid-template-columns: repeat(6, 36px);
+    gap: var(--space-1);
+    inline-size: max-content;
+    min-inline-size: 0;
+    padding: var(--space-2);
+    transform-origin: bottom;
+  }
+
+  .composer__emoji-item {
+    block-size: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .composer__emoji-item:hover,
+  .composer__emoji-item:focus-visible {
+    background: var(--surface-hover);
+  }
+
+  /* ---------------------------------------------------------- voice notes --
+     The bars are the note: the one place on this screen with something to look
+     at, so everything around them stays plain.
+     -------------------------------------------------------------------- */
+
+  .msg__bubble--voice {
+    padding: var(--space-2);
+  }
+
+  .msg__attachment-video {
+    display: block;
+    inline-size: min(320px, 100%);
+    max-block-size: 320px;
+    border-radius: var(--radius-md);
+    background: var(--surface-3);
+  }
+
+  .voice {
+    --voice-rest: color-mix(in srgb, var(--text) 26%, transparent);
+    --voice-played: var(--accent-text);
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    inline-size: min(320px, 100%);
+    min-inline-size: 240px;
+    color: var(--text);
+    white-space: normal;
+  }
+
+  .voice--draft {
+    flex: 1 1 auto;
+    inline-size: auto;
+  }
+
+  .voice__toggle {
+    display: grid;
+    flex: none;
+    place-items: center;
+    inline-size: 36px;
+    block-size: 36px;
+    border: 0;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+    color: var(--on-accent);
+    cursor: pointer;
+    transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+  }
+
+  .voice__toggle:hover {
+    background: var(--accent-hover);
+  }
+
+  .voice__toggle:active {
+    transform: scale(0.96);
+  }
+
+  .voice__toggle svg {
+    fill: currentColor;
+    stroke: none;
+  }
+
+  .voice[data-status='loading'] .voice__toggle {
+    background: var(--surface-3);
+    color: var(--text-muted);
+  }
+
+  .voice[data-status='failed'] .voice__toggle {
+    background: var(--surface-3);
+    color: var(--text);
+  }
+
+  .voice[data-status='failed'] .voice__toggle svg {
+    fill: none;
+    stroke: currentColor;
+  }
+
+  .voice__body {
+    display: grid;
+    flex: 1 1 auto;
+    gap: var(--space-half);
+    min-inline-size: 0;
+  }
+
+  .voice__track {
+    position: relative;
+    block-size: 28px;
+  }
+
+  .voice__bars {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1px;
+  }
+
+  /* Drawn twice, and one custom property moves the playhead by clipping the played
+     layer, so playing never touches a single bar. */
+  .voice__bars--played {
+    --voice-rest: var(--voice-played);
+    clip-path: inset(0 calc((1 - var(--progress, 0)) * 100%) 0 0);
+  }
+
+  .voice__bars i {
+    flex: 0 1 3px;
+    min-inline-size: 2px;
+    block-size: calc(var(--bar, 0.1) * 100%);
+    min-block-size: 3px;
+    border-radius: var(--radius-full);
+    background: var(--voice-rest);
+  }
+
+  /* The range is the control: dragging, arrow keys and screen readers all come
+     with it. It sits invisibly over the bars. */
+  .voice__seek {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .voice__seek:disabled {
+    cursor: default;
+  }
+
+  .voice:has(.voice__seek:focus-visible) .voice__track {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
+
+  .voice__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .voice__rate {
+    padding: 1px var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .voice__rate:hover {
+    background: var(--surface-hover);
+  }
+
+  .voice__failed {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+  }
+
+  .voice__download {
+    margin-inline-start: var(--space-1);
+    color: var(--accent-text);
+  }
+
+  /* ------------------------------------------------------------- recorder -- */
+
+  .composer__voice {
+    display: grid;
+  }
+
+  .recorder {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-block-size: var(--composer-min-height);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .recorder__status {
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+  }
+
+  .recorder__live {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+
+  /* It really is live, so this one pulse has something to say. */
+  .recorder__dot {
+    flex: none;
+    inline-size: 8px;
+    block-size: 8px;
+    border-radius: var(--radius-full);
+    background: var(--danger);
+    animation: convo-pulse 1.4s ease-in-out infinite;
+  }
+
+  .recorder__time {
+    flex: none;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .recorder__meter {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2px;
+    block-size: 28px;
+    min-inline-size: 0;
+    overflow: hidden;
+  }
+
+  .recorder__meter i {
+    flex: 0 0 3px;
+    block-size: calc(max(var(--level, 0), 0.08) * 100%);
+    border-radius: var(--radius-full);
+    background: var(--accent-text);
+  }
+
+  .recorder__error {
+    color: var(--danger);
+    font-size: var(--text-sm);
+  }
+
+  /* On a phone everything still shares one row, so Send never sits alone below it.
+     The labels stay the accessible names; only their ink goes. */
+  @container thread (max-width: 460px) {
+    .composer__toolbar .composer__tab svg {
+      display: none;
+    }
+
+    .composer__toolbar .composer__tab {
+      padding-inline: var(--space-2);
+    }
+
+    .composer__toolbar {
+      flex-wrap: nowrap;
+      gap: var(--space-1);
+    }
+
+    .composer__toolbar .composer__send {
+      inline-size: var(--control-height-sm);
+      padding-inline: 0;
+    }
+
+    .composer__toolbar .composer__send .btn__label {
       position: absolute;
       inline-size: 1px;
       block-size: 1px;
@@ -955,7 +1263,7 @@
     }
 
     .composer:focus-within {
-      box-shadow: 0 0 0 1px var(--focus-ring);
+      box-shadow: 0 0 0 3px var(--accent-soft);
     }
 
     .composer__closed-window {
@@ -1063,8 +1371,7 @@
   }
 
   .zone--panel > .zone__header {
-    background: var(--glass-strong);
-    box-shadow: inset 0 -1px 0 var(--glass-rim);
+    background: var(--surface-1);
   }
 
   .zone--panel > .zone__body {
@@ -1081,7 +1388,6 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--surface-1);
-    box-shadow: var(--shadow-card);
   }
 
   .zone--panel > .zone__body > .panel-section:first-child {
@@ -1114,31 +1420,7 @@
     isolation: isolate;
   }
 
-  .contact__who::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background-image: linear-gradient(var(--hero-grid) 1px, transparent 1px),
-      linear-gradient(90deg, var(--hero-grid) 1px, transparent 1px);
-    background-size: 22px 22px;
-    mask-image: linear-gradient(120deg, transparent 25%, black 80%);
-  }
-
-  .contact__who::after {
-    content: '';
-    position: absolute;
-    inset-block-start: -70px;
-    inset-inline-end: -50px;
-    z-index: -1;
-    inline-size: 180px;
-    block-size: 180px;
-    border: 1px solid color-mix(in srgb, var(--brand-highlight) 50%, transparent);
-    border-radius: var(--radius-full);
-    box-shadow: 0 0 0 26px color-mix(in srgb, var(--brand-highlight) 7%, transparent);
-  }
-
-  .contact__hero {
+    .contact__hero {
     display: flex;
     align-items: center;
     gap: var(--space-4);
@@ -1146,8 +1428,7 @@
   }
 
   .contact__hero .avatar--xl {
-    box-shadow: 0 0 0 4px var(--glass-on-dark-border), 0 0 0 7px color-mix(in srgb, var(--brand-highlight) 55%, transparent),
-      0 14px 30px -10px color-mix(in srgb, var(--tone-b) 90%, transparent);
+    box-shadow: 0 0 0 2px var(--glass-on-dark-border);
   }
 
   .contact__hero-copy {
@@ -1157,19 +1438,16 @@
   }
 
   .contact__eyebrow {
-    color: var(--brand-highlight);
+    color: var(--nav-text);
     font-size: var(--text-2xs);
-    font-weight: var(--weight-bold);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-weight: var(--weight-medium);
   }
 
   .contact__name {
     overflow-wrap: anywhere;
     color: var(--nav-text-strong);
     font-size: var(--text-xl);
-    font-weight: var(--weight-bold);
-    letter-spacing: -0.01em;
+    font-weight: var(--weight-semibold);
     line-height: var(--leading-tight);
   }
 
@@ -1201,8 +1479,6 @@
     color: var(--nav-text-strong);
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
   }
 
   .contact__reach-mark {
@@ -1244,30 +1520,13 @@
     gap: var(--space-half);
     min-inline-size: 0;
     padding: var(--space-3);
-    padding-block-start: calc(var(--space-3) + 3px);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    background: linear-gradient(160deg, var(--fact-soft), var(--surface-1) 70%);
-    box-shadow: var(--shadow-xs);
+    background: var(--surface-1);
     overflow: hidden;
-    transition: translate var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out);
   }
 
-  .contact__fact::before {
-    content: '';
-    position: absolute;
-    inset-block-start: 0;
-    inset-inline: 0;
-    block-size: 3px;
-    background: var(--fact-ink);
-  }
-
-  .contact__fact:hover {
-    translate: 0 -2px;
-    box-shadow: var(--shadow-card-hover);
-  }
-
-  .contact__fact--blue { --fact-soft: var(--accent-soft); --fact-ink: var(--accent-text); }
+    .contact__fact--blue { --fact-soft: var(--accent-soft); --fact-ink: var(--accent-text); }
   .contact__fact--violet { --fact-soft: var(--violet-soft); --fact-ink: var(--violet); }
   .contact__fact--success { --fact-soft: var(--success-soft); --fact-ink: var(--success); }
   .contact__fact--warning { --fact-soft: var(--warning-soft); --fact-ink: var(--warning); }
@@ -1877,6 +2136,6 @@
 
 /* Team activity stays secondary to the customer and message. */
 .convrow__assignee{display:flex;align-items:center;gap:var(--space-1);font-size:var(--text-xs);color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.thread__assignee{display:block;font-size:var(--text-xs);color:var(--text-muted)}
-.msg__author{font-weight:600}.msg__team-seen{display:flex;align-items:center;gap:var(--space-1);font-size:var(--text-xs);color:var(--text-muted);max-width:100%;flex-wrap:wrap;margin-block-start:var(--space-1)}
+.thread__assignee{font-size:var(--text-xs);color:var(--text-muted)}.thread__assignee::before{content:' · '}
+.msg__author{font-weight:var(--weight-medium)}.msg__team-seen{display:flex;align-items:center;gap:var(--space-1);font-size:var(--text-xs);color:var(--text-muted);max-width:100%;flex-wrap:wrap;margin-block-start:var(--space-1)}
 .composer--readonly{display:flex;gap:var(--space-2);align-items:center;color:var(--text-muted)}

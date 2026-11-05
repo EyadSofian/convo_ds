@@ -13,7 +13,7 @@ import { parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ProfileLookupError } from '../../apps/api/src/channels/channel-transport.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
-import type { ProviderTemplate, TemplateFetchResult } from '../../apps/api/src/channels/channel-transport.js';
+import type { InboundMediaResult, MetaPageSync, ProviderTemplate, TemplateFetchResult } from '../../apps/api/src/channels/channel-transport.js';
 import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig } from '../../packages/domain/src/index.js';
@@ -3105,15 +3105,16 @@ describe('durable Meta sender profile enrichment', () => {
         client.query<{ type: string }>(`SELECT type FROM realtime_events WHERE tenant_id=$1 AND type='message.external'`, [api.tenantId]),
       )).rows.map((row) => row.type);
 
-      // Meta's instant reply can be drained before the message it answers.
-      // There is no thread yet, so it opens none and is only recorded.
+      // Meta's instant reply can be drained before the message it answers. It
+      // opens the thread, with nobody waiting, and the message then joins it.
       expect((await deliver(api, echo('mid.echo.instant', 'We received your information', asked + 500, 263902037430900))).statusCode).toBe(200);
       await normalizer.drain(api.tenantId);
-      const early = await withTenant(api.pool, api.tenantId, (client) => client.query<{ kind: string; peer_identity: string; conversation_id: string | null }>(
-        `SELECT kind, peer_identity, conversation_id::text FROM inbound_events WHERE provider_message_id='mid.echo.instant'`,
+      const early = await withTenant(api.pool, api.tenantId, (client) => client.query<{ kind: string; peer_identity: string; conversation_id: string | null; waiting_since: Date | null; last_activity_at: Date }>(
+        `SELECT e.kind, e.peer_identity, e.conversation_id::text, c.waiting_since, c.last_activity_at
+           FROM inbound_events e JOIN conversations c ON c.id = e.conversation_id WHERE e.provider_message_id='mid.echo.instant'`,
       ));
-      expect(early.rows).toEqual([{ kind: 'echo', peer_identity: customer, conversation_id: null }]);
-      expect(await realtimeTypes()).toEqual([]);
+      expect(early.rows).toEqual([expect.objectContaining({ kind: 'echo', peer_identity: customer, waiting_since: null, last_activity_at: new Date(asked + 500) })]);
+      expect(await realtimeTypes()).toEqual(['message.external']);
 
       await deliver(api, { object: 'page', entry: [{ id: page, messaging: [{
         sender: { id: customer }, recipient: { id: page }, timestamp: asked,
@@ -3139,7 +3140,7 @@ describe('durable Meta sender profile enrichment', () => {
         { provider_message_id: 'mid.echo.ours', conversation_id: null },
         { provider_message_id: 'mid.echo.suite', conversation_id: conversationId },
       ]);
-      expect(await realtimeTypes()).toEqual(['message.external']);
+      expect(await realtimeTypes()).toEqual(['message.external', 'message.external']);
       const activity = await withTenant(api.pool, api.tenantId, (client) => client.query<{ last_activity_at: Date }>(
         'SELECT last_activity_at FROM conversations WHERE id=$1', [conversationId],
       ));
@@ -3160,6 +3161,376 @@ describe('durable Meta sender profile enrichment', () => {
       expect(row?.lastMessagePreview).toBe('مساء الخير يا فندم');
     } finally {
       await api.app.close();
+    }
+  }, 180_000);
+});
+
+describe('customers who only exist at Meta', () => {
+  let api: Harness;
+  let owner: Browser;
+  let normalizer: ChannelNormalizationService;
+  let answer: MetaPageSync = { ok: true, subscriptionError: null, conversations: 0, messages: [] };
+  const seen: { kind: string; pageId: string; since: Date }[] = [];
+  let mediaAnswer: InboundMediaResult = { ok: false, code: 'unset', message: 'unset', retryable: false };
+  const mediaAsked: { kind: string; providerId: string }[] = [];
+
+  beforeAll(async () => {
+    api = await createHarness({ channelTransport: {
+      name: 'meta-sync-test',
+      validateConnection: async () => ({ ok: false, assetIdentity: null, code: 'stub', message: 'stub' }),
+      send: async () => ({ status: 'definitely_rejected', code: 'not_sent', message: 'Test only.', retryable: false }),
+      fetchPeerProfile: async () => null,
+      syncMetaPage: (kind, _credential, pageId, since) => {
+        seen.push({ kind, pageId, since });
+        return Promise.resolve(answer);
+      },
+      fetchInboundMedia: (kind, _credential, providerId) => {
+        mediaAsked.push({ kind, providerId });
+        return Promise.resolve(mediaAnswer);
+      },
+    } });
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+    normalizer = api.app.get(ChannelNormalizationService);
+  }, 180_000);
+
+  afterAll(async () => {
+    await api.app.close();
+  });
+
+  const connectPage = async (kind: 'messenger' | 'instagram', asset: string, settings?: Record<string, unknown>): Promise<string> => {
+    const connected = await send(api, owner, 'POST', '/channels', {
+      kind, externalAssetId: asset, displayName: `${kind} ${asset}`, accessToken: 'synthetic-page-token', appId: api.appId,
+      ...(settings === undefined ? {} : { settings }),
+    });
+    expect(connected.statusCode, connected.body).toBe(201);
+    return (connected.json() as { data: { id: string } }).data.id;
+  };
+  const graphMessage = (id: string, from: string, to: string, at: string, message = `text of ${id}`) => ({
+    id, created_time: at, message, from: { id: from }, to: { data: [{ id: to }] },
+  });
+  const threadOf = async (connectionId: string, peer: string) => (await withTenant(api.pool, api.tenantId, (client) => client.query<{
+    id: string; status: string; waiting_since: Date | null; last_activity_at: Date; contact_id: string | null;
+  }>(
+    `SELECT id::text, status, waiting_since, last_activity_at, contact_id::text FROM conversations
+      WHERE connection_id=$1 AND peer_identity=$2 AND status <> 'archived'`, [connectionId, peer],
+  ))).rows[0];
+  const texts = async (conversationId: string) => ((await send(api, owner, 'GET', `/conversations/${conversationId}/messages`)).json() as {
+    data: { direction: string; text: string | null; command_state: string | null }[];
+  }).data.map((message) => [message.direction, message.text]);
+
+  it('shows a customer whose message arrived on standby', async () => {
+    const page = '700000000000001';
+    const connectionId = await connectPage('messenger', page);
+    const delivered = await deliver(api, { object: 'page', entry: [{ id: page, standby: [{
+      sender: { id: '900000000000001' }, recipient: { id: page }, timestamp: Date.now() - 1000,
+      message: { mid: 'mid.standby.1', text: 'Is anybody there?' },
+    }] }] });
+    expect(delivered.statusCode, delivered.body).toBe(200);
+    await normalizer.drain(api.tenantId);
+    const thread = await threadOf(connectionId, '900000000000001');
+    expect(thread?.status).toBe('open');
+    expect(await texts(thread!.id)).toEqual([['in', 'Is anybody there?']]);
+  });
+
+  it('gives each Page its own customers when Meta batches several into one delivery', async () => {
+    const first = '700000000000002';
+    const second = '700000000000003';
+    const stranger = '700000000000099';
+    const firstId = await connectPage('messenger', first);
+    const secondId = await connectPage('messenger', second);
+    const item = (mid: string, page: string, customer: string) => ({
+      sender: { id: customer }, recipient: { id: page }, timestamp: Date.now(), message: { mid, text: mid },
+    });
+    const delivered = await deliver(api, { object: 'page', entry: [
+      { id: first, messaging: [item('mid.batch.first', first, '900000000000002')] },
+      { id: second, messaging: [item('mid.batch.second', second, '900000000000003')] },
+      // The last Page in the batch is not connected here; it must not take the others with it.
+      { id: stranger, messaging: [item('mid.batch.stranger', stranger, '900000000000004')] },
+    ] });
+    expect(delivered.statusCode, delivered.body).toBe(200);
+    expect(delivered.json()).toMatchObject({ status: 'received', stored: 2 });
+    await normalizer.drain(api.tenantId);
+    expect((await threadOf(firstId, '900000000000002'))).toBeDefined();
+    expect((await threadOf(secondId, '900000000000003'))).toBeDefined();
+    const kept = await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `SELECT 1 FROM inbound_events WHERE provider_message_id='mid.batch.stranger'`,
+    ));
+    expect(kept.rows).toHaveLength(0);
+    const unknown = await deliver(api, { object: 'page', entry: [{ id: stranger, messaging: [item('mid.batch.alone', stranger, '900000000000004')] }] });
+    expect(unknown.statusCode).toBe(202);
+    expect(unknown.json()).toMatchObject({ status: 'rejected', reason: 'unknown_asset' });
+  });
+
+  it('imports what Meta has, in the time it was said, without waking anybody', async () => {
+    const page = '700000000000004';
+    const customer = '900000000000005';
+    const connectionId = await connectPage('messenger', page);
+    const before = Date.now();
+    answer = { ok: true, subscriptionError: null, conversations: 1, messages: [
+      graphMessage('m_hist_2', page, customer, '2026-10-20T10:05:00+0000', 'رد من بزنس سوت'),
+      graphMessage('m_hist_1', customer, page, '2026-10-20T10:00:00+0000', 'عايز أعرف المواعيد'),
+      'junk',
+    ] };
+    const synced = await send(api, owner, 'POST', `/channels/${connectionId}/meta-history/sync`);
+    expect(synced.statusCode, synced.body).toBe(201);
+    expect(synced.json()).toMatchObject({ data: {
+      webhook_subscribed: true, subscription_error: null, conversations: 1, messages: 3, imported: 2, recovered: 0,
+    } });
+    expect(seen.at(-1)).toMatchObject({ kind: 'messenger', pageId: page });
+    expect(before - seen.at(-1)!.since.getTime()).toBeGreaterThan(29 * 86_400_000);
+    await normalizer.drain(api.tenantId);
+
+    const thread = await threadOf(connectionId, customer);
+    expect(thread).toMatchObject({ status: 'open', waiting_since: new Date('2026-10-20T10:00:00Z'), last_activity_at: new Date('2026-10-20T10:05:00Z') });
+    expect(thread?.contact_id).not.toBeNull();
+    expect(await texts(thread!.id)).toEqual([['in', 'عايز أعرف المواعيد'], ['out', 'رد من بزنس سوت']]);
+    const notified = await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `SELECT 1 FROM notifications WHERE target_id=$1`, [thread!.id],
+    ));
+    expect(notified.rows).toHaveLength(0);
+
+    // Reading it again changes nothing, and a later live delivery is one message.
+    const again = await send(api, owner, 'POST', `/channels/${connectionId}/meta-history/sync`);
+    expect(again.json()).toMatchObject({ data: { imported: 0, messages: 3 } });
+    await deliver(api, { object: 'page', entry: [{ id: page, messaging: [{
+      sender: { id: customer }, recipient: { id: page }, timestamp: Date.parse('2026-10-20T10:00:00Z'),
+      message: { mid: 'm_hist_1', text: 'عايز أعرف المواعيد' },
+    }] }] });
+    await normalizer.drain(api.tenantId);
+    expect(await texts(thread!.id)).toHaveLength(2);
+    const evidence = (await send(api, owner, 'GET', '/channels')).json() as { data: { id: string; evidence: { kind: string; satisfied: boolean }[] }[] };
+    expect(evidence.data.find((row) => row.id === connectionId)?.evidence).toContainEqual(expect.objectContaining({ kind: 'webhook_subscribed', satisfied: true }));
+  });
+
+  it('leaves a resolved thread and an archived one as they were', async () => {
+    const page = '700000000000005';
+    const connectionId = await connectPage('messenger', page);
+    const live = (mid: string, customer: string) => deliver(api, { object: 'page', entry: [{ id: page, messaging: [{
+      sender: { id: customer }, recipient: { id: page }, timestamp: Date.now(), message: { mid, text: mid },
+    }] }] });
+    await live('mid.live.resolved', '900000000000006');
+    await live('mid.live.archived', '900000000000007');
+    await normalizer.drain(api.tenantId);
+    const resolved = await threadOf(connectionId, '900000000000006');
+    const archived = await threadOf(connectionId, '900000000000007');
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`UPDATE conversations SET status='resolved', resolved_at=now() WHERE id=$1`, [resolved!.id]));
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`UPDATE conversations SET status='archived', archived_at=now() WHERE id=$1`, [archived!.id]));
+    answer = { ok: true, subscriptionError: 'Needs pages_manage_metadata', conversations: 2, messages: [
+      graphMessage('m_old_resolved', '900000000000006', page, '2026-10-01T00:00:00+0000'),
+      graphMessage('m_old_archived', '900000000000007', page, '2026-10-01T00:00:00+0000'),
+    ] };
+    const synced = await send(api, owner, 'POST', `/channels/${connectionId}/meta-history/sync`);
+    expect(synced.json()).toMatchObject({ data: { webhook_subscribed: false, subscription_error: 'Needs pages_manage_metadata', imported: 2 } });
+    await normalizer.drain(api.tenantId);
+    const after = await threadOf(connectionId, '900000000000006');
+    expect(after?.status).toBe('resolved');
+    expect(after?.last_activity_at.getTime()).toBe(resolved!.last_activity_at.getTime());
+    expect(await texts(resolved!.id)).toEqual([['in', 'text of m_old_resolved'], ['in', 'mid.live.resolved']]);
+    expect(await threadOf(connectionId, '900000000000007')).toBeUndefined();
+  });
+
+  it('recovers messages an earlier build held back, on the Page they were for', async () => {
+    const page = '700000000000006';
+    const connectionId = await connectPage('messenger', page);
+    const entry = { id: page, standby: [{
+      sender: { id: '900000000000008' }, recipient: { id: page }, timestamp: Date.parse('2026-10-15T00:00:00Z'),
+      message: { mid: 'm_held_standby', text: 'From before the fix' },
+    }] };
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      const receipt = await client.query<{ id: string }>(
+        `INSERT INTO webhook_receipts (route_key, body_sha256, body_bytes, signature_valid, outcome, tenant_id)
+         VALUES ('held', $1, 0, true, 'routed', $2) RETURNING id::text`, ['a'.repeat(64), api.tenantId],
+      );
+      await client.query(
+        `INSERT INTO channel_events (tenant_id, connection_id, receipt_id, dedupe_key, event_type, payload, status, quarantine_reason, processed_at)
+         VALUES ($1, $2, $3, 'mg:quarantine:held-standby', 'entry', $4::jsonb, 'quarantined', 'entry_has_no_messaging', now())`,
+        [api.tenantId, connectionId, receipt.rows[0]!.id, JSON.stringify(entry)],
+      );
+    });
+    answer = { ok: true, subscriptionError: null, conversations: 0, messages: [] };
+    const synced = await send(api, owner, 'POST', `/channels/${connectionId}/meta-history/sync`);
+    expect(synced.json()).toMatchObject({ data: { imported: 0, recovered: 1 } });
+    await normalizer.drain(api.tenantId);
+    const thread = await threadOf(connectionId, '900000000000008');
+    expect(await texts(thread!.id)).toEqual([['in', 'From before the fix']]);
+    const repeated = await send(api, owner, 'POST', `/channels/${connectionId}/meta-history/sync`);
+    expect(repeated.json()).toMatchObject({ data: { recovered: 0 } });
+  });
+
+  it('uses the linked Page for Instagram and says what is missing when there is none', async () => {
+    const linked = await connectPage('instagram', 'ig-sync-1', { facebookPageId: '700000000000007' });
+    answer = { ok: true, subscriptionError: null, conversations: 1, messages: [
+      graphMessage('ig_hist_1', 'igsid-1', 'ig-sync-1', '2026-10-20T10:00:00+0000'),
+    ] };
+    const synced = await send(api, owner, 'POST', `/channels/${linked}/meta-history/sync`);
+    expect(synced.statusCode, synced.body).toBe(201);
+    expect(seen.at(-1)).toMatchObject({ kind: 'instagram', pageId: '700000000000007' });
+    await normalizer.drain(api.tenantId);
+    expect(await threadOf(linked, 'igsid-1')).toBeDefined();
+
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `UPDATE channel_connections SET settings = settings - 'facebook_page_id' WHERE id=$1`, [linked],
+    ));
+    expect((await send(api, owner, 'POST', `/channels/${linked}/meta-history/sync`)).json())
+      .toMatchObject({ error: { code: 'instagram_page_required' } });
+  });
+
+  it('reports Meta refusing and everything that stops a sync before it starts', async () => {
+    const page = '700000000000008';
+    const connectionId = await connectPage('messenger', page);
+    const sync = () => send(api, owner, 'POST', `/channels/${connectionId}/meta-history/sync`);
+
+    answer = { ok: false, code: 'provider_error_10', message: 'Advanced Access required', retryable: false };
+    const refused = await sync();
+    expect(refused.statusCode).toBe(422);
+    expect(refused.json()).toMatchObject({ error: { code: 'provider_error_10', message: 'Advanced Access required' } });
+    const listed = (await send(api, owner, 'GET', '/channels')).json() as { data: { id: string; last_error_code: string | null }[] };
+    expect(listed.data.find((row) => row.id === connectionId)?.last_error_code).toBe('provider_error_10');
+
+    answer = { ok: false, code: 'provider_unavailable', message: 'Try later', retryable: true };
+    expect((await sync()).statusCode).toBe(503);
+
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `UPDATE channel_credentials SET status='revoked', revoked_at=now() WHERE connection_id=$1`, [connectionId],
+    ));
+    expect((await sync()).json()).toMatchObject({ error: { code: 'credential_missing' } });
+
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      `UPDATE channel_connections SET disconnected_at=now(), status='disconnected' WHERE id=$1`, [connectionId],
+    ));
+    expect((await sync()).json()).toMatchObject({ error: { code: 'channel_disconnected' } });
+
+    const whatsapp = await connect(api, owner, `meta-sync-whatsapp-${randomUUID()}`);
+    const refusedKind = await send(api, owner, 'POST', `/channels/${(whatsapp.json() as { data: { id: string } }).data.id}/meta-history/sync`);
+    expect(refusedKind.json()).toMatchObject({ error: { code: 'channel_not_supported' } });
+  });
+
+  it('passes on what a customer sent, only to who may read it, and only from that thread', async () => {
+    const page = '700000000000011';
+    const connectionId = await connectPage('messenger', page);
+    const voice = 'https://cdn.fbsbx.com/v/voice.mp4';
+    const deliverMedia = (mid: string, customer: string, attachments: unknown[]) => deliver(api, { object: 'page', entry: [{ id: page, messaging: [{
+      sender: { id: customer }, recipient: { id: page }, timestamp: Date.now(), message: { mid, attachments },
+    }] }] });
+    await deliverMedia('mid.media.voice', '900000000000020', [
+      { type: 'audio', payload: { url: voice } },
+      { type: 'file', payload: { url: 'https://cdn.fbsbx.com/v/report.html' } },
+      { type: 'video', payload: {} },
+    ]);
+    await deliverMedia('mid.media.other', '900000000000021', [{ type: 'audio', payload: { url: 'https://cdn.fbsbx.com/v/other.mp4' } }]);
+    await normalizer.drain(api.tenantId);
+    const thread = (await threadOf(connectionId, '900000000000020'))!;
+    const other = (await threadOf(connectionId, '900000000000021'))!;
+    const eventOf = async (mid: string) => (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `SELECT id::text FROM inbound_events WHERE provider_message_id=$1`, [mid],
+    ))).rows[0]!.id;
+    const eventId = await eventOf('mid.media.voice');
+    const read = (conversation: string, index: string) => send(api, owner, 'GET', `/conversations/${conversation}/inbound-media/${eventId}/${index}`);
+
+    mediaAnswer = { ok: true, data: Buffer.from('voice-bytes'), mimeType: 'audio/mp4; codecs=mp4a' };
+    const played = await read(thread.id, '0');
+    expect(played.statusCode, played.body).toBe(200);
+    expect(played.rawPayload.toString()).toBe('voice-bytes');
+    expect(played.headers).toMatchObject({
+      'content-type': 'audio/mp4', 'content-disposition': 'inline', 'x-content-type-options': 'nosniff', 'cache-control': 'private, no-store',
+    });
+    expect(mediaAsked.at(-1)).toEqual({ kind: 'messenger', providerId: voice });
+
+    // A format the browser must not render is only ever a download.
+    mediaAnswer = { ok: true, data: Buffer.from('<script>'), mimeType: 'text/html' };
+    const page2 = await read(thread.id, '1');
+    expect(page2.headers).toMatchObject({ 'content-type': 'application/octet-stream', 'content-disposition': 'attachment' });
+    mediaAnswer = { ok: true, data: Buffer.from('bytes'), mimeType: null };
+    expect((await read(thread.id, '1')).headers).toMatchObject({ 'content-type': 'application/octet-stream' });
+
+    // Not from another conversation, not past the end, and nothing without an id.
+    expect((await read(other.id, '0')).statusCode).toBe(404);
+    expect((await read(thread.id, '9')).statusCode).toBe(404);
+    expect((await read(thread.id, '2')).statusCode).toBe(404);
+    expect((await read(thread.id, 'x')).statusCode).toBe(404);
+    expect((await send(api, owner, 'GET', `/conversations/${thread.id}/inbound-media/${randomUUID()}/0`)).statusCode).toBe(404);
+    expect((await send(api, owner, 'GET', `/conversations/${randomUUID()}/inbound-media/${eventId}/0`)).statusCode).toBe(404);
+
+    // Meta's own answer decides what the reader is told.
+    mediaAnswer = { ok: false, code: 'media_not_available', message: 'Gone', retryable: false };
+    expect((await read(thread.id, '0')).json()).toMatchObject({ error: { code: 'media_not_available' } });
+    expect((await read(thread.id, '0')).statusCode).toBe(404);
+    mediaAnswer = { ok: false, code: 'provider_unreachable', message: 'Later', retryable: true };
+    expect((await read(thread.id, '0')).statusCode).toBe(503);
+
+    // Without a usable credential there is nobody to ask.
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`UPDATE channel_credentials SET status='revoked', revoked_at=now() WHERE connection_id=$1`, [connectionId]));
+    expect((await read(thread.id, '0')).statusCode).toBe(404);
+  });
+
+  it('trusts the type declared when a WhatsApp voice note arrived over what the download says', async () => {
+    const phone = '1400059329852099';
+    const connected = await connect(api, owner, phone);
+    const connectionId = (connected.json() as { data: { id: string } }).data.id;
+    const delivered = await deliver(api, messageDelivery([{
+      id: 'wamid.voice.1', from: '201000000001', timestamp: String(Math.floor(Date.now() / 1000)), type: 'audio',
+      audio: { id: '987654', mime_type: 'audio/ogg; codecs=opus', voice: true },
+    }], phone));
+    expect(delivered.statusCode, delivered.body).toBe(200);
+    await normalizer.drain(api.tenantId);
+    const thread = (await threadOf(connectionId, '201000000001'))!;
+    const event = (await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `SELECT id::text FROM inbound_events WHERE provider_message_id='wamid.voice.1'`,
+    ))).rows[0]!.id;
+    mediaAnswer = { ok: true, data: Buffer.from('opus'), mimeType: 'application/octet-stream' };
+    const played = await send(api, owner, 'GET', `/conversations/${thread.id}/inbound-media/${event}/0`);
+    expect(played.statusCode, played.body).toBe(200);
+    expect(played.headers).toMatchObject({ 'content-type': 'audio/ogg', 'content-disposition': 'inline' });
+    expect(mediaAsked.at(-1)).toEqual({ kind: 'whatsapp', providerId: '987654' });
+
+    // A team's conversation is still readable by those its team gives access to,
+    // and to nobody else, whatever they know about the URL.
+    const team = await withTenant(api.pool, api.tenantId, async (client) => {
+      const created = await client.query<{ id: string }>(
+        `INSERT INTO teams (tenant_id, name) VALUES ($1, $2) RETURNING id::text`, [api.tenantId, `Media ${randomUUID()}`],
+      );
+      await client.query('UPDATE conversations SET team_id=$2 WHERE id=$1', [thread.id, created.rows[0]!.id]);
+      return created.rows[0]!.id;
+    });
+    expect(team).toBeTruthy();
+    const mediaAskedBefore = mediaAsked.length + 1;
+    expect((await send(api, owner, 'GET', `/conversations/${thread.id}/inbound-media/${event}/0`)).statusCode).toBe(200);
+
+    const hash = await argon2.hash(MEMBER_PASSWORD, { type: argon2.argon2id });
+    const user = await api.pool.query<{ id: string }>(
+      `INSERT INTO users (email, password_hash, status) VALUES ($1, $2, 'active') RETURNING id::text`,
+      ['media-agent@channels.test', hash],
+    );
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      const role = await client.query<{ id: string }>(`SELECT id::text FROM roles WHERE key = 'agent'`);
+      await client.query(
+        `INSERT INTO memberships (tenant_id, user_id, role_id, status) VALUES ($1, $2, $3, 'active')`,
+        [api.tenantId, user.rows[0]?.id, role.rows[0]?.id],
+      );
+    });
+    const outsider = await login(api, 'media-agent@channels.test', MEMBER_PASSWORD);
+    const denied = await send(api, outsider, 'GET', `/conversations/${thread.id}/inbound-media/${event}/0`);
+    expect(denied.statusCode).toBe(404);
+    expect(denied.rawPayload.toString()).not.toContain('opus');
+    expect(mediaAsked).toHaveLength(mediaAskedBefore);
+  });
+
+  it('refuses when the configured transport cannot talk to Meta', async () => {
+    const plain = await createHarness();
+    try {
+      const member = await login(plain, 'owner@channels.test', OWNER_PASSWORD);
+      const connected = await send(plain, member, 'POST', '/channels', {
+        kind: 'messenger', externalAssetId: '700000000000009', displayName: 'No transport',
+        accessToken: 'synthetic-page-token', appId: plain.appId,
+      });
+      const plainId = (connected.json() as { data: { id: string } }).data.id;
+      const response = await send(plain, member, 'POST', `/channels/${plainId}/meta-history/sync`);
+      expect(response.json()).toMatchObject({ error: { code: 'channel_not_supported' } });
+      // And there is nobody to fetch a customer's attachment from either.
+      const noMedia = await send(plain, member, 'GET', `/conversations/${randomUUID()}/inbound-media/${randomUUID()}/0`);
+      expect(noMedia.statusCode).toBe(404);
+    } finally {
+      await plain.app.close();
     }
   }, 180_000);
 });

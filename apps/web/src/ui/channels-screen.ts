@@ -530,6 +530,17 @@ function connectionDetails(state: AppState, live: LiveState, connection: Channel
                   disabled: connection.evidence.some((item) => item.kind === 'webhook_subscribed' && item.satisfied),
                 })
               : null,
+            connection.kind === 'messenger' || connection.kind === 'instagram'
+              ? button({
+                  label: t(state, 'جلب الرسايل من Meta', 'Fetch messages from Meta'),
+                  icon: 'refresh',
+                  act: 'live-sync-meta-history',
+                  arg: connection.id,
+                  small: true,
+                  busy: live.busy === `sync-meta-history:${connection.id}`,
+                  title: t(state, 'يربط الصفحة بأحداث Meta ويجيب آخر محادثات العملاء. آمن لو اتكرر.', 'Subscribes the Page to Meta events and brings in recent customer conversations. Safe to repeat.'),
+                })
+              : null,
             button({
               label: t(state, 'التحقق من الاتصال', 'Verify connection'),
               icon: 'shield',

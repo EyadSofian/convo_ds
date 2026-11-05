@@ -636,7 +636,7 @@
   }
 
   .funnel__stage .progress__fill {
-    background: linear-gradient(90deg, var(--viz-deep), var(--viz));
+    background: var(--viz);
   }
 
   .funnel__head {
@@ -1542,32 +1542,7 @@
   }
 
   /* A faint grid and a lime orbit: texture, never content. */
-  .contacts-hero::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background-image: linear-gradient(var(--hero-grid) 1px, transparent 1px),
-      linear-gradient(90deg, var(--hero-grid) 1px, transparent 1px);
-    background-size: 28px 28px;
-    mask-image: linear-gradient(100deg, transparent 20%, black 75%);
-  }
-
-  .contacts-hero::after {
-    content: '';
-    position: absolute;
-    inset-block-start: -90px;
-    inset-inline-end: -60px;
-    z-index: -1;
-    inline-size: 260px;
-    block-size: 260px;
-    border: 1px solid color-mix(in srgb, var(--brand-highlight) 45%, transparent);
-    border-radius: var(--radius-full);
-    box-shadow: 0 0 0 36px color-mix(in srgb, var(--brand-highlight) 6%, transparent),
-      0 0 0 72px color-mix(in srgb, var(--brand-highlight) 3%, transparent);
-  }
-
-  .contacts-hero__top {
+    .contacts-hero__top {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -1591,8 +1566,7 @@
     border-radius: var(--radius-lg);
     background: var(--grad-lime);
     color: var(--brand-web-chat);
-    box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--brand-highlight) 80%, transparent);
-  }
+    }
 
   .contacts-hero__copy {
     display: grid;
@@ -1625,8 +1599,6 @@
     background: var(--glass-on-dark);
     box-shadow: none;
     color: var(--nav-text-strong);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
   }
 
   .contacts-hero__ghost:hover:not([disabled]) {
@@ -1649,7 +1621,6 @@
   .contacts-hero__primary {
     border-color: transparent;
     background: var(--grad-lime);
-    box-shadow: 0 10px 22px -10px color-mix(in srgb, var(--brand-highlight) 90%, transparent);
     color: var(--on-highlight);
     font-weight: var(--weight-semibold);
   }
@@ -1681,8 +1652,6 @@
     border: 1px solid var(--glass-on-dark-border);
     border-radius: var(--radius-lg);
     background: var(--glass-on-dark);
-    backdrop-filter: blur(10px) saturate(1.3);
-    -webkit-backdrop-filter: blur(10px) saturate(1.3);
     transition: background var(--motion-base) var(--ease-out), translate var(--motion-base) var(--ease-out);
   }
 
@@ -1737,7 +1706,7 @@
     gap: var(--space-4);
     padding: var(--space-4) var(--space-5);
     border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
-    background: linear-gradient(120deg, color-mix(in srgb, var(--accent-soft) 70%, var(--surface-1)), var(--surface-1) 60%);
+    background: var(--surface-1);
   }
 
   /* Keyed to the `tool` channel (motion.ts), so loading the channels a
@@ -1749,7 +1718,7 @@
 
   .contact-transfer {
     border-color: color-mix(in srgb, var(--brand-highlight) 60%, var(--border));
-    background: linear-gradient(120deg, color-mix(in srgb, var(--brand-highlight) 20%, var(--surface-1)), var(--surface-1) 60%);
+    background: var(--surface-1);
   }
 
   .contact-tool__head {
@@ -1864,7 +1833,7 @@
 
   .contacts-directory__head {
     gap: var(--space-3);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 55%, var(--surface-1)), var(--surface-1));
+    background: var(--surface-1);
   }
 
   .searchbar {
@@ -1967,7 +1936,7 @@
 
   .contactrow[aria-current='true'] {
     border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
-    background: linear-gradient(100deg, var(--surface-selected), color-mix(in srgb, var(--brand-highlight) 16%, var(--surface-1)));
+    background: var(--surface-1);
     box-shadow: var(--shadow-sm);
   }
 
@@ -2058,9 +2027,7 @@
     min-block-size: 360px;
     align-content: center;
     justify-items: center;
-    background:
-      radial-gradient(420px 220px at 50% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
-      var(--surface-1);
+    background: var(--surface-1);
   }
 
   .contacts-profile .empty {
@@ -2073,9 +2040,8 @@
     inline-size: 64px;
     block-size: 64px;
     border-radius: var(--radius-xl);
-    background: var(--grad-brand);
-    color: var(--on-accent);
-    box-shadow: var(--shadow-accent);
+    background: var(--surface-3);
+    color: var(--text-secondary);
   }
 
   .contacts-profile .empty__text {
@@ -2090,7 +2056,7 @@
   /* ------------------------------------------------------------- catalog -- */
 
   .catalog-panel > .panel__header {
-    background: linear-gradient(100deg, color-mix(in srgb, var(--violet-soft) 80%, var(--surface-1)), var(--surface-1) 70%);
+    background: var(--surface-1);
   }
 
   .cataloggrid {
@@ -2177,7 +2143,7 @@
 
   .contact-new__who {
     border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
-    background: linear-gradient(160deg, color-mix(in srgb, var(--accent-soft) 70%, var(--surface-1)), var(--surface-1) 55%);
+    background: var(--surface-1);
   }
 
   .contact-new__grid {
@@ -2240,7 +2206,7 @@
     padding: var(--space-4);
     border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
     border-radius: var(--radius-lg);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 70%, var(--surface-1)), var(--surface-1) 45%);
+    background: var(--surface-1);
   }
 
   .audience__head {
@@ -2989,9 +2955,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-xl);
     background-color: var(--surface-2);
-    background-image: radial-gradient(var(--border) 1px, transparent 1px);
-    background-size: var(--space-5) var(--space-5);
-  }
+    }
 
   .workflow-block {
     display: grid;
@@ -3062,7 +3026,7 @@
 
   .workflow-block--blocked {
     border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
-    background: linear-gradient(160deg, var(--warning-soft), var(--surface-1) 60%);
+    background: var(--surface-1);
   }
 
   .workflow-block__warning {
@@ -3324,7 +3288,7 @@
     padding: var(--space-4);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
-    background: linear-gradient(135deg, var(--surface-2), var(--surface-1));
+    background: var(--surface-1);
   }
 
   .broadcast__import-head {
@@ -3346,13 +3310,6 @@
   .broadcast__import-issues p { margin: var(--space-1) 0; }
   .broadcast__assignment-list { margin: var(--space-2) 0 0; padding: 0; list-style: none; max-block-size: 220px; overflow: auto; }
   .broadcast__assignment-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); border-block-end: 1px solid var(--border-subtle); font-size: var(--text-sm); }
-  .composer__emoji { position: relative; }
-  .composer__emoji-picker { position: absolute; inset-block-end: calc(100% + 8px); inset-inline-start: 0; z-index: 20; display: grid; grid-template-columns: repeat(6, 36px); gap: 4px; padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-1); box-shadow: var(--shadow-lg); }
-  .composer__emoji-item { border: 0; border-radius: var(--radius-sm); padding: 6px; background: transparent; font-size: 22px; cursor: pointer; }
-  .composer__emoji-item:hover, .composer__emoji-item:focus-visible { background: var(--accent-soft); }
-  .composer__voice { display: grid; gap: var(--space-3); padding: var(--space-3); }
-  .composer__voice-status { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
-  .msg__audio, .composer__voice audio { inline-size: min(100%, 320px); min-inline-size: 180px; }
 
   .broadcast__numbers,
   .broadcast__when {

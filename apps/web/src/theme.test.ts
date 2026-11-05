@@ -62,22 +62,32 @@ describe('palettes read from styles/tokens.css', () => {
     expect(dark).toEqual(light);
   });
 
-  it('uses the DS Omnichannel blue, lime, navy and a tinted ground in both themes', () => {
+  it('keeps the DS Omnichannel blue, lime and navy on plain grey grounds in both themes', () => {
     const light = paletteFromCss(TOKENS_CSS, 'light');
     const dark = paletteFromCss(TOKENS_CSS, 'dark');
-    // The ground is tinted blue so white cards stand off it; a white ground
-    // under white cards was the flat, glaring page this palette replaces.
-    expect(light['canvas']).toBe('#e8eef8');
+    // The ground steps away from the white surfaces so a card still reads as a
+    // card, and stays out of the way: colour belongs to what it means.
+    expect(light['canvas']).toBe('#f3f4f6');
     expect(light['canvas']).not.toBe(light['surface-1']);
     expect(light['surface-1']).toBe('#ffffff');
-    expect(light['text']).toBe('#0a1630');
+    expect(light['text']).toBe('#12161f');
     expect(light['accent']).toBe('#004fef');
     expect(light['brand-highlight']).toBe('#ddff57');
-    expect(light['nav-bg']).toBe('#071a3a');
+    expect(light['nav-bg']).toBe('#0b1730');
     expect(dark['brand-highlight']).toBe('#ddff57');
-    // Dark is navy, not an inverted grey, and never pure black.
-    expect(dark['surface-1']).toBe('#0c182b');
+    // Dark steps through quiet graphite, and is never pure black.
+    expect(dark['surface-1']).toBe('#161920');
     expect(dark['canvas']).not.toBe('#000000');
+  });
+
+  it('has no colour wash, hue gradient or glow left in the palette', () => {
+    // The gradient tokens remain so a surface can carry one tone. Two different
+    // stops, or a radial wash behind the work, is what made the product read as
+    // generated, and it does not come back by accident.
+    const stops = /linear-gradient\(([^,]+),\s*([^)]+)\)/g;
+    for (const [, from, to] of TOKENS_CSS.matchAll(stops)) expect(from).toBe(to);
+    expect(TOKENS_CSS).not.toContain('radial-gradient');
+    expect(TOKENS_CSS).toMatch(/--canvas-art: none;/);
   });
 
   it('gives outcome_unknown its own hue, not a shade of danger', () => {

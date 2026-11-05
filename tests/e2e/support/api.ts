@@ -755,6 +755,9 @@ export async function installApi(page: Page, options: ApiOptions = {}): Promise<
     if (path.endsWith('/contacts')) {
       return json(route, paged(contacts()));
     }
+    if (path.endsWith('/campaign-history')) {
+      return json(route, { data: [] });
+    }
     if (path.includes('/contacts/')) {
       const [first] = contacts();
       return json(route, { data: first });

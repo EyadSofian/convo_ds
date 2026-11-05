@@ -61,6 +61,26 @@ export interface JournalResult {
  * it beyond what the row already records.
  */
 export async function journalBatch(sql: SqlExecutor, input: JournalInput): Promise<JournalResult> {
+  const result = await journalEvents(sql, input);
+
+  // Receiving is itself evidence, and the ingress is the only thing that can
+  // observe it. `coalesce` so a later delivery does not move the mark.
+  await sql.query(
+    `UPDATE channel_connections
+        SET first_inbound_at = coalesce(first_inbound_at, now()),
+            webhook_subscribed_at = coalesce(webhook_subscribed_at, now())
+      WHERE id = $1`,
+    [input.connectionId],
+  );
+
+  return result;
+}
+
+/**
+ * The events alone. A history import uses this directly: messages read back from
+ * Graph say nothing about whether the webhook works.
+ */
+export async function journalEvents(sql: SqlExecutor, input: JournalInput): Promise<JournalResult> {
   let stored = 0;
   let duplicates = 0;
 
@@ -94,16 +114,6 @@ export async function journalBatch(sql: SqlExecutor, input: JournalInput): Promi
     if (inserted) stored += 1;
     else duplicates += 1;
   }
-
-  // Receiving is itself evidence, and the ingress is the only thing that can
-  // observe it. `coalesce` so a later delivery does not move the mark.
-  await sql.query(
-    `UPDATE channel_connections
-        SET first_inbound_at = coalesce(first_inbound_at, now()),
-            webhook_subscribed_at = coalesce(webhook_subscribed_at, now())
-      WHERE id = $1`,
-    [input.connectionId],
-  );
 
   return { stored, duplicates };
 }

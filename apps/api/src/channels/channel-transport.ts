@@ -46,7 +46,29 @@ export interface ChannelTransportPort {
   ): Promise<TemplateFetchResult>;
   /** Subscribe this token's Meta app to a WABA; never unsubscribe other apps. */
   subscribeWhatsAppWaba?(credential: string, wabaId: string): Promise<ProviderMutationResult>;
+  /**
+   * Subscribes a Page to this app's events and reads back its recent messages.
+   * Optional because only Messenger and Instagram have either.
+   */
+  syncMetaPage?(kind: ChannelKind, credential: string, pageId: string, since: Date): Promise<MetaPageSync>;
+  /** Downloads something a customer sent. `providerId` is whatever the channel gave for it. */
+  fetchInboundMedia?(kind: ChannelKind, credential: string, providerId: string): Promise<InboundMediaResult>;
 }
+
+export type InboundMediaResult =
+  | { readonly ok: true; readonly data: Buffer; readonly mimeType: string | null }
+  | { readonly ok: false; readonly code: string; readonly message: string; readonly retryable: boolean };
+
+export type MetaPageSync =
+  | {
+      readonly ok: true;
+      /** Graph's refusal of the subscription, when it refused. Reading can still work. */
+      readonly subscriptionError: string | null;
+      readonly conversations: number;
+      /** Raw Graph messages. The adapter is what knows how to read them. */
+      readonly messages: readonly unknown[];
+    }
+  | { readonly ok: false; readonly code: string; readonly message: string; readonly retryable: boolean };
 
 export type ProviderMutationResult =
   | { readonly ok: true }

@@ -73,7 +73,10 @@ export function normalizeMetaMessaging(
       assetId = entryId;
     }
 
-    const items = asArray(entryRecord?.['messaging']);
+    // A message Meta delivers while another app holds the thread — Business Suite's
+    // inbox, a chatbot — arrives on `standby` instead, in the same shape. It is the
+    // same customer writing, and without this the only copy is the quarantine.
+    const items = [...asArray(entryRecord?.['messaging']), ...asArray(entryRecord?.['standby'])];
     if (items.length === 0) {
       quarantined.push(
         quarantine(crypto, options.keyPrefix, entry, 'entry', 'entry_has_no_messaging'),

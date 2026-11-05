@@ -193,6 +193,8 @@ export type { FairnessConfig, FairnessPlan, Grant, Offer } from './channels/fair
 
 export { WhatsAppAdapter } from './channels/whatsapp.js';
 export { MessengerAdapter } from './channels/messenger.js';
+export { META_HISTORY_MESSAGE_FIELDS, graphMessageToWebhookItem, normalizeHeldEntries, normalizeMetaHistory } from './channels/meta-history.js';
+export { splitBatchByAsset } from './channels/batch.js';
 export { InstagramAdapter } from './channels/instagram.js';
 export {
   originAllowed,

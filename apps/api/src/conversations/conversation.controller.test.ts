@@ -20,14 +20,14 @@ function controller() {
     supervisorWorkload: vi.fn(async () => ({ assigned: 0 })),
   } as unknown as ConversationService;
   const outbound = { templates: vi.fn(async () => ({ items: [], nextCursor: null })) } as unknown as OutboundService;
-  return { instance: new ConversationController(auth, conversations, outbound, {} as LifecycleService, {} as NoteService, {} as RoutingService), conversations, outbound };
+  return { instance: new ConversationController(auth, conversations, outbound, {} as LifecycleService, {} as NoteService, {} as RoutingService, {} as never), conversations, outbound };
 }
 
 describe('ConversationController query boundaries', () => {
   it('refuses an archive request that is not a restore or delete of named conversations', async () => {
     const auth = { authenticate: vi.fn(async () => ({ userId: 'user-1' })), requireCsrf: vi.fn() } as unknown as AuthService;
     const lifecycle = { archived: vi.fn(async () => ({ done: [id], refused: [] })) } as unknown as LifecycleService;
-    const instance = new ConversationController(auth, {} as ConversationService, {} as OutboundService, lifecycle, {} as NoteService, {} as RoutingService);
+    const instance = new ConversationController(auth, {} as ConversationService, {} as OutboundService, lifecycle, {} as NoteService, {} as RoutingService, {} as never);
     for (const body of [null, [id], { action: 'restore' }, { action: 'purge', conversationIds: [id] }, { action: 'delete', conversationIds: ['bad'] }]) {
       await expect(instance.archived(id, body, 'csrf', request)).rejects.toMatchObject({ status: 400 });
     }

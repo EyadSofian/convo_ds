@@ -2,6 +2,13 @@ import type { LiveContext } from './actions.js';
 import type { LiveState } from './store.js';
 import { currentTenantId } from './store.js';
 import { loadTimeline } from './inbox-actions.js';
+import { adoptRecording, forgetRecording } from './voice-playback.js';
+
+/** The bars of the live level meter, and how often it moves. */
+export const METER_BARS = 36;
+const METER_INTERVAL_MS = 80;
+/** How much of full scale counts as a loud voice, so speech fills the meter. */
+const METER_LOUD = 0.25;
 
 interface VoiceDraft {
   readonly conversationId: string;
@@ -14,13 +21,53 @@ interface VoiceDraft {
   recorder?: MediaRecorder;
   stream?: MediaStream;
   timer?: ReturnType<typeof setInterval>;
+  /** Recent input levels, newest last, from 0 to 1. Always `METER_BARS` long. */
+  levels: readonly number[];
+  stopMeter?: () => void;
 }
 
 const sessions = new WeakMap<LiveState, VoiceDraft>();
 export const voiceDraft = (live: LiveState): VoiceDraft | null => sessions.get(live) ?? null;
 
+/** Moves the meter's bars between the redraws the seconds counter causes. */
+function paintMeter(levels: readonly number[]): void {
+  const bars = document.querySelector('.recorder__meter')?.children ?? [];
+  Array.from(bars).forEach((bar, index) => {
+    (bar as HTMLElement).style.setProperty('--level', (levels[index] as number).toFixed(2));
+  });
+}
+
+/**
+ * Hearing that the microphone hears: the whole point of a meter. A browser that
+ * cannot provide one simply records without it.
+ */
+function startMeter(draft: VoiceDraft, stream: MediaStream): void {
+  if (typeof AudioContext === 'undefined') return;
+  const context = new AudioContext();
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 512;
+  context.createMediaStreamSource(stream).connect(analyser);
+  const samples = new Uint8Array(analyser.fftSize);
+  const timer = setInterval(() => {
+    analyser.getByteTimeDomainData(samples);
+    let sum = 0;
+    for (const sample of samples) sum += ((sample - 128) / 128) ** 2;
+    const level = Math.min(1, Math.sqrt(sum / samples.length) / METER_LOUD);
+    draft.levels = [...draft.levels.slice(1), level];
+    paintMeter(draft.levels);
+  }, METER_INTERVAL_MS);
+  draft.stopMeter = () => {
+    clearInterval(timer);
+    void context.close();
+  };
+}
+
 function release(draft: VoiceDraft): void {
   clearInterval(draft.timer);
+  // Released twice when a recording is cancelled: here, and when it then stops.
+  // Closing an audio context twice rejects, so the meter only stops once.
+  draft.stopMeter?.();
+  delete draft.stopMeter;
   if (draft.recorder?.state === 'recording') draft.recorder.stop();
   draft.stream?.getTracks().forEach((track) => track.stop());
 }
@@ -30,7 +77,10 @@ export function cancelVoice(live: LiveState): void {
   if (draft === undefined) return;
   sessions.delete(live);
   release(draft);
-  if (draft.url !== null) URL.revokeObjectURL(draft.url);
+  if (draft.url !== null) {
+    forgetRecording(draft.url);
+    URL.revokeObjectURL(draft.url);
+  }
 }
 
 export function syncVoice(context: LiveContext): void {
@@ -47,7 +97,7 @@ export async function startVoice(context: LiveContext): Promise<boolean> {
   const conversation = live.openConversation.status === 'ready' ? live.openConversation.value : null;
   if (conversation === null || conversation.channel !== 'whatsapp' || conversation.capabilities?.reply === false ||
     conversation.assigneeMembershipId === null || conversation.serviceWindow?.status !== 'open') return false;
-  const draft: VoiceDraft = { conversationId: conversation.id, clientMessageId: context.newKey(), status: 'requesting', seconds: 0, error: null, url: null };
+  const draft: VoiceDraft = { conversationId: conversation.id, clientMessageId: context.newKey(), status: 'requesting', seconds: 0, error: null, url: null, levels: new Array<number>(METER_BARS).fill(0) };
   sessions.set(live, draft);
   const fail = (message: string): void => {
     draft.status = 'error';
@@ -83,9 +133,11 @@ export async function startVoice(context: LiveContext): Promise<boolean> {
       draft.blob = blob;
       draft.url = URL.createObjectURL(blob);
       draft.status = 'ready';
+      void adoptRecording(draft.url, blob, draft.seconds);
       context.refresh();
     };
     recorder.start(1000);
+    startMeter(draft, stream);
     draft.status = 'recording';
     draft.timer = setInterval(() => {
       draft.seconds += 1;

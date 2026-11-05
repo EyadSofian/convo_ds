@@ -398,6 +398,25 @@ export function subscribeWhatsAppWebhook(context: LiveContext, connectionId: str
   );
 }
 
+/** What Meta had and what is new here, with Meta's own reason when it refused. */
+export function syncMetaHistory(context: LiveContext, connectionId: string): Promise<boolean> {
+  return mutateChannels(
+    context,
+    `sync-meta-history:${connectionId}`,
+    (tenantId) => context.live.channels.syncMetaHistory(tenantId, connectionId),
+    (result) => {
+      const found = result.imported + result.recovered;
+      const summary = t(
+        context.state,
+        `اتجلب ${String(found)} رسالة جديدة من ${String(result.conversations)} محادثة عند Meta.`,
+        `${String(found)} new messages from ${String(result.conversations)} conversations at Meta.`,
+      );
+      if (result.subscription_error === null) return summary;
+      return `${summary} ${t(context.state, 'الصفحة لسه مش مشتركة في الأحداث:', 'The Page is still not subscribed to events:')} ${result.subscription_error}`;
+    },
+  );
+}
+
 export function rotateChannelCredential(
   context: LiveContext,
   connectionId: string,

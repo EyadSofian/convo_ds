@@ -2,6 +2,7 @@ import { sendAttachment } from './chat-attachment.js';
 import { editTemplateAccess, pickLibraryResults, openTemplateLibrary, saveTemplateAccess } from './template-library.js';
 import { lookupInboxNumber } from './inbox-number-lookup.js';
 import { cancelVoice, sendVoice, startVoice, stopVoice } from './voice-message.js';
+import { cycleVoiceRate, seekVoice, toggleVoice } from './voice-playback.js';
 import type { TransitionCommand } from '../api/conversations.js';
 import { readInboxAccess } from '../ui/inbox-access.js';
 import type { ScopeRef } from '../api/people.js';
@@ -122,6 +123,7 @@ import {
   revokeSession,
   syncWhatsAppTemplates,
   subscribeWhatsAppWebhook,
+  syncMetaHistory,
   switchTenant,
   offerOwnership,
   removeTeamMember,
@@ -1312,6 +1314,10 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-voice-stop': async (context) => { stopVoice(context); },
   'live-voice-cancel': async (context) => { cancelVoice(context.live); context.refresh(); },
   'live-voice-send': async (context) => sendVoice(context),
+  'live-voice-retry': async (context) => { cancelVoice(context.live); return startVoice(context); },
+  'live-voice-play': async (_context, arg) => toggleVoice(arg),
+  'live-voice-seek': async (_context, arg) => { seekVoice(arg); },
+  'live-voice-rate': async (context) => { cycleVoiceRate(); context.refresh(); },
   'live-emoji': async (context, emoji) => {
     if (context.state.composerTab === 'reply') context.live.composer += emoji;
     else context.live.noteDraft += emoji;
@@ -1438,6 +1444,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-retry-sender-profiles': async (context, arg) => retrySenderProfiles(context, arg),
   'live-sync-channel-templates': async (context, arg) => syncWhatsAppTemplates(context, arg),
   'live-subscribe-channel-webhook': async (context, arg) => subscribeWhatsAppWebhook(context, arg),
+  'live-sync-meta-history': async (context, arg) => syncMetaHistory(context, arg),
 
   'live-rotate-channel': async (context, arg) => {
     const rotated = await rotateChannelCredential(

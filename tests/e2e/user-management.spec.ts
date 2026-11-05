@@ -62,7 +62,7 @@ test.describe('user management', () => {
     await trigger.focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('.row-menu[role="menu"]')).toBeVisible();
-    await expect(page.locator('.row-menu [role="menuitem"]').first()).toContainText('Change role');
+    await expect(page.locator('.row-menu [role="menuitem"]', { hasText: 'Change role' })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('.row-menu')).toHaveCount(0);
   });
