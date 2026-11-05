@@ -609,6 +609,17 @@ describe('reading and replying', () => {
     expect(text(root.querySelector('.msg--out') as HTMLElement)).toContain('قبلها المزوّد');
   });
 
+  it('says plainly when the provider gave up on a message it had accepted', async () => {
+    const api = claimedApi().on(
+      `GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`,
+      page([message({ id: 'm-4', direction: 'out', text: 'تم', command_state: 'provider_accepted', delivery_state: 'failed' })]),
+    );
+    const { root } = await open(api, `#/inbox/${CONVERSATION}`);
+    const failed = root.querySelector('.msg__delivery--failed') as HTMLElement;
+    expect(text(failed)).toContain('لم تصل');
+    expect(text(root.querySelector('.msg--out') as HTMLElement)).not.toContain('قبلها المزوّد');
+  });
+
   it('marks a message the provider has only accepted with a single tick', async () => {
     const api = claimedApi().on(
       `GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`,

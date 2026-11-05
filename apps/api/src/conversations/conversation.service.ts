@@ -851,19 +851,13 @@ async function readWhatsAppWindow(
 
 
 /**
- * The delivery rank, used as the event's entity version.
- *
- * A receipt only ever moves a message to `delivered` or `read` — `sent` is what
- * the provider's acceptance records, and no receipt reports it — so there are
- * two ranks here rather than three.
+ * The delivery rank, used as the event's entity version: `sent`, then `failed` or
+ * `delivered`, which never both stand for one message, then `read`.
  */
 function deliveryRank(state: string): number {
-  return state === 'read' ? 3 : 2;
+  if (state === 'read') return 3;
+  return state === 'sent' ? 1 : 2;
 }
-
-
-
-
 
 function present(detail: ConversationDetail | null): detail is ConversationDetail {
   return detail !== null;

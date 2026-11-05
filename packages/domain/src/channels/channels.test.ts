@@ -971,6 +971,17 @@ describe('foldDelivery', () => {
     expect(late).toEqual({ state: 'read', at: at(5), anomaly: 'delivered_after_read' });
   });
 
+  it('takes a failure over a send, but never over a confirmed delivery', () => {
+    const sent = foldDelivery(null, { state: 'sent', at: at(1) });
+    const failed = foldDelivery(sent, { state: 'failed', at: at(2) });
+    expect(failed).toEqual({ state: 'failed', at: at(2), anomaly: null });
+    const delivered = foldDelivery(null, { state: 'delivered', at: at(3) });
+    expect(foldDelivery(delivered, { state: 'failed', at: at(4) })).toEqual({ state: 'delivered', at: at(3), anomaly: 'failed_after_delivered' });
+    // The provider saying otherwise later is the truth: a delivery is a delivery.
+    expect(foldDelivery(failed, { state: 'delivered', at: at(5) }).state).toBe('delivered');
+    expect(foldDelivery(failed, { state: 'sent', at: at(6) })).toMatchObject({ state: 'failed', anomaly: 'sent_after_failed' });
+  });
+
   it('treats a repeated receipt as the provider repeating itself', () => {
     const first = foldDelivery(null, { state: 'delivered', at: at(1) });
     expect(foldDelivery(first, { state: 'delivered', at: at(2) })).toBe(first);

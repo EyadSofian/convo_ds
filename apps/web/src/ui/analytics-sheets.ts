@@ -180,10 +180,12 @@ function campaignSheets(state: AppState, report: CampaignReport): Sheet[] {
       [t(state, 'أُرسلت', 'Sent'), m.accepted],
       [t(state, 'سُلّمت', 'Delivered'), m.delivered],
       [t(state, 'قُرئت', 'Read'), m.read],
+      [t(state, 'ردّوا', 'Replied'), m.replied],
       [t(state, 'فشلت', 'Failed'), cur.failed],
       [t(state, 'نسبة الإرسال', 'Sent rate'), ratio(m.accepted, m.denominator)],
       [t(state, 'نسبة التسليم', 'Delivery rate'), ratio(m.delivered, m.denominator)],
       [t(state, 'نسبة القراءة', 'Read rate'), ratio(m.read, m.denominator)],
+      [t(state, 'نسبة الرد', 'Reply rate'), ratio(m.replied, m.denominator)],
       [t(state, 'نسبة الفشل', 'Failure rate'), ratio(cur.failed, cur.denominator)],
       [t(state, 'البيانات حتى (UTC)', 'Data through (UTC)'), report.fresh_through],
     ] },
@@ -193,6 +195,7 @@ function campaignSheets(state: AppState, report: CampaignReport): Sheet[] {
       [t(state, 'أُرسلت', 'Sent'), m.accepted, ratio(m.accepted, m.denominator), ratio(m.accepted, m.denominator)],
       [t(state, 'سُلّمت', 'Delivered'), m.delivered, ratio(m.delivered, m.denominator), ratio(m.delivered, m.accepted)],
       [t(state, 'قُرئت', 'Read'), m.read, ratio(m.read, m.denominator), ratio(m.read, m.delivered)],
+      [t(state, 'ردّوا', 'Replied'), m.replied, ratio(m.replied, m.denominator), null],
     ] },
     { name: t(state, 'الحالة الحالية', 'Current state'), rows: [
       [t(state, 'الحالة', 'State'), t(state, 'المستلمون', 'Recipients'), t(state, 'النسبة', 'Share')],
@@ -200,16 +203,16 @@ function campaignSheets(state: AppState, report: CampaignReport): Sheet[] {
     ] },
     { name: t(state, 'الحملات', 'Campaigns'), rows: [
       [t(state, 'الحملة', 'Campaign'), t(state, 'الحالة', 'State'), t(state, 'المستلمون', 'Recipients'), t(state, 'مشمول', 'Included'), t(state, 'مستبعد', 'Excluded'),
-        t(state, 'أُرسلت', 'Sent'), t(state, 'سُلّمت', 'Delivered'), t(state, 'قُرئت', 'Read'), t(state, 'فشلت', 'Failed'), t(state, 'غير معروفة', 'Unknown'),
+        t(state, 'أُرسلت', 'Sent'), t(state, 'سُلّمت', 'Delivered'), t(state, 'قُرئت', 'Read'), t(state, 'ردّوا', 'Replied'), t(state, 'فشلت', 'Failed'), t(state, 'غير معروفة', 'Unknown'),
         t(state, 'قيد الانتظار', 'Waiting'), t(state, 'نسبة التسليم', 'Delivery rate'), t(state, 'نسبة القراءة', 'Read rate'), t(state, 'آخر تحديث (UTC)', 'Updated (UTC)')],
       ...report.campaigns.map((row) => [row.name, phrase(state, CAMPAIGN_STATES, row.state), row.denominator, row.included, row.excluded, row.accepted,
-        row.delivered, row.read, row.failed, row.outcome_unknown, row.pending, ratio(row.delivered, row.denominator), ratio(row.read, row.denominator), row.fresh_through]),
+        row.delivered, row.read, row.replied, row.failed, row.outcome_unknown, row.pending, ratio(row.delivered, row.denominator), ratio(row.read, row.denominator), row.fresh_through]),
     ] },
     { name: t(state, 'الحملات حسب القناة', 'Campaigns by channel'), rows: [
-      [t(state, 'القناة', 'Channel'), t(state, 'المستلمون', 'Recipients'), t(state, 'أُرسلت', 'Sent'), t(state, 'سُلّمت', 'Delivered'), t(state, 'قُرئت', 'Read'),
+      [t(state, 'القناة', 'Channel'), t(state, 'المستلمون', 'Recipients'), t(state, 'أُرسلت', 'Sent'), t(state, 'سُلّمت', 'Delivered'), t(state, 'قُرئت', 'Read'), t(state, 'ردّوا', 'Replied'),
         t(state, 'نسبة التسليم', 'Delivery rate'), t(state, 'نسبة القراءة', 'Read rate')],
       ...report.channels.map((row) => [channel(state, row.kind), row.denominator, row.accepted,
-        row.delivery_receipts ? row.delivered : null, row.read_receipts ? row.read : null,
+        row.delivery_receipts ? row.delivered : null, row.read_receipts ? row.read : null, row.replied,
         row.delivery_receipts ? ratio(row.delivered, row.denominator) : null, row.read_receipts ? ratio(row.read, row.denominator) : null]),
     ] },
     { name: t(state, 'أسباب الفشل', 'Failure reasons'), rows: [
@@ -217,9 +220,9 @@ function campaignSheets(state: AppState, report: CampaignReport): Sheet[] {
       ...report.errors.map((row) => [phrase(state, ERROR_CODES, row.code), row.code, row.count, ratio(row.count, total(report.errors))]),
     ] },
     { name: t(state, 'الحجم اليومي', 'Daily volume'), rows: [
-      [t(state, 'اليوم', 'Day'), t(state, 'المستلمون', 'Recipients'), t(state, 'أُرسلت', 'Sent'), t(state, 'سُلّمت', 'Delivered'), t(state, 'قُرئت', 'Read'),
+      [t(state, 'اليوم', 'Day'), t(state, 'المستلمون', 'Recipients'), t(state, 'أُرسلت', 'Sent'), t(state, 'سُلّمت', 'Delivered'), t(state, 'قُرئت', 'Read'), t(state, 'ردّوا', 'Replied'),
         t(state, 'فشلت', 'Failed'), t(state, 'نسبة التسليم', 'Delivery rate')],
-      ...report.trend.map((day) => [day.day, day.recipients, day.accepted, day.delivered, day.read, day.failed, ratio(day.delivered, day.recipients)]),
+      ...report.trend.map((day) => [day.day, day.recipients, day.accepted, day.delivered, day.read, day.replied, day.failed, ratio(day.delivered, day.recipients)]),
     ] },
     ...leadSheets(state, report.leads),
     ...(report.costs.length === 0 ? [] : [{ name: t(state, 'التكلفة', 'Cost'), rows: [

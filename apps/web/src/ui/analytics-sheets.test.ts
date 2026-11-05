@@ -21,19 +21,19 @@ function campaign(overrides: Partial<CampaignReport> = {}): CampaignReport {
     definitions: { campaigns: 2, executions: 1 },
     audience: { denominator: 1920, eligible: 1764, excluded: 156 },
     current: { denominator: 618, planned: 38, queued: 42, in_flight: 8, accepted: 101, delivered: 214, read: 187, failed: 19, skipped: 7, cancelled: 0, outcome_unknown: 2 },
-    milestones: { denominator: 618, accepted: 502, delivered: 401, read: 187 },
+    milestones: { denominator: 618, accepted: 502, delivered: 401, read: 187, replied: 46 },
     costs: [{ currency: 'USD', estimated_amount_minor: '30.9', committed_amount_minor: '25.2', reconciled_amount_minor: '24.6' }],
     leads: { total: 0, new: 0, existing: 0, repeat: 0, won: 0, lost: 0, unqualified: 0,
       by_course: [], by_source: [], by_agent: [], revenue: [] },
     channels: [
-      { kind: 'whatsapp', denominator: 500, accepted: 420, delivered: 358, read: 170, delivery_receipts: true, read_receipts: true },
-      { kind: 'instagram', denominator: 118, accepted: 82, delivered: 43, read: 17, delivery_receipts: false, read_receipts: false },
+      { kind: 'whatsapp', denominator: 500, accepted: 420, delivered: 358, read: 170, replied: 42, delivery_receipts: true, read_receipts: true },
+      { kind: 'instagram', denominator: 118, accepted: 82, delivered: 43, read: 17, replied: 4, delivery_receipts: false, read_receipts: false },
     ],
     errors: [{ code: 'provider_rejected', count: 12 }, { code: 'brand_new_code', count: 7 }],
-    trend: [{ day: '2026-09-05', recipients: 96, accepted: 81, delivered: 66, read: 34, failed: 3 }, { day: '2026-09-06', recipients: 0, accepted: 0, delivered: 0, read: 0, failed: 0 }],
+    trend: [{ day: '2026-09-05', recipients: 96, accepted: 81, delivered: 66, read: 34, replied: 8, failed: 3 }, { day: '2026-09-06', recipients: 0, accepted: 0, delivered: 0, read: 0, replied: 0, failed: 0 }],
     campaigns: [
-      { id: 'c-1', name: 'Reminder', state: 'running', denominator: 618, pending: 88, accepted: 502, delivered: 401, read: 187, failed: 19, outcome_unknown: 2, included: 618, excluded: 22, fresh_through: NOW.toISOString() },
-      { id: 'c-2', name: 'Autumn intake', state: 'ready', denominator: 0, pending: 0, accepted: 0, delivered: 0, read: 0, failed: 0, outcome_unknown: 0, included: null, excluded: null, fresh_through: NOW.toISOString() },
+      { id: 'c-1', name: 'Reminder', state: 'running', denominator: 618, pending: 88, accepted: 502, delivered: 401, read: 187, replied: 46, failed: 19, outcome_unknown: 2, included: 618, excluded: 22, fresh_through: NOW.toISOString() },
+      { id: 'c-2', name: 'Autumn intake', state: 'ready', denominator: 0, pending: 0, accepted: 0, delivered: 0, read: 0, replied: 0, failed: 0, outcome_unknown: 0, included: null, excluded: null, fresh_through: NOW.toISOString() },
     ],
     ...overrides,
   };
@@ -103,11 +103,16 @@ describe('the tables behind each view', () => {
     expect(summary).toContainEqual(['Delivery rate', { ratio: 0.6489 }]);
     expect(summary).toContainEqual(['Data through (UTC)', '2026-09-09T09:15:00.000Z']);
     expect(sheets[1]?.rows[1]).toEqual(['Recipients', 618, { ratio: 1 }, null]);
-    expect(sheets[3]?.rows[2]).toEqual(['Autumn intake', 'Ready', 0, null, null, 0, 0, 0, 0, 0, 0, null, null, NOW.toISOString()]);
+    expect(sheets[3]?.rows[2]).toEqual(['Autumn intake', 'Ready', 0, null, null, 0, 0, 0, 0, 0, 0, 0, null, null, NOW.toISOString()]);
+    // Who replied is in the summary and the funnel, as a count and a share.
+    expect(summary).toContainEqual(['Replied', 46]);
+    expect(summary).toContainEqual(['Reply rate', { ratio: 0.0744 }]);
+    expect(sheets[1]?.rows.at(-1)).toEqual(['Replied', 46, { ratio: 0.0744 }, null]);
     // A channel that does not report reads has no read figure, not a zero.
-    expect(sheets[4]?.rows[2]).toEqual(['Instagram', 118, 82, null, null, null, null]);
+    // Replies are measured here rather than reported by the channel, so it has that.
+    expect(sheets[4]?.rows[2]).toEqual(['Instagram', 118, 82, null, null, 4, null, null]);
     expect(sheets[5]?.rows[2]).toEqual(['brand_new_code', 'brand_new_code', 7, { ratio: 0.3684 }]);
-    expect(sheets[6]?.rows[2]).toEqual(['2026-09-06', 0, 0, 0, 0, 0, null]);
+    expect(sheets[6]?.rows[2]).toEqual(['2026-09-06', 0, 0, 0, 0, 0, 0, null]);
     const noCost = loaded();
     noCost.live.campaignReport = { status: 'ready', loadedAt: 1, value: campaign({ costs: [] }) };
     expect(names(noCost, 'campaigns')).not.toContain('Cost');

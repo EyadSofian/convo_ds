@@ -770,10 +770,11 @@ export class CampaignService {
       if (exists.length === 0) throw notFound();
       const rows = await sql.query<{
         id: string; contact_id: string; display_name: string; external_id: string;
-        state: string; last_error: unknown; estimated_amount_minor: string | null; currency: string | null;
+        state: string; last_error: unknown; estimated_amount_minor: string | null; currency: string | null; replied: boolean;
       }>(
         `SELECT r.id::text,r.contact_id::text,c.display_name,i.external_id,r.state,r.last_error,
-                b.estimated_amount_minor::text,b.currency
+                b.estimated_amount_minor::text,b.currency,
+                (r.state IN ('accepted','delivered','read') AND campaign_recipient_replied(r.id)) AS replied
            FROM campaign_recipients r JOIN campaign_executions e ON e.id=r.execution_id
            JOIN contacts c ON c.id=r.contact_id JOIN contact_identities i ON i.id=r.identity_id
            LEFT JOIN budget_reservations b ON b.recipient_id=r.id

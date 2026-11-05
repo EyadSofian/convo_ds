@@ -23,23 +23,23 @@ function report(overrides: Partial<CampaignReport> = {}): CampaignReport {
     definitions: { campaigns: 2, executions: 1 },
     audience: { denominator: 1920, eligible: 1764, excluded: 156 },
     current: { denominator: 618, planned: 38, queued: 42, in_flight: 8, accepted: 101, delivered: 214, read: 187, failed: 19, skipped: 7, cancelled: 0, outcome_unknown: 2 },
-    milestones: { denominator: 618, accepted: 502, delivered: 401, read: 187 },
+    milestones: { denominator: 618, accepted: 502, delivered: 401, read: 187, replied: 46 },
     costs: [{ currency: 'USD', estimated_amount_minor: '30.9', committed_amount_minor: '25.2', reconciled_amount_minor: '24.6' }],
     leads: { total: 0, new: 0, existing: 0, repeat: 0, won: 0, lost: 0, unqualified: 0,
       by_course: [], by_source: [], by_agent: [], revenue: [] },
     channels: [
-      { kind: 'whatsapp', denominator: 500, accepted: 420, delivered: 358, read: 170, delivery_receipts: true, read_receipts: true },
-      { kind: 'instagram', denominator: 118, accepted: 82, delivered: 43, read: 17, delivery_receipts: false, read_receipts: false },
+      { kind: 'whatsapp', denominator: 500, accepted: 420, delivered: 358, read: 170, replied: 42, delivery_receipts: true, read_receipts: true },
+      { kind: 'instagram', denominator: 118, accepted: 82, delivered: 43, read: 17, replied: 4, delivery_receipts: false, read_receipts: false },
     ],
     errors: [{ code: 'provider_rejected', count: 12 }, { code: 'brand_new_code', count: 7 }],
     trend: [
-      { day: '2026-09-05', recipients: 96, accepted: 81, delivered: 66, read: 34, failed: 3 },
-      { day: '2026-09-06', recipients: 0, accepted: 0, delivered: 0, read: 0, failed: 0 },
-      { day: '2026-09-07', recipients: 522, accepted: 421, delivered: 335, read: 153, failed: 16 },
+      { day: '2026-09-05', recipients: 96, accepted: 81, delivered: 66, read: 34, replied: 8, failed: 3 },
+      { day: '2026-09-06', recipients: 0, accepted: 0, delivered: 0, read: 0, replied: 0, failed: 0 },
+      { day: '2026-09-07', recipients: 522, accepted: 421, delivered: 335, read: 153, replied: 38, failed: 16 },
     ],
     campaigns: [
-      { id: 'c-1', name: 'Reminder', state: 'running', denominator: 618, pending: 88, accepted: 502, delivered: 401, read: 187, failed: 19, outcome_unknown: 2, included: 618, excluded: 22, fresh_through: NOW.toISOString() },
-      { id: 'c-2', name: 'Autumn intake', state: 'ready', denominator: 0, pending: 0, accepted: 0, delivered: 0, read: 0, failed: 0, outcome_unknown: 0, included: null, excluded: null, fresh_through: NOW.toISOString() },
+      { id: 'c-1', name: 'Reminder', state: 'running', denominator: 618, pending: 88, accepted: 502, delivered: 401, read: 187, replied: 46, failed: 19, outcome_unknown: 2, included: 618, excluded: 22, fresh_through: NOW.toISOString() },
+      { id: 'c-2', name: 'Autumn intake', state: 'ready', denominator: 0, pending: 0, accepted: 0, delivered: 0, read: 0, replied: 0, failed: 0, outcome_unknown: 0, included: null, excluded: null, fresh_through: NOW.toISOString() },
     ],
     ...overrides,
   };
@@ -531,13 +531,14 @@ describe('the report', () => {
     expect(root.querySelector('[data-report-ready]')?.textContent).toContain('UTC');
   });
 
-  it('shows the KPI strip, with replies labelled as not measured rather than zero', () => {
+  it('shows the KPI strip, with who replied measured like everything else', () => {
     const root = renderAnalytics(screen());
     const kpis = Array.from(root.querySelectorAll('.kpi')).map((kpi) => kpi.querySelector('.kpi__label')?.textContent);
-    expect(kpis).toEqual(['Audience', 'Recipients', 'Sent', 'Delivered', 'Read', 'Failed', 'Replies']);
+    expect(kpis).toEqual(['Audience', 'Recipients', 'Sent', 'Delivered', 'Read', 'Failed', 'Replied']);
     const replies = root.querySelectorAll('.kpi')[6] as HTMLElement;
-    expect(replies.className).toContain('kpi--unavailable');
-    expect(replies.textContent).toContain('Not measured');
+    expect(replies.className).not.toContain('kpi--unavailable');
+    expect(replies.querySelector('.kpi__value')?.textContent).toBe('46');
+    expect(replies.textContent).toContain('7.4% of recipients');
     expect(root.querySelectorAll('.kpi')[5]?.className).toContain('kpi--danger');
     expect(root.querySelectorAll('.kpi')[2]?.textContent).toContain('81.2% of recipients');
   });
@@ -548,7 +549,9 @@ describe('the report', () => {
     expect(stages).toHaveLength(5);
     expect(stages[0]?.textContent).toContain('Denominator for every percentage');
     expect(stages[2]?.textContent).toContain('64.9% of recipients · 79.9% of previous step');
-    expect(stages[4]?.className).toContain('funnel__stage--unavailable');
+    // Against recipients only: replies can outnumber reads where receipts are off.
+    expect(stages[4]?.textContent).toContain('7.4% of recipients wrote back after the broadcast');
+    expect(stages[4]?.textContent).not.toContain('of previous step');
     expect(root.querySelector('.funnel')?.parentElement?.parentElement?.textContent).toContain('Instagram do not report reads');
   });
 
@@ -567,15 +570,15 @@ describe('the report', () => {
     expect(rows).toHaveLength(3);
     expect(rows[1]?.textContent).toContain('—');
 
-    const single = renderAnalytics(screen(report({ trend: [{ day: '2026-09-05', recipients: 10, accepted: 9, delivered: 8, read: 1, failed: 0 }] })));
+    const single = renderAnalytics(screen(report({ trend: [{ day: '2026-09-05', recipients: 10, accepted: 9, delivered: 8, read: 1, replied: 0, failed: 0 }] })));
     expect(single.querySelector('.chart__line')).toBeNull();
 
-    const many = Array.from({ length: 14 }, (_, index) => ({ day: `2026-09-${String(index + 1).padStart(2, '0')}`, recipients: index, accepted: 0, delivered: 0, read: 0, failed: 0 }));
+    const many = Array.from({ length: 14 }, (_, index) => ({ day: `2026-09-${String(index + 1).padStart(2, '0')}`, recipients: index, accepted: 0, delivered: 0, read: 0, replied: 0, failed: 0 }));
     expect(renderAnalytics(screen(report({ trend: many }))).querySelectorAll('.chart__tick').length).toBeLessThan(14);
   });
 
   it('says so when the scope has no recipients or no days', () => {
-    const empty = report({ milestones: { denominator: 0, accepted: 0, delivered: 0, read: 0 }, trend: [] });
+    const empty = report({ milestones: { denominator: 0, accepted: 0, delivered: 0, read: 0, replied: 0 }, trend: [] });
     const root = renderAnalytics(screen(empty));
     expect(root.textContent).toContain('No recipients in this scope');
     expect(root.querySelector('.funnel')).toBeNull();
@@ -635,7 +638,8 @@ describe('the report', () => {
   it('speaks Arabic by default', () => {
     const root = renderAnalytics(screen(report(), 'ar'));
     expect(root.textContent).toContain('مسار التسليم');
-    expect(root.textContent).toContain('غير مقاسة');
+    expect(root.textContent).toContain('ردّوا');
+    expect(root.textContent).not.toContain('غير مقاسة');
   });
 });
 
@@ -706,12 +710,12 @@ describe('the charts', () => {
     const compared = Array.from(root.querySelectorAll('.panel')).find((panel) => panel.querySelector('.panel__title')?.textContent === 'Campaigns compared') as HTMLElement;
     expect(compared.querySelectorAll('.stackrows__row')).toHaveLength(1);
     expect(renderAnalytics(screen(report({ campaigns: [] }))).textContent).not.toContain('Campaigns compared');
-    const empty = renderAnalytics(screen(report({ milestones: { denominator: 0, accepted: 0, delivered: 0, read: 0 }, current: { ...report().current, denominator: 0 } })));
+    const empty = renderAnalytics(screen(report({ milestones: { denominator: 0, accepted: 0, delivered: 0, read: 0, replied: 0 }, current: { ...report().current, denominator: 0 } })));
     expect(Array.from(empty.querySelectorAll('.report-hero .gauge__value')).map((value) => value.textContent)).toEqual(['—', '—', '—', '—']);
   });
 
   it('splits a channel that reports deliveries but not reads', () => {
-    const root = renderAnalytics(screen(report({ channels: [{ kind: 'messenger', denominator: 10, accepted: 9, delivered: 8, read: 3, delivery_receipts: true, read_receipts: false }] })));
+    const root = renderAnalytics(screen(report({ channels: [{ kind: 'messenger', denominator: 10, accepted: 9, delivered: 8, read: 3, replied: 0, delivery_receipts: true, read_receipts: false }] })));
     const row = root.querySelector('.stackrows__row[data-channel="messenger"]') as HTMLElement;
     expect(row.querySelector('.stackbar')?.getAttribute('aria-label')).toBe('Delivered 80% · Sent 10%');
     expect(row.textContent).toContain('Not reported');

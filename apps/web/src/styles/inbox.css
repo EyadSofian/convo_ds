@@ -684,6 +684,10 @@
     color: var(--accent-text);
   }
 
+  .msg__delivery--failed {
+    color: var(--danger);
+  }
+
   .msg__state--rejected,
   .msg__state--failed {
     color: var(--danger);

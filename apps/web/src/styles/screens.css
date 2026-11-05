@@ -6,6 +6,17 @@
    ========================================================================== */
 
 @layer screens {
+  .ledger__summary {
+    padding: var(--space-3) var(--space-4);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ledger .table td .badge + .badge {
+    margin-inline-start: var(--space-1);
+  }
+
   /* ------------------------------------------------------------- channels -- */
 
   .integration-grid {
@@ -660,20 +671,9 @@
     flex: 1 1 auto;
   }
 
-  .funnel__track--empty {
-    block-size: 10px;
-    border: 1px dashed var(--border-strong);
-    border-radius: var(--radius-full);
-  }
-
   .funnel__foot {
     color: var(--text-muted);
     font-size: var(--text-2xs);
-  }
-
-  .funnel__stage--unavailable .funnel__label,
-  .funnel__stage--unavailable .funnel__value {
-    color: var(--text-muted);
   }
 
   .chart-legend {

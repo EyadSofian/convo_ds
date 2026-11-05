@@ -33,10 +33,9 @@ import {
  *
  * Every percentage names its denominator — for campaigns, the recipients in
  * the executions the filters selected — and each report says how fresh it is.
- * Nothing is computed from a count the API did not send: replies are not
- * measured by the report, so they are labelled as such rather than shown as
- * zero. Each chart carries its numbers as text, and the full tables stay
- * beneath the charts for anybody who wants the exact figures.
+ * Nothing is computed from a count the API did not send. Each chart carries its
+ * numbers as text, and the full tables stay beneath the charts for anybody who
+ * wants the exact figures.
  */
 
 function percent(state: AppState, value: number, denominator: number): string {
@@ -937,8 +936,7 @@ function kpiStrip(state: AppState, report: CampaignReport): HTMLElement {
     stat({ label: t(state, 'سُلّمت', 'Delivered'), value: formatNumber(m.delivered, state.lang), icon: 'checkDouble', hue: 'teal', foot: of(m.delivered) }),
     stat({ label: t(state, 'قُرئت', 'Read'), value: formatNumber(m.read, state.lang), icon: 'eye', hue: 'green', foot: of(m.read) }),
     stat({ label: t(state, 'فشلت', 'Failed'), value: formatNumber(report.current.failed, state.lang), icon: 'alert', hue: 'danger', foot: of(report.current.failed), danger: report.current.failed > 0 }),
-    stat({ label: t(state, 'الردود', 'Replies'), value: t(state, 'غير مقاسة', 'Not measured'), icon: 'reply', hue: 'muted',
-      foot: t(state, 'لا يقيسها التقرير بعد', 'Not measured by the report yet'), unavailable: true }),
+    stat({ label: t(state, 'ردّوا', 'Replied'), value: formatNumber(m.replied, state.lang), icon: 'reply', hue: 'indigo', foot: of(m.replied) }),
   ]);
 }
 
@@ -947,32 +945,30 @@ const STAGE_HUES: readonly Hue[] = ['indigo', 'cyan', 'teal', 'green', 'muted'];
 /** Accepted → Delivered → Read, each against the same published denominator. */
 function funnel(state: AppState, report: CampaignReport): HTMLElement {
   const m = report.milestones;
-  const stages: readonly { readonly label: string; readonly value: number | null; readonly previous: number }[] = [
+  const stages: readonly { readonly label: string; readonly value: number; readonly previous: number | null }[] = [
     { label: t(state, 'المستلمون', 'Recipients'), value: m.denominator, previous: m.denominator },
     { label: t(state, 'أُرسلت (قبلها المزوّد)', 'Sent (accepted by provider)'), value: m.accepted, previous: m.denominator },
     { label: t(state, 'سُلّمت', 'Delivered'), value: m.delivered, previous: m.accepted },
     { label: t(state, 'قُرئت', 'Read'), value: m.read, previous: m.delivered },
-    { label: t(state, 'ردّ العميل', 'Replied'), value: null, previous: m.read },
+    // Not against reads: somebody with read receipts off still replies, and "150% of
+    // the previous step" would say nothing true.
+    { label: t(state, 'ردّ العميل', 'Replied'), value: m.replied, previous: null },
   ];
   const missingReceipts = report.channels.filter((channel) => !channel.read_receipts);
   return panel(t(state, 'مسار التسليم', 'Delivery funnel'), [
     h('ol', { class: 'funnel' }, stages.map((stage, index) =>
-      h('li', { class: `${stage.value === null ? 'funnel__stage funnel__stage--unavailable' : 'funnel__stage'} viz--${STAGE_HUES[index] as Hue}` }, [
+      h('li', { class: `funnel__stage viz--${STAGE_HUES[index] as Hue}` }, [
         h('div', { class: 'funnel__head' }, [
           h('span', { class: 'funnel__step', 'aria-hidden': 'true' }, [String(index + 1)]),
           h('span', { class: 'funnel__label' }, [stage.label]),
-          h('span', { class: 'funnel__value' }, [
-            stage.value === null ? t(state, 'غير مقاس', 'Not measured') : isolated(formatNumber(stage.value, state.lang)),
-          ]),
+          h('span', { class: 'funnel__value' }, [isolated(formatNumber(stage.value, state.lang))]),
         ]),
-        stage.value === null
-          ? h('div', { class: 'funnel__track funnel__track--empty' })
-          : progress(stage.value / Math.max(m.denominator, 1), t(state, `${stage.label}: ${percent(state, stage.value, m.denominator)} من المستلمين`, `${stage.label}: ${percent(state, stage.value, m.denominator)} of recipients`)),
+        progress(stage.value / Math.max(m.denominator, 1), t(state, `${stage.label}: ${percent(state, stage.value, m.denominator)} من المستلمين`, `${stage.label}: ${percent(state, stage.value, m.denominator)} of recipients`)),
         h('div', { class: 'funnel__foot' }, [
-          stage.value === null
-            ? t(state, 'لا تتوفر بيانات ردود في التقرير.', 'The report has no reply data.')
-            : index === 0
-              ? t(state, 'المقام لكل النسب', 'Denominator for every percentage')
+          index === 0
+            ? t(state, 'المقام لكل النسب', 'Denominator for every percentage')
+            : stage.previous === null
+              ? t(state, `${percent(state, stage.value, m.denominator)} من المستلمين كتبوا بعد الحملة`, `${percent(state, stage.value, m.denominator)} of recipients wrote back after the broadcast`)
               : t(state, `${percent(state, stage.value, m.denominator)} من المستلمين · ${percent(state, stage.value, stage.previous)} من المرحلة السابقة`, `${percent(state, stage.value, m.denominator)} of recipients · ${percent(state, stage.value, stage.previous)} of previous step`),
         ]),
       ]),
@@ -1085,6 +1081,7 @@ function trend(state: AppState, days: readonly CampaignReportTrendDay[]): HTMLEl
           h('th', { scope: 'col', class: 'num' }, [t(state, 'المستلمون', 'Recipients')]),
           h('th', { scope: 'col', class: 'num' }, [t(state, 'سُلّمت', 'Delivered')]),
           h('th', { scope: 'col', class: 'num' }, [t(state, 'قُرئت', 'Read')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'ردّوا', 'Replied')]),
           h('th', { scope: 'col', class: 'num' }, [t(state, 'فشلت', 'Failed')]),
           h('th', { scope: 'col', class: 'num' }, [t(state, 'نسبة التسليم', 'Delivery rate')]),
         ])]),
@@ -1093,6 +1090,7 @@ function trend(state: AppState, days: readonly CampaignReportTrendDay[]): HTMLEl
           h('td', { class: 'num' }, [formatNumber(day.recipients, state.lang)]),
           h('td', { class: 'num' }, [formatNumber(day.delivered, state.lang)]),
           h('td', { class: 'num' }, [formatNumber(day.read, state.lang)]),
+          h('td', { class: 'num' }, [formatNumber(day.replied, state.lang)]),
           h('td', { class: 'num' }, [formatNumber(day.failed, state.lang)]),
           h('td', { class: 'num' }, [percent(state, day.delivered, day.recipients)]),
         ]))),
@@ -1122,6 +1120,7 @@ function channelBreakdown(state: AppState, report: CampaignReport): HTMLElement 
       h('div', { class: 'stackrows__facts' }, [
         h('span', {}, [t(state, 'التسليم ', 'Delivered '), channel.delivery_receipts ? h('strong', {}, [percent(state, channel.delivered, channel.denominator)]) : notReported.cloneNode(true)]),
         h('span', {}, [t(state, 'القراءة ', 'Read '), channel.read_receipts ? h('strong', {}, [percent(state, channel.read, channel.denominator)]) : notReported.cloneNode(true)]),
+        h('span', {}, [t(state, 'الردود ', 'Replied '), h('strong', {}, [percent(state, channel.replied, channel.denominator)])]),
       ]),
     ]))),
   ]);
@@ -1185,8 +1184,8 @@ function campaignComparison(state: AppState, report: CampaignReport): Child {
       h('div', { class: 'stackrows__head' }, [
         h('span', { class: 'stackrows__label' }, [h('span', { class: 'table__primary' }, [campaign.name]), campaignStateBadge(state, campaign.state)]),
         h('span', { class: 'stackrows__value' }, [t(state,
-          `${percent(state, campaign.delivered, campaign.denominator)} سُلّمت · ${percent(state, campaign.read, campaign.denominator)} قُرئت`,
-          `${percent(state, campaign.delivered, campaign.denominator)} delivered · ${percent(state, campaign.read, campaign.denominator)} read`)]),
+          `${percent(state, campaign.delivered, campaign.denominator)} سُلّمت · ${percent(state, campaign.read, campaign.denominator)} قُرئت · ${formatNumber(campaign.replied, state.lang)} ردّوا`,
+          `${percent(state, campaign.delivered, campaign.denominator)} delivered · ${percent(state, campaign.read, campaign.denominator)} read · ${formatNumber(campaign.replied, state.lang)} replied`)]),
       ]),
       stack(state, [
         { label: t(state, 'قُرئت', 'Read'), value: campaign.read, hue: 'green' },

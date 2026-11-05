@@ -13,6 +13,7 @@ import { parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ProfileLookupError } from '../../apps/api/src/channels/channel-transport.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
+import { ConversationService } from '../../apps/api/src/conversations/conversation.service.js';
 import type { InboundMediaResult, MetaPageSync, ProviderTemplate, TemplateFetchResult } from '../../apps/api/src/channels/channel-transport.js';
 import { tickFor } from '../../apps/api/src/workers/worker-roles.js';
 import { asExecutor, withTenant } from '../../packages/database/src/index.js';
@@ -2727,6 +2728,77 @@ describe('the outbound path', () => {
       clientMessageId: clientId(),
     });
     expect(response.statusCode).toBe(202);
+  });
+
+  it('reads what a WhatsApp status really says, instead of calling it delivered', async () => {
+    const to = peer();
+    await openWindow(to);
+    const sentId = (await queue({ text: 'مرسلة فقط', peerIdentity: to })).json() as { data: { id: string } };
+    answer = accepted(`wamid.onlysent-${to}`);
+    await dispatcher.dispatch(api.tenantId);
+    await deliver(api, statusDelivery(`wamid.onlysent-${to}`, 'sent', '1789000050', to));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+    const stateOf = async (id: string) => ((await send(api, owner, 'GET', `/outbound-messages/${id}`)).json() as { data: Record<string, unknown> }).data;
+    expect(await stateOf(sentId.data.id)).toMatchObject({ delivery_state: 'sent', delivery_anomaly: null });
+
+    // A late `sent` after a read is routine: it must not turn into a false delivery.
+    await deliver(api, statusDelivery(`wamid.onlysent-${to}`, 'read', '1789000051', to));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+    expect(await stateOf(sentId.data.id)).toMatchObject({ delivery_state: 'read' });
+
+    const failedTo = peer();
+    await openWindow(failedTo);
+    const failedId = (await queue({ text: 'رفضتها Meta', peerIdentity: failedTo })).json() as { data: { id: string } };
+    answer = accepted(`wamid.refused-${failedTo}`);
+    await dispatcher.dispatch(api.tenantId);
+    await deliver(api, statusDelivery(`wamid.refused-${failedTo}`, 'failed', '1789000052', failedTo));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+    expect(await stateOf(failedId.data.id)).toMatchObject({ delivery_state: 'failed', delivery_anomaly: null });
+  });
+
+  it('applies a receipt held from before the send response by what it really said', async () => {
+    const to = peer();
+    await openWindow(to);
+    const id = ((await queue({ text: 'مرسلة قبل الرد', peerIdentity: to })).json() as { data: { id: string } }).data.id;
+    await deliver(api, statusDelivery(`wamid.heldsent-${to}`, 'sent', '1789000060', to));
+    await normalizer.drain(api.tenantId);
+    answer = accepted(`wamid.heldsent-${to}`);
+    await dispatcher.dispatch(api.tenantId);
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    expect((read.json() as { data: Record<string, unknown> }).data['delivery_state']).toBe('sent');
+  });
+
+  it('keeps every receipt when telling the screens about one of them fails', async () => {
+    const first = peer();
+    const second = peer();
+    await openWindow(first);
+    await openWindow(second);
+    const firstId = ((await queue({ text: 'الأولى', peerIdentity: first })).json() as { data: { id: string } }).data.id;
+    answer = accepted(`wamid.notice-${first}`);
+    await dispatcher.dispatch(api.tenantId);
+    const secondId = ((await queue({ text: 'التانية', peerIdentity: second })).json() as { data: { id: string } }).data.id;
+    answer = accepted(`wamid.notice-${second}`);
+    await dispatcher.dispatch(api.tenantId);
+    await deliver(api, statusDelivery(`wamid.notice-${first}`, 'delivered', '1789000070', first));
+    await deliver(api, statusDelivery(`wamid.notice-${second}`, 'delivered', '1789000071', second));
+    await normalizer.drain(api.tenantId);
+
+    const ensure = vi.spyOn(api.app.get(ConversationService), 'ensure').mockRejectedValueOnce(new Error('notice failed'));
+    try {
+      // Reported to the worker, which logs it, but only after the rest committed.
+      await expect(dispatcher.reconcileReceipts(api.tenantId)).rejects.toThrow('notice failed');
+    } finally {
+      ensure.mockRestore();
+    }
+    for (const id of [firstId, secondId]) {
+      const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+      expect((read.json() as { data: Record<string, unknown> }).data['delivery_state']).toBe('delivered');
+    }
+    // It does not come back: the next sweep has nothing left to fold or to fail on.
+    expect(await dispatcher.reconcileReceipts(api.tenantId)).toBe(0);
   });
 
   it('folds a read receipt onto a message that was already delivered', async () => {

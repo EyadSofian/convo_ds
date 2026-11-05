@@ -192,23 +192,23 @@ function campaignReport(): Record<string, unknown> {
     definitions: { campaigns: 3, executions: 1 },
     audience: { denominator: 1920, eligible: 1764, excluded: 156 },
     current: { denominator: 618, planned: 38, queued: 42, in_flight: 8, accepted: 101, delivered: 214, read: 187, failed: 19, skipped: 7, cancelled: 0, outcome_unknown: 2 },
-    milestones: { denominator: 618, accepted: 502, delivered: 401, read: 187 },
+    milestones: { denominator: 618, accepted: 502, delivered: 401, read: 187, replied: 46 },
     trend: [
-      { day: '2026-09-05', recipients: 96, accepted: 81, delivered: 66, read: 34, failed: 3 },
-      { day: '2026-09-06', recipients: 140, accepted: 117, delivered: 95, read: 44, failed: 5 },
-      { day: '2026-09-07', recipients: 118, accepted: 96, delivered: 77, read: 36, failed: 4 },
-      { day: '2026-09-08', recipients: 152, accepted: 125, delivered: 101, read: 47, failed: 4 },
-      { day: '2026-09-09', recipients: 112, accepted: 83, delivered: 62, read: 26, failed: 3 },
+      { day: '2026-09-05', recipients: 96, accepted: 81, delivered: 66, read: 34, replied: 8, failed: 3 },
+      { day: '2026-09-06', recipients: 140, accepted: 117, delivered: 95, read: 44, replied: 11, failed: 5 },
+      { day: '2026-09-07', recipients: 118, accepted: 96, delivered: 77, read: 36, replied: 9, failed: 4 },
+      { day: '2026-09-08', recipients: 152, accepted: 125, delivered: 101, read: 47, replied: 11, failed: 4 },
+      { day: '2026-09-09', recipients: 112, accepted: 83, delivered: 62, read: 26, replied: 6, failed: 3 },
     ],
     costs: [{ currency: 'USD', estimated_amount_minor: '30.900000', committed_amount_minor: '25.200000', reconciled_amount_minor: '24.650000' }],
     channels: [
-      { kind: 'whatsapp', denominator: 500, accepted: 422, delivered: 358, read: 170, delivery_receipts: true, read_receipts: true },
-      { kind: 'instagram', denominator: 118, accepted: 82, delivered: 43, read: 17, delivery_receipts: false, read_receipts: false },
+      { kind: 'whatsapp', denominator: 500, accepted: 422, delivered: 358, read: 170, replied: 42, delivery_receipts: true, read_receipts: true },
+      { kind: 'instagram', denominator: 118, accepted: 82, delivered: 43, read: 17, replied: 4, delivery_receipts: false, read_receipts: false },
     ],
     errors: [{ code: 'provider_rejected', count: 12 }, { code: 'marketing_consent_missing', count: 7 }, { code: 'attempt_never_completed', count: 2 }],
     campaigns: [
-      { id: 'campaign-reminder', name: 'تذكير المحاضرة المباشرة', state: 'running', denominator: 618, pending: 88, accepted: 502, delivered: 401, read: 187, failed: 19, outcome_unknown: 2, included: 618, excluded: 22, fresh_through: fresh },
-      { id: 'campaign-intake', name: 'دفعة الخريف', state: 'ready', denominator: 0, pending: 0, accepted: 0, delivered: 0, read: 0, failed: 0, outcome_unknown: 0, included: null, excluded: null, fresh_through: fresh },
+      { id: 'campaign-reminder', name: 'تذكير المحاضرة المباشرة', state: 'running', denominator: 618, pending: 88, accepted: 502, delivered: 401, read: 187, replied: 46, failed: 19, outcome_unknown: 2, included: 618, excluded: 22, fresh_through: fresh },
+      { id: 'campaign-intake', name: 'دفعة الخريف', state: 'ready', denominator: 0, pending: 0, accepted: 0, delivered: 0, read: 0, replied: 0, failed: 0, outcome_unknown: 0, included: null, excluded: null, fresh_through: fresh },
     ],
   };
 }

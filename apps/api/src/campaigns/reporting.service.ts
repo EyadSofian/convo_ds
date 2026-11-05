@@ -35,6 +35,8 @@ export interface CampaignReport {
     readonly accepted: number;
     readonly delivered: number;
     readonly read: number;
+    /** Wrote back after this broadcast and before the next one that reached them. */
+    readonly replied: number;
   };
   readonly costs: readonly {
     readonly currency: string;
@@ -57,6 +59,7 @@ export interface CampaignReport {
     readonly accepted: number;
     readonly delivered: number;
     readonly read: number;
+    readonly replied: number;
     readonly delivery_receipts: boolean;
     readonly read_receipts: boolean;
   }[];
@@ -74,6 +77,7 @@ export interface CampaignReport {
     readonly accepted: number;
     readonly delivered: number;
     readonly read: number;
+    readonly replied: number;
     readonly failed: number;
   }[];
   readonly campaigns: readonly {
@@ -85,6 +89,7 @@ export interface CampaignReport {
     readonly accepted: number;
     readonly delivered: number;
     readonly read: number;
+    readonly replied: number;
     readonly failed: number;
     readonly outcome_unknown: number;
     /** From the execution's frozen audience snapshot; null before launch. */
@@ -232,7 +237,8 @@ export function reportQuery(sql: SqlExecutor, filters: CampaignReportFilters) {
       SELECT count(*)::int AS denominator,
              count(*) FILTER (WHERE accepted_milestone)::int AS accepted,
              count(*) FILTER (WHERE delivered_milestone)::int AS delivered,
-             count(*) FILTER (WHERE read_milestone)::int AS read
+             count(*) FILTER (WHERE read_milestone)::int AS read,
+             count(*) FILTER (WHERE replied_milestone)::int AS replied
         FROM scoped_rows
     ),
     cost_rows AS (
@@ -247,6 +253,7 @@ export function reportQuery(sql: SqlExecutor, filters: CampaignReportFilters) {
              count(*) FILTER (WHERE accepted_milestone)::int AS accepted,
              count(*) FILTER (WHERE delivered_milestone)::int AS delivered,
              count(*) FILTER (WHERE read_milestone)::int AS read,
+             count(*) FILTER (WHERE replied_milestone)::int AS replied,
              bool_and(delivery_receipts) AS delivery_receipts,
              bool_and(read_receipts) AS read_receipts
         FROM scoped_rows GROUP BY channel_kind ORDER BY channel_kind
@@ -263,6 +270,7 @@ export function reportQuery(sql: SqlExecutor, filters: CampaignReportFilters) {
              count(*) FILTER (WHERE accepted_milestone)::int AS accepted,
              count(*) FILTER (WHERE delivered_milestone)::int AS delivered,
              count(*) FILTER (WHERE read_milestone)::int AS read,
+             count(*) FILTER (WHERE replied_milestone)::int AS replied,
              count(*) FILTER (WHERE current_state='failed')::int AS failed
         FROM scoped_rows GROUP BY 1 ORDER BY 1
     ),
@@ -272,6 +280,7 @@ export function reportQuery(sql: SqlExecutor, filters: CampaignReportFilters) {
              count(*) FILTER (WHERE r.accepted_milestone)::int AS accepted,
              count(*) FILTER (WHERE r.delivered_milestone)::int AS delivered,
              count(*) FILTER (WHERE r.read_milestone)::int AS read,
+             count(*) FILTER (WHERE r.replied_milestone)::int AS replied,
              count(*) FILTER (WHERE r.current_state='failed')::int AS failed,
              count(*) FILTER (WHERE r.current_state='outcome_unknown')::int AS outcome_unknown,
              (s.counts->>'eligible')::int AS included,

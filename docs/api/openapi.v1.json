@@ -13226,9 +13226,14 @@
           "state",
           "last_error",
           "estimated_amount_minor",
-          "currency"
+          "currency",
+          "replied"
         ],
         "properties": {
+          "replied": {
+            "type": "boolean",
+            "description": "Wrote back after this broadcast and before the next one that reached them."
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -13847,6 +13852,7 @@
           "accepted",
           "delivered",
           "read",
+          "replied",
           "delivery_receipts",
           "read_receipts"
         ],
@@ -13867,6 +13873,10 @@
             "minimum": 0
           },
           "read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "replied": {
             "type": "integer",
             "minimum": 0
           },
@@ -13932,6 +13942,7 @@
           "accepted",
           "delivered",
           "read",
+          "replied",
           "failed",
           "outcome_unknown",
           "included",
@@ -13967,6 +13978,10 @@
             "minimum": 0
           },
           "read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "replied": {
             "type": "integer",
             "minimum": 0
           },
@@ -14009,6 +14024,7 @@
           "accepted",
           "delivered",
           "read",
+          "replied",
           "failed"
         ],
         "properties": {
@@ -14029,6 +14045,10 @@
             "minimum": 0
           },
           "read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "replied": {
             "type": "integer",
             "minimum": 0
           },
@@ -14160,7 +14180,8 @@
               "denominator",
               "accepted",
               "delivered",
-              "read"
+              "read",
+              "replied"
             ],
             "properties": {
               "denominator": {
@@ -14176,6 +14197,10 @@
                 "minimum": 0
               },
               "read": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "replied": {
                 "type": "integer",
                 "minimum": 0
               }

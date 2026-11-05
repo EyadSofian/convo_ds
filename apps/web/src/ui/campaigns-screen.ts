@@ -498,7 +498,13 @@ function ledger(state: AppState, live: LiveState, campaign: Campaign): Child {
 }
 
 function recipientTable(state: AppState, rows: readonly CampaignRecipient[]): HTMLElement {
+  const replied = rows.filter((row) => row.replied).length;
   return h('div', { class: 'tablewrap' }, [
+    h('p', { class: 'ledger__summary' }, [t(
+      state,
+      `${formatNumber(replied, state.lang)} من ${formatNumber(rows.length, state.lang)} ردّوا`,
+      `${formatNumber(replied, state.lang)} of ${formatNumber(rows.length, state.lang)} replied`,
+    )]),
     h('table', { class: 'table' }, [
       h('thead', {}, [h('tr', {}, [
         h('th', { scope: 'col' }, [t(state, 'المستلم', 'Recipient')]),
@@ -510,7 +516,10 @@ function recipientTable(state: AppState, rows: readonly CampaignRecipient[]): HT
         const code = errorCodeOf(row.last_error);
         return h('tr', {}, [
           h('td', {}, [h('span', { class: 'table__primary' }, [isolated(row.display_name)]), h('span', { class: 'table__sub' }, [isolated(row.external_id, true)])]),
-          h('td', {}, [badge(phrase(state, RECIPIENT_STATES, row.state), RECIPIENT_TONE[row.state] ?? 'neutral')]),
+          h('td', {}, [
+            badge(phrase(state, RECIPIENT_STATES, row.state), RECIPIENT_TONE[row.state] ?? 'neutral'),
+            row.replied ? badge(t(state, 'ردّ', 'Replied'), 'success') : null,
+          ]),
           h('td', {}, [code === null ? '—' : phrase(state, ERROR_CODES, code)]),
           h('td', { class: 'num' }, [row.estimated_amount_minor === null ? '—' : isolated(`${row.estimated_amount_minor} ${row.currency ?? ''}`.trim(), true)]),
         ]);

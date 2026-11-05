@@ -63,6 +63,7 @@ const DELIVERY_LABEL: Readonly<Record<string, Phrase>> = {
   sent: { ar: 'أُرسلت', en: 'Sent' },
   delivered: { ar: 'سُلّمت', en: 'Delivered' },
   read: { ar: 'قُرئت', en: 'Read' },
+  failed: { ar: 'لم تصل', en: 'Not delivered' },
 };
 
 /** WhatsApp voice notes are capped here; the server refuses anything longer. */
@@ -1085,7 +1086,7 @@ function deliveryNote(state: AppState, message: TimelineMessage): readonly Child
         class: `msg__delivery msg__delivery--${message.delivery_state}`,
         title: message.delivery_anomaly === null ? undefined : t(state, `إيصالات متعارضة: ${message.delivery_anomaly}`, `Conflicting receipts: ${message.delivery_anomaly}`),
       }, [
-        icon(message.delivery_state === 'sent' ? 'check' : 'checkDouble', 14),
+        icon(message.delivery_state === 'failed' ? 'alert' : message.delivery_state === 'sent' ? 'check' : 'checkDouble', 14),
         phrase(state, DELIVERY_LABEL, message.delivery_state),
       ]),
     );
