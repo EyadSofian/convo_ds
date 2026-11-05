@@ -2000,6 +2000,25 @@ describe('the Channels screen', () => {
     expect(toasts(app)).toContain('Meta confirmed the WABA webhook subscription for 2 connection(s). Live delivery still requires publishing the Meta app.');
   });
 
+  it('fetches a Page\'s messages from Meta and says what it found and what Meta refused', async () => {
+    const answers = [
+      { imported: 3, recovered: 1, conversations: 2, messages: 9, webhook_subscribed: true, subscription_error: null },
+      { imported: 0, recovered: 0, conversations: 1, messages: 1, webhook_subscribed: false, subscription_error: 'Needs pages_manage_metadata' },
+    ];
+    const api = channelApi();
+    const messengerRow = (((api as unknown as { routes?: unknown }).routes), { id: 'cn-1' });
+    const { app, root } = openChannels(api.on(`POST /tenants/${TENANT}/channels/${messengerRow.id}/meta-history/sync`, () => ({ status: 201, body: { data: answers.shift() } })));
+    await settle();
+    await app.dispatch('live-sync-meta-history', 'cn-1');
+    await settle();
+    expect(api.calls.some((call) => call.method === 'POST' && call.path.endsWith('/channels/cn-1/meta-history/sync'))).toBe(true);
+    expect(toasts(app)).toContain('4 new messages from 2 conversations at Meta.');
+    await app.dispatch('live-sync-meta-history', 'cn-1');
+    await settle();
+    expect(toasts(app).some((toast) => toast.includes('The Page is still not subscribed to events: Needs pages_manage_metadata'))).toBe(true);
+    expect(root).toBeTruthy();
+  });
+
   it('rejects a non-numeric WABA ID in the connection editor before calling the API', async () => {
     const api = channelApi();
     const { root } = openChannels(api);

@@ -37,6 +37,7 @@ import { withOwnChannels } from './channels/custom-channel.transport.js';
 import { MetaWhatsAppTransport } from './channels/meta-whatsapp.transport.js';
 import type { ChannelTransportPort } from './channels/channel-transport.js';
 import { ChannelCredentialService } from './channels/credential.service.js';
+import { InboundMediaService } from './channels/inbound-media.service.js';
 import { ChannelIngressController } from './channels/ingress.controller.js';
 import { ChannelDispatcherService } from './channels/dispatcher.service.js';
 import { ChannelIngressService } from './channels/ingress.service.js';
@@ -203,6 +204,7 @@ export class ApiModule {
         InvitationService,
         PeopleService,
         ChannelCredentialService,
+        InboundMediaService,
         ChannelService,
         TemplateLibraryService,
         ChannelAppService,

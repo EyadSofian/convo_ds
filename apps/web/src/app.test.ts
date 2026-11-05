@@ -30,7 +30,7 @@ const EMPTY_REPORT = {
   filters: { from: null, to: null, channel: null, campaign_id: null },
   definitions: { campaigns: 0, executions: 0 }, audience: { denominator: 0, eligible: 0, excluded: 0 },
   current: { denominator: 0, planned: 0, queued: 0, in_flight: 0, accepted: 0, delivered: 0, read: 0, failed: 0, skipped: 0, cancelled: 0, outcome_unknown: 0 },
-  milestones: { denominator: 0, accepted: 0, delivered: 0, read: 0 },
+  milestones: { denominator: 0, accepted: 0, delivered: 0, read: 0, replied: 0 },
   costs: [], channels: [], errors: [], trend: [], campaigns: [],
 };
 
@@ -704,6 +704,32 @@ describe('layers, focus and the keyboard', () => {
     press(root, 'Escape');
     expect(app.state.navOpen).toBe(false);
     expect(document.activeElement?.classList.contains('header__menu')).toBe(true);
+  });
+
+  it('closes what is open even when a redraw left focus outside the app', async () => {
+    const { root, app } = start('#/people', signedIn());
+    await settle();
+    app.dispatch('menu', 'user');
+    expect(app.state.openMenu).toBe('user');
+    (document.activeElement as HTMLElement).blur();
+    expect(root.contains(document.activeElement)).toBe(false);
+    press(document.body, 'Escape');
+    expect(app.state.openMenu).toBeNull();
+
+    // A key pressed inside the app is handled once, not again on its way up.
+    app.dispatch('menu', 'user');
+    const dispatch = vi.spyOn(app, 'dispatch');
+    const closed = press(root.querySelector('[data-overlay]') as Element, 'Escape');
+    expect(closed.defaultPrevented).toBe(true);
+    expect(app.state.openMenu).toBeNull();
+    press(document.body, 'Escape');
+    expect(dispatch).not.toHaveBeenCalled();
+
+    // And nothing is left listening once the app is gone.
+    app.destroy();
+    app.state.openMenu = 'user';
+    press(document.body, 'Escape');
+    expect(app.state.openMenu).toBe('user');
   });
 
   it('moves focus into a dialog, traps it, and gives it back to the control that opened it', async () => {

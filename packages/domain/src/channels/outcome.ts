@@ -123,12 +123,18 @@ export const COMMAND_STATES = [
 export type CommandState = (typeof COMMAND_STATES)[number];
 
 /** What the provider says happened. Separate, and folded separately. */
-export const DELIVERY_STATES = ['sent', 'delivered', 'read'] as const;
+export const DELIVERY_STATES = ['sent', 'failed', 'delivered', 'read'] as const;
 
 export type DeliveryState = (typeof DELIVERY_STATES)[number];
 
-/** How far along each delivery state is, for the fold below only. */
-const DELIVERY_RANK: Readonly<Record<DeliveryState, number>> = { sent: 1, delivered: 2, read: 3 };
+/**
+ * How far along each delivery state is, for the fold below only.
+ *
+ * `failed` sits above `sent` because the provider gave up on what it had sent, and
+ * below `delivered` because a confirmed delivery is not erased by a later failure
+ * (ADR-0006): that disagreement is recorded as an anomaly like any other.
+ */
+const DELIVERY_RANK: Readonly<Record<DeliveryState, number>> = { sent: 1, failed: 2, delivered: 3, read: 4 };
 
 export interface DeliveryFold {
   readonly state: DeliveryState;

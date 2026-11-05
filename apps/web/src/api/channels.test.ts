@@ -23,6 +23,12 @@ describe('channel API routes', () => {
     await api.subscribeWhatsAppWebhook('tenant-1', 'channel-1');
     expect(post).toHaveBeenCalledWith('/tenants/tenant-1/channels/channel-1/webhook/subscribe');
   });
+  it('asks Meta for a Page\'s messages on the selected connection', async () => {
+    const post = vi.fn().mockResolvedValue({ ok: true, data: { imported: 2 } });
+    const api = new ChannelsApi({ post } as unknown as ApiClient);
+    await api.syncMetaHistory('tenant-1', 'channel-1');
+    expect(post).toHaveBeenCalledWith('/tenants/tenant-1/channels/channel-1/meta-history/sync');
+  });
   it('requeues unresolved Meta sender names on the selected connection', async () => {
     const post = vi.fn().mockResolvedValue({ ok: true, data: { queued: 2 } });
     const api = new ChannelsApi({ post } as unknown as ApiClient);

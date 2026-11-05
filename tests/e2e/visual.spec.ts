@@ -223,7 +223,7 @@ test.describe('contacts workspace', () => {
     await openScreen(page, 'contacts');
     await page.locator('[data-act="live-contact-open"]').first().click();
     await expect(page.locator('.contact__who')).toBeVisible();
-    await expect(page.locator('.contact__eyebrow')).toHaveText(/CUSTOMER PROFILE|ملف العميل/);
+    await expect(page.locator('.contact__eyebrow')).toHaveText(/Customer profile|ملف العميل/);
     await fontsReady(page);
     await expect(page).toHaveScreenshot('contacts-profile-desktop.png');
   });

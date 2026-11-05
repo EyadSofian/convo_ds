@@ -164,7 +164,7 @@ main.app__screen
           span.kpi__value
             bdi
           span.kpi__foot
-        div.kpi.kpi--stat.viz--muted.kpi--unavailable
+        div.kpi.kpi--stat.viz--indigo
           span.kpi__icon
             svg
               path
@@ -217,12 +217,14 @@ main.app__screen
                 span.progress.progress--accent
                   span.progress__fill
                 div.funnel__foot
-              li.funnel__stage.funnel__stage--unavailable.viz--muted
+              li.funnel__stage.viz--muted
                 div.funnel__head
                   span.funnel__step
                   span.funnel__label
                   span.funnel__value
-                div.funnel__track.funnel__track--empty
+                    bdi
+                span.progress.progress--accent
+                  span.progress__fill
                 div.funnel__foot
             div.notice.notice--info
               span.notice__icon
@@ -313,6 +315,7 @@ main.app__screen
                     th.num
                     th.num
                     th.num
+                    th.num
                 tbody
                   tr
                     td
@@ -321,12 +324,6 @@ main.app__screen
                     td.num
                     td.num
                     td.num
-                  tr
-                    td
-                    td.num
-                    td.num
-                    td.num
-                    td.num
                     td.num
                   tr
                     td
@@ -335,6 +332,15 @@ main.app__screen
                     td.num
                     td.num
                     td.num
+                    td.num
+                  tr
+                    td
+                    td.num
+                    td.num
+                    td.num
+                    td.num
+                    td.num
+                    td.num
                   tr
                     td
                     td.num
@@ -342,8 +348,10 @@ main.app__screen
                     td.num
                     td.num
                     td.num
+                    td.num
                   tr
                     td
+                    td.num
                     td.num
                     td.num
                     td.num
@@ -449,6 +457,8 @@ main.app__screen
                     strong
                   span
                     strong
+                  span
+                    strong
               li.stackrows__row
                 div.stackrows__head
                   span.stackrows__label
@@ -462,6 +472,8 @@ main.app__screen
                     span.muted
                   span
                     span.muted
+                  span
+                    strong
         section.panel
           header.panel__header
             div.panel__titles

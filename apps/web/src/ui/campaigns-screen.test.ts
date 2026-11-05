@@ -233,9 +233,9 @@ describe('the recipient ledger', () => {
     expect(renderBroadcasts(state).querySelector('.ledger')?.textContent).toContain('No recipients');
 
     const rows: CampaignRecipient[] = [
-      { id: 'r1', contact_id: 'k', display_name: 'Mona', external_id: '2010', state: 'failed', last_error: { code: 'provider_rejected' }, estimated_amount_minor: '12.5', currency: 'USD' },
-      { id: 'r2', contact_id: 'k', display_name: 'Omar', external_id: '2011', state: 'delivered', last_error: null, estimated_amount_minor: null, currency: null },
-      { id: 'r3', contact_id: 'k', display_name: 'Lina', external_id: '2012', state: 'weird', last_error: null, estimated_amount_minor: '1', currency: null },
+      { id: 'r1', contact_id: 'k', display_name: 'Mona', external_id: '2010', state: 'failed', replied: false, last_error: { code: 'provider_rejected' }, estimated_amount_minor: '12.5', currency: 'USD' },
+      { id: 'r2', contact_id: 'k', display_name: 'Omar', external_id: '2011', state: 'delivered', replied: true, last_error: null, estimated_amount_minor: null, currency: null },
+      { id: 'r3', contact_id: 'k', display_name: 'Lina', external_id: '2012', state: 'weird', replied: false, last_error: null, estimated_amount_minor: '1', currency: null },
     ];
     state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: rows };
     const ledger = renderBroadcasts(state).querySelector('.ledger') as HTMLElement;
@@ -243,6 +243,10 @@ describe('the recipient ledger', () => {
     expect(ledger.textContent).toContain('Rejected by provider');
     expect(ledger.textContent).toContain('12.5 USD');
     expect(ledger.querySelectorAll('tbody tr')[2]?.querySelector('.badge--neutral')?.textContent).toBe('weird');
+    // Who wrote back is said per person and in total, on the broadcast itself.
+    expect(ledger.querySelector('.ledger__summary')?.textContent).toBe('1 of 3 replied');
+    expect(Array.from(ledger.querySelectorAll('tbody tr')[1]?.querySelectorAll('.badge') ?? []).map((item) => item.textContent)).toEqual(['Delivered', 'Replied']);
+    expect(ledger.querySelectorAll('tbody tr')[0]?.textContent).not.toContain('Replied');
   });
 
   it('reads a typed error code out of a ledger error, and nothing out of anything else', () => {

@@ -141,5 +141,7 @@ export function withOwnChannels(base: ChannelTransportPort, own: CustomChannelTr
     ...(base.fetchPeerProfile === undefined ? {} : { fetchPeerProfile: base.fetchPeerProfile.bind(base) }),
     ...(base.fetchTemplates === undefined ? {} : { fetchTemplates: base.fetchTemplates.bind(base) }),
     ...(base.subscribeWhatsAppWaba === undefined ? {} : { subscribeWhatsAppWaba: base.subscribeWhatsAppWaba.bind(base) }),
+    ...(base.syncMetaPage === undefined ? {} : { syncMetaPage: base.syncMetaPage.bind(base) }),
+    ...(base.fetchInboundMedia === undefined ? {} : { fetchInboundMedia: base.fetchInboundMedia.bind(base) }),
   };
 }

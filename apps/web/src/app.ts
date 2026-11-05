@@ -38,6 +38,7 @@ import { runLiveAction } from './live/dispatch';
 import { beginBroadcastUpload, finishBroadcastUpload } from './live/broadcast-import';
 import { parseLeadSheet } from './lead-sheet';
 import { cancelVoice, syncVoice } from './live/voice-message';
+import { bindVoicePlayback, hydrateVoiceNotes } from './live/voice-playback';
 import { refreshNotificationCount, runNotificationAction } from './live/notification-actions';
 import { createLiveState, renewLiveState, rowsOf } from './live/store';
 import type { LiveState } from './live/store';
@@ -578,6 +579,7 @@ export function mount(options: MountOptions): AppHandle {
     applyMotion(root, motion, 'detail', keys.detail, state.clock.getTime());
     applyMotion(root, motion, 'tool', keys.tool, state.clock.getTime());
     reconcile(root, renderApp(state));
+    hydrateVoiceNotes(root);
     lockLoops(root.ownerDocument);
     growComposer(root);
     restoreScroll(root, scroll);
@@ -636,6 +638,7 @@ export function mount(options: MountOptions): AppHandle {
     followExport();
     followRealtime();
   };
+  bindVoicePlayback(refresh);
 
   const makeContext = (live: LiveState): LiveContext => ({
     state,
@@ -1277,6 +1280,13 @@ export function mount(options: MountOptions): AppHandle {
   root.addEventListener('input', onInput);
   root.addEventListener('change', onInput);
   root.addEventListener('keydown', onKeyDown);
+  // A redraw can replace the control that held focus, which leaves focus on the
+  // body, outside this root. The keyboard must not stop working when that happens:
+  // Escape still has to close whatever is open.
+  const onStrayKeyDown = (event: Event): void => {
+    if (!root.contains(event.target as Node)) onKeyDown(event);
+  };
+  root.ownerDocument.addEventListener('keydown', onStrayKeyDown);
   root.addEventListener('pointerdown', onPointerDown);
   page?.addEventListener('online', onOnline);
   page?.addEventListener('offline', onOffline);
@@ -1316,6 +1326,7 @@ export function mount(options: MountOptions): AppHandle {
       root.removeEventListener('input', onInput);
       root.removeEventListener('change', onInput);
       root.removeEventListener('keydown', onKeyDown);
+      root.ownerDocument.removeEventListener('keydown', onStrayKeyDown);
       root.removeEventListener('pointerdown', onPointerDown);
     },
   };

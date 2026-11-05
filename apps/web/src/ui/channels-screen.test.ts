@@ -228,6 +228,20 @@ describe('connected integrations', () => {
     expect((details.querySelector('[data-form="channelWaba_cn-1"]') as HTMLInputElement).value).toBe('12345');
   });
 
+  it('offers to fetch messages from Meta on Messenger and Instagram only', () => {
+    const { state, element } = screen([connection()]);
+    state.expandedConnection = 'cn-1';
+    expect(element().querySelector('[data-act="live-sync-meta-history"]')).toBeNull();
+    for (const kind of ['messenger', 'instagram']) {
+      const page = screen([connection({ kind, name: kind } as never)]);
+      page.state.expandedConnection = 'cn-1';
+      page.state.live.busy = 'sync-meta-history:cn-1';
+      const action = page.element().querySelector('[data-act="live-sync-meta-history"]');
+      expect(action?.getAttribute('data-arg')).toBe('cn-1');
+      expect(action?.getAttribute('aria-busy')).toBe('true');
+    }
+  });
+
   it('does not offer to resubscribe a WABA after Meta confirmation', () => {
     const existing = connection();
     const { state, element } = screen([connection({ evidence: [

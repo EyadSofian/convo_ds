@@ -44,6 +44,12 @@ main.app__screen
           span.admin-tabs__count
       section.admin-panel.admin-panel--bare
         div.admin-panel__body.permissions
+          div.notice.notice--info
+            span.notice__icon
+              svg
+                path
+                circle
+            div.notice__text
           div.permissions__head
             p.permissions__lede
             p.permissions__count

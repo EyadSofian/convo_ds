@@ -1,7 +1,7 @@
 import type { ChannelKind, ConnectionCheck, SendCommand, SendOutcome } from '@convo/domain';
-import { PINNED_GRAPH_VERSION } from '@convo/domain';
+import { META_HISTORY_MESSAGE_FIELDS, PINNED_GRAPH_VERSION } from '@convo/domain';
 import { ProfileLookupError } from './channel-transport.js';
-import type { ChannelTransportPort, ProviderMutationResult, ProviderTemplate, TemplateFetchResult } from './channel-transport.js';
+import type { ChannelTransportPort, InboundMediaResult, MetaPageSync, ProviderMutationResult, ProviderTemplate, TemplateFetchResult } from './channel-transport.js';
 
 /**
  * The WhatsApp Cloud API transport.
@@ -91,6 +91,31 @@ function profileFailureCode(status: number, error: GraphError | undefined): stri
   if (error?.code === 100) return 'profile_invalid_request';
   return 'profile_unavailable';
 }
+
+/** Every event this product reads for a Page, whichever channel asked. */
+const META_PAGE_FIELDS = [
+  'messages', 'message_echoes', 'message_deliveries', 'message_reads', 'message_reactions',
+  'messaging_postbacks', 'messaging_handovers', 'standby',
+] as const;
+
+/** The most any Meta channel lets a customer send: a WhatsApp document is 100 MB. */
+const MAX_INBOUND_MEDIA_BYTES = 100 * 1024 * 1024;
+const MEDIA_NOT_AVAILABLE = { ok: false, code: 'media_not_available', message: 'This attachment is no longer available from Meta.', retryable: false } as const;
+const MEDIA_TOO_LARGE = { ok: false, code: 'media_too_large', message: 'This attachment is too large to open here.', retryable: false } as const;
+
+/** Only HTTPS on Meta's own media hosts, with nothing hidden in the authority. */
+function isMetaMediaUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.username === '' && url.password === '' && url.port === ''
+      && ['.fbcdn.net', '.fbsbx.com', '.cdninstagram.com', '.whatsapp.net'].some((host) => url.hostname.endsWith(host));
+  } catch {
+    return false;
+  }
+}
+
+/** Bounded so one click is one bounded read: at most 100 conversations. */
+const META_HISTORY_PAGES = 4;
 
 export class MetaWhatsAppTransport implements ChannelTransportPort {
   readonly name = 'meta-whatsapp-cloud';
@@ -420,6 +445,100 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       return { ok: false, code: 'provider_response_unusable', message: 'Meta did not confirm the WABA subscription.', retryable: true };
     }
     return { ok: true };
+  }
+
+  /**
+   * Two things a Page needs and that nothing else here does.
+   *
+   * The dashboard's webhook fields say what this app may hear about; only this
+   * call tells Meta to send it for this Page. It replaces this app's own field
+   * list and never touches another app's, and Messenger and Instagram can share
+   * one Page, so both ask for the same full list.
+   *
+   * The read is independent: a token without `pages_manage_metadata` can often
+   * still read, and that answer is worth having with the refusal beside it.
+   */
+  async syncMetaPage(kind: ChannelKind, credential: string, pageId: string, since: Date): Promise<MetaPageSync> {
+    if (!/^[0-9]{1,32}$/.test(pageId)) {
+      return { ok: false, code: 'page_not_configured', message: 'Configure the Facebook Page ID first.', retryable: false };
+    }
+    const subscription = await this.subscribePage(credential, pageId);
+    const messages: unknown[] = [];
+    let conversations = 0;
+    let after: string | null = null;
+    for (let page = 0; page < META_HISTORY_PAGES; page += 1) {
+      const cursor: string = after === null ? '' : `&after=${encodeURIComponent(after)}`;
+      const fields = encodeURIComponent(`updated_time,messages.limit(20){${META_HISTORY_MESSAGE_FIELDS}}`);
+      const answer = await this.graphGet(`${pageId}/conversations?platform=${kind}&limit=25&fields=${fields}${cursor}`, credential);
+      if (!answer.ok) return { ok: false, code: answer.code, message: answer.message, retryable: answer.retryable };
+      const body = record(answer.body);
+      const rows: readonly unknown[] = Array.isArray(body?.['data']) ? body['data'] as unknown[] : [];
+      // Graph lists the most recently active first, so the first old one ends it.
+      const recent = rows.flatMap((row) => {
+        const conversation = record(row);
+        return conversation !== null && Date.parse(String(conversation['updated_time'])) >= since.getTime() ? [conversation] : [];
+      });
+      conversations += recent.length;
+      for (const conversation of recent) {
+        const data = record(conversation['messages'])?.['data'];
+        messages.push(...(Array.isArray(data) ? data as unknown[] : []));
+      }
+      const paging = record(body?.['paging']);
+      const next = record(paging?.['cursors'])?.['after'];
+      if (recent.length < rows.length || paging?.['next'] === undefined || typeof next !== 'string') break;
+      after = next;
+    }
+    return { ok: true, subscriptionError: subscription.ok ? null : subscription.message, conversations, messages };
+  }
+
+  /**
+   * WhatsApp holds media behind an id that resolves to a link needing the token.
+   * Messenger and Instagram hand over a signed link directly, and that link came
+   * from a webhook, so it is only ever followed to Meta's own hosts.
+   */
+  async fetchInboundMedia(kind: ChannelKind, credential: string, providerId: string): Promise<InboundMediaResult> {
+    if (kind === 'whatsapp') {
+      if (!/^[0-9]{1,32}$/.test(providerId)) return MEDIA_NOT_AVAILABLE;
+      const located = await this.graphGet(providerId, credential);
+      if (!located.ok) return { ok: false, code: located.code, message: located.message, retryable: located.retryable };
+      const url = record(located.body)?.['url'];
+      return typeof url === 'string' ? this.downloadMedia(url, { authorization: `Bearer ${credential}` }) : MEDIA_NOT_AVAILABLE;
+    }
+    return kind === 'messenger' || kind === 'instagram' ? this.downloadMedia(providerId, {}) : MEDIA_NOT_AVAILABLE;
+  }
+
+  private async downloadMedia(url: string, headers: Readonly<Record<string, string>>): Promise<InboundMediaResult> {
+    if (!isMetaMediaUrl(url)) return MEDIA_NOT_AVAILABLE;
+    let response: Response;
+    try {
+      response = await this.fetchImpl(url, { method: 'GET', headers, signal: AbortSignal.timeout(this.timeoutMs) });
+    } catch (error) {
+      return { ok: false, code: isTimeout(error) ? 'provider_timeout' : 'provider_unreachable', message: 'The media could not be fetched from Meta.', retryable: true };
+    }
+    // Signed links expire, so a refusal here is ordinary: it is simply gone.
+    if (!response.ok || (response.url !== '' && !isMetaMediaUrl(response.url))) return MEDIA_NOT_AVAILABLE;
+    if (Number(response.headers.get('content-length') ?? 0) > MAX_INBOUND_MEDIA_BYTES) return MEDIA_TOO_LARGE;
+    const data = Buffer.from(await response.arrayBuffer());
+    if (data.byteLength > MAX_INBOUND_MEDIA_BYTES) return MEDIA_TOO_LARGE;
+    return { ok: true, data, mimeType: response.headers.get('content-type') };
+  }
+
+  private async subscribePage(credential: string, pageId: string): Promise<ProviderMutationResult> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.graphBase}/${pageId}/subscribed_apps?subscribed_fields=${META_PAGE_FIELDS.join(',')}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${credential}` },
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (error) {
+      return { ok: false, code: isTimeout(error) ? 'provider_timeout' : 'provider_unreachable', message: 'The Meta Graph API could not be reached.', retryable: true };
+    }
+    const body = await readJson(response);
+    if (!response.ok) return { ok: false, ...classify(response.status, record(body)?.['error'] as GraphError | undefined) };
+    return record(body)?.['success'] === true
+      ? { ok: true }
+      : { ok: false, code: 'provider_response_unusable', message: 'Meta did not confirm the Page subscription.', retryable: true };
   }
 
   private async graphGet(path: string, credential: string): Promise<

@@ -19,28 +19,28 @@
   /* @tokens light */
   :root {
     /*
-     * DS Omnichannel light: a blue-tinted ground under white work cards, so a
-     * card reads as a card and the page is never one sheet of white. The ground
-     * carries a soft brand wash (--canvas-art) behind glass chrome.
+     * DS Omnichannel light: a plain grey ground under white work surfaces. People
+     * read this for hours, so the ground stays out of the way and the colour goes
+     * to what it means: blue for action, lime for where you are and for Send.
      */
-    --canvas: #e8eef8;
+    --canvas: #f3f4f6;
     --surface-1: #ffffff;
-    --surface-2: #f4f7fc;
-    --surface-3: #e4ebf6;
-    --surface-hover: #ecf2ff;
-    --surface-selected: #dbe6ff;
+    --surface-2: #f8f9fb;
+    --surface-3: #eceef2;
+    --surface-hover: #f1f3f7;
+    --surface-selected: #e4ecff;
 
     /* Text: deep navy ink, never pure black. */
-    --text: #0a1630;
-    --text-secondary: #2c3a56;
-    --text-muted: #4b5874;
-    --text-disabled: #9aa5b8;
+    --text: #12161f;
+    --text-secondary: #3d4452;
+    --text-muted: #5a6270;
+    --text-disabled: #9aa1ad;
 
     /* DS Blue is the action colour; DS Lime stays a deliberate highlight. */
     --accent: #004fef;
     --accent-hover: #003ecc;
     --accent-text: #004fef;
-    --accent-soft: #e1ebff;
+    --accent-soft: #e8efff;
     --on-accent: #ffffff;
 
     /* Semantic status, each with a quiet tint for badges and notices. */
@@ -52,17 +52,17 @@
     --danger-soft: #fde6e4;
     --unknown: #2a5f88;
     --unknown-soft: #e0edf8;
-    --violet: #5b35d5;
-    --violet-soft: #ece6ff;
+    --violet: #4a4f8a;
+    --violet-soft: #eceefa;
 
     /* Boundaries that identify a control (WCAG 1.4.11), and focus. */
-    --border-strong: #7a869b;
+    --border-strong: #7f8795;
     --focus-ring: #004fef;
 
     /* The navigation rail: DS navy in both themes, so the product reads as one. */
-    --nav-bg: #071a3a;
-    --nav-hover: #10284f;
-    --nav-text: #b9c7de;
+    --nav-bg: #0b1730;
+    --nav-hover: #16233f;
+    --nav-text: #b8c1d1;
     --nav-text-strong: #ffffff;
 
     /* Provider colour, confined to the small tile behind a channel glyph. */
@@ -80,35 +80,35 @@
     /*
      * Avatar tones. A contact's initials sit on one of eight deep hues picked
      * from their name, so a list of people is a list of people rather than a
-     * column of grey discs. Each pair is a top and bottom stop of one gradient.
+     * column of grey discs. Muted on purpose: a list of forty should not shout.
      */
-    --tone-0: #2f6bff;
-    --tone-0-deep: #0040c9;
-    --tone-1: #8b5cf6;
-    --tone-1-deep: #5b2fd0;
-    --tone-2: #14b8a6;
-    --tone-2-deep: #0b7a70;
-    --tone-3: #ec4899;
-    --tone-3-deep: #b0186a;
-    --tone-4: #f97316;
-    --tone-4-deep: #b8430a;
-    --tone-5: #22c55e;
-    --tone-5-deep: #13803c;
-    --tone-6: #6366f1;
-    --tone-6-deep: #3c34c4;
-    --tone-7: #06b6d4;
-    --tone-7-deep: #0a7590;
+    --tone-0: #3f5f9e;
+    --tone-0-deep: #324c7f;
+    --tone-1: #6a5a93;
+    --tone-1-deep: #554876;
+    --tone-2: #2f7d78;
+    --tone-2-deep: #266460;
+    --tone-3: #a24f72;
+    --tone-3-deep: #823f5b;
+    --tone-4: #a8603a;
+    --tone-4-deep: #864d2e;
+    --tone-5: #4f7d4a;
+    --tone-5-deep: #3f643b;
+    --tone-6: #55598f;
+    --tone-6-deep: #444772;
+    --tone-7: #3a7590;
+    --tone-7-deep: #2e5e73;
 
     /* Not contrast-bearing: hairlines, layers, glass and elevation. */
-    --border: rgba(10, 22, 48, 0.11);
-    --border-subtle: rgba(10, 22, 48, 0.07);
+    --border: rgba(18, 22, 31, 0.1);
+    --border-subtle: rgba(18, 22, 31, 0.06);
     --nav-border: rgba(255, 255, 255, 0.08);
     --label-swatch-outline: rgba(0, 0, 0, 0.28);
-    --scrim: rgba(6, 16, 35, 0.46);
-    --glass: rgba(255, 255, 255, 0.72);
-    --glass-strong: rgba(255, 255, 255, 0.9);
-    --glass-border: rgba(10, 22, 48, 0.1);
-    --glass-rim: rgba(255, 255, 255, 0.75);
+    --scrim: rgba(12, 16, 24, 0.42);
+    --glass: #ffffff;
+    --glass-strong: #ffffff;
+    --glass-border: rgba(18, 22, 31, 0.1);
+    --glass-rim: rgba(18, 22, 31, 0);
     /* WhatsApp's own chat colours, for previews of what a customer receives. */
     --wa-bar: #008069;
     --wa-bar-text: #ffffff;
@@ -118,46 +118,40 @@
     --wa-meta: #667781;
     --wa-link: #027eb5;
     --wa-var: rgba(0, 128, 105, 0.14);
-    --glass-edge: rgba(10, 22, 48, 0.08);
+    --glass-edge: rgba(18, 22, 31, 0.08);
     --glass-on-dark: rgba(255, 255, 255, 0.1);
     --glass-on-dark-strong: rgba(255, 255, 255, 0.16);
     --glass-on-dark-border: rgba(255, 255, 255, 0.18);
     --nav-surface: rgba(255, 255, 255, 0.96);
-    --shadow-xs: 0 1px 2px rgba(10, 22, 48, 0.05);
-    --shadow-sm: 0 1px 2px rgba(10, 22, 48, 0.06), 0 2px 6px rgba(10, 22, 48, 0.04);
-    --shadow-md: 0 8px 22px rgba(10, 22, 48, 0.09), 0 1px 3px rgba(10, 22, 48, 0.06);
-    --shadow-lg: 0 22px 52px rgba(10, 22, 48, 0.18), 0 2px 8px rgba(10, 22, 48, 0.07);
-    --shadow-card: 0 1px 2px rgba(10, 22, 48, 0.05), 0 10px 28px -12px rgba(10, 22, 48, 0.16);
-    --shadow-card-hover: 0 2px 4px rgba(10, 22, 48, 0.06), 0 18px 36px -14px rgba(0, 79, 239, 0.28);
-    --shadow-hero: 0 18px 40px -18px rgba(0, 38, 120, 0.55);
+    --shadow-xs: 0 1px 2px rgba(18, 22, 31, 0.04);
+    --shadow-sm: 0 1px 2px rgba(18, 22, 31, 0.05);
+    --shadow-md: 0 4px 12px rgba(18, 22, 31, 0.07);
+    --shadow-lg: 0 12px 32px rgba(18, 22, 31, 0.12), 0 1px 3px rgba(18, 22, 31, 0.06);
+    --shadow-card: 0 1px 2px rgba(18, 22, 31, 0.04);
+    --shadow-card-hover: 0 2px 6px rgba(18, 22, 31, 0.07);
+    --shadow-hero: none;
     --ring-accent: 0 0 0 3px rgba(0, 79, 239, 0.18);
     --bubble-in: #ffffff;
-    --bubble-out: #dce8ff;
-    --bubble-out-edge: rgba(0, 79, 239, 0.14);
+    --bubble-out: #e6eeff;
+    --bubble-out-edge: rgba(0, 79, 239, 0.12);
     --note-surface: #fff8e6;
     --note-edge: rgba(134, 86, 10, 0.35);
     --chart-bar: rgba(96, 112, 137, 0.28);
-    --skeleton: rgba(10, 22, 48, 0.07);
+    --skeleton: rgba(18, 22, 31, 0.06);
     --skeleton-shine: rgba(255, 255, 255, 0.7);
     --live-glow: rgba(15, 110, 69, 0.14);
-    --shadow-accent: 0 8px 22px rgba(0, 79, 239, 0.32);
-    --shadow-up: 0 -6px 18px rgba(10, 22, 48, 0.06);
+    --shadow-accent: none;
+    --shadow-up: 0 -1px 0 rgba(18, 22, 31, 0.08);
     --nav-skeleton: rgba(255, 255, 255, 0.08);
 
-    /* Brand art: washes behind the work area and the deep hero gradients. */
-    --canvas-art:
-      radial-gradient(1100px 520px at 100% -10%, rgba(0, 79, 239, 0.17), transparent 62%),
-      radial-gradient(760px 440px at -6% 110%, rgba(221, 255, 87, 0.34), transparent 62%),
-      radial-gradient(620px 380px at 42% 46%, rgba(139, 92, 246, 0.06), transparent 70%);
-    --grad-brand: linear-gradient(135deg, #1f5fff 0%, #004fef 50%, #0038c2 100%);
-    --grad-brand-hover: linear-gradient(135deg, #0f54f5 0%, #0044d6 50%, #002f9e 100%);
-    --grad-hero:
-      radial-gradient(520px 260px at 92% -30%, rgba(221, 255, 87, 0.32), transparent 60%),
-      radial-gradient(640px 320px at 0% 130%, rgba(47, 107, 255, 0.55), transparent 62%),
-      linear-gradient(118deg, #06163a 0%, #0a2d80 54%, #004fef 100%);
-    --grad-nav: linear-gradient(180deg, #0a2150 0%, #071a3a 46%, #050f24 100%);
-    --grad-lime: linear-gradient(135deg, #efffa6 0%, #ddff57 100%);
-    --hero-grid: rgba(255, 255, 255, 0.07);
+    /* Flat by decision. The gradient tokens remain so one surface can carry a tone. */
+    --canvas-art: none;
+    --grad-brand: linear-gradient(#004fef, #004fef);
+    --grad-brand-hover: linear-gradient(#003ecc, #003ecc);
+    --grad-hero: linear-gradient(#0b1730, #0b1730);
+    --grad-nav: linear-gradient(#0b1730, #0b1730);
+    --grad-lime: linear-gradient(#ddff57, #ddff57);
+    --hero-grid: rgba(255, 255, 255, 0);
 
     /* DS Omnichannel authentication: lime brand panel and blue typography. */
     --auth-visual: #ddff57;
@@ -268,28 +262,28 @@
     --motion-stagger: 34ms;
     --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
     --ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
-    --blur-glass: 18px;
+    --blur-glass: 0px;
   }
 
   /* @tokens dark */
   :root[data-theme='dark'] {
-    /* Deep navy operations surfaces, never inverted grey; blue stays the action. */
-    --canvas: #050c18;
-    --surface-1: #0c182b;
-    --surface-2: #10203a;
-    --surface-3: #162a47;
-    --surface-hover: #1a3152;
-    --surface-selected: #173665;
+    /* Quiet graphite surfaces, stepped rather than shadowed; blue stays the action. */
+    --canvas: #0f1115;
+    --surface-1: #161920;
+    --surface-2: #1b1f27;
+    --surface-3: #232832;
+    --surface-hover: #262b36;
+    --surface-selected: #1f2c4d;
 
-    --text: #eef3fb;
-    --text-secondary: #c4cfe1;
-    --text-muted: #97a6bf;
-    --text-disabled: #5d6c85;
+    --text: #eceff4;
+    --text-secondary: #b9bfca;
+    --text-muted: #979dab;
+    --text-disabled: #5f6572;
 
     --accent: #2563eb;
     --accent-hover: #1d56d6;
     --accent-text: #8fb8ff;
-    --accent-soft: #132e57;
+    --accent-soft: #1a2748;
     --on-accent: #ffffff;
 
     --success: #5bd08f;
@@ -300,15 +294,15 @@
     --danger-soft: #321819;
     --unknown: #8ec5ec;
     --unknown-soft: #132a3b;
-    --violet: #b9a4ff;
-    --violet-soft: #231a4a;
+    --violet: #a9adeb;
+    --violet-soft: #23264a;
 
-    --border-strong: #6f809b;
+    --border-strong: #6e7584;
     --focus-ring: #7aa8ff;
 
-    --nav-bg: #040c1b;
-    --nav-hover: #0f2240;
-    --nav-text: #aebcd4;
+    --nav-bg: #0b0e14;
+    --nav-hover: #171b24;
+    --nav-text: #a9b1bf;
     --nav-text-strong: #ffffff;
 
     --brand-whatsapp: #1fa855;
@@ -322,32 +316,32 @@
     --on-highlight: #10213f;
     --brand-tile: #f3f6fb;
 
-    --tone-0: #3b7bff;
-    --tone-0-deep: #1747c2;
-    --tone-1: #9a72ff;
-    --tone-1-deep: #5b34c9;
-    --tone-2: #22c3b0;
-    --tone-2-deep: #0d7a6f;
-    --tone-3: #f0609f;
-    --tone-3-deep: #a8185f;
-    --tone-4: #fb8a3c;
-    --tone-4-deep: #b04608;
-    --tone-5: #34d06f;
-    --tone-5-deep: #127a3a;
-    --tone-6: #777bf5;
-    --tone-6-deep: #3a33b8;
-    --tone-7: #1ec4df;
-    --tone-7-deep: #0b6f88;
+    --tone-0: #3f5f9e;
+    --tone-0-deep: #324c7f;
+    --tone-1: #6a5a93;
+    --tone-1-deep: #554876;
+    --tone-2: #2f7d78;
+    --tone-2-deep: #266460;
+    --tone-3: #a24f72;
+    --tone-3-deep: #823f5b;
+    --tone-4: #a8603a;
+    --tone-4-deep: #864d2e;
+    --tone-5: #4f7d4a;
+    --tone-5-deep: #3f643b;
+    --tone-6: #55598f;
+    --tone-6-deep: #444772;
+    --tone-7: #3a7590;
+    --tone-7-deep: #2e5e73;
 
     --border: rgba(255, 255, 255, 0.09);
-    --border-subtle: rgba(255, 255, 255, 0.055);
+    --border-subtle: rgba(255, 255, 255, 0.06);
     --nav-border: rgba(255, 255, 255, 0.07);
     --label-swatch-outline: rgba(0, 0, 0, 0.28);
     --scrim: rgba(2, 6, 14, 0.66);
-    --glass: rgba(12, 24, 43, 0.72);
-    --glass-strong: rgba(12, 24, 43, 0.9);
+    --glass: #161920;
+    --glass-strong: #161920;
     --glass-border: rgba(255, 255, 255, 0.09);
-    --glass-rim: rgba(255, 255, 255, 0.08);
+    --glass-rim: rgba(255, 255, 255, 0);
     --wa-bar: #202c33;
     --wa-bar-text: #e9edef;
     --wa-wallpaper: #0b141a;
@@ -356,45 +350,39 @@
     --wa-meta: #8696a0;
     --wa-link: #53bdeb;
     --wa-var: rgba(0, 168, 132, 0.24);
-    --glass-edge: rgba(255, 255, 255, 0.07);
+    --glass-edge: rgba(255, 255, 255, 0.08);
     --glass-on-dark: rgba(255, 255, 255, 0.08);
     --glass-on-dark-strong: rgba(255, 255, 255, 0.13);
     --glass-on-dark-border: rgba(255, 255, 255, 0.14);
-    --nav-surface: rgba(12, 24, 43, 0.96);
+    --nav-surface: rgba(22, 25, 32, 0.96);
     --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.3);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
-    --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 30px -14px rgba(0, 0, 0, 0.7);
-    --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.4), 0 18px 36px -14px rgba(37, 99, 235, 0.45);
-    --shadow-hero: 0 18px 40px -18px rgba(0, 0, 0, 0.8);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-card-hover: 0 2px 6px rgba(0, 0, 0, 0.4);
+    --shadow-hero: none;
     --ring-accent: 0 0 0 3px rgba(122, 168, 255, 0.25);
-    --bubble-in: #132440;
-    --bubble-out: #173a73;
-    --bubble-out-edge: rgba(143, 184, 255, 0.16);
+    --bubble-in: #1f242e;
+    --bubble-out: #1c2a4d;
+    --bubble-out-edge: rgba(143, 184, 255, 0.14);
     --note-surface: #251f12;
     --note-edge: rgba(231, 183, 92, 0.38);
     --chart-bar: rgba(148, 163, 187, 0.3);
     --skeleton: rgba(255, 255, 255, 0.06);
     --skeleton-shine: rgba(255, 255, 255, 0.08);
     --live-glow: rgba(91, 208, 143, 0.16);
-    --shadow-accent: 0 8px 22px rgba(37, 99, 235, 0.38);
-    --shadow-up: 0 -6px 18px rgba(0, 0, 0, 0.35);
+    --shadow-accent: none;
+    --shadow-up: 0 -1px 0 rgba(255, 255, 255, 0.07);
     --nav-skeleton: rgba(255, 255, 255, 0.07);
 
-    --canvas-art:
-      radial-gradient(1100px 520px at 100% -10%, rgba(37, 99, 235, 0.24), transparent 62%),
-      radial-gradient(760px 440px at -6% 110%, rgba(221, 255, 87, 0.07), transparent 62%),
-      radial-gradient(620px 380px at 42% 46%, rgba(139, 92, 246, 0.08), transparent 70%);
-    --grad-brand: linear-gradient(135deg, #2a66f0 0%, #1d56d6 55%, #1a44b8 100%);
-    --grad-brand-hover: linear-gradient(135deg, #1f5ce6 0%, #1a4dc2 55%, #163b9f 100%);
-    --grad-hero:
-      radial-gradient(520px 260px at 92% -30%, rgba(221, 255, 87, 0.2), transparent 60%),
-      radial-gradient(640px 320px at 0% 130%, rgba(47, 107, 255, 0.45), transparent 62%),
-      linear-gradient(118deg, #040d22 0%, #0a2463 56%, #1747c2 100%);
-    --grad-nav: linear-gradient(180deg, #081a3d 0%, #040c1b 50%, #030814 100%);
-    --grad-lime: linear-gradient(135deg, #efffa6 0%, #ddff57 100%);
-    --hero-grid: rgba(255, 255, 255, 0.06);
+    --canvas-art: none;
+    --grad-brand: linear-gradient(#2563eb, #2563eb);
+    --grad-brand-hover: linear-gradient(#1d56d6, #1d56d6);
+    --grad-hero: linear-gradient(#10141c, #10141c);
+    --grad-nav: linear-gradient(#0b0e14, #0b0e14);
+    --grad-lime: linear-gradient(#ddff57, #ddff57);
+    --hero-grid: rgba(255, 255, 255, 0);
 
     --auth-visual: #0c182b;
     --auth-visual-line: rgba(255, 255, 255, 0.18);

@@ -20,7 +20,7 @@ const CAMPAIGN = {
   filters: { from: null, to: null, channel: null, campaign_id: null }, definitions: { campaigns: 0, executions: 0 },
   audience: { denominator: 0, eligible: 0, excluded: 0 },
   current: { denominator: 0, planned: 0, queued: 0, in_flight: 0, accepted: 0, delivered: 0, read: 0, failed: 0, skipped: 0, cancelled: 0, outcome_unknown: 0 },
-  milestones: { denominator: 0, accepted: 0, delivered: 0, read: 0 }, costs: [], channels: [], errors: [], trend: [], campaigns: [],
+  milestones: { denominator: 0, accepted: 0, delivered: 0, read: 0, replied: 0 }, costs: [], channels: [], errors: [], trend: [], campaigns: [],
 } as unknown as CampaignReport;
 
 const OPERATIONS = {

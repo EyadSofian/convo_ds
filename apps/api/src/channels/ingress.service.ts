@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, CREDENTIAL_SETTINGS, withCredentialResolvedTenant } from '@convo/database';
 import type { ChannelKind, NormalizedBatch } from '@convo/domain';
-import { answerMetaChallenge, PROVIDER_OF, verifyMetaSignature } from '@convo/domain';
+import { answerMetaChallenge, PROVIDER_OF, splitBatchByAsset, verifyMetaSignature } from '@convo/domain';
 import type { Pool } from 'pg';
 import type { ApiConfig } from '../config.js';
 import { ApiHttpError } from '../http-error.js';
@@ -36,6 +36,8 @@ import { refreshStatus } from './channel.service.js';
 export type IngressOutcome =
   | { readonly status: 'accepted'; readonly receiptId: string; readonly stored: number; readonly duplicates: number }
   | { readonly status: 'rejected'; readonly code: string; readonly httpStatus: number };
+
+type AcceptedDelivery = Extract<IngressOutcome, { readonly status: 'accepted' }>;
 
 export interface IngressDelivery {
   readonly routeKey: string;
@@ -196,28 +198,37 @@ export class ChannelIngressService {
       return { status: 'rejected', code: 'no_asset_in_payload', httpStatus: 202 };
     }
 
-    const fingerprint = assetFingerprint(
-      PROVIDER_OF[adapter.kind],
-      adapter.kind,
-      batch.assetId,
-    );
-    const routed = await this.storeRouted(app, delivery, bodySha, fingerprint, batch);
-    if (routed === null) {
-      await writeReceipt(asExecutor(this.pool), {
-        appId: app.id,
-        delivery,
-        bodySha,
-        signatureValid: true,
-        outcome: 'unknown_asset',
-        tenantId: null,
-        eventCount: 0,
-      });
-      // Signature-valid but for an asset nobody here has connected. ACKed with
-      // no content retained: storing a stranger's messages would be worse than
-      // dropping them.
-      return { status: 'rejected', code: 'unknown_asset', httpStatus: 202 };
+    // A delivery may batch several assets. Each is routed on its own: the Page
+    // nobody here connected must not take a connected Page's customers with it.
+    const accepted: AcceptedDelivery[] = [];
+    for (const part of splitBatchByAsset({ ...batch, assetId: batch.assetId })) {
+      const fingerprint = assetFingerprint(PROVIDER_OF[adapter.kind], adapter.kind, part.assetId);
+      const routed = await this.storeRouted(app, delivery, bodySha, fingerprint, part);
+      if (routed === null) {
+        await writeReceipt(asExecutor(this.pool), {
+          appId: app.id,
+          delivery,
+          bodySha,
+          signatureValid: true,
+          outcome: 'unknown_asset',
+          tenantId: null,
+          eventCount: 0,
+        });
+        // Signature-valid but for an asset nobody here has connected. ACKed with
+        // no content retained: storing a stranger's messages would be worse than
+        // dropping them.
+        continue;
+      }
+      accepted.push(routed);
     }
-    return routed;
+    const first = accepted[0];
+    return first === undefined
+      ? { status: 'rejected', code: 'unknown_asset', httpStatus: 202 }
+      : {
+          ...first,
+          stored: accepted.reduce((total, part) => total + part.stored, 0),
+          duplicates: accepted.reduce((total, part) => total + part.duplicates, 0),
+        };
   }
 
   /**
@@ -234,7 +245,7 @@ export class ChannelIngressService {
     bodySha: string,
     fingerprint: string,
     batch: NormalizedBatch,
-  ): Promise<IngressOutcome | null> {
+  ): Promise<AcceptedDelivery | null> {
     return withCredentialResolvedTenant(
       this.pool,
       CREDENTIAL_SETTINGS.channelAsset,
@@ -273,7 +284,7 @@ export class ChannelIngressService {
         // The journal records first inbound evidence; campaigns and dispatch
         // read the persisted status, so keep it in step with that evidence.
         await refreshStatus(sql, resolved.value);
-        const outcome: IngressOutcome = { status: 'accepted', receiptId, ...stored };
+        const outcome: AcceptedDelivery = { status: 'accepted', receiptId, ...stored };
         return outcome;
       },
     );

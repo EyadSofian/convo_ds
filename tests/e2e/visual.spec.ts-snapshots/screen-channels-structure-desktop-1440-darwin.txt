@@ -4,6 +4,13 @@ main.app__screen
       div.pagebar
         p.pagebar__lede
         div.pagebar__actions
+          button.btn [live-template-library-open]
+            span.btn__icon
+              svg
+                rect
+                rect
+                rect
+            span.btn__label
           button.btn.btn--sm [live-channels-reload]
             span.btn__label
       section.panel

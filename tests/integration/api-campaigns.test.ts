@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import type { Pool } from 'pg';
@@ -258,6 +259,178 @@ describe('campaign API', () => {
       const historical = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ status: string }>(
         'SELECT status FROM conversations WHERE id=$1', [archivedId]));
       expect(historical.rows).toEqual([{ status: 'archived' }]);
+    } finally {
+      await api.app.close();
+    }
+  });
+
+  it('counts who replied and what the provider really said, in every report', async () => {
+    const api = await setup();
+    try {
+      await withTenant(api.pool, api.tenantId, async (sql) => {
+        await api.app.get(ChannelCredentialService).store(sql,
+          { tenantId: api.tenantId, connectionId: api.connectionId, purpose: 'access_token' }, 'test-token', null);
+        await sql.query(`INSERT INTO consents (tenant_id,contact_id,channel,purpose,state,source)
+          SELECT $1,id,'whatsapp','marketing','granted','web_form' FROM contacts WHERE display_name='Student 2'`, [api.tenantId]);
+        for (const index of [3, 4]) {
+          const contact = await sql.query<{ id: string }>(
+            `INSERT INTO contacts (tenant_id,display_name,search_name) VALUES ($1,$2,$3) RETURNING id::text`,
+            [api.tenantId, `Student ${String(index)}`, `student ${String(index)}`]);
+          await sql.query(`INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id) VALUES ($1,$2,'whatsapp',$3,$4)`,
+            [api.tenantId, contact.rows[0]!.id, api.connectionId, `20100000000${String(index - 1)}`]);
+        }
+      });
+      const [replier, sentOnly, refused, delivered] = ['201000000000', '201000000001', '201000000002', '201000000003'] as const;
+      let sequence = 0;
+      const journal = (kind: string, peer: string, providerMessageId: string, occurredAt: Date, extra: Record<string, unknown> = {}) =>
+        withTenant(api.pool, api.tenantId, async (sql) => {
+          sequence += 1;
+          const receipt = (await sql.query<{ id: string }>(
+            `INSERT INTO webhook_receipts (route_key,body_sha256,body_bytes,signature_valid,outcome,tenant_id)
+             VALUES ('test',$1,0,true,'routed',$2) RETURNING id::text`, ['a'.repeat(64), api.tenantId])).rows[0]!.id;
+          const event = (await sql.query<{ id: string }>(
+            `INSERT INTO channel_events (tenant_id,connection_id,receipt_id,dedupe_key,event_type,payload,normalized)
+             VALUES ($1,$2,$3,$4,$5,'{}'::jsonb,$6::jsonb) RETURNING id::text`,
+            [api.tenantId, api.connectionId, receipt, `reply-test-${String(sequence)}`, kind, JSON.stringify({ kind,
+              providerMessageId, peerIdentity: peer, assetIdentity: 'phone-campaign', contentType: 'text', text: kind === 'message' ? 'hello' : null,
+              occurredAt: occurredAt.toISOString(), attachments: [], detail: {}, ...extra })])).rows[0]!.id;
+          await sql.query('INSERT INTO channel_event_queue (tenant_id,event_id) VALUES ($1,$2)', [api.tenantId, event]);
+        });
+      const settle = async () => {
+        await api.app.get(ChannelNormalizationService).drain(api.tenantId);
+        await api.app.get(ChannelDispatcherService).reconcileReceipts(api.tenantId);
+      };
+      const launch = async (name: string, search: string, count: number) => {
+        const created = await send(api, 'POST', '/campaigns', draft(api, { name, audienceFilter: { search },
+          content: { template: { name: 'course_open', language: 'ar' } } }), `create-${name}`);
+        expect(created.statusCode, created.body).toBe(201);
+        const id = dataOf(created).id;
+        expect((await send(api, 'POST', `/campaigns/${id}/validate`)).statusCode).toBe(201);
+        expect((await send(api, 'POST', `/campaigns/${id}/approve`)).statusCode).toBe(201);
+        expect((await send(api, 'POST', `/campaigns/${id}/launch`, { mode: 'now' }, `launch-${name}`)).statusCode).toBe(202);
+        expect(await api.app.get(CampaignPlannerService).plan(api.tenantId, 10)).toBe(count);
+        for (let index = 0; index < count; index += 1) {
+          providerOutcomes.push({ status: 'accepted', providerMessageId: `wamid.${name}.${String(index)}`, raw: {} });
+        }
+        expect(await api.app.get(ChannelDispatcherService).dispatch(api.tenantId, 10, 'reply-test', 'bulk')).toMatchObject({ accepted: count });
+        return id;
+      };
+      const providerIdOf = async (name: string, peer: string) => (await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ provider_message_id: string }>(
+        `SELECT provider_message_id FROM outbound_messages WHERE peer_identity=$1 AND provider_message_id LIKE $2`, [peer, `wamid.${name}.%`]))).rows[0]!.provider_message_id;
+      const reportFor = async (campaignId: string) => {
+        const answer = await send(api, 'GET', `/reports/campaigns?campaignId=${campaignId}`);
+        expect(answer.statusCode, answer.body).toBe(200);
+        return (answer.json() as { data: {
+          milestones: { accepted: number; delivered: number; read: number; replied: number };
+          current: { failed: number };
+          channels: { replied: number }[]; trend: { replied: number }[]; campaigns: { id: string; replied: number }[];
+          errors: { code: string; count: number }[];
+        } }).data;
+      };
+      const repliedIn = async (campaignId: string) => {
+        const answer = await send(api, 'GET', `/campaigns/${campaignId}/recipients`);
+        expect(answer.statusCode, answer.body).toBe(200);
+        return (answer.json() as { data: { external_id: string; replied: boolean; state: string; last_error: { code?: string } | null }[] }).data;
+      };
+
+      // Somebody who wrote before the broadcast has not replied to it.
+      await journal('message', sentOnly, 'wamid.before', new Date(Date.now() - 86_400_000));
+      await settle();
+      const first = await launch('first', 'student', 4);
+      expect((await reportFor(first)).milestones.replied).toBe(0);
+
+      const later = (seconds: number) => new Date(Date.now() + seconds * 1000);
+      // Two messages from one person are one person who replied.
+      await journal('message', replier, 'wamid.reply.1', later(10));
+      await journal('message', replier, 'wamid.reply.2', later(11));
+      // A status that only says "sent" is not a delivery.
+      await journal('delivery_status', sentOnly, await providerIdOf('first', sentOnly), later(12), { detail: { state: 'sent' } });
+      // Meta gave up: not delivered, and whoever writes in has not replied to it.
+      await journal('delivery_status', refused, await providerIdOf('first', refused), later(13), { detail: { state: 'failed', errors: [{ code: 131026 }] } });
+      await journal('message', refused, 'wamid.anyway', later(14));
+      await journal('delivery_status', delivered, await providerIdOf('first', delivered), later(15), { detail: { state: 'delivered' } });
+      await settle();
+
+      const report = await reportFor(first);
+      expect(report.milestones).toMatchObject({ accepted: 3, delivered: 1, read: 0, replied: 1 });
+      expect(report.current.failed).toBe(1);
+      expect(report.errors).toContainEqual({ code: 'provider_error_131026', count: 1 });
+      expect(report.channels[0]?.replied).toBe(1);
+      expect(report.trend[0]?.replied).toBe(1);
+      expect(report.campaigns.find((row) => row.id === first)?.replied).toBe(1);
+      const recipients = await repliedIn(first);
+      expect(recipients.filter((row) => row.replied).map((row) => row.external_id)).toEqual([replier]);
+      expect(recipients.find((row) => row.external_id === sentOnly)?.state).toBe('accepted');
+      expect(recipients.find((row) => row.external_id === refused)).toMatchObject({ state: 'failed', last_error: { code: 'provider_error_131026' } });
+
+      // A later broadcast takes the replies after it; the first one keeps its own.
+      const second = await launch('second', 'student 4', 1);
+      await journal('message', delivered, 'wamid.reply.second', later(60));
+      await settle();
+      expect((await reportFor(first)).milestones.replied).toBe(1);
+      expect((await repliedIn(second))[0]).toMatchObject({ replied: true });
+
+      // A broadcast that never got there has no replies. A failure with no reason
+      // given still fails and says so, and the message answers the one before it.
+      await journal('delivery_status', delivered, await providerIdOf('second', delivered), later(61), { detail: { state: 'failed' } });
+      await settle();
+      expect((await repliedIn(second))[0]).toMatchObject({ state: 'failed', replied: false, last_error: { code: 'provider_error_unknown' } });
+      expect((await reportFor(first)).milestones.replied).toBe(2);
+
+      // The provider can correct itself: a delivery after a failure clears it.
+      await journal('delivery_status', delivered, await providerIdOf('second', delivered), later(180), { detail: { state: 'delivered' } });
+      await settle();
+      expect((await repliedIn(second))[0]).toMatchObject({ state: 'delivered', last_error: null, replied: true });
+      expect((await reportFor(first)).milestones.replied).toBe(1);
+
+      const third = await launch('third', 'student 3', 1);
+      await journal('message', refused, 'wamid.reply.third', later(120));
+      await journal('delivery_status', refused, await providerIdOf('third', refused), later(121), { detail: { state: 'delivered' } });
+      await settle();
+      expect((await repliedIn(third))[0]).toMatchObject({ state: 'delivered', replied: true });
+      expect((await reportFor(first)).milestones.replied).toBe(1);
+
+      // The export says the same thing, per recipient.
+      const exported = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ replied_milestone: boolean; external_id: string }>(
+        `SELECT r.replied_milestone,i.external_id FROM campaign_report_rows r
+           JOIN campaign_recipients c ON c.id=r.recipient_id JOIN contact_identities i ON i.id=c.identity_id
+          WHERE r.campaign_id=$1 AND r.replied_milestone`, [first]));
+      expect(exported.rows.map((row) => row.external_id)).toEqual([replier]);
+
+      // What was already recorded wrongly is repaired from the receipts themselves.
+      const migration = scratchMigrationPool(api.names);
+      try {
+        const repairSql = readFileSync(new URL('../../packages/database/migrations/0061_campaign_replies_and_receipts.sql', import.meta.url), 'utf8');
+        const repair = repairSql.slice(repairSql.indexOf('-- Recompute from the evidence.'));
+        const run = async () => {
+          const client = await migration.connect();
+          try { await client.query('BEGIN'); await client.query(repair); await client.query('COMMIT'); }
+          catch (error) { await client.query('ROLLBACK'); throw error; }
+          finally { client.release(); }
+        };
+        const sentMessage = await providerIdOf('first', sentOnly);
+        const refusedMessage = await providerIdOf('first', refused);
+        await withTenant(migration, api.tenantId, async (sql) => {
+          await sql.query(`UPDATE outbound_messages SET delivery_state='delivered',delivery_anomaly='delivered_after_read' WHERE provider_message_id=$1`, [sentMessage]);
+          await sql.query(`UPDATE campaign_recipients SET state='delivered' WHERE command_id=(SELECT id FROM outbound_messages WHERE provider_message_id=$1)`, [sentMessage]);
+          await sql.query(`UPDATE outbound_messages SET delivery_state='delivered' WHERE provider_message_id=$1`, [refusedMessage]);
+          await sql.query(`UPDATE campaign_recipients SET state='delivered',last_error=NULL WHERE command_id=(SELECT id FROM outbound_messages WHERE provider_message_id=$1)`, [refusedMessage]);
+        });
+        await run();
+        const repaired = async () => (await withTenant(migration, api.tenantId, (sql) => sql.query<{ provider_message_id: string; delivery_state: string; delivery_anomaly: string | null; state: string; updated_at: Date }>(
+          `SELECT m.provider_message_id,m.delivery_state,m.delivery_anomaly,r.state,r.updated_at
+             FROM outbound_messages m JOIN campaign_recipients r ON r.command_id=m.id
+            WHERE m.provider_message_id = ANY($1) ORDER BY m.provider_message_id`, [[sentMessage, refusedMessage]]))).rows;
+        const once = await repaired();
+        expect(once.find((row) => row.provider_message_id === sentMessage)).toMatchObject({ delivery_state: 'sent', delivery_anomaly: null, state: 'accepted' });
+        expect(once.find((row) => row.provider_message_id === refusedMessage)).toMatchObject({ delivery_state: 'failed', state: 'failed' });
+        expect((await repliedIn(first)).find((row) => row.external_id === refused)?.last_error).toEqual({ code: 'provider_error_131026' });
+        // Running it again changes nothing.
+        await run();
+        expect(await repaired()).toEqual(once);
+      } finally {
+        await migration.end();
+      }
     } finally {
       await api.app.close();
     }

@@ -39,6 +39,7 @@ import {
   skeleton,
 } from './parts.js';
 import { movedAway, priorityBadge, routingSection } from './routing-panel.js';
+import { voiceNote } from './voice-note.js';
 
 /**
  * The Inbox, backed entirely by the API.
@@ -62,7 +63,11 @@ const DELIVERY_LABEL: Readonly<Record<string, Phrase>> = {
   sent: { ar: 'أُرسلت', en: 'Sent' },
   delivered: { ar: 'سُلّمت', en: 'Delivered' },
   read: { ar: 'قُرئت', en: 'Read' },
+  failed: { ar: 'لم تصل', en: 'Not delivered' },
 };
+
+/** WhatsApp voice notes are capped here; the server refuses anything longer. */
+const VOICE_MAX_SECONDS = 90;
 
 const COMMAND_LABEL: Readonly<Record<string, Phrase>> = {
   queued: { ar: 'في الانتظار', en: 'Queued' },
@@ -186,10 +191,13 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
           }),
         ]),
       ]),
-      !supervisorMode && hasPermission(live, 'conversation.reply')
-        ? h('div', { class: 'listhead__quick' }, [button({ label: t(state, 'رسالة واتساب جديدة', 'New WhatsApp message'), icon: 'send', act: 'live-quick-whatsapp-open', variant: 'primary', small: true, extraClass: 'inbox-quick-message' })])
-        : null,
-      inboxLinePicker(state, live),
+      // One row, because every line up here is a conversation less on a laptop.
+      h('div', { class: 'listhead__row listhead__row--actions' }, [
+        !supervisorMode && hasPermission(live, 'conversation.reply')
+          ? button({ label: t(state, 'رسالة واتساب', 'WhatsApp message'), icon: 'send', act: 'live-quick-whatsapp-open', variant: 'primary', small: true, extraClass: 'inbox-quick-message', title: t(state, 'رسالة واتساب جديدة', 'New WhatsApp message') })
+          : null,
+        inboxLinePicker(state, live),
+      ]),
       h('div', { class: 'listhead__row' }, [
         inboxSearch(state, live),
         h('div', { class: 'listhead__tools' }, [
@@ -765,6 +773,10 @@ function conversationRow(state: AppState, live: LiveState, conversation: Convers
           h('span', { class: 'convrow__name' }, [isolated(customerName)]),
           h('span', { class: 'convrow__time' }, [relativeTime(conversation.lastActivityAt, state.clock, state.lang)]),
         ]),
+        // What the customer said comes first: it is what decides which row to open.
+        conversation.lastMessagePreview
+          ? h('span', { class: 'convrow__preview' }, [isolated(conversation.lastMessagePreview)])
+          : null,
         h('span', { class: 'convrow__line convrow__meta' }, [
           h('span', { class: 'convrow__where' }, [`${phrase(state, CHANNEL_NAMES, conversation.channel)} · ${conversation.inboxLabel}`]),
           conversation.status === 'open' ? null : statusBadge(state, conversation.status),
@@ -774,9 +786,6 @@ function conversationRow(state: AppState, live: LiveState, conversation: Convers
             : null,
         ]),
         h('span', { class: 'convrow__assignee' }, [icon('user', 12), conversation.assigneeMembershipId === null ? t(state,'غير مسندة','Unassigned') : t(state,`مسندة إلى ${conversation.assigneeName || 'موظف'}`,`Assigned to ${conversation.assigneeName || 'an agent'}`)]),
-        conversation.lastMessagePreview
-          ? h('span', { class: 'convrow__preview' }, [isolated(conversation.lastMessagePreview)])
-          : null,
       ]),
     ],
   );
@@ -967,14 +976,15 @@ function messageBubble(state: AppState, message: TimelineMessage): HTMLElement {
     ? `/api/v1/tenants/${tenantId}/conversations/${state.live.openConversationId}` : null;
   const attachmentUrl = mediaBase === null ? null : `${mediaBase}/attachments/${message.id}`;
   const voiceUrl = mediaBase !== null && stored?.isVoice === true ? `${mediaBase}/voice-messages/${message.id}/audio` : null;
-  const imageUrl = (stored?.type === 'image' ? attachmentUrl : null) ?? trustedMetaImage(message.attachments);
+  const held = providerMedia(state, message);
+  const imageUrl = (stored?.type === 'image' ? attachmentUrl : null) ?? trustedMetaImage(message.attachments) ?? held.find((item) => item.kind === 'image')?.url ?? null;
+  const heardUrl = voiceUrl ?? held.find((item) => item.kind === 'audio')?.url ?? null;
   const body = message.template_preview ?? message.text;
   return h('article', { class: message.direction === 'out' ? 'msg msg--out' : 'msg msg--in', 'data-message': message.id }, [
     message.template_name === undefined || message.template_name === null ? null : h('div', { class: 'msg__template-label' }, [t(state, `قالب واتساب · ${message.template_name}`, `WhatsApp template · ${message.template_name}`)]),
-    h('div', { class: 'msg__bubble' }, [
+    h('div', { class: heardUrl === null ? 'msg__bubble' : 'msg__bubble msg__bubble--voice' }, [
       body,
-      voiceUrl === null ? null : h('audio', { class: 'msg__audio', controls: true, preload: 'none', src: voiceUrl,
-        'aria-label': t(state, 'رسالة صوتية مرسلة', 'Sent voice message') }),
+      heardUrl === null ? null : voiceNote(state, heardUrl, message.direction === 'out' ? 'out' : 'in', t(state, 'رسالة صوتية', 'Voice message'), stored?.filename ?? t(state, 'رسالة-صوتية', 'voice-note')),
       imageUrl === null ? null : h('img', {
         class: 'msg__attachment-image', src: imageUrl,
         alt: message.direction === 'out'
@@ -982,9 +992,11 @@ function messageBubble(state: AppState, message: TimelineMessage): HTMLElement {
           : t(state, 'صورة أرسلها العميل', 'Image sent by customer'),
         loading: 'lazy', referrerpolicy: 'no-referrer',
       }),
+      ...held.filter((item) => item.kind === 'video').map((item) => h('video', { class: 'msg__attachment-video', controls: true, preload: 'metadata', src: item.url, 'aria-label': t(state, 'فيديو', 'Video') })),
+      ...held.filter((item) => item.kind === 'file').map((item) => h('a', { class: 'msg__attachment-link', href: item.url, download: item.name }, [icon('download', 16), item.name])),
       attachmentUrl !== null && voiceUrl === null && imageUrl === null
         ? h('a', { class: 'msg__attachment-link', href: attachmentUrl, download: stored!.filename }, [icon('download', 16), stored!.filename]) : null,
-      body === null && imageUrl === null && voiceUrl === null && attachmentUrl === null && Array.isArray(message.attachments) && message.attachments.length > 0
+      body === null && imageUrl === null && heardUrl === null && attachmentUrl === null && held.length === 0 && Array.isArray(message.attachments) && message.attachments.length > 0
         ? (message.direction === 'out' ? t(state, 'مرفق مرسل', 'Attachment sent') : t(state, 'مرفق من العميل', 'Customer attachment')) : null,
     ]),
     h('div', { class: 'msg__meta' }, [
@@ -994,6 +1006,38 @@ function messageBubble(state: AppState, message: TimelineMessage): HTMLElement {
     ]),
     message.seen_by && message.seen_by.length > 0 ? h('div',{class:'msg__team-seen',title:message.seen_by.map(reader=>`${reader.name} · ${clockTime(reader.seenAt,state.lang)}`).join('\n')},[icon('eye',12),t(state,`شاهدها ${message.seen_by.map(reader=>reader.name).join('، ')}`,`Seen by ${message.seen_by.map(reader=>reader.name).join(', ')}`)]) : null,
   ]);
+}
+
+interface HeldMedia {
+  readonly kind: 'image' | 'audio' | 'video' | 'file';
+  readonly url: string;
+  readonly name: string;
+}
+
+/**
+ * What the provider still holds for this message, by our own URL for it: the
+ * server checks access and fetches it, because the browser can reach neither a
+ * WhatsApp media id nor, under this page's policy, a Meta media link.
+ *
+ * An image with a link is left to `trustedMetaImage`, which loads it directly. One
+ * only comes through here when it is an id, as WhatsApp's are.
+ */
+function providerMedia(state: AppState, message: TimelineMessage): readonly HeldMedia[] {
+  const tenantId = currentTenantId(state.live);
+  const conversationId = state.live.openConversationId;
+  if (tenantId === null || conversationId === null || !/^[0-9a-f-]{36}$/i.test(message.id) || !Array.isArray(message.attachments)) return [];
+  const label = t(state, 'مرفق', 'Attachment');
+  return (message.attachments as readonly unknown[]).flatMap((raw, index): readonly HeldMedia[] => {
+    const attachment = raw as { readonly type?: unknown; readonly providerId?: unknown; readonly caption?: unknown } | null;
+    const providerId = attachment?.providerId;
+    if (typeof providerId !== 'string' || providerId === '') return [];
+    const url = `/api/v1/tenants/${tenantId}/conversations/${conversationId}/inbound-media/${message.id}/${String(index)}`;
+    const type = attachment?.type;
+    if (type === 'image' || type === 'sticker') return /^[0-9]+$/.test(providerId) ? [{ kind: 'image', url, name: label }] : [];
+    if (type === 'audio' || type === 'voice') return [{ kind: 'audio', url, name: label }];
+    if (type === 'video') return [{ kind: 'video', url, name: label }];
+    return [{ kind: 'file', url, name: typeof attachment?.caption === 'string' && attachment.caption !== '' ? attachment.caption : label }];
+  });
 }
 
 /** Provider URLs are untrusted input. Only Meta's HTTPS image CDN may load in the Inbox. */
@@ -1021,31 +1065,29 @@ function trustedMetaImage(attachments: unknown): string | null {
  * What we know about an outbound message, said plainly.
  *
  * Two facts, not one: what we asked the provider to do and what it later said
- * happened. A screen that folded them into a single tick would be inventing
- * agreement between two things that can genuinely disagree.
+ * happened. Acceptance is only a step towards a receipt, so a receipt replaces it;
+ * every other command state says something the receipt does not.
+ *
+ * Receipts arrive out of order as a matter of course, and a `delivered` after a
+ * `read` changes nothing for the agent reading this. It stays recorded, and the
+ * person who has to explain it finds it on the label, not as a warning on the row.
  */
 function deliveryNote(state: AppState, message: TimelineMessage): readonly Child[] {
   if (message.direction === 'in') {
     return [];
   }
   const parts: Child[] = [];
-  if (message.command_state !== null) {
+  if (message.command_state !== null && !(message.command_state === 'provider_accepted' && message.delivery_state !== null)) {
     parts.push(h('span', { class: `msg__state msg__state--${message.command_state}` }, [phrase(state, COMMAND_LABEL, message.command_state)]));
   }
   if (message.delivery_state !== null) {
     parts.push(
-      h('span', { class: `msg__delivery msg__delivery--${message.delivery_state}` }, [
-        icon(message.delivery_state === 'sent' ? 'check' : 'checkDouble', 14),
+      h('span', {
+        class: `msg__delivery msg__delivery--${message.delivery_state}`,
+        title: message.delivery_anomaly === null ? undefined : t(state, `إيصالات متعارضة: ${message.delivery_anomaly}`, `Conflicting receipts: ${message.delivery_anomaly}`),
+      }, [
+        icon(message.delivery_state === 'failed' ? 'alert' : message.delivery_state === 'sent' ? 'check' : 'checkDouble', 14),
         phrase(state, DELIVERY_LABEL, message.delivery_state),
-      ]),
-    );
-  }
-  if (message.delivery_anomaly !== null) {
-    // Recorded rather than smoothed over: a receipt disagreeing with an earlier
-    // one is a fact worth showing the person who has to explain it.
-    parts.push(
-      h('span', { class: 'msg__anomaly', title: message.delivery_anomaly }, [
-        t(state, 'إيصالات متعارضة', 'Conflicting receipts'),
       ]),
     );
   }
@@ -1146,21 +1188,7 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
     ]);
   }
   const voice = voiceDraft(live);
-  if (voice !== null) return h('div', { class: 'composer__box composer__voice' }, [
-    tabs,
-    h('div', { class: 'composer__voice-status', role: 'status', 'aria-live': 'polite' }, [
-      icon('mic', 20), voice.status === 'requesting' ? t(state, 'جارٍ فتح الميكروفون…', 'Opening microphone…')
-        : voice.status === 'recording' ? t(state, `جارٍ التسجيل · ${voice.seconds} / 90 ثانية`, `Recording · ${voice.seconds} / 90 seconds`)
-          : t(state, 'راجع التسجيل قبل الإرسال', 'Review recording before sending'),
-    ]),
-    voice.url === null ? null : h('audio', { controls: true, src: voice.url, 'aria-label': t(state, 'معاينة التسجيل', 'Recording preview') }),
-    voice.error === null ? null : h('p', { class: 'field__error', role: 'alert' }, [voice.error]),
-    h('div', { class: 'composer__toolbar' }, [
-      button({ label: t(state, 'إلغاء التسجيل', 'Discard recording'), icon: 'trash', act: 'live-voice-cancel', variant: 'ghost', disabled: voice.status === 'sending', small: true }),
-      voice.status === 'recording' ? button({ label: t(state, 'إيقاف التسجيل', 'Stop recording'), icon: 'stop', act: 'live-voice-stop', small: true }) : null,
-      voice.status === 'ready' || voice.status === 'sending' ? button({ label: t(state, 'إرسال التسجيل', 'Send recording'), icon: 'send', act: 'live-voice-send', variant: 'primary', busy: voice.status === 'sending', small: true }) : null,
-    ]),
-  ]);
+  if (voice !== null) return voiceComposer(state, voice, tabs);
   return h('div', { class: 'composer__box' }, [
     // The text is the element's **content**, not a `value` attribute: a textarea
     // ignores that attribute, so rendering it that way would empty the composer
@@ -1198,6 +1226,43 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
         disabled: live.composer.trim() === '',
         extraClass: 'composer__send',
       }),
+    ]),
+  ]);
+}
+
+function clockOf(seconds: number): string {
+  return `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Recording a voice message, as one strip that keeps the composer's place: while
+ * it records, a timer and a meter that shows the microphone is really hearing;
+ * afterwards, the same player the thread uses, so what you check is what they get.
+ */
+function voiceComposer(state: AppState, voice: NonNullable<ReturnType<typeof voiceDraft>>, tabs: HTMLElement): HTMLElement {
+  const reviewing = voice.status === 'ready' || voice.status === 'sending';
+  return h('div', { class: 'composer__box composer__voice' }, [
+    h('div', { class: 'recorder', 'data-state': voice.status }, [
+      voice.status === 'requesting' ? h('span', { class: 'recorder__status', role: 'status' }, [t(state, 'جارٍ فتح الميكروفون…', 'Opening microphone…')]) : null,
+      voice.status === 'recording' ? h('div', { class: 'recorder__live', role: 'status', 'aria-label': t(state, 'جارٍ التسجيل', 'Recording') }, [
+        h('span', { class: 'recorder__dot' }),
+        h('span', { class: 'recorder__time', dir: 'ltr' }, [`${clockOf(voice.seconds)} / ${clockOf(VOICE_MAX_SECONDS)}`]),
+        h('div', { class: 'recorder__meter', dir: 'ltr', 'aria-hidden': 'true' }, voice.levels.map((level) => h('i', { style: `--level:${level.toFixed(2)}` }))),
+      ]) : null,
+      reviewing ? voiceNote(state, voice.url as string, 'draft', t(state, 'معاينة التسجيل', 'Recording preview'), null) : null,
+      voice.status === 'error' ? h('p', { class: 'recorder__error', role: 'alert' }, [voice.error]) : null,
+    ]),
+    reviewing && voice.error !== null ? h('p', { class: 'field__error recorder__send-error', role: 'alert' }, [voice.error]) : null,
+    h('div', { class: 'composer__toolbar' }, [
+      tabs,
+      h('span', { class: 'composer__hint' }),
+      button({
+        label: t(state, 'إلغاء التسجيل', 'Discard recording'), icon: 'trash', act: 'live-voice-cancel', variant: 'ghost', small: true,
+        disabled: voice.status === 'sending',
+      }),
+      voice.status === 'recording' ? button({ label: t(state, 'إيقاف التسجيل', 'Stop recording'), icon: 'stop', act: 'live-voice-stop', small: true, variant: 'primary' }) : null,
+      voice.status === 'error' ? button({ label: t(state, 'جرّب تاني', 'Try again'), icon: 'mic', act: 'live-voice-retry', small: true, variant: 'primary' }) : null,
+      reviewing ? button({ label: t(state, 'إرسال التسجيل', 'Send recording'), icon: 'send', act: 'live-voice-send', variant: 'primary', busy: voice.status === 'sending', small: true, extraClass: 'composer__send' }) : null,
     ]),
   ]);
 }

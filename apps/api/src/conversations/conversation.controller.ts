@@ -18,6 +18,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { HANDOFF_DEFAULT_TTL_MS } from '@convo/domain';
 import { AuthService } from '../auth/auth.service.js';
 import { ApiHttpError } from '../http-error.js';
+import { InboundMediaService } from '../channels/inbound-media.service.js';
 import { OutboundService } from '../channels/outbound.service.js';
 import { pageEnvelope } from '../pagination.js';
 import { ConversationService } from './conversation.service.js';
@@ -52,6 +53,7 @@ export class ConversationController {
     @Inject(LifecycleService) private readonly lifecycle: LifecycleService,
     @Inject(NoteService) private readonly notes: NoteService,
     @Inject(RoutingService) private readonly routing: RoutingService,
+    @Inject(InboundMediaService) private readonly inboundMediaService: InboundMediaService,
   ) {}
 
   @Post('tenants/:tenantId/conversations/:conversationId/voice-messages')
@@ -114,6 +116,21 @@ export class ConversationController {
       .header('content-security-policy', "sandbox; default-src 'none'")
       .header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${filename}`)
       .type(inline ? media.mime_type : 'application/octet-stream')
+      .send(media.data);
+  }
+
+  /** What a customer sent. It stays with the provider and passes through here. */
+  @Get('tenants/:tenantId/conversations/:conversationId/inbound-media/:eventId/:index')
+  async inboundMedia(@Param('tenantId') tenantId: string, @Param('conversationId') conversationId: string,
+    @Param('eventId') eventId: string, @Param('index') index: string, @Req() request: FastifyRequest, @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const media = await this.inboundMediaService.read(session, tenantId, conversationId, eventId, index);
+    await reply.header('cache-control', 'private, no-store')
+      .header('x-content-type-options', 'nosniff')
+      .header('content-security-policy', "sandbox; default-src 'none'")
+      .header('content-disposition', media.inline ? 'inline' : 'attachment')
+      .type(media.mimeType)
       .send(media.data);
   }
 

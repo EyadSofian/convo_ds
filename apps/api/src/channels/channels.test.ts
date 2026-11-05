@@ -419,8 +419,10 @@ describe('inboundRowFrom', () => {
       attachments: '[{"type":"image"}]',
       detail: '{"a":1,"sender_name":"Mona"}',
       senderName: 'Mona',
+      history: false,
       occurredAt: new Date('2026-09-01T00:00:00.000Z'),
     });
+    expect(inboundRowFrom({ detail: { history: true } }, FALLBACK).history).toBe(true);
     // A name that is not text, or a detail that is not an object, names nobody.
     expect(inboundRowFrom({ detail: { sender_name: 7 } }, FALLBACK).senderName).toBeNull();
     expect(inboundRowFrom({ detail: 'odd' }, FALLBACK).senderName).toBeNull();
@@ -446,6 +448,7 @@ describe('inboundRowFrom', () => {
       attachments: '[]',
       detail: '{}',
       senderName: null,
+      history: false,
       occurredAt: FALLBACK,
     });
   });

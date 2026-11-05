@@ -226,7 +226,7 @@ async function buildCsv(sql: SqlExecutor, campaignId: string | null): Promise<{ 
   const result = await sql.query<Record<string, string | number | boolean | Date | null>>(
     `SELECT r.campaign_id::text,c.name AS campaign_name,c.control_state AS campaign_state,
             r.channel_kind,r.current_state,
-            accepted_milestone,delivered_milestone,read_milestone,
+            accepted_milestone,delivered_milestone,read_milestone,replied_milestone,
             coalesce(error_code,'') AS error_code,
             coalesce(estimated_amount_minor,0)::text AS estimated_amount_minor,
             coalesce(committed_amount_minor,0)::text AS committed_amount_minor,
@@ -237,7 +237,7 @@ async function buildCsv(sql: SqlExecutor, campaignId: string | null): Promise<{ 
       ORDER BY r.campaign_id,r.recipient_id`,
     [campaignId],
   );
-  const columns = ['campaign_id','campaign_name','campaign_state','channel_kind','current_state','accepted_milestone','delivered_milestone','read_milestone','error_code','estimated_amount_minor','committed_amount_minor','reconciled_amount_minor','currency','fresh_through'];
+  const columns = ['campaign_id','campaign_name','campaign_state','channel_kind','current_state','accepted_milestone','delivered_milestone','read_milestone','replied_milestone','error_code','estimated_amount_minor','committed_amount_minor','reconciled_amount_minor','currency','fresh_through'];
   const lines = [columns.join(',')];
   for (const row of result.rows) lines.push(columns.map((column) => csvCell(row[column]!)).join(','));
   const content = lines.join('\r\n') + '\r\n';

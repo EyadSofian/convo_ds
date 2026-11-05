@@ -25,6 +25,8 @@ export interface InboundRow {
   readonly detail: string;
   /** The name the channel gave the sender, when it gave one. */
   readonly senderName: string | null;
+  /** Read back from the provider afterwards, rather than delivered as it happened. */
+  readonly history: boolean;
   readonly occurredAt: Date;
 }
 
@@ -46,6 +48,7 @@ export function inboundRowFrom(event: Record<string, unknown>, fallbackTime: Dat
     attachments: JSON.stringify(event['attachments'] ?? []),
     detail: JSON.stringify(event['detail'] ?? {}),
     senderName: senderNameOf(event['detail']),
+    history: (event['detail'] as Record<string, unknown> | null | undefined)?.['history'] === true,
     occurredAt: occurredAt(event['occurredAt'], fallbackTime),
   };
 }

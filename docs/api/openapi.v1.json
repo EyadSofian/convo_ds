@@ -1236,6 +1236,30 @@
         }
       }
     },
+    "/tenants/{tenantId}/channels/{connectionId}/meta-history/sync": {
+      "post": {
+        "operationId": "syncMetaHistory",
+        "summary": "Subscribe a Messenger or Instagram Page and import its recent messages",
+        "description": "Subscribes the connected Page to this app's events and imports recent conversations from Meta's Conversations API through the normal inbound journal. Safe to repeat: a message already here is not imported twice, and imported messages never reopen a conversation or notify anyone.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "responses": {
+          "201": { "description": "What the sync found at Meta and imported here." },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/channels/{connectionId}/sender-profiles/retry": {
       "post": {
         "operationId": "retryChannelSenderProfiles",
@@ -3021,6 +3045,29 @@
           "default": {
             "$ref": "#/components/responses/Error"
           }
+        }
+      }
+    },
+    "/tenants/{tenantId}/conversations/{conversationId}/inbound-media/{eventId}/{index}": {
+      "get": {
+        "operationId": "getInboundMedia",
+        "summary": "Read an attachment a customer sent",
+        "description": "Fetched from the provider on each request after checking conversation read permission, and not stored. Images, audio and video are served inline; anything else only as a download.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "conversationId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "eventId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "index", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "The attachment's bytes." },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -13179,9 +13226,14 @@
           "state",
           "last_error",
           "estimated_amount_minor",
-          "currency"
+          "currency",
+          "replied"
         ],
         "properties": {
+          "replied": {
+            "type": "boolean",
+            "description": "Wrote back after this broadcast and before the next one that reached them."
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -13800,6 +13852,7 @@
           "accepted",
           "delivered",
           "read",
+          "replied",
           "delivery_receipts",
           "read_receipts"
         ],
@@ -13820,6 +13873,10 @@
             "minimum": 0
           },
           "read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "replied": {
             "type": "integer",
             "minimum": 0
           },
@@ -13885,6 +13942,7 @@
           "accepted",
           "delivered",
           "read",
+          "replied",
           "failed",
           "outcome_unknown",
           "included",
@@ -13920,6 +13978,10 @@
             "minimum": 0
           },
           "read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "replied": {
             "type": "integer",
             "minimum": 0
           },
@@ -13962,6 +14024,7 @@
           "accepted",
           "delivered",
           "read",
+          "replied",
           "failed"
         ],
         "properties": {
@@ -13982,6 +14045,10 @@
             "minimum": 0
           },
           "read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "replied": {
             "type": "integer",
             "minimum": 0
           },
@@ -14113,7 +14180,8 @@
               "denominator",
               "accepted",
               "delivered",
-              "read"
+              "read",
+              "replied"
             ],
             "properties": {
               "denominator": {
@@ -14129,6 +14197,10 @@
                 "minimum": 0
               },
               "read": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "replied": {
                 "type": "integer",
                 "minimum": 0
               }

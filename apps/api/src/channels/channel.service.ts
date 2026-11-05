@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { CapabilityMatrix, ChannelKind, EvidenceRecord, Readiness, SqlExecutor } from '@convo/domain';
-import { capabilitiesFor, missingEvidence, PROVIDER_OF, readinessOf } from '@convo/domain';
+import { capabilitiesFor, missingEvidence, normalizeHeldEntries, normalizeMetaHistory, PROVIDER_OF, readinessOf } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import type { ApiConfig } from '../config.js';
@@ -10,12 +10,13 @@ import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG, CHANNEL_TRANSPORT } from '../tokens.js';
-import { implementedKinds } from './adapters.js';
+import { adapterFor, implementedKinds } from './adapters.js';
 import { parseConnectChannel, parseInstagramPage, parseRotateCredential, parseSettingsUpdate } from './channel-request.js';
 import type { ConnectChannelRequest } from './channel-request.js';
 import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
-import { assetFingerprint } from './node-crypto.js';
+import { journalEvents, writeReceipt } from './ingress-journal.js';
+import { assetFingerprint, sha256BytesHex } from './node-crypto.js';
 
 /**
  * Channel connections: the operator-facing half of the channel foundation.
@@ -82,6 +83,22 @@ export interface TemplateSyncSummary {
   readonly disabled: number;
   readonly synced_at: string;
 }
+
+/** What a history sync found at Meta and what it changed here. */
+export interface MetaHistorySummary {
+  /** Meta confirmed this Page sends its events to this app. */
+  readonly webhook_subscribed: boolean;
+  readonly subscription_error: string | null;
+  readonly conversations: number;
+  readonly messages: number;
+  /** Messages that were not here before this sync. */
+  readonly imported: number;
+  /** Messages read again out of deliveries an earlier build could not read. */
+  readonly recovered: number;
+}
+
+/** A customer's window to be answered is long gone by then; it bounds the read. */
+const META_HISTORY_DAYS = 30;
 
 export interface WebhookSubscriptionSummary {
   readonly waba_id: string;
@@ -417,6 +434,92 @@ export class ChannelService {
     throw new ApiHttpError(outcome.failure.retryable ? 503 : 422, outcome.failure.code, outcome.failure.message);
   }
 
+  /**
+   * Brings a Page's customers in: subscribes the Page and imports what Graph has.
+   *
+   * Everything lands in the same journal a webhook does, so the normalizer is the
+   * only thing that turns it into threads and a re-run changes nothing. Graph's
+   * refusal is shown as it is, because Meta's reason is the operator's next step.
+   */
+  async syncMetaHistory(
+    session: AuthenticatedSession,
+    tenantId: string,
+    connectionId: string,
+  ): Promise<MetaHistorySummary> {
+    const outcome = await this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) => {
+      const connection = await requireConnection(sql, connectionId);
+      if (connection.disconnected_at !== null) {
+        throw new ApiHttpError(409, 'channel_disconnected', 'This channel is disconnected.');
+      }
+      const sync = this.transport.syncMetaPage;
+      if ((connection.kind !== 'messenger' && connection.kind !== 'instagram') || sync === undefined) {
+        throw new ApiHttpError(422, 'channel_not_supported', 'Message history is available only for Messenger and Instagram through Meta.');
+      }
+      const pageId = connection.kind === 'messenger' ? connection.external_asset_id : connection.facebook_page_id;
+      if (pageId === null) {
+        throw new ApiHttpError(422, 'instagram_page_required', 'Link the Facebook Page of this Instagram account first.');
+      }
+      const now = new Date();
+      const since = new Date(now.getTime() - META_HISTORY_DAYS * 86_400_000);
+      const synced = await this.credentials.withActive(
+        sql,
+        { tenantId, connectionId, purpose: 'access_token' },
+        (token) => sync.call(this.transport, connection.kind, token, pageId, since),
+      );
+      if (synced === null) throw new ApiHttpError(409, 'credential_missing', 'The connection has no active credential.');
+      if (!synced.ok) return { failure: synced } as const;
+
+      const adapter = adapterFor(connection.kind);
+      const held = await sql.query<{ payload: unknown }>(
+        `SELECT payload FROM channel_events
+          WHERE connection_id = $1 AND status = 'quarantined'
+            AND quarantine_reason = 'entry_has_no_messaging' AND payload ? 'standby'
+          ORDER BY received_at DESC LIMIT 500`,
+        [connectionId],
+      );
+      const heldBatch = normalizeHeldEntries(adapter, held.rows.map((row) => row.payload), now);
+      const graphBatch = normalizeMetaHistory(adapter, connection.external_asset_id, synced.messages, now);
+      const eventCount = heldBatch.events.length + graphBatch.events.length + graphBatch.quarantined.length;
+      const rawBody = Buffer.from(JSON.stringify({ connectionId, at: now.toISOString() }));
+      // The receipt says where these came from: not a delivery, a read this
+      // member asked for. There is no signature to hold, the read was ours.
+      const receiptId = await writeReceipt(sql, {
+        appId: await connectionAppId(sql, connectionId),
+        delivery: { routeKey: 'meta-history', rawBody, headers: {}, receivedAt: now },
+        bodySha: sha256BytesHex(rawBody),
+        signatureValid: true,
+        outcome: 'routed',
+        tenantId,
+        eventCount,
+      });
+      const recovered = await journalEvents(sql, { tenantId, connectionId, receiptId, batch: { ...heldBatch, quarantined: [] } });
+      const imported = await journalEvents(sql, { tenantId, connectionId, receiptId, batch: graphBatch });
+      if (synced.subscriptionError === null) {
+        await sql.query(
+          `UPDATE channel_connections SET webhook_subscribed_at = coalesce(webhook_subscribed_at, now()), last_error_code = NULL, last_error_at = NULL WHERE id = $1`,
+          [connectionId],
+        );
+        await refreshStatus(sql, connectionId);
+      }
+      return {
+        summary: {
+          webhook_subscribed: synced.subscriptionError === null,
+          subscription_error: synced.subscriptionError,
+          conversations: synced.conversations,
+          messages: synced.messages.length,
+          imported: imported.stored,
+          recovered: recovered.stored,
+        },
+      } as const;
+    });
+    if ('summary' in outcome) return outcome.summary;
+    await this.authorization.authorized(session, tenantId, 'channel.manage', async ({ sql }) => {
+      await requireConnection(sql, connectionId);
+      await recordError(sql, connectionId, outcome.failure.code);
+    });
+    throw new ApiHttpError(outcome.failure.retryable ? 503 : 422, outcome.failure.code, outcome.failure.message);
+  }
+
   async subscribeWhatsAppWebhook(
     session: AuthenticatedSession,
     tenantId: string,
@@ -641,6 +744,11 @@ async function recordError(sql: SqlExecutor, connectionId: string, code: string)
     `UPDATE channel_connections SET last_error_code = $2, last_error_at = now() WHERE id = $1`,
     [connectionId, code],
   );
+}
+
+async function connectionAppId(sql: SqlExecutor, connectionId: string): Promise<string | null> {
+  const rows = await sql.query<{ app_id: string | null }>('SELECT app_id::text FROM channel_connections WHERE id = $1', [connectionId]);
+  return requireRow(rows.rows, 'the connection vanished while syncing').app_id;
 }
 
 /** A repaired Meta credential lets exhausted sender-name lookups try again. */

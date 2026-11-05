@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asExecutor, withTenant } from '@convo/database';
-import type { ChannelKind, DeliveryFold, Offer, SendOutcome, SqlExecutor, WhatsAppTemplateSendComponent } from '@convo/domain';
+import type { ChannelKind, DeliveryFold, DeliveryState, Offer, SendOutcome, SqlExecutor, WhatsAppTemplateSendComponent } from '@convo/domain';
 import { foldDelivery, permitSend } from '@convo/domain';
 import type { Pool } from 'pg';
 import { API_POOL, CHANNEL_TRANSPORT } from '../tokens.js';
@@ -605,11 +605,16 @@ export class ChannelDispatcherService {
    * (DEL-17).
    */
   async reconcileReceipts(tenantId: string, limit = 200): Promise<number> {
-    return withTenant(this.pool, tenantId, async (client) => {
+    // Telling the screens is not what makes a receipt true. One that cannot be told
+    // is reported after the rest are committed, so it cannot hold back every other
+    // receipt in the company, and the worker still logs it.
+    let notifyFailure: unknown = null;
+    const handled = await withTenant(this.pool, tenantId, async (client) => {
       const sql = asExecutor(client);
       const receipts = await sql.query<{
         provider_message_id: string;
-        incoming_state: 'delivered' | 'read';
+        incoming_state: DeliveryState;
+        failure_code: string | null;
         occurred_at: Date;
         message_id: string;
         delivery_state: string | null;
@@ -620,10 +625,8 @@ export class ChannelDispatcherService {
         observed_at: Date;
       }>(
         `SELECT e.provider_message_id,
-                -- Mapped here rather than in TypeScript: the filter below makes
-                -- the ELSE exactly 'delivery_status', so there is no third case
-                -- to write and then never be able to reach.
-                CASE e.kind WHEN 'read_status' THEN 'read' ELSE 'delivered' END AS incoming_state,
+                ${RECEIPT_STATE} AS incoming_state,
+                e.detail->'errors'->0->>'code' AS failure_code,
                 e.occurred_at, e.observed_at,
                 m.id::text AS message_id, m.delivery_state, m.delivery_state_at, m.delivery_anomaly,
                 m.connection_id::text, m.peer_identity
@@ -652,12 +655,15 @@ export class ChannelDispatcherService {
           receipt.delivery_state === null || receipt.delivery_state_at === null
             ? null
             : {
-                state: receipt.delivery_state as 'sent' | 'delivered' | 'read',
+                state: receipt.delivery_state as DeliveryState,
                 at: receipt.delivery_state_at,
                 anomaly: receipt.delivery_anomaly,
               },
           { state: receipt.incoming_state, at: receipt.occurred_at },
         );
+        // Before the check below: a receipt held at send time has already moved the
+        // message but not its broadcast recipient.
+        await settleRecipient(sql, receipt.message_id, next.state, receipt.failure_code);
         const changed =
           next.state !== receipt.delivery_state || next.anomaly !== receipt.delivery_anomaly;
         if (!changed) {
@@ -669,27 +675,29 @@ export class ChannelDispatcherService {
             WHERE id = $1`,
           [receipt.message_id, next.state, next.at, next.anomaly],
         );
-        await sql.query(
-          `UPDATE campaign_recipients SET state=$2,updated_at=now()
-            WHERE command_id=$1 AND state IN ('accepted','delivered')`,
-          [receipt.message_id, next.state],
-        );
+        folded += 1;
         // The screen showing this conversation learns the tick moved, in the
         // same transaction that moved it.
-        const conversation = await this.conversations.ensure(
-          sql,
-          tenantId,
-          receipt.connection_id,
-          receipt.peer_identity,
-          'outbound_contact',
-        );
-        await this.conversations.noteDelivery(sql, tenantId, conversation, {
-          messageId: receipt.message_id,
-          state: next.state,
-          at: next.at,
-          anomaly: next.anomaly,
-        });
-        folded += 1;
+        await sql.query('SAVEPOINT receipt_notice');
+        try {
+          const conversation = await this.conversations.ensure(
+            sql,
+            tenantId,
+            receipt.connection_id,
+            receipt.peer_identity,
+            'outbound_contact',
+          );
+          await this.conversations.noteDelivery(sql, tenantId, conversation, {
+            messageId: receipt.message_id,
+            state: next.state,
+            at: next.at,
+            anomaly: next.anomaly,
+          });
+          await sql.query('RELEASE SAVEPOINT receipt_notice');
+        } catch (error) {
+          await sql.query('ROLLBACK TO SAVEPOINT receipt_notice');
+          notifyFailure = error;
+        }
       }
       for (const [messageId, observedAt] of watermark) {
         // Advanced even for a receipt that changed nothing: it has still been
@@ -704,6 +712,8 @@ export class ChannelDispatcherService {
       }
       return folded;
     });
+    if (notifyFailure !== null) throw notifyFailure;
+    return handled;
   }
 }
 
@@ -875,17 +885,53 @@ async function settle(
  * Called the moment an id is learned, so a `delivered` that beat the send
  * response is reflected immediately rather than waiting for the next sweep.
  */
+/**
+ * What a receipt says, in the fold's words.
+ *
+ * WhatsApp reports `sent`, `delivered`, `read` and `failed`; Messenger's delivery
+ * carries no state and only ever means delivered. Reading only the kind is what
+ * made every `sent` and every refusal count as delivered.
+ */
+const RECEIPT_STATE = `CASE WHEN e.kind = 'read_status' THEN 'read'
+                            WHEN e.detail->>'state' IN ('sent', 'failed') THEN e.detail->>'state'
+                            ELSE 'delivered' END`;
+
+/**
+ * Keeps a broadcast's report in step with what the provider said. `sent` changes
+ * nothing, because the recipient is already `accepted` from the provider's answer.
+ */
+async function settleRecipient(
+  sql: SqlExecutor,
+  messageId: string,
+  state: DeliveryState,
+  failureCode: string | null,
+): Promise<void> {
+  if (state === 'sent') return;
+  if (state === 'failed') {
+    await sql.query(
+      `UPDATE campaign_recipients SET state='failed',last_error=$2::jsonb,updated_at=now()
+        WHERE command_id=$1 AND state='accepted'`,
+      [messageId, JSON.stringify({ code: `provider_error_${failureCode ?? 'unknown'}` })],
+    );
+    return;
+  }
+  await sql.query(
+    `UPDATE campaign_recipients SET state=$2,last_error=NULL,updated_at=now()
+      WHERE command_id=$1 AND state IN ('accepted','failed','delivered') AND state <> $2`,
+    [messageId, state],
+  );
+}
+
 async function reconcileHeldReceipts(
   sql: SqlExecutor,
   messageId: string,
   providerMessageId: string,
 ): Promise<void> {
-  const held = await sql.query<{ incoming_state: 'delivered' | 'read'; occurred_at: Date }>(
-    `SELECT CASE kind WHEN 'read_status' THEN 'read' ELSE 'delivered' END AS incoming_state,
-            occurred_at
-       FROM inbound_events
-      WHERE provider_message_id = $1 AND kind IN ('delivery_status', 'read_status')
-      ORDER BY occurred_at`,
+  const held = await sql.query<{ incoming_state: DeliveryState; occurred_at: Date }>(
+    `SELECT ${RECEIPT_STATE} AS incoming_state, e.occurred_at
+       FROM inbound_events e
+      WHERE e.provider_message_id = $1 AND e.kind IN ('delivery_status', 'read_status')
+      ORDER BY e.occurred_at`,
     [providerMessageId],
   );
   let fold: DeliveryFold | null = null;

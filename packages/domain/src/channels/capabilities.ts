@@ -71,7 +71,7 @@ const MESSENGER: CapabilityMatrix = {
   kind: 'messenger',
   version: PINNED_GRAPH_VERSION,
   host: 'graph.facebook.com',
-  inboundEvents: ['messages', 'messaging_postbacks', 'message_deliveries', 'message_reads'],
+  inboundEvents: ['messages', 'message_echoes', 'messaging_postbacks', 'message_deliveries', 'message_reads', 'standby', 'messaging_handovers'],
   outboundTypes: ['text', 'image', 'file', 'audio', 'video'],
   attachmentTypes: ['image', 'file', 'audio', 'video'],
   textLimit: { characters: 2000, bytes: 2000 },
@@ -91,7 +91,7 @@ const INSTAGRAM: CapabilityMatrix = {
   // This product uses Facebook Login and a linked Page access token. The
   // separate Instagram Login flow uses graph.instagram.com and is not wired.
   host: 'graph.facebook.com',
-  inboundEvents: ['messages', 'messaging_postbacks', 'message_reactions'],
+  inboundEvents: ['messages', 'messaging_postbacks', 'message_reactions', 'standby'],
   outboundTypes: ['text', 'image'],
   attachmentTypes: ['image', 'video', 'audio', 'share', 'story_mention'],
   // Published as characters; the byte bound is what actually bites in Arabic.

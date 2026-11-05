@@ -65,6 +65,171 @@ const ACCEPTED = json(200, {
   messages: [{ id: 'wamid.ABC123' }],
 });
 
+describe('fetching what a customer sent', () => {
+  const media = (body: string, headers: Record<string, string> = { 'content-type': 'audio/ogg' }) => new Response(body, { status: 200, headers });
+
+  it('resolves a WhatsApp media id, then downloads it with the token', async () => {
+    const { adapter, calls } = transport((call) => call.url === `${GRAPH}/987`
+      ? json(200, { url: 'https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=987' })
+      : media('voice'));
+    const fetched = await adapter.fetchInboundMedia('whatsapp', TOKEN, '987');
+    expect(fetched).toMatchObject({ ok: true, mimeType: 'audio/ogg' });
+    expect(fetched.ok && fetched.data.toString()).toBe('voice');
+    expect(calls[1]?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it('downloads a Messenger or Instagram link without giving it the token', async () => {
+    for (const kind of ['messenger', 'instagram'] as const) {
+      const { adapter, calls } = transport(() => new Response(new Uint8Array([1])));
+      expect(await adapter.fetchInboundMedia(kind, TOKEN, 'https://cdn.fbsbx.com/v/clip.mp4')).toMatchObject({ ok: true, mimeType: null });
+      expect(calls[0]?.headers['authorization']).toBeUndefined();
+    }
+  });
+
+  it('refuses anything that is not Meta\'s own, without calling it', async () => {
+    const { adapter, calls } = transport(() => media('x'));
+    for (const link of [
+      'https://fbcdn.net.attacker.example/a', 'http://cdn.fbsbx.com/a', 'https://user@cdn.fbsbx.com/a',
+      'https://:secret@cdn.fbsbx.com/a', 'https://cdn.fbsbx.com:444/a', 'not a link',
+    ]) expect(await adapter.fetchInboundMedia('messenger', TOKEN, link)).toMatchObject({ code: 'media_not_available' });
+    expect(await adapter.fetchInboundMedia('whatsapp', TOKEN, '../me')).toMatchObject({ code: 'media_not_available' });
+    expect(await adapter.fetchInboundMedia('custom', TOKEN, 'https://cdn.fbsbx.com/a')).toMatchObject({ code: 'media_not_available' });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('will not follow Graph to a host that is not Meta\'s, or answer without a link', async () => {
+    const away = transport((call) => call.url === `${GRAPH}/1` ? json(200, { url: 'https://attacker.example/a' }) : media('x'));
+    expect(await away.adapter.fetchInboundMedia('whatsapp', TOKEN, '1')).toMatchObject({ code: 'media_not_available' });
+    expect(away.calls).toHaveLength(1);
+    const blank = transport(() => json(200, {}));
+    expect(await blank.adapter.fetchInboundMedia('whatsapp', TOKEN, '1')).toMatchObject({ code: 'media_not_available' });
+  });
+
+  it('refuses a redirect that lands away from Meta', async () => {
+    const redirected = new Response('x', { status: 200 });
+    Object.defineProperty(redirected, 'url', { value: 'https://attacker.example/landed' });
+    const { adapter } = transport(() => redirected);
+    expect(await adapter.fetchInboundMedia('messenger', TOKEN, 'https://cdn.fbsbx.com/a')).toMatchObject({ code: 'media_not_available' });
+    const staying = new Response('x', { status: 200 });
+    Object.defineProperty(staying, 'url', { value: 'https://scontent.xx.fbcdn.net/landed' });
+    const kept = transport(() => staying);
+    expect(await kept.adapter.fetchInboundMedia('messenger', TOKEN, 'https://cdn.fbsbx.com/a')).toMatchObject({ ok: true });
+  });
+
+  it('reports what went wrong in terms an operator can act on', async () => {
+    const expired = transport(() => new Response('', { status: 403 }));
+    expect(await expired.adapter.fetchInboundMedia('messenger', TOKEN, 'https://cdn.fbsbx.com/a')).toMatchObject({ code: 'media_not_available', retryable: false });
+    const denied = transport(() => graphError(401, 190, 'Token expired'));
+    expect(await denied.adapter.fetchInboundMedia('whatsapp', TOKEN, '1')).toMatchObject({ code: 'credential_rejected', message: 'Token expired' });
+    const down = transport(() => new Error('offline'));
+    expect(await down.adapter.fetchInboundMedia('messenger', TOKEN, 'https://cdn.fbsbx.com/a')).toMatchObject({ code: 'provider_unreachable', retryable: true });
+    const slow = transport(() => { const timeout = new Error('slow'); timeout.name = 'AbortError'; return timeout; });
+    expect(await slow.adapter.fetchInboundMedia('messenger', TOKEN, 'https://cdn.fbsbx.com/a')).toMatchObject({ code: 'provider_timeout', retryable: true });
+  });
+
+  it('refuses media beyond the limit, by its declared size and by its real one', async () => {
+    const declared = transport(() => media('x', { 'content-length': String(101 * 1024 * 1024) }));
+    expect(await declared.adapter.fetchInboundMedia('messenger', TOKEN, 'https://cdn.fbsbx.com/a')).toMatchObject({ code: 'media_too_large' });
+    const huge = new Response('x', { status: 200 });
+    Object.defineProperty(huge, 'arrayBuffer', { value: () => Promise.resolve(new ArrayBuffer(101 * 1024 * 1024)) });
+    const silent = transport(() => huge);
+    expect(await silent.adapter.fetchInboundMedia('messenger', TOKEN, 'https://cdn.fbsbx.com/a')).toMatchObject({ code: 'media_too_large' });
+  });
+});
+
+describe('syncing a Meta Page', () => {
+  const SINCE = new Date('2026-10-01T00:00:00Z');
+  const conversation = (updated: string, ...ids: string[]) => ({
+    updated_time: updated,
+    messages: { data: ids.map((id) => ({ id })) },
+  });
+  const subscribed = () => json(200, { success: true });
+
+  it('subscribes every field the product reads, then reads recent conversations', async () => {
+    const { adapter, calls } = transport((call) => call.method === 'POST'
+      ? subscribed()
+      : json(200, { data: [conversation('2026-11-01T00:00:00+0000', 'm1', 'm2')] }));
+    expect(await adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toEqual({
+      ok: true, subscriptionError: null, conversations: 1, messages: [{ id: 'm1' }, { id: 'm2' }],
+    });
+    const [subscribe, read] = calls;
+    expect(subscribe?.url).toBe(`${GRAPH}/123/subscribed_apps?subscribed_fields=messages,message_echoes,message_deliveries,message_reads,message_reactions,messaging_postbacks,messaging_handovers,standby`);
+    expect(subscribe?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
+    const url = decodeURIComponent(read?.url ?? '');
+    expect(url).toContain(`${GRAPH}/123/conversations?platform=messenger&limit=25&fields=updated_time,messages.limit(20){id,created_time,from,to,message,attachments{`);
+    expect(url).not.toContain('after=');
+  });
+
+  it('follows the cursor while conversations are recent, within its bound', async () => {
+    const pages: unknown[] = [];
+    const { adapter, calls } = transport((call) => {
+      if (call.method === 'POST') return subscribed();
+      pages.push(call.url);
+      return json(200, {
+        data: [conversation('2026-11-01T00:00:00+0000', `m${String(pages.length)}`)],
+        paging: { next: 'https://graph/next', cursors: { after: `cursor ${String(pages.length)}` } },
+      });
+    });
+    const synced = await adapter.syncMetaPage('instagram', TOKEN, '123', SINCE);
+    expect(synced).toMatchObject({ ok: true, conversations: 4 });
+    expect(calls.filter((call) => call.method === 'GET')).toHaveLength(4);
+    expect(String(pages[1])).toContain('platform=instagram');
+    expect(String(pages[1])).toContain('&after=cursor%201');
+  });
+
+  it('stops at the first conversation older than the window', async () => {
+    const { adapter, calls } = transport((call) => call.method === 'POST' ? subscribed() : json(200, {
+      data: [conversation('2026-11-01T00:00:00+0000', 'recent'), conversation('2020-01-01T00:00:00+0000', 'old')],
+      paging: { next: 'https://graph/next', cursors: { after: 'more' } },
+    }));
+    expect(await adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toMatchObject({ conversations: 1, messages: [{ id: 'recent' }] });
+    expect(calls.filter((call) => call.method === 'GET')).toHaveLength(1);
+  });
+
+  it('survives shapes Graph should not send but might', async () => {
+    const { adapter } = transport((call) => call.method === 'POST' ? subscribed() : json(200, {
+      data: ['junk', { updated_time: '2026-11-01T00:00:00+0000' }],
+      paging: { cursors: { after: 'more' } },
+    }));
+    expect(await adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toEqual({ ok: true, subscriptionError: null, conversations: 1, messages: [] });
+    const empty = transport((call) => call.method === 'POST' ? subscribed() : json(200, {}));
+    expect(await empty.adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toMatchObject({ ok: true, conversations: 0 });
+    const noCursor = transport((call) => call.method === 'POST' ? subscribed() : json(200, { data: [conversation('2026-11-01T00:00:00+0000')], paging: { next: 'x', cursors: {} } }));
+    expect(await noCursor.adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toMatchObject({ ok: true, conversations: 1 });
+  });
+
+  it('reports a refused subscription next to the messages it could still read', async () => {
+    const denied = transport((call) => call.method === 'POST'
+      ? graphError(403, 200, 'Needs pages_manage_metadata')
+      : json(200, { data: [conversation('2026-11-01T00:00:00+0000', 'm1')] }));
+    expect(await denied.adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toMatchObject({
+      ok: true, subscriptionError: 'Needs pages_manage_metadata', messages: [{ id: 'm1' }],
+    });
+    const silent = transport((call) => call.method === 'POST' ? json(200, { success: false }) : json(200, { data: [] }));
+    expect(await silent.adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toMatchObject({ subscriptionError: 'Meta did not confirm the Page subscription.' });
+    const down = transport((call) => call.method === 'POST' ? new Error('offline') : json(200, { data: [] }));
+    expect(await down.adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toMatchObject({ subscriptionError: 'The Meta Graph API could not be reached.' });
+    const slow = transport((call) => {
+      if (call.method !== 'POST') return json(200, { data: [] });
+      const timeout = new Error('slow'); timeout.name = 'TimeoutError'; return timeout;
+    });
+    expect(await slow.adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toMatchObject({ subscriptionError: 'The Meta Graph API could not be reached.' });
+  });
+
+  it('says why when Meta will not let it read', async () => {
+    const { adapter } = transport((call) => call.method === 'POST' ? subscribed() : graphError(403, 10, 'Advanced Access required'));
+    expect(await adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toEqual({
+      ok: false, code: 'provider_error_10', message: 'Advanced Access required', retryable: false,
+    });
+  });
+
+  it('refuses a Page id that could not be one, without calling anybody', async () => {
+    const { adapter, calls } = transport(() => json(200, {}));
+    expect(await adapter.syncMetaPage('messenger', TOKEN, '../me', SINCE)).toMatchObject({ ok: false, code: 'page_not_configured' });
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe('WhatsApp voice upload and send', () => {
   const command: SendCommand = { ...TEXT, messageType: 'audio', text: '', media: { data: new Uint8Array([79, 103, 103, 83]), filename: 'voice.ogg', mimeType: 'audio/ogg; codecs=opus', isVoice: true } };
   it('uploads Opus as multipart then sends a voice message by media ID', async () => {

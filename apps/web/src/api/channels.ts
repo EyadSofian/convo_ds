@@ -169,6 +169,15 @@ export interface ConnectChannelInput {
   readonly settings?: { readonly facebookPageId: string } | { readonly wabaId: string } | { readonly origins: readonly string[]; readonly outboundUrl?: string };
 }
 
+export interface MetaHistoryResult {
+  readonly webhook_subscribed: boolean;
+  readonly subscription_error: string | null;
+  readonly conversations: number;
+  readonly messages: number;
+  readonly imported: number;
+  readonly recovered: number;
+}
+
 export class ChannelsApi {
   constructor(private readonly client: ApiClient) {}
 
@@ -256,6 +265,11 @@ export class ChannelsApi {
 
   subscribeWhatsAppWebhook(tenantId: string, connectionId: string): Promise<ApiResult<WebhookSubscriptionResult>> {
     return this.client.post<WebhookSubscriptionResult>(`/tenants/${tenantId}/channels/${connectionId}/webhook/subscribe`);
+  }
+
+  /** Subscribes a Page to this app's events and imports what Meta still has. */
+  syncMetaHistory(tenantId: string, connectionId: string): Promise<ApiResult<MetaHistoryResult>> {
+    return this.client.post<MetaHistoryResult>(`/tenants/${tenantId}/channels/${connectionId}/meta-history/sync`);
   }
 
   rotate(

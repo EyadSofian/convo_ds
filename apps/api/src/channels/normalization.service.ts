@@ -269,11 +269,20 @@ export class ChannelNormalizationService {
     inboundEventId: string,
     inbound: InboundRow,
   ): Promise<void> {
+    // A thread somebody archived after this was said stays archived: reading old
+    // messages back must not bring it back as a new conversation.
+    if (inbound.history && (await archivedSince(sql, tenantId, connectionId, inbound))) {
+      return;
+    }
     if (inbound.kind === 'echo') {
       await this.recordEcho(sql, tenantId, connectionId, inboundEventId, inbound);
       return;
     }
     if (inbound.kind !== 'message') {
+      return;
+    }
+    if (inbound.history) {
+      await this.recordHistoricMessage(sql, tenantId, connectionId, inboundEventId, inbound);
       return;
     }
     const conversation = await this.conversations.ensure(
@@ -285,14 +294,31 @@ export class ChannelNormalizationService {
     // Bind at normalization time, after ensure selected or created the active
     // thread. Both writes share the worker transaction, including the first
     // inbound that opened a new conversation.
-    await sql.query(
-      `UPDATE inbound_events SET conversation_id=$2
-        WHERE id=$1 AND tenant_id=$3 AND conversation_id IS NULL`,
-      [inboundEventId, conversation.id, tenantId],
-    );
-    // The customer's identity, resolved in this same transaction. It is scoped
-    // to the connection the message arrived on: the same person writing to two
-    // pages is two identities until somebody says otherwise (CT-02, CT-03).
+    await bindEvent(sql, tenantId, inboundEventId, conversation.id);
+    const contactId = await this.identifyCustomer(sql, tenantId, connectionId, inbound);
+    await this.conversations.noteInbound(sql, tenantId, conversation, {
+      inboundEventId,
+      occurredAt: inbound.occurredAt,
+      contactId,
+      payload: {
+        providerMessageId: inbound.providerMessageId,
+        contentType: inbound.contentType,
+        text: inbound.text,
+      },
+    });
+  }
+
+  /**
+   * The customer's identity, resolved in the caller's transaction. It is scoped
+   * to the connection the message arrived on: the same person writing to two
+   * pages is two identities until somebody says otherwise (CT-02, CT-03).
+   */
+  private async identifyCustomer(
+    sql: SqlExecutor,
+    tenantId: string,
+    connectionId: string,
+    inbound: InboundRow,
+  ): Promise<string> {
     const kind = await connectionKind(sql, connectionId);
     const contact = await this.contacts.resolve(
       sql,
@@ -322,15 +348,46 @@ export class ChannelNormalizationService {
         [tenantId, contact.contactId, connectionId, inbound.peerIdentity],
       );
     }
-    await this.conversations.noteInbound(sql, tenantId, conversation, {
-      inboundEventId,
-      occurredAt: inbound.occurredAt,
-      contactId: contact.contactId,
-      payload: {
-        providerMessageId: inbound.providerMessageId,
-        contentType: inbound.contentType,
-        text: inbound.text,
-      },
+    return contact.contactId;
+  }
+
+  /**
+   * A customer message read back from the provider rather than delivered live.
+   *
+   * It makes the customer and their words appear, in the time they were said, and
+   * does nothing else: it is not news. A resolved thread stays resolved, nobody
+   * is notified, and the reporting episode is left to the first live message so
+   * a month-old question does not become a month-long first response.
+   */
+  private async recordHistoricMessage(
+    sql: SqlExecutor,
+    tenantId: string,
+    connectionId: string,
+    inboundEventId: string,
+    inbound: InboundRow,
+  ): Promise<void> {
+    const existing = await openThread(sql, tenantId, connectionId, inbound.peerIdentity);
+    const conversation = await this.conversations.ensure(sql, tenantId, connectionId, inbound.peerIdentity);
+    await bindEvent(sql, tenantId, inboundEventId, conversation.id);
+    const contactId = await this.identifyCustomer(sql, tenantId, connectionId, inbound);
+    const updated = await sql.query<{ version: number }>(
+      `UPDATE conversations
+          SET contact_id = coalesce(contact_id, $2),
+              last_inbound_at = greatest(coalesce(last_inbound_at, $3), $3),
+              last_activity_at = CASE WHEN $4::boolean THEN $3 ELSE greatest(last_activity_at, $3) END,
+              waiting_since = CASE WHEN assignee_membership_id IS NULL
+                                   THEN least(coalesce(waiting_since, $3), $3) ELSE waiting_since END,
+              version = version + 1
+        WHERE id = $1
+        RETURNING version`,
+      [conversation.id, contactId, inbound.occurredAt, existing === undefined],
+    );
+    await this.realtime.emit(sql, tenantId, {
+      type: 'message.external', entityType: 'conversation',
+      entityId: conversation.id, entityVersion: requireRow(updated.rows, 'the conversation vanished while importing').version,
+      conversationId: conversation.id, connectionId,
+      teamId: conversation.teamId, assigneeMembershipId: conversation.assigneeMembershipId,
+      occurredAt: inbound.occurredAt, payload: {},
     });
   }
 
@@ -343,12 +400,14 @@ export class ChannelNormalizationService {
    * touch the lifecycle — an echo is also what Meta's automated replies look
    * like, and an instant reply is not somebody answering the customer.
    *
-   * Two cases record nothing beyond the row itself. An echo of a message CONVO
-   * sent (by provider id, or by Meta's app stamp) is already in the thread as
-   * that message. And an echo with no open
-   * thread does not open one: a conversation begins with the customer, and the
-   * row stays available to the opening-event interval when one is opened —
-   * which is how an instant reply drained before its first message is shown.
+   * An echo of a message CONVO sent (by provider id, or by Meta's app stamp) is
+   * already in the thread as that message, and records nothing beyond the row.
+   *
+   * An echo with no open thread opens one. Nobody can cold-message on these
+   * channels, so it means a customer wrote and we never heard about it — a
+   * Business Suite reply to them must not vanish with it. Nobody is waiting on
+   * the new thread as far as we know, and if the customer's message follows, as
+   * it does when an instant reply drains first, it joins the same thread.
    */
   private async recordEcho(
     sql: SqlExecutor,
@@ -365,23 +424,9 @@ export class ChannelNormalizationService {
     if (external.rows.length === 0) {
       return;
     }
-    const open = await sql.query<{
-      id: string; version: number; team_id: string | null; assignee_membership_id: string | null;
-    }>(
-      `SELECT id::text, version, team_id::text, assignee_membership_id::text
-         FROM conversations
-        WHERE tenant_id=$1 AND connection_id=$2 AND peer_identity=$3 AND status <> 'archived'`,
-      [tenantId, connectionId, echo.peerIdentity],
-    );
-    const conversation = open.rows[0];
-    if (conversation === undefined) {
-      return;
-    }
-    await sql.query(
-      `UPDATE inbound_events SET conversation_id=$2
-        WHERE id=$1 AND tenant_id=$3 AND conversation_id IS NULL`,
-      [inboundEventId, conversation.id, tenantId],
-    );
+    const open = await openThread(sql, tenantId, connectionId, echo.peerIdentity);
+    const conversation = open ?? (await this.openThreadForEcho(sql, tenantId, connectionId, echo));
+    await bindEvent(sql, tenantId, inboundEventId, conversation.id);
     // Activity only, not the version: nothing an agent could be editing
     // changed, so an in-flight claim or status change must not lose to this.
     await sql.query(
@@ -393,10 +438,73 @@ export class ChannelNormalizationService {
       type: 'message.external', entityType: 'conversation',
       entityId: conversation.id, entityVersion: conversation.version,
       conversationId: conversation.id, connectionId,
-      teamId: conversation.team_id, assigneeMembershipId: conversation.assignee_membership_id,
+      teamId: conversation.teamId, assigneeMembershipId: conversation.assigneeMembershipId,
       occurredAt: echo.occurredAt, payload: {},
     });
   }
+
+  private async openThreadForEcho(
+    sql: SqlExecutor,
+    tenantId: string,
+    connectionId: string,
+    echo: InboundRow,
+  ): Promise<ThreadRef> {
+    const created = await this.conversations.ensure(sql, tenantId, connectionId, echo.peerIdentity, 'outbound_contact');
+    const contactId = await this.identifyCustomer(sql, tenantId, connectionId, echo);
+    // A new row says "just now"; the list should say when this was actually sent.
+    await sql.query(
+      'UPDATE conversations SET contact_id = coalesce(contact_id, $2), last_activity_at = $3 WHERE id = $1',
+      [created.id, contactId, echo.occurredAt],
+    );
+    return created;
+  }
+}
+
+/** Just what is needed to say on the feed that a thread changed. */
+interface ThreadRef {
+  readonly id: string;
+  readonly version: number;
+  readonly teamId: string | null;
+  readonly assigneeMembershipId: string | null;
+}
+
+async function openThread(
+  sql: SqlExecutor,
+  tenantId: string,
+  connectionId: string,
+  peerIdentity: string,
+): Promise<ThreadRef | undefined> {
+  const rows = await sql.query<ThreadRef>(
+    `SELECT id::text, version, team_id::text AS "teamId", assignee_membership_id::text AS "assigneeMembershipId"
+       FROM conversations
+      WHERE tenant_id=$1 AND connection_id=$2 AND peer_identity=$3 AND status <> 'archived'`,
+    [tenantId, connectionId, peerIdentity],
+  );
+  return rows.rows[0];
+}
+
+async function bindEvent(sql: SqlExecutor, tenantId: string, inboundEventId: string, conversationId: string): Promise<void> {
+  await sql.query(
+    `UPDATE inbound_events SET conversation_id=$2
+      WHERE id=$1 AND tenant_id=$3 AND conversation_id IS NULL`,
+    [inboundEventId, conversationId, tenantId],
+  );
+}
+
+async function archivedSince(
+  sql: SqlExecutor,
+  tenantId: string,
+  connectionId: string,
+  inbound: InboundRow,
+): Promise<boolean> {
+  const rows = await sql.query(
+    `SELECT 1 FROM conversations
+      WHERE tenant_id=$1 AND connection_id=$2 AND peer_identity=$3
+        AND status = 'archived' AND archived_at >= $4
+      LIMIT 1`,
+    [tenantId, connectionId, inbound.peerIdentity, inbound.occurredAt],
+  );
+  return rows.rows.length > 0;
 }
 
 /** The channel a connection speaks. An identity is only meaningful within it. */

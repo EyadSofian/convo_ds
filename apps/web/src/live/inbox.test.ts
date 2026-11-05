@@ -593,10 +593,31 @@ describe('reading and replying', () => {
     );
     const { root } = await open(api, `#/inbox/${CONVERSATION}`);
     const outbound = root.querySelector('.msg--out');
-    expect(text(outbound as HTMLElement)).toContain('قبلها المزوّد');
+    // A receipt replaces the acceptance it followed: one fact on the row.
+    expect(text(outbound as HTMLElement)).not.toContain('قبلها المزوّد');
     expect(text(outbound as HTMLElement)).toContain('قُرئت');
-    // A disagreement between receipts is shown, not smoothed over.
-    expect(text(outbound as HTMLElement)).toContain('إيصالات متعارضة');
+    // A disagreement between receipts stays findable, on the label it qualifies.
+    expect((outbound as HTMLElement).querySelector('.msg__delivery')?.getAttribute('title')).toContain('إيصالات متعارضة');
+  });
+
+  it('says the provider accepted a message for as long as no receipt has followed', async () => {
+    const api = claimedApi().on(
+      `GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`,
+      page([message({ id: 'm-3', direction: 'out', text: 'تم', command_state: 'provider_accepted', delivery_state: null })]),
+    );
+    const { root } = await open(api, `#/inbox/${CONVERSATION}`);
+    expect(text(root.querySelector('.msg--out') as HTMLElement)).toContain('قبلها المزوّد');
+  });
+
+  it('says plainly when the provider gave up on a message it had accepted', async () => {
+    const api = claimedApi().on(
+      `GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`,
+      page([message({ id: 'm-4', direction: 'out', text: 'تم', command_state: 'provider_accepted', delivery_state: 'failed' })]),
+    );
+    const { root } = await open(api, `#/inbox/${CONVERSATION}`);
+    const failed = root.querySelector('.msg__delivery--failed') as HTMLElement;
+    expect(text(failed)).toContain('لم تصل');
+    expect(text(root.querySelector('.msg--out') as HTMLElement)).not.toContain('قبلها المزوّد');
   });
 
   it('marks a message the provider has only accepted with a single tick', async () => {

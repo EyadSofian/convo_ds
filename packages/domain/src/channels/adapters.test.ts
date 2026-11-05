@@ -498,6 +498,26 @@ describe('InstagramAdapter', () => {
     });
   });
 
+  it('reads a message delivered on standby while another app holds the thread', () => {
+    const batch = adapter.normalize(
+      {
+        object: 'instagram',
+        entry: [{
+          id: 'ig-1',
+          standby: [{
+            sender: { id: 'igsid-1' },
+            recipient: { id: 'ig-1' },
+            timestamp: 1789000000000,
+            message: { mid: 'ig.standby', text: 'Hello?' },
+          }],
+        }],
+      },
+      NOW,
+    );
+    expect(batch.quarantined).toEqual([]);
+    expect(batch.events[0]).toMatchObject({ kind: 'message', dedupeKey: 'ig:msg:ig.standby', peerIdentity: 'igsid-1', text: 'Hello?' });
+  });
+
   it('keeps an Instagram echo on the customer thread as the business speaking', () => {
     const batch = adapter.normalize(
       {
