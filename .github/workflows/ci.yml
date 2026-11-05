@@ -35,6 +35,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Install voice conversion
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       # Order follows docs/testing/strategy.md section 6.
       - name: Lint
         run: pnpm lint
@@ -47,6 +50,9 @@ jobs:
 
       - name: Install portal browser
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Inbox composer and line filters
+        run: pnpm exec playwright test --project=desktop-1366 tests/e2e/voice-message.spec.ts
 
       - name: Client progress portal
         run: pnpm test:progress

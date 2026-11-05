@@ -21,6 +21,14 @@ function client() {
   };
 }
 
+it('queues a recording in the conversation with a caller-supplied retry key', async () => {
+  const fake = client();
+  await new ConversationsApi(fake.value).replyVoice('tenant', 'thread', 'YXVkaW8=', 'voice-key');
+  expect(fake.post).toHaveBeenCalledWith('/tenants/tenant/conversations/thread/voice-messages', {
+    body: { audio: 'YXVkaW8=', clientMessageId: 'voice-key' },
+  });
+});
+
 describe('resource query clients', () => {
   it('uses the channel sync route and catalogue-backed conversation template contracts', async () => {
     const fake = client();
@@ -79,7 +87,7 @@ describe('resource query clients', () => {
     });
     await api.list('tenant', { queue: 'mine', sort: 'activity_desc', limit: 50, cursor: null, search: null, filters: [] });
     await api.unassigned('tenant', {
-      priority: 'high', channel: 'instagram', labelId: 'label',
+      priority: 'high', channel: 'instagram', labelId: 'label', search: '+20', inboxId: 'line-2',
     });
     await api.unassigned('tenant');
     expect(fake.page.mock.calls.map(([path]) => path)).toEqual([
@@ -87,7 +95,7 @@ describe('resource query clients', () => {
       '/tenants/tenant/conversations?queue=mine',
     ]);
     expect(fake.get.mock.calls.map(([path]) => path)).toEqual([
-      '/tenants/tenant/conversations/unassigned?priority=high&channel=instagram&label=label',
+      '/tenants/tenant/conversations/unassigned?priority=high&channel=instagram&label=label&search=%2B20&inboxId=line-2',
       '/tenants/tenant/conversations/unassigned',
     ]);
   });

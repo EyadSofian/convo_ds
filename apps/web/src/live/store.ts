@@ -1,3 +1,5 @@
+import type { AttachmentDraft } from './chat-attachment.js';
+import type { InboxLine } from '../api/conversations.js';
 import type { TemplateLibrary, ChannelCatalogueEntry, ChannelConnection, ChannelTestRecipient, ChannelsApi, CreatedMetaApp, MetaAppSummary, QuickWhatsAppOptions, QuickWhatsAppLookup } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type {
@@ -258,6 +260,8 @@ export interface LiveState {
   timelineCursor: string | null;
   /** What the operator has typed but not sent. Never sent on their behalf. */
   composer: string;
+  attachmentDraft: AttachmentDraft | null;
+  inboxLines: Resource<readonly InboxLine[]>;
   /**
    * The private notes on the open conversation, and what is being written.
    *
@@ -449,6 +453,8 @@ export function createLiveState(
     timeline: IDLE,
     timelineCursor: null,
     composer: '',
+    attachmentDraft: null,
+    inboxLines: IDLE,
     notes: IDLE,
     noteDraft: '',
     editingNoteId: null,

@@ -345,7 +345,9 @@ export class ChannelDispatcherService {
         { tenantId, connectionId: claim.connection_id, purpose: claim.kind === 'custom' ? 'signing_key' : 'access_token' },
         (plaintext) => Promise.resolve(plaintext),
       );
-      return { attemptId: row.id, token };
+      const media = await sql.query<{ data: Buffer; filename: string; mime_type: string; is_voice: boolean }>(
+        'SELECT data,filename,mime_type,is_voice FROM outbound_message_media WHERE message_id=$1', [claim.message_id]);
+      return { attemptId: row.id, token, media: media.rows[0] };
     });
 
     if (prepared === null) {
@@ -377,6 +379,10 @@ export class ChannelDispatcherService {
           ? null
           : { name: claim.template_name, language: claim.template_language, components: claim.template_components },
       attachments: [],
+      ...(prepared.media === undefined ? {} : { media: {
+        data: prepared.media.data, filename: prepared.media.filename,
+        mimeType: prepared.media.mime_type, isVoice: prepared.media.is_voice,
+      } }),
       idempotencyKey: prepared.attemptId,
       endpoint: claim.outbound_url,
     });

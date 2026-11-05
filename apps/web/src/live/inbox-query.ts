@@ -1,6 +1,6 @@
 import type { InboxQuery } from '@convo/domain';
 
-export type SimpleInboxFilter = 'unread' | 'priority' | 'channel' | 'labelId';
+export type SimpleInboxFilter = 'unread' | 'priority' | 'channel' | 'labelId' | 'connection_id';
 
 /** Temporary controls are projections of the one authoritative server query. */
 export function simpleFilterValue(query: InboxQuery, key: SimpleInboxFilter): string {
@@ -26,11 +26,16 @@ export function unassignedFilterProjection(query: InboxQuery): {
   readonly priority: string;
   readonly channel: string;
   readonly labelId: string;
+  readonly search?: string;
+  readonly inboxId?: string;
 } {
+  const inboxId = simpleFilterValue(query, 'connection_id');
   return {
     priority: simpleFilterValue(query, 'priority'),
     channel: simpleFilterValue(query, 'channel'),
     labelId: simpleFilterValue(query, 'labelId'),
+    ...(query.search ? { search: query.search } : {}),
+    ...(inboxId ? { inboxId } : {}),
   };
 }
 

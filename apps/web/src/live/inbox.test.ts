@@ -68,7 +68,7 @@ class FakeApi {
     this.calls.push({
       method,
       path,
-      body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
+      body: typeof init.body === 'string' ? JSON.parse(init.body) : init.body,
     });
     const route = this.routes.get(`${method} ${path}`);
     if (route === undefined) {
@@ -543,19 +543,20 @@ describe('claiming', () => {
   });
 });
 
+function claimedApi(): FakeApi {
+  return inboxApi()
+    .on(`GET /tenants/${TENANT}/conversations?queue=mine`, {
+      status: 200,
+      body: { data: [conversation()] },
+    })
+    .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}`, {
+      status: 200,
+      body: { data: conversation() },
+    })
+    .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`, page([message()]));
+}
+
 describe('reading and replying', () => {
-  function claimedApi(): FakeApi {
-    return inboxApi()
-      .on(`GET /tenants/${TENANT}/conversations?queue=mine`, {
-        status: 200,
-        body: { data: [conversation()] },
-      })
-      .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}`, {
-        status: 200,
-        body: { data: conversation() },
-      })
-      .on(`GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`, page([message()]));
-  }
 
   it('opens a conversation from the list and writes it into the URL', async () => {
     const api = claimedApi();
@@ -1594,5 +1595,73 @@ describe('the address bar and a failed action', () => {
     expect(app.state.toasts).toHaveLength(toasts);
     expect(errors).not.toHaveBeenCalled();
     errors.mockRestore();
+  });
+});
+
+describe('Inbox attachments and line picker', () => {
+  const base = `/tenants/${TENANT}/conversations`;
+  const asset = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const photo = '11111111-2222-4333-8444-555555555555';
+  const choose = (root: HTMLElement, file?: File, type = 'change') => {
+    const input = root.querySelector<HTMLInputElement>('[data-act="live-attachment-file"]')!;
+    Object.defineProperty(input, 'files', { configurable: true, value: file === undefined ? [] : [file] });
+    input.dispatchEvent(new Event(type, { bubbles: true }));
+  };
+
+  it('shows a document in the composer, uploads the file once and draws media from the scoped timeline', async () => {
+    const pdf = new File(['%PDF-1.4'], 'guide.pdf', { type: 'application/pdf' });
+    const api = claimedApi().on(`POST ${base}/${CONVERSATION}/attachments`, { status: 202, body: { data: { id: asset } } });
+    const { root, app } = await open(api, `#/inbox/${CONVERSATION}`);
+    choose(root);
+    choose(root, pdf, 'input');
+    expect(app.state.live.attachmentDraft).toBeNull();
+    choose(root, new File([], 'empty.pdf', { type: 'application/pdf' }));
+    expect(root.querySelector('[data-act="live-attachment-send"]')?.hasAttribute('disabled')).toBe(true);
+    click(root, '[data-act="live-attachment-cancel"]');
+    choose(root, pdf);
+    const image = message({ id: photo, direction: 'out', text: null, content_type: 'image',
+      attachments: [{ type: 'image', storedMedia: true, filename: 'photo.png', isVoice: false }] });
+    const document = message({ id: asset, direction: 'out', text: null, content_type: 'document',
+      attachments: [null, 'bad', {}, { type: 'document', storedMedia: true, filename: 'guide.pdf', isVoice: false }] });
+    api.on(`GET ${base}/${CONVERSATION}/messages`, page([image, document, message({ id: 'bad-id', direction: 'out', attachments: undefined })]));
+    click(root, '[data-act="live-attachment-send"]');
+    await settle();
+    expect(api.calls.find((call) => call.path === `${base}/${CONVERSATION}/attachments`)?.body).toBe(pdf);
+    expect(root.querySelector('.msg__attachment-link')?.getAttribute('download')).toBe('guide.pdf');
+    expect(root.querySelector('.msg__attachment-image')?.getAttribute('src')).toContain(`/attachments/${photo}`);
+    choose(root, pdf);
+    app.dispatch('composer-tab', 'note');
+    expect(app.state.live.attachmentDraft).toBeNull();
+  });
+
+  it('offers distinct lines to an agent and applies the same choice to unassigned and owned lists', async () => {
+    const api = claimedApi();
+    const release = api.hold(`GET ${base}/inboxes`);
+    const { root } = await open(api);
+    click(root, '[data-act="live-inbox-lines"]');
+    expect(root.querySelector('.inbox-lines__options [role="status"]')).not.toBeNull();
+    click(root, '[data-act="live-inbox-lines"]');
+    release(page([
+      { id: asset, label: 'Sales', channel: 'whatsapp', assetSuffix: '111111' },
+      { id: photo, label: 'Sales', channel: 'whatsapp', assetSuffix: '222222' },
+      { id: 'other', label: 'Support', channel: 'unknown', assetSuffix: '333333' },
+    ]));
+    await settle();
+    click(root, '[data-act="live-inbox-lines"]');
+    await settle();
+    expect(text(root)).toContain('111111');
+    expect(text(root)).toContain('222222');
+    expect(text(root)).toContain('unknown');
+    const filter = encodeURIComponent(JSON.stringify({ key: 'connection_id', operator: 'eq', value: asset }));
+    api.on(`GET ${base}/unassigned?inboxId=${asset}`, page([card()]));
+    api.on(`GET ${base}?queue=mine&filter=${filter}`, page([]));
+    click(root, `[data-act="live-inbox-line-pick"][data-arg="${asset}"]`);
+    await settle();
+    expect(api.countOf(`GET ${base}/unassigned?inboxId=${asset}`)).toBeGreaterThan(0);
+    expect(root.querySelector('[data-act="live-inbox-lines"]')?.textContent).toContain('111111');
+    api.on(`GET ${base}/inboxes`, { status: 403, body: { error: { code: 'permission_denied', message: 'No inbox access.' } } });
+    click(root, '[data-act="live-inbox-lines"]');
+    await settle();
+    expect(root.querySelector('.inbox-lines__options [role="alert"]')?.textContent).toBe('No inbox access.');
   });
 });

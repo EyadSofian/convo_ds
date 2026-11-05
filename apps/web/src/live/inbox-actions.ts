@@ -282,7 +282,7 @@ export async function refreshOpenConversation(context: LiveContext, id: string):
   });
 }
 
-async function loadTimeline(context: LiveContext, id: string): Promise<void> {
+export async function loadTimeline(context: LiveContext, id: string): Promise<void> {
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
     const page = await live.conversationsApi.timeline(tenantId, id, null);

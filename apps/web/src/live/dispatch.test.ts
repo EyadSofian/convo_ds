@@ -66,6 +66,12 @@ describe('the automation actions the DOM can name', () => {
     } as unknown as LiveContext;
   }
 
+  it('does not load a line directory without an active workspace', async () => {
+    const ctx = context();
+    await LIVE_ACTIONS['live-inbox-lines']?.(ctx, '');
+    expect(ctx.state.openMenu).toBeNull();
+  });
+
   it('rejects a sign-in with no password field without sending credentials', async () => {
     const ctx = context();
     ctx.state.dialogForm = { signinEmail: 'agent@example.test' };
@@ -680,7 +686,7 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     } finally {
       vi.useRealTimers();
     }
-    expect(state.inboxQueue).toBe('mine');
+    expect(state.inboxQueue).toBe('unassigned');
   });
 });
 

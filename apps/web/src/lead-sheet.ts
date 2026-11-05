@@ -34,19 +34,19 @@ export async function parseLeadSheet(file: Pick<File, 'name' | 'size' | 'text' |
     return { ok: false, message: 'The spreadsheet could not be read. Save it as .xlsx or UTF-8 CSV and try again.' };
   }
   const header = table.shift()?.map((value) => value.replace(/^\uFEFF/, '').trim().toLowerCase()) ?? [];
-  const headers = Object.values(LEAD_SHEET_HEADERS).find((format) =>
+  const headers = Object.values(LEAD_SHEET_HEADERS).flatMap((format) =>
+    [format, format.filter((column) => column !== 'Assign To')]).find((format) =>
     format.length === header.length && format.every((value, index) => header[index] === value.toLowerCase()));
   if (headers === undefined) {
-    return { ok: false, message: 'Expected columns in order: Lead Name, Mobile, optional Course Name, Label, Assign To, Campaign Name.' };
+    return { ok: false, message: 'Expected columns in order: Lead Name, Mobile, optional Course Name, Label, optional Assign To, Campaign Name.' };
   }
   const data = table.filter((row) => row.some((cell) => cell.trim() !== ''));
   if (data.length === 0 || data.length > 500) return { ok: false, message: 'Import between 1 and 500 leads per file.' };
   if (data.some((row) => row.length > headers.length)) return { ok: false, message: 'A row has more columns than the header.' };
-  const hasCourse = headers === LEAD_SHEET_HEADERS.withCourse;
-  const labelIndex = hasCourse ? 3 : 2;
+  const cell = (row: readonly string[], column: string): string => row[header.indexOf(column.toLowerCase())]?.trim() ?? '';
   return { ok: true, rows: data.map((row) => ({
-    leadName: row[0]?.trim() ?? '', mobile: row[1]?.trim() ?? '', courseName: hasCourse ? row[2]?.trim() ?? '' : '',
-    label: row[labelIndex]?.trim() ?? '', assignTo: row[labelIndex + 1]?.trim() ?? '', campaignName: row[labelIndex + 2]?.trim() ?? '',
+    leadName: cell(row, 'Lead Name'), mobile: cell(row, 'Mobile'), courseName: cell(row, 'Course Name'),
+    label: cell(row, 'Label'), assignTo: cell(row, 'Assign To'), campaignName: cell(row, 'Campaign Name'),
   })) };
 }
 

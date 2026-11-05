@@ -193,6 +193,9 @@ describe('campaign API', () => {
       const owned = threads.rows[0]!;
       expect(owned).toMatchObject({ peer_identity: '201012345678', assignee_membership_id: api.ownerMembershipId, contact_id: contactIds[0] });
       expect(threads.rows[1]?.assignee_membership_id).toBeNull();
+      const unassigned = await send(api, 'GET', `/conversations/unassigned?inboxId=${api.connectionId}`);
+      expect(unassigned.statusCode, unassigned.body).toBe(200);
+      expect(unassigned.json()).toMatchObject({ data: [expect.objectContaining({ id: threads.rows[1]!.id, claimable: true })] });
       const mine = await send(api, 'GET', '/conversations?queue=mine');
       expect(mine.statusCode, mine.body).toBe(200);
       expect(mine.json()).toMatchObject({ data: [expect.objectContaining({ id: owned.id, assigneeName: 'Ahmed Ibrahim', lastMessagePreview: 'Hello Imported Lead, your course is ready.' })] });

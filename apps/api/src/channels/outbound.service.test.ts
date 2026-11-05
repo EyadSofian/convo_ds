@@ -25,12 +25,19 @@ function catalogueHarness(options: { conversation?: Record<string, unknown> | nu
     return { rows: [] as T[], rowCount: 0 };
   });
   const sql = { query } as unknown as SqlExecutor;
-  const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal })) } as unknown as AuthorizationService;
+  const authorization = { assertTenantId: vi.fn(), authorized: vi.fn(async (_session, _tenant, _permission, work) => work({ sql, principal })), withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal })) } as unknown as AuthorizationService;
   const service = new OutboundService(authorization, { noteResponse: vi.fn() } as unknown as LifecycleService, {} as ConversationService);
   return { service, sql, query };
 }
 
 describe('OutboundService defensive boundaries', () => {
+  it('refuses voice in other channels, malformed keys and playback without conversation access', async () => {
+    const session = { userId: 'user' } as never;
+    await expect(catalogueHarness({ kind: 'messenger' }).service.queueVoice(session, id, id, {}, id, '201012345678', 'voice-key-001', Buffer.from('OggS'))).rejects.toMatchObject({ code: 'voice_channel_unsupported' });
+    await expect(catalogueHarness().service.queueVoice(session, id, id, {}, id, '201012345678', '', Buffer.from('OggS'))).rejects.toMatchObject({ status: 400 });
+    await expect(catalogueHarness({ conversation: null }).service.voiceAudio(session, id, id, id)).rejects.toMatchObject({ status: 404 });
+    await expect(catalogueHarness({ grants: {}, conversation: { team_id: id } }).service.voiceAudio(session, id, id, id)).rejects.toMatchObject({ status: 404 });
+  });
   function quickHarness(options: {
     kind?: string; grants?: Principal['grants']; scopes?: Principal['scopes'];
     duplicate?: { id: string; conversation_id: string | null; author_membership: string | null };

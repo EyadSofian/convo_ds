@@ -22,9 +22,15 @@ describe('inbox query projections', () => {
     expect(simpleFilterValue(query, 'unread')).toBe('false');
     expect(simpleFilterValue(query, 'labelId')).toBe('label-1');
     expect(simpleFilterValue(query, 'priority')).not.toBe('');
-    expect(unassignedFilterProjection(query)).toEqual({ priority: 'high', channel: 'true', labelId: 'label-1' });
+    expect(unassignedFilterProjection(query)).toEqual({ priority: 'high', channel: 'true', labelId: 'label-1', search: 'alice' });
     expect(activeFilterCount(query)).toBe(5);
     expect(activeFilterCount({ ...base, search: '' })).toBe(0);
+  });
+
+  it('carries the same selected inbox into the Unassigned queue', () => {
+    const selected = setSimpleFilter(base, 'connection_id', 'line-two');
+    expect(unassignedFilterProjection(selected)).toMatchObject({ inboxId: 'line-two' });
+    expect(unassignedFilterProjection(setSimpleFilter(selected, 'connection_id', ''))).not.toHaveProperty('inboxId');
   });
 
   it('sets typed filters and removes them when cleared', () => {

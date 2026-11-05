@@ -1,5 +1,5 @@
 import type { SendCommand } from '@convo/domain';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ProfileLookupError } from './channel-transport.js';
 import { MetaWhatsAppTransport } from './meta-whatsapp.transport.js';
 
@@ -63,6 +63,64 @@ const ACCEPTED = json(200, {
   messaging_product: 'whatsapp',
   contacts: [{ input: '201234567890', wa_id: '201234567890' }],
   messages: [{ id: 'wamid.ABC123' }],
+});
+
+describe('WhatsApp voice upload and send', () => {
+  const command: SendCommand = { ...TEXT, messageType: 'audio', text: '', media: { data: new Uint8Array([79, 103, 103, 83]), filename: 'voice.ogg', mimeType: 'audio/ogg; codecs=opus', isVoice: true } };
+  it('uploads Opus as multipart then sends a voice message by media ID', async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetchImpl = (async (url, init) => {
+      calls.push({ url: String(url), init: init! });
+      return String(url).endsWith('/media') ? json(200, { id: '12345' }) : ACCEPTED.clone();
+    }) as typeof fetch;
+    const adapter = new MetaWhatsAppTransport({ graphBase: GRAPH, fetchImpl });
+    expect(await adapter.send('whatsapp', TOKEN, command)).toMatchObject({ status: 'accepted' });
+    const form = calls[0]!.init.body as FormData;
+    expect(form.get('messaging_product')).toBe('whatsapp');
+    expect(form.get('type')).toBe('audio/ogg');
+    expect(await (form.get('file') as Blob).arrayBuffer()).toEqual(command.media!.data.buffer);
+    expect(calls[0]!.init.headers).toEqual({ authorization: `Bearer ${TOKEN}` });
+    expect(JSON.parse(String(calls[1]!.init.body))).toMatchObject({ type: 'audio', audio: { id: '12345', voice: true } });
+  });
+  it.each([
+    { kind: 'whatsapp', messageType: 'document', mimeType: 'application/pdf', filename: 'guide.pdf', asset: '15550001111' },
+    { kind: 'messenger', messageType: 'file', mimeType: 'application/pdf', filename: 'guide.pdf', asset: '15550001111' },
+    { kind: 'instagram', messageType: 'image', mimeType: 'image/png', filename: 'photo.png', asset: '76543' },
+  ] as const)('uploads and sends a $messageType attachment via $kind', async ({ kind, messageType, mimeType, filename, asset }) => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetchImpl = (async (url, init) => {
+      calls.push({ url: String(url), init: init! });
+      if (calls.length === 1) return json(200, kind === 'whatsapp' ? { id: '12345' } : { attachment_id: '12345' });
+      return kind === 'whatsapp' ? ACCEPTED.clone() : json(200, { message_id: 'm_123' });
+    }) as typeof fetch;
+    const adapter = new MetaWhatsAppTransport({ graphBase: GRAPH, fetchImpl });
+    const file = { ...command.media!, filename, mimeType, isVoice: false };
+    expect(await adapter.send(kind, TOKEN, { ...command, facebookPageId: '76543', messageType, media: file })).toMatchObject({ status: 'accepted' });
+    expect(calls.map((call) => call.url)).toEqual([`${GRAPH}/${asset}/${kind === 'whatsapp' ? 'media' : 'message_attachments'}`, `${GRAPH}/${asset}/messages`]);
+    const form = calls[0]!.init.body as FormData;
+    expect((form.get(kind === 'whatsapp' ? 'file' : 'filedata') as File).name).toBe(filename);
+    expect(form.get('platform')).toBe(kind === 'instagram' ? 'instagram' : null);
+    const payload = JSON.parse(String(calls[1]!.init.body));
+    expect(payload).toMatchObject(kind === 'whatsapp'
+      ? { type: 'document', document: { id: '12345', filename } }
+      : { message: { attachment: { type: messageType, payload: { attachment_id: '12345' } } } });
+  });
+
+  it.each([null, {}, { id: 123 }, { id: 'bad' }])('never sends when upload has no media ID: %j', async (answer) => {
+    const fetchImpl = vi.fn().mockResolvedValue(json(200, answer));
+    const adapter = new MetaWhatsAppTransport({ graphBase: GRAPH, fetchImpl });
+    expect(await adapter.send('whatsapp', TOKEN, command)).toMatchObject({ status: 'definitely_rejected', code: 'media_upload_invalid', retryable: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+  it('distinguishes safely retryable upload failure from uncertain delivery after upload', async () => {
+    const fetchImpl = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(graphError(401, 190))
+      .mockResolvedValueOnce(json(500, null)).mockResolvedValueOnce(json(200, { id: '123' })).mockRejectedValueOnce(new Error('send lost'));
+    const adapter = new MetaWhatsAppTransport({ graphBase: GRAPH, fetchImpl });
+    expect(await adapter.send('whatsapp', TOKEN, command)).toMatchObject({ status: 'definitely_rejected', code: 'media_upload_unreachable' });
+    expect(await adapter.send('whatsapp', TOKEN, command)).toMatchObject({ status: 'definitely_rejected', retryable: true });
+    expect(await adapter.send('whatsapp', TOKEN, command)).toMatchObject({ status: 'definitely_rejected', retryable: true });
+    expect(await adapter.send('whatsapp', TOKEN, command)).toMatchObject({ status: 'outcome_unknown' });
+  });
 });
 
 describe('WhatsApp WABA webhook subscription', () => {

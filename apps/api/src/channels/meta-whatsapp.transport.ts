@@ -275,7 +275,42 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       message: 'The linked Facebook Page is not configured.', retryable: true,
     };
 
-    const payload = this.payloadFor(kind, command);
+    let mediaId: string | undefined;
+    if (command.media !== undefined) {
+      const media = command.media;
+      const upload = new FormData();
+      const isWhatsApp = kind === 'whatsapp';
+      const asset = kind === 'instagram' ? command.facebookPageId! : command.assetIdentity;
+      const file = new Blob([new Uint8Array(media.data)], { type: media.mimeType });
+      if (isWhatsApp) {
+        upload.set('messaging_product', 'whatsapp');
+        upload.set('type', media.mimeType.split(';')[0]!);
+        upload.set('file', file, media.filename);
+      } else {
+        if (kind === 'instagram') upload.set('platform', 'instagram');
+        upload.set('message', JSON.stringify({
+          attachment: { type: command.messageType, payload: { is_reusable: true } },
+        }));
+        upload.set('filedata', file, media.filename);
+      }
+      let response: Response;
+      try {
+        response = await this.fetchImpl(`${this.graphBase}/${encodeURIComponent(asset)}/${isWhatsApp ? 'media' : 'message_attachments'}`, {
+          method: 'POST', headers: { authorization: `Bearer ${credential}` }, body: upload,
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch {
+        return { status: 'definitely_rejected', code: 'media_upload_unreachable', message: 'The attachment could not be uploaded to Meta.', retryable: true };
+      }
+      const body = record(await readJson(response));
+      if (!response.ok) return { status: 'definitely_rejected', ...classify(response.status, body?.['error'] as GraphError | undefined) };
+      const id = body?.[isWhatsApp ? 'id' : 'attachment_id'];
+      if (typeof id !== 'string' || !/^\d+$/.test(id)) {
+        return { status: 'definitely_rejected', code: 'media_upload_invalid', message: 'Meta did not return an attachment ID.', retryable: true };
+      }
+      mediaId = id;
+    }
+    const payload = this.payloadFor(kind, command, mediaId);
     if (payload === null) {
       return {
         status: 'definitely_rejected',
@@ -403,35 +438,32 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     return { ok: false, ...failure };
   }
 
-  /**
-   * The Graph request body.
-   *
-   * Only the two message shapes the product actually models. Media is not here
-   * because sending it requires uploading to Meta first and holding a media id,
-   * which is a separate flow with its own failure modes — and an adapter that
-   * silently dropped an attachment would be worse than one that says it cannot
-   * send that type.
-   */
-  private payloadFor(kind: ChannelKind, command: SendCommand): Record<string, unknown> | null {
-    if (kind === 'messenger') {
-      if (command.messageType !== 'text' || command.text === null || command.text === '') return null;
-      return {
+  /** A media message references the ID returned by a successful upload. */
+  private payloadFor(kind: ChannelKind, command: SendCommand, mediaId?: string): Record<string, unknown> | null {
+    if (kind === 'messenger' || kind === 'instagram') {
+      const envelope = {
         recipient: { id: command.peerIdentity },
-        messaging_type: 'RESPONSE',
-        message: { text: command.text },
+        ...(kind === 'messenger' ? { messaging_type: 'RESPONSE' } : {}),
       };
-    }
-    if (kind === 'instagram') {
+      if (mediaId !== undefined) return {
+        ...envelope,
+        message: { attachment: { type: command.messageType, payload: { attachment_id: mediaId } } },
+      };
       if (command.messageType !== 'text' || command.text === null || command.text === '') return null;
-      return {
-        recipient: { id: command.peerIdentity },
-        message: { text: command.text },
-      };
+      return { ...envelope, message: { text: command.text } };
     }
     const base = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: command.peerIdentity,
+    };
+    if (mediaId !== undefined) return {
+      ...base, type: command.messageType,
+      [command.messageType]: {
+        id: mediaId,
+        ...(command.media?.isVoice === true ? { voice: true } : {}),
+        ...(command.messageType === 'document' ? { filename: command.media!.filename } : {}),
+      },
     };
     if (command.template !== null) {
       return {

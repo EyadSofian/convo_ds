@@ -1,15 +1,16 @@
 import { inboxNumberCustomer } from './quick-whatsapp-customer.js';
-import type { Conversation, QueueCard, TimelineMessage } from '../api/conversations.js';
+import type { Conversation, InboxLine, QueueCard, TimelineMessage } from '../api/conversations.js';
 import type { Person } from '../api/people.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { clockTime, dayLabel, initials, relativeTime } from '../format.js';
 import { icon } from '../icons.js';
-import { INBOX_FILTER_CATALOGUE, type InboxFilter, type InboxFilterDefinition } from '@convo/domain';
+import { chatFileTypes, MAX_CHAT_FILE_BYTES, INBOX_FILTER_CATALOGUE, type InboxFilter, type InboxFilterDefinition } from '@convo/domain';
 import { hasPermission, routingAbility } from '../live/ability.js';
 import { toggled } from '../live/audience.js';
-import { activeFilterCount } from '../live/inbox-query.js';
-import { isDenial, rowsOf } from '../live/store.js';
+import { activeFilterCount, simpleFilterValue } from '../live/inbox-query.js';
+import { currentTenantId, isDenial, rowsOf } from '../live/store.js';
+import { voiceDraft } from '../live/voice-message.js';
 import type { LiveState, Resource } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { LIST_WIDTH_MAX, LIST_WIDTH_MIN } from '../state.js';
@@ -188,6 +189,7 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
       !supervisorMode && hasPermission(live, 'conversation.reply')
         ? h('div', { class: 'listhead__quick' }, [button({ label: t(state, 'رسالة واتساب جديدة', 'New WhatsApp message'), icon: 'send', act: 'live-quick-whatsapp-open', variant: 'primary', small: true, extraClass: 'inbox-quick-message' })])
         : null,
+      inboxLinePicker(state, live),
       h('div', { class: 'listhead__row' }, [
         inboxSearch(state, live),
         h('div', { class: 'listhead__tools' }, [
@@ -344,6 +346,30 @@ function countOf(resource: Resource<readonly unknown[]>): number | undefined {
   return resource.status === 'ready' ? resource.value.length : undefined;
 }
 
+function lineLabel(state: AppState, line: InboxLine, lines: readonly InboxLine[]): string {
+  const matchingNames = lines.filter((candidate) => candidate.label === line.label && candidate.channel === line.channel);
+  const label = matchingNames.length > 1 ? `${line.label} · …${line.assetSuffix}` : line.label;
+  return `${CHANNEL_NAMES[line.channel]?.[state.lang] ?? line.channel} · ${label}`;
+}
+
+function inboxLinePicker(state: AppState, live: LiveState): HTMLElement {
+  const lines = rowsOf(live.inboxLines);
+  const selected = simpleFilterValue(live.inboxQuery, 'connection_id');
+  const line = lines.find((option) => option.id === selected);
+  const opened = state.openMenu === 'inbox-lines';
+  return h('div', { class: 'menu-anchor inbox-lines' }, [
+    button({ label: line === undefined ? t(state, 'فلتر الإنبوكس', 'Filter by inbox') : lineLabel(state, line, lines),
+      icon: 'filter', act: 'live-inbox-lines', variant: 'ghost', small: true, expanded: opened, haspopup: 'dialog' }),
+    opened ? h('div', { class: 'popover inbox-lines__options', role: 'dialog', 'data-overlay': 'popover', 'aria-label': t(state, 'اختار إنبوكس', 'Choose an inbox') }, [
+      button({ label: t(state, 'كل الإنبوكسات', 'All inboxes'), act: 'live-inbox-line-pick', arg: '', pressed: selected === '', variant: 'ghost', small: true }),
+      live.inboxLines.status === 'loading' ? h('p', { role: 'status' }, [t(state, 'جاري التحميل…', 'Loading inboxes…')]) : null,
+      live.inboxLines.status === 'error' ? h('p', { role: 'alert' }, [live.inboxLines.error.message]) : null,
+      ...lines.map((option) => button({ label: lineLabel(state, option, lines), act: 'live-inbox-line-pick', arg: option.id,
+        pressed: selected === option.id, variant: 'ghost', small: true })),
+    ]) : null,
+  ]);
+}
+
 function inboxFilters(state: AppState, live: LiveState): HTMLElement {
   const search = state.dialogForm['inboxFilterCatalogueSearch'] ?? '';
   const unassigned = state.inboxQueue === 'unassigned';
@@ -494,7 +520,7 @@ function enumOptions(state: AppState, key: string): readonly { readonly value: s
 
 function filterLabel(state: AppState, definition: InboxFilterDefinition): string {
   const labels: Readonly<Record<InboxFilterDefinition['key'], readonly [string, string]>> = {
-    status: ['الحالة', 'Status'], assignment_state: ['الإسناد', 'Assignment'], assigned_agent_id: ['الوكيل', 'Agent'], team_id: ['الفريق', 'Team'], channel: ['القناة', 'Channel'], connection_id: ['الاتصال', 'Connection'], label_id: ['التصنيف', 'Label'], priority: ['الأولوية', 'Priority'], unread: ['القراءة', 'Read state'], unreplied: ['بانتظار رد', 'Awaiting reply'], created_at: ['تاريخ الإنشاء', 'Created'], last_activity_at: ['آخر نشاط', 'Last activity'], waiting_since: ['بانتظار منذ', 'Waiting since'], customer_name: ['اسم العميل', 'Customer name'], customer_phone: ['هاتف العميل', 'Customer phone'], collaborator_id: ['متعاون', 'Collaborator'], participant_id: ['مشارك', 'Participant'], handoff_target_id: ['تحويل إلى', 'Handoff target'], campaign_id: ['الحملة', 'Campaign'], custom_field: ['حقل مخصص', 'Custom field'],
+    status: ['الحالة', 'Status'], assignment_state: ['الإسناد', 'Assignment'], assigned_agent_id: ['الوكيل', 'Agent'], team_id: ['الفريق', 'Team'], channel: ['القناة', 'Channel'], connection_id: ['الإنبوكس', 'Inbox'], label_id: ['التصنيف', 'Label'], priority: ['الأولوية', 'Priority'], unread: ['القراءة', 'Read state'], unreplied: ['بانتظار رد', 'Awaiting reply'], created_at: ['تاريخ الإنشاء', 'Created'], last_activity_at: ['آخر نشاط', 'Last activity'], waiting_since: ['بانتظار منذ', 'Waiting since'], customer_name: ['اسم العميل', 'Customer name'], customer_phone: ['هاتف العميل', 'Customer phone'], collaborator_id: ['متعاون', 'Collaborator'], participant_id: ['مشارك', 'Participant'], handoff_target_id: ['تحويل إلى', 'Handoff target'], campaign_id: ['الحملة', 'Campaign'], custom_field: ['حقل مخصص', 'Custom field'],
   };
   const label = labels[definition.key];
   return t(state, label[0], label[1]);
@@ -510,21 +536,26 @@ function filterDescription(state: AppState, live: LiveState, filter: InboxFilter
   const definition = INBOX_FILTER_CATALOGUE.find((entry) => entry.key === filter.key);
   const name = definition === undefined ? filter.key : filterLabel(state, definition);
   const values = filter.value === undefined ? [] : Array.isArray(filter.value) ? filter.value : [String(filter.value)];
-  const value = values.map((entry) => filterValueLabel(live, filter, entry)).join(filter.key === 'label_id' ? ' + ' : ', ');
+  const value = values.map((entry) => filterValueLabel(state, live, filter, entry)).join(filter.key === 'label_id' ? ' + ' : ', ');
   const operator = filter.key === 'label_id' && filter.operator === 'in'
     ? t(state, 'تطابق جميع التصنيفات', 'matches all labels')
     : operatorLabel(state, filter.operator);
   return `${name} ${operator}${value === '' ? '' : ` ${value}`}`;
 }
 
-function filterValueLabel(live: LiveState, filter: InboxFilter, value: string): string {
+function filterValueLabel(state: AppState, live: LiveState, filter: InboxFilter, value: string): string {
   if (filter.key === 'assigned_agent_id' || filter.key === 'collaborator_id' || filter.key === 'participant_id' || filter.key === 'handoff_target_id') {
     const people = rowsOf(live.people);
     const person = people.find((entry) => entry.membership_id === value);
     return person === undefined ? pendingValue() : personLabel(person, people);
   }
   if (filter.key === 'team_id') return rowsOf(live.teams).find((team) => team.id === value)?.name ?? pendingValue();
-  if (filter.key === 'connection_id') return rowsOf(live.connections).find((connection) => connection.id === value)?.display_name ?? pendingValue();
+  if (filter.key === 'connection_id') {
+    const lines = rowsOf(live.inboxLines);
+    const line = lines.find((option) => option.id === value);
+    if (line !== undefined) return lineLabel(state, line, lines);
+    return rowsOf(live.connections).find((connection) => connection.id === value)?.display_name ?? pendingValue();
+  }
   if (filter.key === 'label_id') return rowsOf(live.labels).find((label) => label.id === value)?.name ?? pendingValue();
   if (filter.key === 'campaign_id') return rowsOf(live.campaigns).find((campaign) => campaign.id === value)?.name ?? pendingValue();
   return value;
@@ -927,12 +958,23 @@ function messageBubble(state: AppState, message: TimelineMessage): HTMLElement {
       h('time', { datetime: message.at, class: 'msg__reaction-time' }, [clockTime(message.at, state.lang)]),
     ]);
   }
-  const imageUrl = trustedMetaImage(message.attachments);
+  const stored = message.direction === 'out' && Array.isArray(message.attachments)
+    ? message.attachments.find((item): item is { storedMedia: true; filename: string; type: string; isVoice: boolean } =>
+        item !== null && typeof item === 'object' && 'storedMedia' in item && item.storedMedia === true)
+    : undefined;
+  const tenantId = currentTenantId(state.live);
+  const mediaBase = stored !== undefined && tenantId !== null && state.live.openConversationId !== null && /^[0-9a-f-]{36}$/i.test(message.id)
+    ? `/api/v1/tenants/${tenantId}/conversations/${state.live.openConversationId}` : null;
+  const attachmentUrl = mediaBase === null ? null : `${mediaBase}/attachments/${message.id}`;
+  const voiceUrl = mediaBase !== null && stored?.isVoice === true ? `${mediaBase}/voice-messages/${message.id}/audio` : null;
+  const imageUrl = (stored?.type === 'image' ? attachmentUrl : null) ?? trustedMetaImage(message.attachments);
   const body = message.template_preview ?? message.text;
   return h('article', { class: message.direction === 'out' ? 'msg msg--out' : 'msg msg--in', 'data-message': message.id }, [
     message.template_name === undefined || message.template_name === null ? null : h('div', { class: 'msg__template-label' }, [t(state, `قالب واتساب · ${message.template_name}`, `WhatsApp template · ${message.template_name}`)]),
     h('div', { class: 'msg__bubble' }, [
       body,
+      voiceUrl === null ? null : h('audio', { class: 'msg__audio', controls: true, preload: 'none', src: voiceUrl,
+        'aria-label': t(state, 'رسالة صوتية مرسلة', 'Sent voice message') }),
       imageUrl === null ? null : h('img', {
         class: 'msg__attachment-image', src: imageUrl,
         alt: message.direction === 'out'
@@ -940,7 +982,9 @@ function messageBubble(state: AppState, message: TimelineMessage): HTMLElement {
           : t(state, 'صورة أرسلها العميل', 'Image sent by customer'),
         loading: 'lazy', referrerpolicy: 'no-referrer',
       }),
-      body === null && imageUrl === null && Array.isArray(message.attachments) && message.attachments.length > 0
+      attachmentUrl !== null && voiceUrl === null && imageUrl === null
+        ? h('a', { class: 'msg__attachment-link', href: attachmentUrl, download: stored!.filename }, [icon('download', 16), stored!.filename]) : null,
+      body === null && imageUrl === null && voiceUrl === null && attachmentUrl === null && Array.isArray(message.attachments) && message.attachments.length > 0
         ? (message.direction === 'out' ? t(state, 'مرفق مرسل', 'Attachment sent') : t(state, 'مرفق من العميل', 'Customer attachment')) : null,
     ]),
     h('div', { class: 'msg__meta' }, [
@@ -1086,6 +1130,37 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
       whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
     ]);
   }
+  const attachment = live.attachmentDraft;
+  if (attachment !== null && attachment.conversationId === conversation.id) {
+    const canSend = attachment.file.size > 0 && attachment.file.size <= MAX_CHAT_FILE_BYTES &&
+      chatFileTypes(conversation.channel).includes(attachment.file.type);
+    return h('div', { class: 'composer__box composer__voice' }, [
+      tabs,
+      h('div', { class: 'composer__voice-status', dir: 'auto' }, [icon('paperclip', 18), attachment.file.name]),
+      attachment.error === null ? null : h('p', { class: 'field__error', role: 'alert' }, [attachment.error]),
+      h('div', { class: 'composer__toolbar' }, [
+        button({ label: t(state, 'إلغاء المرفق', 'Remove attachment'), act: 'live-attachment-cancel', variant: 'ghost', small: true, disabled: attachment.sending }),
+        button({ label: t(state, 'إرسال المرفق', 'Send attachment'), icon: 'send', act: 'live-attachment-send',
+          variant: 'primary', small: true, disabled: !canSend, busy: attachment.sending }),
+      ]),
+    ]);
+  }
+  const voice = voiceDraft(live);
+  if (voice !== null) return h('div', { class: 'composer__box composer__voice' }, [
+    tabs,
+    h('div', { class: 'composer__voice-status', role: 'status', 'aria-live': 'polite' }, [
+      icon('mic', 20), voice.status === 'requesting' ? t(state, 'جارٍ فتح الميكروفون…', 'Opening microphone…')
+        : voice.status === 'recording' ? t(state, `جارٍ التسجيل · ${voice.seconds} / 90 ثانية`, `Recording · ${voice.seconds} / 90 seconds`)
+          : t(state, 'راجع التسجيل قبل الإرسال', 'Review recording before sending'),
+    ]),
+    voice.url === null ? null : h('audio', { controls: true, src: voice.url, 'aria-label': t(state, 'معاينة التسجيل', 'Recording preview') }),
+    voice.error === null ? null : h('p', { class: 'field__error', role: 'alert' }, [voice.error]),
+    h('div', { class: 'composer__toolbar' }, [
+      button({ label: t(state, 'إلغاء التسجيل', 'Discard recording'), icon: 'trash', act: 'live-voice-cancel', variant: 'ghost', disabled: voice.status === 'sending', small: true }),
+      voice.status === 'recording' ? button({ label: t(state, 'إيقاف التسجيل', 'Stop recording'), icon: 'stop', act: 'live-voice-stop', small: true }) : null,
+      voice.status === 'ready' || voice.status === 'sending' ? button({ label: t(state, 'إرسال التسجيل', 'Send recording'), icon: 'send', act: 'live-voice-send', variant: 'primary', busy: voice.status === 'sending', small: true }) : null,
+    ]),
+  ]);
   return h('div', { class: 'composer__box' }, [
     // The text is the element's **content**, not a `value` attribute: a textarea
     // ignores that attribute, so rendering it that way would empty the composer
@@ -1105,6 +1180,10 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
     ),
     h('div', { class: 'composer__toolbar' }, [
       tabs,
+      emojiPicker(state),
+      attachmentPicker(state, conversation.channel),
+      conversation.channel === 'whatsapp' ? button({ icon: 'mic', act: 'live-voice-start', variant: 'ghost', small: true,
+        title: t(state, 'تسجيل رسالة صوتية', 'Record voice message'), ariaLabel: t(state, 'تسجيل رسالة صوتية', 'Record voice message') }) : null,
       live.error === null
         ? h('span', { class: 'composer__hint' }, [t(state, 'Enter للإرسال · Shift+Enter لسطر جديد', 'Enter to send · Shift+Enter for a new line')])
         : h('span', { class: 'composer__hint composer__hint--error', role: 'alert' }, [live.error.message]),
@@ -1149,6 +1228,7 @@ function noteComposer(state: AppState, live: LiveState, tabs: HTMLElement): HTML
     ),
     h('div', { class: 'composer__toolbar' }, [
       tabs,
+      emojiPicker(state),
       h('span', { class: 'composer__hint' }, [icon('lock', 14), t(state, 'مرئية لفريقك فقط', 'Visible to your team only')]),
       button({
         label: t(state, 'إضافة ملاحظة', 'Add note'),
@@ -1160,5 +1240,26 @@ function noteComposer(state: AppState, live: LiveState, tabs: HTMLElement): HTML
         extraClass: 'composer__send composer__send--note',
       }),
     ]),
+  ]);
+}
+
+function attachmentPicker(state: AppState, channel: string): HTMLElement | null {
+  const types = chatFileTypes(channel);
+  if (types.length === 0) return null;
+  const label = t(state, 'إرفاق ملف', 'Attach a file');
+  return h('label', { class: 'composer__file-picker', title: label }, [
+    icon('paperclip', 18),
+    h('input', { type: 'file', accept: types.join(','), 'aria-label': label, 'data-act': 'live-attachment-file' }),
+  ]);
+}
+
+function emojiPicker(state: AppState): HTMLElement {
+  const opened = state.openMenu === 'composer-emoji';
+  const emojis = ['😀', '😊', '🙂', '😂', '😍', '🤔', '🙏', '👍', '👌', '👏', '❤️', '💙', '🎉', '🌟', '✅', '📚', '🚀', '💻', '📞', '👋', '🌸', '✨', '🤝', '💪'];
+  return h('div', { class: 'composer__emoji' }, [
+    button({ icon: 'smile', act: 'menu', arg: 'composer-emoji', variant: 'ghost', small: true,
+      expanded: opened, title: t(state, 'إيموجي', 'Emoji'), ariaLabel: t(state, 'إيموجي', 'Emoji') }),
+    opened ? h('div', { class: 'popover composer__emoji-picker', role: 'group', 'data-overlay': 'popover', 'aria-label': t(state, 'اختار إيموجي', 'Choose emoji') },
+      emojis.map((emoji) => h('button', { type: 'button', class: 'composer__emoji-item', 'data-act': 'live-emoji', 'data-arg': emoji, 'aria-label': emoji }, [emoji]))) : null,
   ]);
 }

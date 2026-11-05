@@ -1,5 +1,7 @@
+import { sendAttachment } from './chat-attachment.js';
 import { editTemplateAccess, pickLibraryResults, openTemplateLibrary, saveTemplateAccess } from './template-library.js';
 import { lookupInboxNumber } from './inbox-number-lookup.js';
+import { cancelVoice, sendVoice, startVoice, stopVoice } from './voice-message.js';
 import type { TransitionCommand } from '../api/conversations.js';
 import { readInboxAccess } from '../ui/inbox-access.js';
 import type { ScopeRef } from '../api/people.js';
@@ -52,7 +54,7 @@ import {
   settleHandoff,
 } from './routing-actions.js';
 import { createAndAssignLabel, createField, createLabel, retireLabel, setEntityLabel, setFieldValue, updateLabel } from './metadata-actions.js';
-import { currentTenantId, rowsOf } from './store.js';
+import { currentTenantId, forTenant, fromResult, rowsOf } from './store.js';
 import { hasPermission } from './ability.js';
 import { idList } from './audience.js';
 import { derivedChannelId, newContactFields, standardFieldKey } from './contact-profile.js';
@@ -61,7 +63,7 @@ import { exportAnalytics, printAnalytics } from './analytics-export.js';
 import { manageArchived, tickArchived } from './archived-actions.js';
 import { goToBroadcastStep, jumpToBroadcastStep, submitBroadcast, syncBroadcastTemplates } from './broadcast.js';
 import { clearBroadcastUpload, previewBroadcastUpload } from './broadcast-import.js';
-import { setSimpleFilter } from './inbox-query.js';
+import { setSimpleFilter, type SimpleInboxFilter } from './inbox-query.js';
 import { changeQuickWhatsApp, checkQuickWhatsApp, openQuickWhatsAppCustomer, openQuickWhatsApp, sendQuickWhatsApp } from './quick-whatsapp-actions.js';
 import { INBOX_FILTER_CATALOGUE, INBOX_SORTS, type InboxFilter, type InboxSort } from '@convo/domain';
 import { applySavedView, retireSavedView, saveCurrentInboxView } from './saved-view-actions.js';
@@ -833,6 +835,28 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return Promise.resolve();
   },
 
+  'live-inbox-lines': async (context) => {
+    if (context.state.openMenu === 'inbox-lines') {
+      context.state.openMenu = null;
+      context.refresh();
+      return;
+    }
+    await forTenant(context, undefined, async (tenantId) => {
+      context.state.openMenu = 'inbox-lines';
+      context.live.inboxLines = { status: 'loading' };
+      context.refresh();
+      const result = await context.live.conversationsApi.inboxes(tenantId);
+      context.live.inboxLines = fromResult(result, context.now());
+      context.refresh();
+    });
+  },
+  'live-inbox-line-pick': async (context, id) => {
+    context.live.inboxQuery = setSimpleFilter(context.live.inboxQuery, 'connection_id', id);
+    context.live.selectedSavedViewId = null;
+    context.state.openMenu = null;
+    return loadInboxScreen(context);
+  },
+
   // Label "any of" and "none of" values are chosen as visible names. This
   // avoids both opaque-ID entry and the common mistake of treating `in` as an
   // OR: the server's label predicate intentionally requires every selected
@@ -1139,7 +1163,7 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-inbox-filter': async (context, arg) => {
     const { id, value } = splitArg(arg);
     if (!['unread', 'priority', 'channel', 'labelId'].includes(id)) return false;
-    context.live.inboxQuery = setSimpleFilter(context.live.inboxQuery, id as 'unread' | 'priority' | 'channel' | 'labelId', value);
+    context.live.inboxQuery = setSimpleFilter(context.live.inboxQuery, id as SimpleInboxFilter, value);
     return loadInboxScreen(context);
   },
 
@@ -1282,6 +1306,19 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-inbox-send': async (context) => sendReply(context),
+  'live-attachment-cancel': async (context) => { context.live.attachmentDraft = null; context.refresh(); },
+  'live-attachment-send': async (context) => sendAttachment(context),
+  'live-voice-start': async (context) => startVoice(context),
+  'live-voice-stop': async (context) => { stopVoice(context); },
+  'live-voice-cancel': async (context) => { cancelVoice(context.live); context.refresh(); },
+  'live-voice-send': async (context) => sendVoice(context),
+  'live-emoji': async (context, emoji) => {
+    if (context.state.composerTab === 'reply') context.live.composer += emoji;
+    else context.live.noteDraft += emoji;
+    context.state.openMenu = null;
+    context.state.focusTarget = '.composer__input';
+    context.refresh();
+  },
   'live-quick-whatsapp-change': async (context, arg) => changeQuickWhatsApp(context, arg),
   'live-quick-whatsapp-check': async (context) => checkQuickWhatsApp(context),
   'live-quick-whatsapp-existing': async (context) => openQuickWhatsAppCustomer(context),
@@ -1670,7 +1707,6 @@ function scheduleInboxSearch(context: LiveContext, value: string): void {
     if (context.live.inboxQuery.search === (search === '' ? null : search)) return;
     context.live.inboxQuery = { ...context.live.inboxQuery, search: search === '' ? null : search, cursor: null };
     context.live.selectedSavedViewId = null;
-    context.state.inboxQueue = 'mine';
     void loadInboxScreen(context);
   }, 250);
 }

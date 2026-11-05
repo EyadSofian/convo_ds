@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { normalizeSearchText, type CustomFieldType, type InboxFilter, type InboxQuery, type Principal } from '@convo/domain';
 import { conversationUnrepliedPredicate } from './event-boundary.js';
+import { phoneSearchPatterns, phoneSearchSql } from '../phone-search.js';
 
 export interface InboxCustomField {
   readonly id: string;
@@ -148,10 +149,11 @@ function comparison(operator: string): string {
   }
 }
 
-function searchPredicate(search: string, add: (value: unknown) => string): string {
+export function searchPredicate(search: string, add: (value: unknown) => string): string {
   const text = add(`%${escapeLike(search)}%`);
   const id = add(search);
-  return `(c.id::text = ${id} OR c.peer_identity ILIKE ${text} ESCAPE '\\' OR EXISTS (SELECT 1 FROM contacts search_contact WHERE search_contact.id = c.contact_id AND search_contact.search_name ILIKE ${text} ESCAPE '\\') OR EXISTS (SELECT 1 FROM contact_identities search_identity WHERE search_identity.contact_id = c.contact_id AND search_identity.external_id ILIKE ${text} ESCAPE '\\'))`;
+  const phones = add(phoneSearchPatterns(search));
+  return `(c.id::text = ${id} OR c.peer_identity ILIKE ${text} ESCAPE '\\' OR ${phoneSearchSql('c.peer_identity', phones)} OR EXISTS (SELECT 1 FROM contacts search_contact WHERE search_contact.id = c.contact_id AND search_contact.search_name ILIKE ${text} ESCAPE '\\') OR EXISTS (SELECT 1 FROM contact_identities search_identity WHERE search_identity.contact_id = c.contact_id AND search_identity.valid_to IS NULL AND (search_identity.external_id ILIKE ${text} ESCAPE '\\' OR ${phoneSearchSql('search_identity.external_id', phones)})))`;
 }
 
 export function readableScope(principal: Principal, add: (value: unknown) => string): string {

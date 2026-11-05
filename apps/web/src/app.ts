@@ -1,3 +1,4 @@
+import { selectAttachment } from './live/chat-attachment';
 import type { ActionContext } from './actions';
 import { runAction } from './actions';
 import { ApiClient, API_BASE_URL, csrfFromCookie, type FetchLike } from './api/client';
@@ -36,6 +37,7 @@ import type { EventSourceFactory } from './live/realtime';
 import { runLiveAction } from './live/dispatch';
 import { beginBroadcastUpload, finishBroadcastUpload } from './live/broadcast-import';
 import { parseLeadSheet } from './lead-sheet';
+import { cancelVoice, syncVoice } from './live/voice-message';
 import { refreshNotificationCount, runNotificationAction } from './live/notification-actions';
 import { createLiveState, renewLiveState, rowsOf } from './live/store';
 import type { LiveState } from './live/store';
@@ -625,6 +627,10 @@ export function mount(options: MountOptions): AppHandle {
    */
   const refresh = (): void => {
     if (destroyed) return;
+    syncVoice(liveContext);
+    const attachment = liveContext.live.attachmentDraft;
+    if (attachment !== null && (state.route.screen !== 'inbox' || state.composerTab !== 'reply' ||
+      attachment.conversationId !== liveContext.live.openConversationId)) liveContext.live.attachmentDraft = null;
     syncUrl();
     if (!ensureScreen()) render();
     followExport();
@@ -642,6 +648,7 @@ export function mount(options: MountOptions): AppHandle {
     },
     switchWorkspace: (tenantId) => {
       const session = state.live.session;
+      cancelVoice(liveContext.live);
       stopRealtime(liveContext);
       cancelPoll?.();
       cancelPoll = null;
@@ -670,6 +677,7 @@ export function mount(options: MountOptions): AppHandle {
    * somebody else's thread.
    */
   const closeWorkspace = (expired: boolean): void => {
+    cancelVoice(liveContext.live);
     stopRealtime(liveContext);
     cancelPoll?.();
     cancelPoll = null;
@@ -983,6 +991,11 @@ export function mount(options: MountOptions): AppHandle {
     if (!(target instanceof HTMLInputElement && target.type === 'file') && event.type !== (onChange ? 'change' : 'input')) return;
     const act = target.getAttribute('data-act');
     if (act === null) return;
+    if (target instanceof HTMLInputElement && target.type === 'file' && act === 'live-attachment-file') {
+      const file = target.files?.[0];
+      if (event.type === 'change' && file !== undefined) selectAttachment(liveContext, file);
+      return;
+    }
     if (target instanceof HTMLInputElement && target.type === 'file' && act === 'live-contact-import-file') {
       const file = target.files?.[0];
       if (file === undefined) return;
@@ -1285,6 +1298,7 @@ export function mount(options: MountOptions): AppHandle {
     checkForUpdate,
     destroy: () => {
       destroyed = true;
+      cancelVoice(liveContext.live);
       stopRealtime(liveContext);
       cancelPoll?.();
       cancelFollow();

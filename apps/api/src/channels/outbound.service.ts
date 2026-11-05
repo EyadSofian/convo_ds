@@ -1,3 +1,4 @@
+import { chatFileMessageType, type OutboundMedia } from '@convo/domain';
 import { requireTemplateAccess, templateAccessPredicate } from './template-access.js';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
@@ -258,6 +259,54 @@ export class OutboundService {
     );
   }
 
+  async queueVoice(session: AuthenticatedSession, tenantId: string, connectionId: string,
+    resource: ResourceRef, conversationId: string, peerIdentity: string, clientMessageId: unknown, audio: Buffer,
+  ): Promise<OutboundMessageSummary> {
+    return this.queueMedia(session, tenantId, connectionId, resource, conversationId, peerIdentity, clientMessageId,
+      { data: audio, filename: 'voice.ogg', mimeType: 'audio/ogg; codecs=opus', isVoice: true });
+  }
+
+  async queueMedia(session: AuthenticatedSession, tenantId: string, connectionId: string,
+    resource: ResourceRef, conversationId: string, peerIdentity: string, clientMessageId: unknown, media: OutboundMedia,
+  ): Promise<OutboundMessageSummary> {
+    // Validate the key before loading the connection, just like a text reply.
+    const parsed = parseSendMessage({ peerIdentity, clientMessageId, messageType: 'audio', text: '' });
+    if (!parsed.ok) throw new ApiHttpError(400, 'invalid_input', 'The request is not valid.', parsed.details);
+    return this.authorization.authorized(session, tenantId, 'conversation.reply', async ({ sql, principal }) => {
+      const channel = await requireLiveConnection(sql, connectionId);
+      if (media.isVoice && channel.kind !== 'whatsapp') {
+        throw new ApiHttpError(422, 'voice_channel_unsupported', 'Voice recording is available in WhatsApp conversations.');
+      }
+      const messageType = media.isVoice ? 'audio' : chatFileMessageType(channel.kind, media.mimeType);
+      if (messageType === null) throw new ApiHttpError(422, 'file_type_unsupported', 'This file type cannot be sent on the selected channel.');
+      return this.queueAuthorized(sql, principal, tenantId, connectionId, { ...parsed.value, messageType }, conversationId, true, media);
+    }, resource);
+  }
+
+  async voiceAudio(session: AuthenticatedSession, tenantId: string, conversationId: string, messageId: string): Promise<Buffer> {
+    const media = await this.readMedia(session, tenantId, conversationId, messageId, true);
+    return media.data;
+  }
+
+  async readMedia(session: AuthenticatedSession, tenantId: string, conversationId: string, messageId: string, voiceOnly = false) {
+    this.authorization.assertTenantId(conversationId);
+    this.authorization.assertTenantId(messageId);
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const detail = await readDetail(sql, conversationId);
+      if (detail === null || !authorize(principal, 'conversation.read', {
+        inboxId: detail.connectionId, ...(detail.teamId === null ? {} : { teamId: detail.teamId }),
+        assigneeMembershipId: detail.assigneeMembershipId, participantMembershipIds: detail.participantMembershipIds,
+      }).allowed) throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+      const media = await sql.query<{ data: Buffer; filename: string; mime_type: string }>(
+        `SELECT media.data,media.filename,media.mime_type FROM outbound_message_media media
+           JOIN outbound_messages message ON message.id=media.message_id
+          WHERE message.id=$1 AND message.conversation_id=$2 AND (NOT $3::boolean OR media.is_voice)`,
+        [messageId, conversationId, voiceOnly]);
+      if (media.rows[0] === undefined) throw new ApiHttpError(404, 'resource_not_found', 'The requested resource does not exist.');
+      return media.rows[0];
+    });
+  }
+
   /** Starts a one-to-one WhatsApp thread with an approved template. */
   async queueQuickWhatsApp(
     session: AuthenticatedSession,
@@ -345,6 +394,7 @@ export class OutboundService {
     request: SendMessageRequest,
     conversationId: string | null,
     noteResponse = true,
+    media?: OutboundMedia,
   ): Promise<OutboundMessageSummary> {
         const existing = await sql.query<{ id: string; author_membership: string | null }>(
           'SELECT id::text,author_membership::text FROM outbound_messages WHERE tenant_id=$1 AND client_message_id=$2',
@@ -357,6 +407,7 @@ export class OutboundService {
         }
         const connection = await requireLiveConnection(sql, connectionId);
         const capabilities = capabilitiesOf(connection);
+        if (request.messageType === 'audio' && media === undefined) throw new ApiHttpError(422, 'voice_recording_required', 'Record audio using the voice message control.');
         let templateName: string | null = request.template?.name ?? null;
         let templateLanguage: string | null = request.template?.language ?? null;
         let templateProviderId: string | null = null;
@@ -482,6 +533,14 @@ export class OutboundService {
           ],
         );
         const messageId = requireRow(inserted.rows, 'message insert returned no id').id;
+        if (media !== undefined) {
+          await sql.query(
+            'INSERT INTO outbound_message_media (tenant_id,message_id,data,filename,mime_type,is_voice) VALUES ($1,$2,$3,$4,$5,$6)',
+            [tenantId, messageId, media.data, media.filename, media.mimeType, media.isVoice]);
+          await sql.query(`UPDATE outbound_messages SET attachments=$2::jsonb WHERE id=$1`,
+            [messageId, JSON.stringify([{ type: request.messageType, storedMedia: true, filename: media.filename,
+              mimeType: media.mimeType, isVoice: media.isVoice }])]);
+        }
 
         await sql.query(
           `INSERT INTO outbox (message_id, tenant_id, connection_id, peer_identity, traffic_class)

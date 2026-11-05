@@ -1,3 +1,4 @@
+import { CHAT_FILE_CONTENT_TYPE } from '@convo/domain';
 import type { ApiClient, ApiResult } from './client.js';
 import type { EntityMetadata } from './metadata.js';
 import type { InboxQuery } from '@convo/domain';
@@ -19,6 +20,13 @@ export { INBOX_QUERY_DEFAULT as DEFAULT_INBOX_QUERY } from '@convo/domain';
  * a screen cannot accidentally render a card where it meant a conversation and
  * quietly show more than it should.
  */
+
+export interface InboxLine {
+  readonly id: string;
+  readonly label: string;
+  readonly channel: string;
+  readonly assetSuffix: string;
+}
 
 export interface QueueCard {
   readonly readable?: boolean;
@@ -220,6 +228,25 @@ export interface ConversationPage {
 export class ConversationsApi {
   constructor(private readonly client: ApiClient) {}
 
+  replyVoice(tenantId: string, conversationId: string, audio: string, clientMessageId: string): Promise<ApiResult<OutboundMessage>> {
+    return this.client.post(`/tenants/${tenantId}/conversations/${conversationId}/voice-messages`, { body: { audio, clientMessageId } });
+  }
+
+  replyFile(tenantId: string, conversationId: string, file: File, clientMessageId: string): Promise<ApiResult<OutboundMessage>> {
+    return this.client.post(`/tenants/${tenantId}/conversations/${conversationId}/attachments`, {
+      binary: {
+        data: file,
+        contentType: CHAT_FILE_CONTENT_TYPE,
+        headers: { 'x-convo-file-name': encodeURIComponent(file.name), 'x-convo-file-type': file.type },
+      },
+      idempotencyKey: clientMessageId,
+    });
+  }
+
+  inboxes(tenantId: string): Promise<ApiResult<readonly InboxLine[]>> {
+    return this.client.get(`/tenants/${tenantId}/conversations/inboxes`);
+  }
+
   /** Conversations the caller may read. Never a card. */
   async list(tenantId: string, inboxQuery: InboxQuery): Promise<ApiResult<ConversationPage>> {
     const query = new URLSearchParams({ queue: inboxQuery.queue });
@@ -254,12 +281,14 @@ export class ConversationsApi {
   /** The Unassigned queue. Never a transcript. */
   unassigned(
     tenantId: string,
-    filters: { readonly priority: string; readonly channel: string; readonly labelId: string } = { priority: '', channel: '', labelId: '' },
+    filters: { readonly priority: string; readonly channel: string; readonly labelId: string; readonly inboxId?: string; readonly search?: string } = { priority: '', channel: '', labelId: '' },
   ): Promise<ApiResult<readonly QueueCard[]>> {
     const query = new URLSearchParams();
     if (filters.priority !== '') query.set('priority', filters.priority);
     if (filters.channel !== '') query.set('channel', filters.channel);
     if (filters.labelId !== '') query.append('label', filters.labelId);
+    if (filters.search) query.set('search', filters.search);
+    if (filters.inboxId) query.set('inboxId', filters.inboxId);
     const suffix = query.size === 0 ? '' : `?${query.toString()}`;
     return this.client.get<readonly QueueCard[]>(`/tenants/${tenantId}/conversations/unassigned${suffix}`);
   }

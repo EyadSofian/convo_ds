@@ -6,6 +6,7 @@ import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { ApiHttpError } from '../http-error.js';
 import { requireRow } from '../require-row.js';
+import { phoneSearchPatterns, phoneSearchSql } from '../phone-search.js';
 import { readMetadata, readMetadataBatch } from '../metadata/metadata.service.js';
 import type { CustomFieldEntry, Label } from '../metadata/metadata.service.js';
 
@@ -319,7 +320,10 @@ export class ContactService {
         `SELECT id::text, display_name, attributes, version, created_at
            FROM contacts
           WHERE deleted_at IS NULL
-            AND ($1::text IS NULL OR search_name LIKE '%' || $1 || '%')
+            AND ($1::text IS NULL OR search_name LIKE '%' || $1 || '%' OR EXISTS (
+              SELECT 1 FROM contact_identities phone WHERE phone.contact_id=contacts.id AND phone.valid_to IS NULL
+                AND (phone.external_id ILIKE '%' || $1 || '%' OR ${phoneSearchSql('phone.external_id', '$11')})
+            ) OR EXISTS (SELECT 1 FROM contact_phone_keys phone WHERE phone.contact_id=contacts.id AND ${phoneSearchSql('phone.mobile', '$11')}))
             AND (cardinality($2::uuid[]) = 0 OR (
               SELECT count(DISTINCT cl.label_id) FROM contact_labels cl
                WHERE cl.contact_id = contacts.id AND cl.removed_at IS NULL
@@ -358,6 +362,7 @@ export class ContactService {
           tenantWide,
           teams,
           inboxes,
+          phoneSearchPatterns(query.text ?? ''),
         ],
       );
       // Both lookups are batched. Reading metadata per row here was 2 queries

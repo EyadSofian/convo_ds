@@ -3843,3 +3843,140 @@ describe('the worker roles, on real channel work', () => {
     expect(state.rows[0]?.delivery_state).toBe('delivered');
   });
 });
+
+/** Browser audio is converted locally; provider delivery is stubbed, storage and permissions are real. */
+describe('recorded WhatsApp voice and phone search', () => {
+  let api: Harness; let owner: Browser; let connectionId: string; let conversationId: string;
+  const sent: SendCommand[] = [];
+  const peer = '201012345678';
+  function wav(): Buffer {
+    const samples = 1600; const data = Buffer.alloc(44 + samples * 2);
+    data.write('RIFF'); data.writeUInt32LE(data.length - 8, 4); data.write('WAVEfmt ', 8); data.writeUInt32LE(16, 16);
+    data.writeUInt16LE(1, 20); data.writeUInt16LE(1, 22); data.writeUInt32LE(8000, 24); data.writeUInt32LE(16000, 28);
+    data.writeUInt16LE(2, 32); data.writeUInt16LE(16, 34); data.write('data', 36); data.writeUInt32LE(samples * 2, 40);
+    for (let i = 0; i < samples; i++) data.writeInt16LE(Math.round(Math.sin(i * 0.3) * 1200), 44 + i * 2);
+    return data;
+  }
+  beforeAll(async () => {
+    api = await createHarness({ channelTransport: {
+      name: 'voice-test', validateConnection: async (_kind, _credential, assetIdentity) => ({ ok: true, assetIdentity, code: null, message: null }),
+      send: async (_kind, _credential, command) => { sent.push(command); return { status: 'accepted', providerMessageId: `wamid.media-${sent.length}`, raw: {} }; },
+    } });
+    owner = await login(api, 'owner@channels.test', OWNER_PASSWORD);
+    const connected = await connect(api, owner); connectionId = connected.json().data.id;
+    expect((await send(api, owner, 'POST', `/channels/${connectionId}/test`)).statusCode).toBe(200);
+    expect((await send(api, owner, 'POST', '/contacts', { displayName: 'A parent profile name', connectionId, externalId: peer })).statusCode).toBe(201);
+    await deliver(api, messageDelivery([textMessage('wamid.voice-opener', 'Hello', peer)]));
+    await api.app.get(ChannelNormalizationService).drain(api.tenantId);
+    const rows = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ id: string }>('SELECT id FROM conversations WHERE peer_identity=$1', [peer]));
+    conversationId = rows.rows[0]!.id;
+  }, 180000);
+  afterAll(async () => { await api.app.close(); });
+  it('finds a named WhatsApp customer by local, international, formatted and Arabic phone numbers in every queue', async () => {
+    const searches = ['01012345678', '+20 10 1234-5678', '00201012345678', '٠١٠١٢٣٤٥٦٧٨', '12345678'];
+    for (const search of searches) {
+      const queue = await send(api, owner, 'GET', `/conversations/unassigned?search=${encodeURIComponent(search)}`);
+      expect(queue.statusCode, queue.body).toBe(200); expect(queue.json().data.map((row: { id: string }) => row.id)).toContain(conversationId);
+      const contacts = await send(api, owner, 'GET', `/contacts?search=${encodeURIComponent(search)}`);
+      expect(contacts.statusCode, contacts.body).toBe(200); expect(contacts.json().data.length).toBe(1);
+    }
+    expect((await send(api, owner, 'GET', '/conversations/unassigned?search=not-a-name')).json().data).toEqual([]);
+    const detail = await send(api, owner, 'GET', `/conversations/${conversationId}`);
+    expect((await send(api, owner, 'POST', `/conversations/${conversationId}/claim`, { version: detail.json().data.version })).statusCode).toBe(200);
+    for (const queue of ['all', 'mine']) {
+      const response = await send(api, owner, 'GET', `/conversations?queue=${queue}&search=01012345678`);
+      expect(response.statusCode, response.body).toBe(200); expect(response.json().data.map((row: { id: string }) => row.id)).toContain(conversationId);
+    }
+  });
+  it('keeps the two WhatsApp inboxes separate even when they have the same display name', async () => {
+    const secondAsset = 'phone-media-second';
+    const second = await connect(api, owner, secondAsset);
+    expect(second.statusCode, second.body).toBe(201);
+    const secondId = second.json().data.id;
+    await deliver(api, messageDelivery([textMessage('wamid.line-two', 'Second line', peer)], secondAsset));
+    await api.app.get(ChannelNormalizationService).drain(api.tenantId);
+    const options = await send(api, owner, 'GET', '/conversations/inboxes');
+    expect(options.statusCode, options.body).toBe(200);
+    expect(options.json().data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: connectionId, channel: 'whatsapp' }),
+      expect.objectContaining({ id: secondId, channel: 'whatsapp' }),
+    ]));
+    const queue = await send(api, owner, 'GET', `/conversations/unassigned?inboxId=${secondId}&search=01012345678`);
+    expect(queue.json().data).toHaveLength(1);
+    expect(queue.json().data[0].id).not.toBe(conversationId);
+    expect((await send(api, owner, 'GET', `/conversations/unassigned?inboxId=${connectionId}`)).json().data).toEqual([]);
+    const onlySecond = await send(api, owner, 'GET', `/conversations?queue=all&filter=${encodeURIComponent(JSON.stringify({ key: 'connection_id', operator: 'eq', value: secondId }))}`);
+    expect(onlySecond.json().data.map((row: { connectionId: string }) => row.connectionId)).toEqual([secondId]);
+  });
+
+  it('queues real converted Opus, exposes authorized playback, dispatches bytes and deduplicates a retry', async () => {
+    const path = `/conversations/${conversationId}/voice-messages`;
+    const body = { audio: wav().toString('base64'), clientMessageId: 'voice-message-001' };
+    const result = await send(api, owner, 'POST', path, body); expect(result.statusCode, result.body).toBe(202);
+    const id = result.json().data.id;
+    expect((await send(api, owner, 'POST', path, body)).json().data.id).toBe(id);
+    const audio = await send(api, owner, 'GET', `${path}/${id}/audio`);
+    expect(audio.statusCode, audio.body).toBe(200); expect(audio.headers['content-type']).toContain('audio/ogg'); expect(audio.headers['cache-control']).toBe('private, no-store');
+    expect(audio.rawPayload.subarray(0, 4).toString()).toBe('OggS');
+    const timeline = await send(api, owner, 'GET', `/conversations/${conversationId}/messages`);
+    expect(timeline.json().data).toEqual(expect.arrayContaining([expect.objectContaining({ id, content_type: 'audio', direction: 'out' })]));
+    expect((await api.app.get(ChannelDispatcherService).dispatch(api.tenantId)).accepted).toBe(1);
+    expect(sent).toHaveLength(1); expect(Buffer.from(sent[0]!.media!.data)).toEqual(audio.rawPayload);
+    expect((await send(api, owner, 'GET', `${path}/${randomUUID()}/audio`)).statusCode).toBe(404);
+    expect((await send(api, owner, 'GET', `/conversations/${randomUUID()}/voice-messages/${id}/audio`)).statusCode).toBe(404);
+    expect((await send(api, owner, 'GET', `${path}/bad/audio`)).statusCode).toBe(404);
+    expect((await api.server.inject({ method: 'GET', url: `/api/v1/tenants/${api.tenantId}${path}/${id}/audio` })).statusCode).toBe(401);
+  });
+  it('uploads and downloads documents and images through the existing conversation authorization', async () => {
+    const path = `/api/v1/tenants/${api.tenantId}/conversations/${conversationId}/attachments`;
+    const upload = (key: string, filename: string, mimeType: string, payload: Buffer | string, contentType = 'application/vnd.convo.chat-file') =>
+      api.server.inject({ method: 'POST', url: path, headers: {
+        cookie: owner.cookie, 'x-csrf-token': owner.csrf, 'idempotency-key': key, 'content-type': contentType,
+        'x-convo-file-name': filename, 'x-convo-file-type': mimeType,
+      }, payload });
+    const bytes = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(1100000)]);
+    const accepted = await upload('attachment-pdf-01', encodeURIComponent('دليل(١).pdf'), 'application/pdf', bytes);
+    expect(accepted.statusCode, accepted.body).toBe(202);
+    const pdf = accepted.json().data.id;
+    expect((await upload('attachment-pdf-01', 'guide.pdf', 'application/pdf', bytes)).json().data.id).toBe(pdf);
+    const downloaded = await send(api, owner, 'GET', `/conversations/${conversationId}/attachments/${pdf}`);
+    expect(downloaded.statusCode).toBe(200);
+    expect(downloaded.headers['content-disposition']).toContain('attachment;');
+    expect(downloaded.headers['content-disposition']).toContain('%28');
+    expect(downloaded.rawPayload).toEqual(bytes);
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==', 'base64');
+    const image = await upload('attachment-png-01', 'one.png', 'image/png', png);
+    expect(image.statusCode, image.body).toBe(202);
+    const id = image.json().data.id;
+    const displayed = await send(api, owner, 'GET', `/conversations/${conversationId}/attachments/${id}`);
+    expect(displayed.headers['content-type']).toBe('image/png');
+    expect(displayed.headers['content-disposition']).toContain('inline');
+    expect(displayed.rawPayload).toEqual(png);
+    expect((await send(api, owner, 'GET', `/conversations/${conversationId}/voice-messages/${id}/audio`)).statusCode).toBe(404);
+    expect((await api.server.inject({ method: 'GET', url: `${path}/${pdf}` })).statusCode).toBe(401);
+    expect((await upload('attachment-bad-01', 'x.svg', 'image/svg+xml', Buffer.from('<svg/>'))).json().error.code).toBe('file_type_unsupported');
+    expect((await upload('attachment-bad-02', '%GG', 'application/pdf', bytes)).json().error.code).toBe('file_invalid');
+    expect((await upload('attachment-bad-03', ' ', 'application/pdf', bytes)).json().error.code).toBe('file_invalid');
+    expect((await upload('attachment-bad-04', 'x.pdf', 'application/pdf', Buffer.alloc(0))).json().error.code).toBe('file_invalid');
+    expect((await upload('attachment-bad-05', 'x.pdf', 'application/pdf', '{}', 'application/json')).json().error.code).toBe('file_invalid');
+    expect((await upload('attachment-bad-06', 'x.pdf', 'application/pdf', Buffer.alloc(5 * 1024 * 1024 + 1))).statusCode).toBe(413);
+    const dispatcher = api.app.get(ChannelDispatcherService);
+    await dispatcher.dispatch(api.tenantId);
+    await dispatcher.dispatch(api.tenantId);
+    expect(sent.some((command) => command.media?.mimeType === 'application/pdf')).toBe(true);
+  });
+
+  it('refuses invalid recordings, missing recording bytes, invalid keys and expired reply windows', async () => {
+    const path = `/conversations/${conversationId}/voice-messages`;
+    for (const body of [null, {}, { audio: 'YWJj', clientMessageId: 'voice-bad-001' }]) {
+      const response = await send(api, owner, 'POST', path, body as never); expect(response.statusCode, response.body).toBe(422);
+    }
+    expect((await send(api, owner, 'POST', path, { audio: wav().toString('base64'), clientMessageId: '' })).statusCode).toBe(400);
+    const unsupported = await send(api, owner, 'POST', `/channels/${connectionId}/messages`, { messageType: 'audio', peerIdentity: peer, clientMessageId: 'voice-no-bytes-001', text: '' });
+    expect(unsupported.json().error.code).toBe('voice_recording_required');
+    const admin = scratchMigrationPool(api.names);
+    try { await withTenant(admin, api.tenantId, (sql) => sql.query(`UPDATE inbound_events SET occurred_at=now()-interval '2 days' WHERE peer_identity=$1`, [peer])); } finally { await admin.end(); }
+    const expired = await send(api, owner, 'POST', path, { audio: wav().toString('base64'), clientMessageId: 'voice-expired-001' });
+    expect(expired.statusCode, expired.body).toBe(422);
+  });
+});

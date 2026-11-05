@@ -214,7 +214,7 @@ function leadSheetCard(state: AppState): HTMLElement {
         h('span', {}, [assignment.leadName]),
         h('span', { class: assignment.status === 'matched' ? 'text-success' : 'field__hint' }, [
           assignment.status === 'matched' ? `${t(state, 'إسناد إلى', 'Assign to')} ${assignment.matchedName!}`
-            : assignment.status === 'unassigned' ? t(state, 'بدون مسؤول في الملف', 'No owner in sheet')
+            : assignment.status === 'unassigned' ? t(state, 'غير مسند للمحادثات الجديدة', 'New conversations go to Unassigned')
               : assignment.status === 'no_access' ? t(state, 'يحتاج صلاحية على الإنبوكس', 'Needs inbox access')
                 : `${t(state, 'لم تتم مطابقة', 'No match for')} ${assignment.requested}`,
         ]),

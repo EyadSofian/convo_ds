@@ -1,3 +1,4 @@
+import { MAX_CHAT_FILE_BYTES } from '@convo/domain';
 import {
   Body,
   Controller,
@@ -26,6 +27,7 @@ import { NoteService } from './note.service.js';
 import { isPriority, RoutingService } from './routing.service.js';
 import type { AssignmentCommand } from './routing.service.js';
 import { parseInboxQuery } from './inbox-query-request.js';
+import { convertVoice } from '../channels/voice-conversion.js';
 
 /**
  * Conversations: the queue, the list, the record, the timeline and the reply.
@@ -51,6 +53,69 @@ export class ConversationController {
     @Inject(NoteService) private readonly notes: NoteService,
     @Inject(RoutingService) private readonly routing: RoutingService,
   ) {}
+
+  @Post('tenants/:tenantId/conversations/:conversationId/voice-messages')
+  @HttpCode(202)
+  async voiceMessage(@Param('tenantId') tenantId: string, @Param('conversationId') conversationId: string,
+    @Body() body: unknown, @Headers('x-csrf-token') csrf: string | string[] | undefined, @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrf);
+    const target = await this.conversations.replyTarget(session, tenantId, conversationId);
+    const input = asObject(body);
+    const audio = await convertVoice(input['audio']);
+    return { data: await this.outbound.queueVoice(session, tenantId, target.connectionId, target.resource,
+      conversationId, target.peerIdentity, input['clientMessageId'], audio), request_id: request.id };
+  }
+
+  @Get('tenants/:tenantId/conversations/:conversationId/voice-messages/:messageId/audio')
+  async voiceAudio(@Param('tenantId') tenantId: string, @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string, @Req() request: FastifyRequest, @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const audio = await this.outbound.voiceAudio(session, tenantId, conversationId, messageId);
+    await reply.header('cache-control', 'private, no-store').header('accept-ranges', 'none').type('audio/ogg').send(audio);
+  }
+
+  @Post('tenants/:tenantId/conversations/:conversationId/attachments')
+  @HttpCode(202)
+  async attachment(@Param('tenantId') tenantId: string, @Param('conversationId') conversationId: string,
+    @Body() body: unknown, @Headers('x-csrf-token') csrf: string | string[] | undefined, @Req() request: FastifyRequest,
+  ) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    this.auth.requireCsrf(session, request.headers.cookie, csrf);
+    const target = await this.conversations.replyTarget(session, tenantId, conversationId);
+    const mimeType = request.headers['x-convo-file-type'];
+    const encodedName = request.headers['x-convo-file-name'];
+    if (!Buffer.isBuffer(body) || body.length === 0 || body.length > MAX_CHAT_FILE_BYTES ||
+      typeof mimeType !== 'string' || typeof encodedName !== 'string') {
+      throw new ApiHttpError(422, 'file_invalid', 'Choose a non-empty file up to 5 MB.');
+    }
+    let filename: string;
+    // eslint-disable-next-line no-control-regex -- Strip control bytes before putting the name in a response header.
+    try { filename = decodeURIComponent(encodedName).replace(/[\x00-\x1f\x7f/\\]/g, '_').trim().slice(0, 180); }
+    catch { throw new ApiHttpError(422, 'file_invalid', 'The filename is invalid.'); }
+    if (filename === '') throw new ApiHttpError(422, 'file_invalid', 'The filename is invalid.');
+    const data = await this.outbound.queueMedia(session, tenantId, target.connectionId, target.resource,
+      conversationId, target.peerIdentity, request.headers['idempotency-key'], { data: body, filename, mimeType, isVoice: false });
+    return { data, request_id: request.id };
+  }
+
+  @Get('tenants/:tenantId/conversations/:conversationId/attachments/:messageId')
+  async downloadAttachment(@Param('tenantId') tenantId: string, @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string, @Req() request: FastifyRequest, @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    const media = await this.outbound.readMedia(session, tenantId, conversationId, messageId);
+    const inline = ['image/jpeg', 'image/png', 'image/gif'].includes(media.mime_type);
+    const filename = encodeURIComponent(media.filename).replace(/['()*]/g, (character) => `%${character.charCodeAt(0).toString(16)}`);
+    await reply.header('cache-control', 'private, no-store')
+      .header('x-content-type-options', 'nosniff')
+      .header('content-security-policy', "sandbox; default-src 'none'")
+      .header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${filename}`)
+      .type(inline ? media.mime_type : 'application/octet-stream')
+      .send(media.data);
+  }
 
   /** The conversations this caller may read, newest activity first. */
   @Get('tenants/:tenantId/conversations')
@@ -98,6 +163,12 @@ export class ConversationController {
     return { data: await this.conversations.supervisorWorkload(session, tenantId, agentMembershipId), request_id: request.id };
   }
 
+  @Get('tenants/:tenantId/conversations/inboxes')
+  async inboxes(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return { data: await this.conversations.inboxes(session, tenantId), request_id: request.id };
+  }
+
   /** The Unassigned queue, as projected cards. Never a transcript. */
   @Get('tenants/:tenantId/conversations/unassigned')
   async unassigned(
@@ -107,13 +178,16 @@ export class ConversationController {
     @Query('channel') channel: string | undefined,
     @Query('label') label: string | string[] | undefined,
     @Req() request: FastifyRequest,
+    @Query('search') search?: string,
   ) {
     const session = await this.auth.authenticate(request.headers.cookie);
+    const parsedSearch = parseInboxQuery({ search }).search;
     const cards = await this.conversations.unassigned(session, tenantId, {
       connectionId: optionalUuid(inboxId, 'inboxId'),
       priority: optionalPriority(priority),
       channel: optionalChannel(channel),
       labelIds: uuidList(label, 'label'),
+      ...(parsedSearch === null ? {} : { search: parsedSearch }),
     });
     return pageEnvelope(cards, null, request.id);
   }

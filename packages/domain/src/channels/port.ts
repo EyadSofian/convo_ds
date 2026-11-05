@@ -142,7 +142,15 @@ export type SendOutcome =
     }
   | { readonly status: 'outcome_unknown'; readonly code: string; readonly message: string };
 
+export interface OutboundMedia {
+  readonly data: Uint8Array;
+  readonly filename: string;
+  readonly mimeType: string;
+  readonly isVoice: boolean;
+}
+
 export interface SendCommand {
+  readonly media?: OutboundMedia;
   readonly assetIdentity: string;
   /** Linked Facebook Page for Instagram accounts authorized via Facebook Login. */
   readonly facebookPageId?: string | null;

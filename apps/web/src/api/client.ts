@@ -45,6 +45,7 @@ export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 export interface RequestOptions {
   readonly body?: unknown;
+  readonly binary?: { readonly data: Blob; readonly contentType: string; readonly headers: Readonly<Record<string, string>> };
   /** Required by the API on any mutation that would duplicate an effect. */
   readonly idempotencyKey?: string | undefined;
   readonly signal?: AbortSignal | undefined;
@@ -144,6 +145,9 @@ export class ApiClient {
     if (options.body !== undefined) {
       headers['content-type'] = 'application/json';
     }
+    if (options.binary !== undefined) {
+      Object.assign(headers, options.binary.headers, { 'content-type': options.binary.contentType });
+    }
     // Every state-changing verb carries CSRF. Deciding that here rather than at
     // each call site is what makes "all browser mutations use CSRF" a property
     // of the client instead of a habit.
@@ -160,11 +164,12 @@ export class ApiClient {
     const signal = method === 'GET' ? options.signal ?? AbortSignal.timeout(READ_TIMEOUT_MS) : options.signal;
     let response: Response;
     try {
+      const body = options.binary?.data ?? (options.body === undefined ? undefined : JSON.stringify(options.body));
       response = await this.options.fetch(`${this.options.baseUrl}${path}`, {
         method,
         headers,
         credentials: 'same-origin',
-        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+        ...(body === undefined ? {} : { body }),
         ...(signal === undefined ? {} : { signal }),
       });
     } catch (cause) {

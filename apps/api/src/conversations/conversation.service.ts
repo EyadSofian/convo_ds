@@ -36,7 +36,7 @@ import type { TimelinePage } from './timeline.js';
 import { MetadataService } from '../metadata/metadata.service.js';
 import type { EntityMetadata } from '../metadata/metadata.service.js';
 import { OpaqueCursorCodec } from '../pagination.js';
-import { compileInboxQuery, previewScope, readableScope } from './inbox-query-compiler.js';
+import { compileInboxQuery, previewScope, readableScope, searchPredicate } from './inbox-query-compiler.js';
 import { validateInboxQuery } from './inbox-query-validation.js';
 import { requireScopedSupervisorAgent, scopedSupervisorAgents } from './supervisor-directory.js';
 import { conversationEventBoundary, conversationUnrepliedPredicate, externalEcho, latestConversationInbound } from './event-boundary.js';
@@ -105,6 +105,26 @@ export class ConversationService {
     @Inject(NotificationService) private readonly notifications: NotificationService,
     @Inject(RoutingService) private readonly routing: RoutingService,
   ) {}
+
+  /** Inbox names are visible to agents who can read or preview work there. */
+  async inboxes(session: AuthenticatedSession, tenantId: string) {
+    return this.authorization.withPrincipal(session, tenantId, async ({ sql, principal }) => {
+      const params: unknown[] = [];
+      const add = (value: unknown): string => { params.push(value); return `$${params.length}`; };
+      const readable = readableScope(principal, add);
+      const previewable = previewScope(principal, add);
+      const rows = await sql.query<{ id: string; label: string; channel: string; asset_id: string; has_visible_work: boolean }>(
+        `SELECT inbox.id::text,inbox.display_name AS label,inbox.kind AS channel,inbox.external_asset_id AS asset_id,
+                EXISTS (SELECT 1 FROM conversations c WHERE c.connection_id=inbox.id AND c.deleted_at IS NULL
+                  AND ((${readable}) OR (c.assignee_membership_id IS NULL AND (${previewable})))) AS has_visible_work
+           FROM channel_connections inbox WHERE inbox.disconnected_at IS NULL
+          ORDER BY lower(inbox.display_name),inbox.id`, params);
+      return rows.rows.filter((row) => row.has_visible_work ||
+        authorize(principal, 'conversation.read', { inboxId: row.id, assigneeMembershipId: principal.membershipId }).allowed ||
+        authorize(principal, 'conversation.unassigned.preview', { inboxId: row.id }).allowed)
+        .map(({ id, label, channel, asset_id }) => ({ id, label, channel, assetSuffix: asset_id.slice(-6) }));
+    });
+  }
 
   /**
    * The conversation for one customer on one inbox, created if this is the
@@ -298,6 +318,7 @@ export class ConversationService {
       readonly priority: string | null;
       readonly channel: string | null;
       readonly labelIds: readonly string[];
+      readonly search?: string;
     },
   ): Promise<readonly QueueCard[]> {
     return this.authorization.authorized(
@@ -310,6 +331,10 @@ export class ConversationService {
           params.push(value);
           return `$${String(params.length)}`;
         });
+        const search = filters.search ? searchPredicate(filters.search, (value) => {
+          params.push(value);
+          return `$${params.length}`;
+        }) : 'TRUE';
         const rows = await sql.query<
           RawConversation & { display_name: string; kind: string; contact_display_name: string | null }
         >(
@@ -335,6 +360,7 @@ export class ConversationService {
                    AND cl.label_id = ANY($4::uuid[])
               ) = cardinality($4::uuid[]))
               AND ${scope}
+              AND ${search}
             ORDER BY c.waiting_since NULLS LAST, c.id
             LIMIT 200`,
           params,

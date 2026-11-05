@@ -95,6 +95,15 @@ describe('broadcast lead sheet', () => {
     expect(await parseLeadSheet(file('leads.xlsx', sheet))).toEqual({ ok: true, rows: [expected, { ...expected, leadName: '' }] });
   });
 
+  it.each([true, false])('imports leads without an Assign To column (course column: %s)', async (hasCourse) => {
+    const columns = headers.filter((name) => name !== 'Assign To' && (hasCourse || name !== 'Course Name'));
+    const values = ['Mona', '01012345678', ...(hasCourse ? ['Math'] : []), 'Autumn', 'Autumn Offer'];
+    const source = `${columns.join(',')}\n${values.join(',')}`;
+    expect(await parseLeadSheet(file('leads.csv', strToU8(source)))).toMatchObject({
+      ok: true, rows: [{ leadName: 'Mona', assignTo: '', campaignName: 'Autumn Offer' }],
+    });
+  });
+
   it('rejects an unsafe header and formula cells', async () => {
     expect(await parseLeadSheet(file('leads.csv', strToU8('Name,Mobile\nMona,01012345678')))).toMatchObject({ ok: false });
     const zipped = zipSync({ 'xl/worksheets/sheet1.xml': strToU8('<worksheet><sheetData><row><c r="A1"><f>1+1</f><v>2</v></c></row></sheetData></worksheet>') });

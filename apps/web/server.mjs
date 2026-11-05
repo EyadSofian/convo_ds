@@ -111,6 +111,7 @@ function securityHeaders(request) {
       "img-src 'self' data: blob: https://*.fbcdn.net https://*.cdninstagram.com",
       "font-src 'self'",
       "connect-src 'self'",
+      "media-src 'self' blob:",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
@@ -119,7 +120,7 @@ function securityHeaders(request) {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+    'Permissions-Policy': 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()',
     ...(https ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains' } : {}),
   };
 }

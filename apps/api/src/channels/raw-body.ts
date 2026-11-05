@@ -1,3 +1,4 @@
+import { CHAT_FILE_CONTENT_TYPE, MAX_CHAT_FILE_BYTES } from '@convo/domain';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 /**
@@ -23,6 +24,8 @@ const WEBHOOK_PREFIX = '/api/v1/webhooks/';
 export const WEBHOOK_BODY_LIMIT = 512 * 1024;
 
 export function attachRawBodyParser(server: FastifyInstance): void {
+  server.addContentTypeParser(CHAT_FILE_CONTENT_TYPE, { parseAs: 'buffer', bodyLimit: MAX_CHAT_FILE_BYTES },
+    (_request, body, done) => done(null, body));
   server.addContentTypeParser(
     'application/json',
     { parseAs: 'buffer', bodyLimit: WEBHOOK_BODY_LIMIT },

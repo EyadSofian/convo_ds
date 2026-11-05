@@ -137,6 +137,7 @@ describe('migrate', () => {
       'notification_push_queue',
       'notifications',
       'outbound_attempts',
+      'outbound_message_media',
       'outbound_messages',
       'outbox',
       'ownership_transfers',

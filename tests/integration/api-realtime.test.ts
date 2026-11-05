@@ -635,6 +635,15 @@ describe('cursors', () => {
   });
 });
 
+it('lists only the WhatsApp lines available to the current agent', async () => {
+  const first = await send(api, agentA, 'GET', '/conversations/inboxes');
+  const second = await send(api, agentB, 'GET', '/conversations/inboxes');
+  expect(first.statusCode, first.body).toBe(200);
+  expect(second.statusCode, second.body).toBe(200);
+  expect(first.json().data).toEqual([expect.objectContaining({ id: inboxA, channel: 'whatsapp' })]);
+  expect(second.json().data).toEqual([expect.objectContaining({ id: inboxB, channel: 'whatsapp' })]);
+});
+
 describe('the Unassigned queue', () => {
   it('lists projected cards for the inboxes an agent may work', async () => {
     const response = await send(api, agentA, 'GET', '/conversations/unassigned');
