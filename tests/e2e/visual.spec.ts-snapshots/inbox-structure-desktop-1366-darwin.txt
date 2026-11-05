@@ -1,12 +1,13 @@
 div.inbox
   section.zone.zone--list
     header.listhead
-      div.listhead__row
+      div.listhead__row.listhead__row--primary
         div.segmented
           button.segmented__item [live-inbox-queue]
             span.segmented__count
           button.segmented__item [live-inbox-queue]
             span.segmented__count
+          button.segmented__item [live-inbox-queue]
         div.listhead__tools
           button.btn.btn--ghost.btn--sm.inbox-refresh-trigger [live-inbox-reload]
             span.btn__label
@@ -15,6 +16,21 @@ div.inbox
               svg
                 path
                 path
+      div.listhead__row.listhead__row--actions
+        button.btn.btn--primary.btn--sm.inbox-quick-message [live-quick-whatsapp-open]
+          span.btn__icon
+            svg
+              path
+              path
+          span.btn__label
+        div.menu-anchor.inbox-lines
+          button.btn.btn--ghost.btn--sm [live-inbox-lines]
+            span.btn__icon
+              svg
+                path
+                path
+                path
+            span.btn__label
       div.listhead__row
         div.inbox-search
           svg
@@ -59,10 +75,7 @@ div.inbox
     div.zone__body
       div.convlist
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-3
             span.avatar__channel.channel-tile--whatsapp
               svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
                 path
@@ -76,10 +89,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-0
             span.avatar__channel.channel-tile--messenger
               svg.channel-mark.channel-mark--brand.channel-mark--messenger
                 path
@@ -96,10 +106,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-1
             span.avatar__channel.channel-tile--instagram
               svg.channel-mark.channel-mark--brand.channel-mark--instagram
                 defs
@@ -123,10 +130,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-6
             span.avatar__channel.channel-tile--web_chat
               svg.channel-mark.channel-mark--product.channel-mark--web_chat
                 path
@@ -141,10 +145,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-7
             span.avatar__channel.channel-tile--whatsapp
               svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
                 path
@@ -158,10 +159,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-4
             span.avatar__channel.channel-tile--messenger
               svg.channel-mark.channel-mark--brand.channel-mark--messenger
                 path
@@ -178,10 +176,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-5
             span.avatar__channel.channel-tile--instagram
               svg.channel-mark.channel-mark--brand.channel-mark--instagram
                 defs
@@ -205,10 +200,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-2
             span.avatar__channel.channel-tile--web_chat
               svg.channel-mark.channel-mark--product.channel-mark--web_chat
                 path
@@ -223,10 +215,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-3
             span.avatar__channel.channel-tile--whatsapp
               svg.channel-mark.channel-mark--brand.channel-mark--whatsapp
                 path
@@ -240,10 +229,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-0
             span.avatar__channel.channel-tile--messenger
               svg.channel-mark.channel-mark--brand.channel-mark--messenger
                 path
@@ -260,10 +246,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-2
             span.avatar__channel.channel-tile--instagram
               svg.channel-mark.channel-mark--brand.channel-mark--instagram
                 defs
@@ -287,10 +270,7 @@ div.inbox
           button.btn.btn--sm.convrow__claim [live-inbox-claim]
             span.btn__label
         article.convrow.convrow--card
-          span.avatar.avatar--md
-            svg
-              circle
-              path
+          span.avatar.avatar--md.avatar--tone-5
             span.avatar__channel.channel-tile--web_chat
               svg.channel-mark.channel-mark--product.channel-mark--web_chat
                 path
@@ -373,7 +353,6 @@ div.inbox
         div.msg__bubble
         div.msg__meta
           time
-          span.msg__state.msg__state--provider_accepted
           span.msg__delivery.msg__delivery--delivered
             svg
               path
@@ -386,7 +365,6 @@ div.inbox
         div.msg__bubble
         div.msg__meta
           time
-          span.msg__state.msg__state--provider_accepted
           span.msg__delivery.msg__delivery--delivered
             svg
               path
@@ -399,7 +377,6 @@ div.inbox
         div.msg__bubble
         div.msg__meta
           time
-          span.msg__state.msg__state--provider_accepted
           span.msg__delivery.msg__delivery--read
             svg
               path
@@ -412,7 +389,6 @@ div.inbox
         div.msg__bubble
         div.msg__meta
           time
-          span.msg__state.msg__state--provider_accepted
           span.msg__delivery.msg__delivery--read
             svg
               path
@@ -425,7 +401,6 @@ div.inbox
         div.msg__bubble
         div.msg__meta
           time
-          span.msg__state.msg__state--provider_accepted
           span.msg__delivery.msg__delivery--read
             svg
               path
@@ -443,6 +418,21 @@ div.inbox
               button.composer__tab [composer-tab]
                 svg
                   path
+                  path
+            div.composer__emoji
+              button.btn.btn--ghost.btn--sm.btn--icon [menu]
+                span.btn__icon
+                  svg
+                    circle
+                    path
+            label.composer__file-picker
+              svg
+                path
+              input [live-attachment-file]
+            button.btn.btn--ghost.btn--sm.btn--icon [live-voice-start]
+              span.btn__icon
+                svg
+                  rect
                   path
             span.composer__hint
             button.btn.btn--sm.composer__templates [live-whatsapp-template-open]
