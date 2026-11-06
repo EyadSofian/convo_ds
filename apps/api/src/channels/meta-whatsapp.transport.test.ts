@@ -170,29 +170,38 @@ describe('syncing a Meta Page', () => {
         paging: { next: 'https://graph/next', cursors: { after: `cursor ${String(pages.length)}` } },
       });
     });
-    const synced = await adapter.syncMetaPage('instagram', TOKEN, '123', SINCE);
-    expect(synced).toMatchObject({ ok: true, conversations: 20 });
-    expect(calls.filter((call) => call.method === 'GET')).toHaveLength(20);
-    expect(String(pages[1])).toContain('platform=instagram&limit=5');
+    const synced = await adapter.syncMetaPage('messenger', TOKEN, '123', SINCE);
+    expect(synced).toMatchObject({ ok: true, conversations: 4 });
+    expect(calls.filter((call) => call.method === 'GET')).toHaveLength(4);
+    expect(String(pages[1])).toContain('platform=messenger&limit=25');
     expect(String(pages[1])).toContain('&after=cursor%201');
   });
 
-  it('retries a slow Instagram page with one conversation at the same cursor', async () => {
+  it('reads the Instagram list bare, then each thread on its own', async () => {
     const { adapter, calls } = transport((call) => {
       if (call.method === 'POST') return subscribed();
-      const query = new URL(call.url).searchParams;
-      if (!query.has('after')) return json(200, {
-        data: [conversation('2026-11-01T00:00:00Z', 'first')],
-        paging: { next: 'more', cursors: { after: 'cursor' } },
+      const url = new URL(call.url);
+      if (url.pathname.endsWith('/conversations')) return json(200, {
+        data: [
+          { id: 'ig/one', updated_time: '2026-11-01T00:00:00Z' },
+          { id: 'ig-slow', updated_time: '2026-11-01T00:00:00Z' },
+          { id: 'ig-odd', updated_time: '2026-11-01T00:00:00Z' },
+        ],
       });
-      if (query.get('limit') === '5') return new DOMException('late', 'TimeoutError');
-      return json(200, { data: [conversation('2026-11-01T00:00:00Z', 'next')] });
+      if (url.pathname.endsWith('ig-slow')) return new DOMException('late', 'TimeoutError');
+      if (url.pathname.endsWith('ig-odd')) return json(200, []);
+      return json(200, { messages: { data: [{ id: 'first' }, { id: 'second' }] } });
     });
-    expect(await adapter.syncMetaPage('instagram', TOKEN, '123', SINCE)).toMatchObject({
-      ok: true, conversations: 2, messages: [{ id: 'first' }, { id: 'next' }],
+    // The slow thread is skipped and the sync says it was partial; the others stand.
+    expect(await adapter.syncMetaPage('instagram', TOKEN, '123', SINCE)).toEqual({
+      ok: true, subscriptionError: null, conversations: 3, historyIncomplete: true, messages: [{ id: 'first' }, { id: 'second' }],
     });
-    expect(calls.slice(-2).map((call) => new URL(call.url).searchParams.get('after'))).toEqual(['cursor', 'cursor']);
-    expect(new URL(calls.at(-1)!.url).searchParams.get('limit')).toBe('1');
+    const reads = calls.filter((call) => call.method === 'GET').map((call) => decodeURIComponent(call.url));
+    expect(reads[0]).toContain(`${GRAPH}/123/conversations?platform=instagram&limit=25&fields=id,updated_time`);
+    expect(reads[0]).not.toContain('messages');
+    // A Graph id is a path segment, so it is encoded rather than trusted.
+    expect(calls[2]?.url).toContain(`${GRAPH}/ig%2Fone?fields=`);
+    expect(reads[1]).toContain('fields=messages.limit(20){id,created_time,from,to,message,attachments{');
   });
 
   it('keeps earlier messages if the remaining history exceeds the time budget', async () => {
@@ -202,7 +211,7 @@ describe('syncing a Meta Page', () => {
         data: [conversation('2026-11-01T00:00:00Z', 'first')],
         paging: { next: 'more', cursors: { after: 'cursor' } },
       }));
-      expect(await adapter.syncMetaPage('instagram', TOKEN, '123', SINCE)).toMatchObject({
+      expect(await adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toMatchObject({
         ok: true, conversations: 1, historyIncomplete: true, messages: [{ id: 'first' }],
       });
       expect(calls.filter((call) => call.method === 'GET')).toHaveLength(1);
@@ -211,12 +220,12 @@ describe('syncing a Meta Page', () => {
     }
   });
 
-  it('reports an Instagram history timeout when even the smallest request fails', async () => {
+  it('reports a history timeout when even the conversation list cannot be read', async () => {
     const { adapter, calls } = transport((call) => call.method === 'POST' ? subscribed() : new DOMException('late', 'TimeoutError'));
     expect(await adapter.syncMetaPage('instagram', TOKEN, '123', SINCE)).toMatchObject({
       ok: false, code: 'provider_timeout', message: 'Meta took too long to return the message history.',
     });
-    expect(calls.filter((call) => call.method === 'GET').map((call) => new URL(call.url).searchParams.get('limit'))).toEqual(['5', '1']);
+    expect(calls.filter((call) => call.method === 'GET')).toHaveLength(1);
   });
 
   it('stops at the first conversation older than the window', async () => {
