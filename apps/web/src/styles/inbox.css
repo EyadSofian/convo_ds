@@ -214,6 +214,24 @@
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
+  /* Static ring, like every busy mark here; it breathes instead of spinning. */
+  .inbox-search__spinner {
+    color: var(--accent-text);
+    animation: convo-pulse 900ms var(--ease-out) infinite;
+  }
+
+  /* The rows stay while a search is read; they step back so the wait is visible. */
+  .zone--list > .zone__body[aria-busy='true'] .convlist {
+    opacity: 0.55;
+    transition: opacity var(--motion-fast) var(--ease-out);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .inbox-search__spinner {
+      animation: none;
+    }
+  }
+
   .inbox-search__input {
     min-inline-size: 0;
     inline-size: 100%;
@@ -907,7 +925,210 @@
   }
 
   .composer__toolbar--claim {
+    padding: var(--space-2) var(--space-3) var(--space-3);
+  }
+
+  /* Which surface the box writes to, on top, where the eye starts. The hint
+     sits opposite it and is the first thing to go when room runs out. */
+  .composer__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2) 0;
+  }
+
+  .composer__head .composer__hint {
+    flex: 0 1 auto;
+    padding-inline-end: var(--space-1);
+  }
+
+  .composer__panel > .composer__blocked {
+    display: flex;
+    justify-content: flex-start;
+    padding: var(--space-3);
+  }
+
+  /* One row under the text: tools at the start, Send at the end. */
+  .composer__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2) var(--space-2);
+  }
+
+  .composer__tools {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 2px;
+    min-inline-size: 0;
+  }
+
+  .composer__bar > .composer__send {
+    flex: none;
+    margin-inline-start: auto;
+  }
+
+  /* Icon tools share one size and one quiet ink, so the row reads as a set. */
+  .composer__tool.btn,
+  .composer__file-picker.composer__tool {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 34px;
+    block-size: 34px;
+    padding: 0;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+  }
+
+  .composer__tool.btn:hover:not([disabled]),
+  .composer__file-picker.composer__tool:hover,
+  .composer__tool.btn--active {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  .composer__tools .composer__templates {
+    margin-inline-start: var(--space-1);
+    padding-inline: var(--space-2);
+    color: var(--text-secondary);
+  }
+
+  .composer__error {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin: 0 var(--space-3);
+    color: var(--danger);
+    font-size: var(--text-xs);
+  }
+
+  /* ---------------------------------------------------------- emoji picker -- */
+
+  .emoji-picker {
+    inset-block: auto calc(100% + var(--space-2));
+    inset-inline: 0 auto;
+    display: grid;
+    gap: var(--space-2);
+    inline-size: min(340px, calc(100vw - var(--space-6)));
+    min-inline-size: 0;
     padding: var(--space-2);
+    transform-origin: bottom;
+  }
+
+  .emoji-picker__tabs {
+    display: flex;
+    gap: 2px;
+    padding-block-end: var(--space-1);
+    border-block-end: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .emoji-picker__tab {
+    flex: 1 0 34px;
+    block-size: 34px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.6;
+    filter: grayscale(0.4);
+    transition: opacity var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
+  }
+
+  .emoji-picker__tab:hover,
+  .emoji-picker__tab:focus-visible {
+    background: var(--surface-hover);
+    opacity: 1;
+    filter: none;
+  }
+
+  .emoji-picker__tab[aria-selected='true'] {
+    background: var(--accent-soft);
+    opacity: 1;
+    filter: none;
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+
+  .emoji-picker__search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding-inline: var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    color: var(--text-muted);
+  }
+
+  .emoji-picker__search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  .emoji-picker__search-input {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    block-size: 32px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: var(--text-sm);
+  }
+
+  .emoji-picker__heading {
+    margin: 0;
+    padding-inline: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+  }
+
+  .emoji-picker__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+    gap: 2px;
+    max-block-size: 216px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .emoji-picker__item {
+    block-size: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+  }
+
+  .emoji-picker__item:hover,
+  .emoji-picker__item:focus-visible {
+    background: var(--surface-hover);
+    transform: scale(1.12);
+  }
+
+  .emoji-picker__empty {
+    margin: 0;
+    padding: var(--space-4) var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    text-align: center;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .emoji-picker__item:hover,
+    .emoji-picker__item:focus-visible {
+      transform: none;
+    }
   }
 
   /* The hint gives way first, then the templates label, so Send stays on the row. */
@@ -916,19 +1137,14 @@
       display: none;
     }
 
-    .composer__toolbar .composer__send {
-      margin-inline-start: 0;
-    }
-
-    .composer__toolbar .composer__templates {
-      margin-inline-start: auto;
-      inline-size: var(--control-height-sm);
+    .composer__tools .composer__templates {
+      inline-size: 34px;
       padding-inline: 0;
     }
 
-    /* Icon-only on a phone so Reply/Note, Templates and Send share one row;
-       the label stays the accessible name, and the title names it on hover. */
-    .composer__toolbar .composer__templates .btn__label {
+    /* Icon-only on a phone so the tools and Send share one row; the label
+       stays the accessible name, and the title names it on hover. */
+    .composer__tools .composer__templates .btn__label {
       position: absolute;
       inline-size: 1px;
       block-size: 1px;
@@ -938,38 +1154,9 @@
     }
   }
 
-  /* The emoji popover opens upwards from its button. It is a `.popover`, which
-     opens downwards, so that edge has to be released: with both set and no height
-     it collapses to a sliver and its contents spill off the bottom of the screen. */
+  /* The emoji popover opens upwards from its button (see .emoji-picker). */
   .composer__emoji {
     position: relative;
-  }
-
-  .composer__emoji-picker {
-    inset-block: auto calc(100% + var(--space-2));
-    inset-inline: 0 auto;
-    grid-template-columns: repeat(6, 36px);
-    gap: var(--space-1);
-    inline-size: max-content;
-    min-inline-size: 0;
-    padding: var(--space-2);
-    transform-origin: bottom;
-  }
-
-  .composer__emoji-item {
-    block-size: 36px;
-    padding: 0;
-    border: 0;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    font-size: 20px;
-    line-height: 1;
-    cursor: pointer;
-  }
-
-  .composer__emoji-item:hover,
-  .composer__emoji-item:focus-visible {
-    background: var(--surface-hover);
   }
 
   /* ---------------------------------------------------------- voice notes --
@@ -1214,25 +1401,24 @@
   /* On a phone everything still shares one row, so Send never sits alone below it.
      The labels stay the accessible names; only their ink goes. */
   @container thread (max-width: 460px) {
-    .composer__toolbar .composer__tab svg {
+    .composer__head .composer__tab svg {
       display: none;
     }
 
-    .composer__toolbar .composer__tab {
+    .composer__head .composer__tab {
       padding-inline: var(--space-2);
     }
 
-    .composer__toolbar {
-      flex-wrap: nowrap;
+    .composer__bar {
       gap: var(--space-1);
     }
 
-    .composer__toolbar .composer__send {
+    .composer__bar .composer__send {
       inline-size: var(--control-height-sm);
       padding-inline: 0;
     }
 
-    .composer__toolbar .composer__send .btn__label {
+    .composer__bar .composer__send .btn__label {
       position: absolute;
       inline-size: 1px;
       block-size: 1px;
@@ -1396,6 +1582,203 @@
 
   .zone--panel > .zone__body > .panel-section:first-child {
     margin-block-start: var(--space-3);
+  }
+
+  /* ------------------------------------------------- panel beside a thread --
+     One quiet card for who the customer is, then folding sections with the
+     same header each. Colour is kept for what it means (an opt-out, a label's
+     own colour), not spent on decorating every heading.
+     -------------------------------------------------------------------- */
+
+  .zone--panel > .zone__body {
+    gap: var(--space-2);
+  }
+
+  .zone--panel .contact--panel {
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-3) 0;
+  }
+
+  .contact-card {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-1);
+  }
+
+  .contact-card__top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+
+  .contact-card__who {
+    display: grid;
+    gap: 2px;
+    min-inline-size: 0;
+  }
+
+  .contact-card__name {
+    margin: 0;
+    overflow: hidden;
+    color: var(--text);
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-tight);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .contact-card__id {
+    margin: 0;
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+    text-align: start;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [dir='rtl'] .contact-card__id {
+    text-align: end;
+  }
+
+  .contact-card__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  .contact-card__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding-block: 2px;
+    padding-inline: 2px var(--space-2);
+    border-radius: var(--radius-full);
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+  }
+
+  .contact-card__since {
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+  }
+
+  .contact-card__alert {
+    margin: 0;
+  }
+
+  .contact-card__alert svg {
+    flex: none;
+    margin-block-start: 1px;
+    color: var(--warning);
+  }
+
+  /* Every section in the panel is the same card with the same header. */
+  .zone--panel .panel-section--foldable {
+    gap: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-1);
+  }
+
+  .zone--panel .contact--panel > .panel-section--foldable {
+    margin: 0;
+  }
+
+  /* The conversation's own sections sit straight in the body, where an older
+     card rule pads them; the toggle and body carry the padding instead. */
+  .zone--panel > .zone__body > .panel-section--foldable {
+    padding: 0;
+  }
+
+  .panel-section--foldable > .panel-section__title {
+    display: block;
+  }
+
+  .panel-section__toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    inline-size: 100%;
+    min-block-size: 44px;
+    padding-block: var(--space-2);
+    padding-inline: var(--space-4) var(--space-3);
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .panel-section__toggle:hover {
+    background: var(--surface-hover);
+  }
+
+  .panel-section__toggle .panel-section__text {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+  }
+
+  .panel-section__summary {
+    flex: none;
+    min-inline-size: 20px;
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-full);
+    background: var(--surface-3);
+    color: var(--text-secondary);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    text-align: center;
+  }
+
+  .panel-section__chevron {
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+    color: var(--text-muted);
+    transition: rotate var(--motion-fast) var(--ease-out);
+  }
+
+  .panel-section__toggle[aria-expanded='false'] .panel-section__chevron {
+    rotate: 90deg;
+  }
+
+  [dir='rtl'] .panel-section__toggle[aria-expanded='false'] .panel-section__chevron {
+    rotate: -90deg;
+  }
+
+  .panel-section__body {
+    display: grid;
+    gap: var(--space-3);
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  .panel-section__body[hidden] {
+    display: none;
+  }
+
+  /* Headings in the panel carry one neutral chip, not a colour each. */
+  .zone--panel .panel-section__title .section-chip {
+    background: var(--surface-2);
+    color: var(--text-secondary);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel-section__chevron {
+      transition: none;
+    }
   }
 
   .contact {

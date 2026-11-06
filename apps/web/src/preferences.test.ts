@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PreferenceStore } from './preferences';
-import { browserStore, LANG_KEY, NAV_KEY, readPreferences, THEME_KEY, writePreferences } from './preferences';
+import { browserStore, EMOJI_KEY, LANG_KEY, NAV_KEY, PANEL_KEY, readHabits, readPreferences, THEME_KEY, writeHabits, writePreferences } from './preferences';
 
 function memory(initial: Record<string, string> = {}): PreferenceStore & { readonly values: Record<string, string> } {
   const values = { ...initial };
@@ -60,5 +60,29 @@ describe('visual preferences', () => {
       },
     });
     expect(browserStore(guarded)).toBeNull();
+  });
+});
+
+describe('workspace habits', () => {
+  const known = { emoji: (value: string) => value === '👍' || value === '🙏', section: (value: string) => value === 'profile' };
+
+  it('reads nothing when there is nowhere to read from, or nothing stored', () => {
+    expect(readHabits(null, known)).toEqual({ emojiRecent: null, panelSections: null });
+    expect(readHabits(memory(), known)).toEqual({ emojiRecent: null, panelSections: null });
+  });
+
+  it('keeps only entries this build knows, and ignores anything not a list', () => {
+    const store = memory({ [EMOJI_KEY]: JSON.stringify(['👍', 7, '💥', '🙏']), [PANEL_KEY]: '{"profile":true}' });
+    expect(readHabits(store, known)).toEqual({ emojiRecent: ['👍', '🙏'], panelSections: null });
+    expect(readHabits(memory({ [EMOJI_KEY]: 'not json' }), known).emojiRecent).toBeNull();
+  });
+
+  it('writes both lists, and survives a store that refuses', () => {
+    const store = memory();
+    writeHabits(store, { emojiRecent: ['🙏'], panelSections: ['profile'] });
+    expect(readHabits(store, known)).toEqual({ emojiRecent: ['🙏'], panelSections: ['profile'] });
+    writeHabits(null, { emojiRecent: [], panelSections: [] });
+    const refusing: PreferenceStore = { getItem: () => null, setItem: () => { throw new Error('quota'); } };
+    expect(() => writeHabits(refusing, { emojiRecent: ['🙏'], panelSections: [] })).not.toThrow();
   });
 });

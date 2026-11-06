@@ -1,3 +1,4 @@
+import { rememberEmoji } from '../ui/emoji-data.js';
 import { sendAttachment } from './chat-attachment.js';
 import { editTemplateAccess, pickLibraryResults, openTemplateLibrary, saveTemplateAccess } from './template-library.js';
 import { lookupInboxNumber } from './inbox-number-lookup.js';
@@ -1318,10 +1319,13 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   'live-voice-play': async (_context, arg) => toggleVoice(arg),
   'live-voice-seek': async (_context, arg) => { seekVoice(arg); },
   'live-voice-rate': async (context) => { cycleVoiceRate(); context.refresh(); },
+  // The page inserts a pick at the caret itself (app.ts) and only records it
+  // here; this is the path for a composer that is not on the page to ask.
+  // The picker stays open, so two or three can be added in a row.
   'live-emoji': async (context, emoji) => {
     if (context.state.composerTab === 'reply') context.live.composer += emoji;
     else context.live.noteDraft += emoji;
-    context.state.openMenu = null;
+    context.state.emojiRecent = rememberEmoji(context.state.emojiRecent, emoji);
     context.state.focusTarget = '.composer__input';
     context.refresh();
   },
@@ -1714,7 +1718,7 @@ function scheduleInboxSearch(context: LiveContext, value: string): void {
     if (context.live.inboxQuery.search === (search === '' ? null : search)) return;
     context.live.inboxQuery = { ...context.live.inboxQuery, search: search === '' ? null : search, cursor: null };
     context.live.selectedSavedViewId = null;
-    void loadInboxScreen(context);
+    void loadInboxScreen(context, { keepRows: true });
   }, 250);
 }
 

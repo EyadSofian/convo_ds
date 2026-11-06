@@ -85,6 +85,8 @@ export interface RealtimeOptions {
   readonly tenantId: string;
   readonly open: EventSourceFactory;
   readonly handlers: RealtimeHandlers;
+  /** The clock silence is measured with. Injected so a test can move it. */
+  readonly now?: () => number;
 }
 
 export interface RealtimeSubscription {
@@ -96,6 +98,17 @@ export interface RealtimeSubscription {
    * `EventSource` is still retrying, a second connection would race it.
    */
   ended(): boolean;
+  /**
+   * How long, in ms, since this stream last said anything — an event, a
+   * heartbeat, an open or an ending.
+   *
+   * A connection a proxy or a sleeping laptop dropped without closing still
+   * reads as open to `EventSource`, which then waits forever on a socket that
+   * will never speak. The server sends a heartbeat every few seconds of quiet,
+   * so a long silence is the one sign of that, and the screen uses it to
+   * replace the stream instead of looking live while showing old work.
+   */
+  quietFor(): number;
   close(): void;
 }
 
@@ -119,6 +132,11 @@ export function subscribe(options: RealtimeOptions): RealtimeSubscription {
   let cursor: string | null = null;
   let highestSeq = 0;
   let closed = false;
+  const now = options.now ?? Date.now;
+  let heardAt = now();
+  const heard = (): void => {
+    heardAt = now();
+  };
 
   // No cursor on the URL: a fresh subscription starts from what the feed still
   // holds, and a *reconnect* resumes through `Last-Event-ID`, which
@@ -126,10 +144,14 @@ export function subscribe(options: RealtimeOptions): RealtimeSubscription {
   // across a longer gap is the HTTP endpoint's job, not this one's.
   const source = options.open(`${options.baseUrl}/tenants/${options.tenantId}/realtime/stream`);
   source.addEventListener('open', () => {
+    heard();
     if (!closed) options.handlers.onConnect();
   });
+  // The heartbeat carries nothing. It exists so that silence means something.
+  source.addEventListener('heartbeat', heard);
 
   const apply = (raw: string): void => {
+    heard();
     const event = parseEvent(raw);
     if (event === null || !KNOWN_TYPES.has(event.type)) {
       // A type this build does not know is not an error: a newer server may
@@ -162,6 +184,7 @@ export function subscribe(options: RealtimeOptions): RealtimeSubscription {
     if (closed) {
       return;
     }
+    heard();
     // Everything applied so far was chosen under rules that no longer hold.
     seen.clear();
     highestSeq = 0;
@@ -174,6 +197,7 @@ export function subscribe(options: RealtimeOptions): RealtimeSubscription {
       if (closed) {
         return;
       }
+      heard();
       const reason = reasonOf(message.data);
       if (reason === 'access_revoked') {
         // Coming back would ask the same question and get the same answer, so
@@ -198,6 +222,7 @@ export function subscribe(options: RealtimeOptions): RealtimeSubscription {
   return {
     cursor: () => cursor,
     ended: () => closed || source.readyState === CLOSED,
+    quietFor: () => now() - heardAt,
     close: () => {
       closed = true;
       source.close();

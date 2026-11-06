@@ -8,7 +8,7 @@ import { loadEpisodes, loadNotes, markConversationRead } from './lifecycle-actio
 import { loadRouting } from './routing-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
-import { adoptConversation, currentTenantId, failed, forTenant, fromResult, LOADING, ready, refetching, rowsOf, singleFlight } from './store.js';
+import { adoptConversation, currentTenantId, failed, forTenant, fromResult, LOADING, ready, refetching, reloading, rowsOf, singleFlight } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadSavedViews } from './saved-view-actions.js';
 import { loadNotifications } from './notification-actions.js';
@@ -39,9 +39,20 @@ function t(context: LiveContext, ar: string, en: string): string {
 
 /* ------------------------------------------------------------------ lists -- */
 
+export interface InboxLoadOptions {
+  /**
+   * Keep the rows on screen while the new answer is read. Used for a search
+   * and for coming back to the Inbox from another screen: blanking a list the
+   * operator was just reading into placeholders made every keystroke look like
+   * a reload, and made returning to the Inbox look like starting over.
+   */
+  readonly keepRows?: boolean;
+}
+
 /** Loads both halves of the inbox: the queue and the caller's own work. */
-export async function loadInboxScreen(context: LiveContext): Promise<void> {
+export async function loadInboxScreen(context: LiveContext, options: InboxLoadOptions = {}): Promise<void> {
   const { live } = context;
+  const keep = options.keepRows === true;
   return forTenant(context, undefined, async (tenantId) => {
     // A bookmarked supervisor lens is still validated by the server on every
     // read. The browser restores only the opaque membership reference; it
@@ -68,23 +79,32 @@ export async function loadInboxScreen(context: LiveContext): Promise<void> {
       context.refresh();
       return;
     }
-    live.unassigned = refetching(live, live.unassigned);
-    live.conversations = refetching(live, live.conversations);
+    live.unassigned = keep ? reloading(live.unassigned, true) : refetching(live, live.unassigned);
+    live.conversations = keep ? reloading(live.conversations, true) : refetching(live, live.conversations);
+    live.inboxPending = true;
     context.refresh();
 
-    const [unassigned, mine] = await Promise.all([
-      live.conversationsApi.unassigned(tenantId, unassignedFilterProjection(live.inboxQuery)),
-      live.conversationsApi.list(tenantId, live.inboxQuery),
-    ]);
-    // A newer read owns the lists; the catalogues below are still this
-    // screen's to load, whichever read wrote the rows.
-    if (current()) {
-      const now = context.now();
-      live.unassigned = fromResult(unassigned, now);
-      live.conversations = mine.ok ? ready(mine.data.items, now) : failed(mine.error);
-      live.inboxNextCursor = mine.ok ? mine.data.nextCursor : null;
+    // Each list is drawn as soon as its own answer lands. Waiting for both
+    // made the visible list as slow as the slower of the two reads.
+    let outstanding = 2;
+    const draw = (apply: () => void): void => {
+      // A newer read owns the lists; the catalogues below are still this
+      // screen's to load, whichever read wrote the rows.
+      if (!current()) return;
+      apply();
+      outstanding -= 1;
+      live.inboxPending = outstanding > 0;
       context.refresh();
-    }
+    };
+    await Promise.all([
+      live.conversationsApi.unassigned(tenantId, unassignedFilterProjection(live.inboxQuery)).then((unassigned) => draw(() => {
+        live.unassigned = fromResult(unassigned, context.now());
+      })),
+      live.conversationsApi.list(tenantId, live.inboxQuery).then((mine) => draw(() => {
+        live.conversations = mine.ok ? ready(mine.data.items, context.now()) : failed(mine.error);
+        live.inboxNextCursor = mine.ok ? mine.data.nextCursor : null;
+      })),
+    ]);
     if (live.labels.status === 'idle') await loadMetadataCatalog(context);
     if (live.savedViews.status === 'idle') await loadSavedViews(context);
     if (live.people.status === 'idle' || live.teams.status === 'idle' || live.connections.status === 'idle' || live.campaigns.status === 'idle') {
@@ -607,6 +627,7 @@ export function startRealtime(context: LiveContext, wiring: RealtimeWiring, reco
     baseUrl: wiring.baseUrl,
     tenantId,
     open: wiring.open,
+    now: context.now,
     handlers: {
       onConnect: () => {
         live.realtime = { status: 'live', since: context.now() };
@@ -740,6 +761,24 @@ export async function applyRealtimeEvent(
   }
   await Promise.all(tasks);
   if(event.type === 'message.inbound' && event.scope.conversationId === live.openConversationId && live.timeline.status === 'ready' && live.supervisorAgentId === null) await markConversationRead(context,event.scope.conversationId);
+}
+
+/**
+ * Re-reads what an operator coming back to the Inbox expects to be current —
+ * both lists and the open thread — quietly, with what is on screen kept until
+ * the answers replace it. Used when the tab returns after a while and when a
+ * silent stream is replaced: either way, events may have been missed.
+ */
+export async function catchUpInbox(context: LiveContext): Promise<void> {
+  const { live } = context;
+  const id = live.openConversationId;
+  await Promise.all([
+    refreshInboxLists(context),
+    ...(id === null ? [] : [
+      singleFlight(live, `timeline:${id}`, () => loadTimeline(context, id)),
+      singleFlight(live, `record:${id}`, () => refreshOpenConversation(context, id)),
+    ]),
+  ]);
 }
 
 /** Refresh only the selected workload projection after relevant realtime work. */

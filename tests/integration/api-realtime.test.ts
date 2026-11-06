@@ -2138,7 +2138,11 @@ describe('delivery receipts on the feed', () => {
     }
 
     const page = await feed(owner, before.cursor);
-    const receipts = page.events.filter((event) => event.type === 'message.delivery');
+    const deliveries = page.events.filter((event) => event.type === 'message.delivery');
+    // The provider's answer to the send is on the feed too, ahead of any
+    // receipt, so a screen moves off "Sending" without waiting for one.
+    expect(deliveries[0]?.payload).toMatchObject({ commandState: 'provider_accepted', deliveryState: null });
+    const receipts = deliveries.filter((event) => event.payload['deliveryState'] !== null);
     expect(receipts.map((event) => event.payload['deliveryState'])).toEqual(['delivered', 'read']);
     // The entity version is the delivery rank, so a receipt that arrives out of
     // order is recognisable as older without a separate counter.

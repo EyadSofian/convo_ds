@@ -667,6 +667,85 @@ describe('automation, supervisor, label, and Inbox dispatch contracts', () => {
     expect(await LIVE_ACTIONS['live-template-library-save']?.(context,'')).toBe(true);
   });
 
+  it('keeps the rows on screen while a search is read, and draws each list as it lands', async () => {
+    const { context } = active();
+    inboxReads(context);
+    const rows = [{ id: 'card-1' }] as never;
+    context.live.unassigned = ready(rows, 1);
+    context.live.conversations = ready([], 1);
+    let answerList: (value: unknown) => void = () => undefined;
+    Object.defineProperty(context.live, 'conversationsApi', { value: {
+      unassigned: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      list: vi.fn().mockReturnValue(new Promise((resolve) => { answerList = resolve; })),
+    } });
+    vi.useFakeTimers();
+    try {
+      await LIVE_ACTIONS['live-inbox-search']?.(context, 'sara');
+      await vi.advanceTimersByTimeAsync(250);
+      // The queue answered and is drawn; the other list is still being read,
+      // so the search still says it is working — and nothing blanked.
+      expect(context.live.unassigned).toMatchObject({ status: 'ready', value: [] });
+      expect(context.live.conversations.status).toBe('ready');
+      expect(context.live.inboxPending).toBe(true);
+      answerList({ ok: true, data: { items: [], nextCursor: null } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(context.live.inboxPending).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets only the newest search write the lists', async () => {
+    const { context } = active();
+    inboxReads(context);
+    const answers: ((value: unknown) => void)[] = [];
+    const later = (): Promise<unknown> => new Promise((resolve) => { answers.push(resolve); });
+    Object.defineProperty(context.live, 'conversationsApi', { value: {
+      unassigned: vi.fn().mockImplementation(later),
+      list: vi.fn().mockImplementation(later),
+    } });
+    vi.useFakeTimers();
+    try {
+      await LIVE_ACTIONS['live-inbox-search']?.(context, 'old');
+      await vi.advanceTimersByTimeAsync(250);
+      await LIVE_ACTIONS['live-inbox-search']?.(context, 'new');
+      await vi.advanceTimersByTimeAsync(250);
+      // The newer search answers first; the older one's late answers change nothing.
+      answers[2]?.({ ok: true, data: [{ id: 'new-card' }] });
+      answers[3]?.({ ok: true, data: { items: [], nextCursor: null } });
+      await vi.advanceTimersByTimeAsync(0);
+      answers[0]?.({ ok: true, data: [{ id: 'old-card' }] });
+      answers[1]?.({ ok: true, data: { items: [{ id: 'old-row' }], nextCursor: null } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(context.live.unassigned).toMatchObject({ status: 'ready', value: [{ id: 'new-card' }] });
+      expect(context.live.conversations).toMatchObject({ status: 'ready', value: [] });
+      expect(context.live.inboxPending).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('asks for the WhatsApp lines once, then reuses them for every number searched', async () => {
+    const { context } = active();
+    inboxReads(context);
+    const options = vi.fn().mockResolvedValue({ ok: true, data: { connections: [{ id: 'line' }], templates: [] } });
+    Object.defineProperty(context.live, 'channels', { value: {
+      quickWhatsAppOptions: options,
+      lookupQuickWhatsApp: vi.fn().mockResolvedValue({ ok: true, data: { customer: null } }),
+    } });
+    vi.useFakeTimers();
+    try {
+      await LIVE_ACTIONS['live-inbox-search']?.(context, '01012345678');
+      await vi.advanceTimersByTimeAsync(250);
+      await LIVE_ACTIONS['live-inbox-search']?.(context, '01098765432');
+      await vi.advanceTimersByTimeAsync(250);
+      expect(options).toHaveBeenCalledTimes(1);
+      expect(context.live.quickWhatsAppOptions.status).toBe('ready');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('debounces Inbox search and avoids reloading an unchanged query', async () => {
     const { state, context } = active();
     inboxReads(context);

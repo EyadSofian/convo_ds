@@ -369,6 +369,12 @@ export interface LiveState {
   inboxSearchDraft: string;
   /** Opaque continuation returned for the current readable Inbox query. */
   inboxNextCursor: string | null;
+  /**
+   * The lists are being read again for a new search or on coming back to the
+   * Inbox. The rows already on screen stay, and the search box says it is
+   * working, instead of the list blinking into placeholders on every keystroke.
+   */
+  inboxPending: boolean;
   /** Views loaded from the guarded API; never browser-local query presets. */
   savedViews: Resource<readonly SavedView[]>;
   selectedSavedViewId: string | null;
@@ -514,6 +520,7 @@ export function createLiveState(
     inboxQuery: INBOX_QUERY_DEFAULT,
     inboxSearchDraft: '',
     inboxNextCursor: null,
+    inboxPending: false,
     savedViews: IDLE,
     selectedSavedViewId: null,
     archivedSelection: [],

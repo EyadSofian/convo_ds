@@ -40,6 +40,7 @@ import {
 } from './parts.js';
 import { movedAway, priorityBadge, routingSection } from './routing-panel.js';
 import { voiceNote } from './voice-note.js';
+import { emojiPicker } from './emoji-picker.js';
 
 /**
  * The Inbox, backed entirely by the API.
@@ -122,16 +123,23 @@ export function renderInbox(state: AppState): HTMLElement {
           })
         : null,
       open
-        ? renderContactPanel(state, live, [
-            live.openConversation.status === 'ready'
-              ? metadataSection(state, live, 'conversation', live.openConversation.value, { readOnly: supervisorMode || (live.openConversation.value.capabilities?.reply === false && live.openConversation.value.capabilities.note === false) })
-              : null,
-            !supervisorMode && live.openConversation.status === 'ready'
-              ? routingSection(state, live, live.openConversation.value, routingAbility(live))
-              : null,
-            supervisorMode ? null : notesSection(state, live),
-            episodesSection(state, live),
-          ])
+        ? renderContactPanel(state, live, {
+            'conversation-metadata': {
+              node: live.openConversation.status === 'ready'
+                ? metadataSection(state, live, 'conversation', live.openConversation.value, { readOnly: supervisorMode || (live.openConversation.value.capabilities?.reply === false && live.openConversation.value.capabilities.note === false) })
+                : null,
+            },
+            routing: {
+              node: !supervisorMode && live.openConversation.status === 'ready'
+                ? routingSection(state, live, live.openConversation.value, routingAbility(live))
+                : null,
+            },
+            notes: {
+              node: supervisorMode ? null : notesSection(state, live),
+              summary: foldedCount(live.notes),
+            },
+            episodes: { node: episodesSection(state, live), summary: foldedCount(live.episodes) },
+          })
         : null,
     ],
   );
@@ -267,7 +275,7 @@ function renderListZone(state: AppState, live: LiveState): HTMLElement {
     supervisorBanner(state, live),
     activeFilterChips(state, live),
     listResizer(state),
-    h('div', { class: 'zone__body', 'data-scroll': 'list' }, [
+    h('div', { class: 'zone__body', 'data-scroll': 'list', 'aria-busy': live.inboxPending ? 'true' : 'false' }, [
       supervisorMode || state.inboxQueue !== 'unassigned' ? mineList(state, live) : queueList(state, live),
     ]),
   ]);
@@ -354,6 +362,12 @@ function countOf(resource: Resource<readonly unknown[]>): number | undefined {
   return resource.status === 'ready' ? resource.value.length : undefined;
 }
 
+/** What a folded panel header says about its contents: how many, when any. */
+function foldedCount(resource: Resource<readonly unknown[]>): string | undefined {
+  const count = rowsOf(resource).length;
+  return count === 0 ? undefined : String(count);
+}
+
 function lineLabel(state: AppState, line: InboxLine, lines: readonly InboxLine[]): string {
   const matchingNames = lines.filter((candidate) => candidate.label === line.label && candidate.channel === line.channel);
   const label = matchingNames.length > 1 ? `${line.label} · …${line.assetSuffix}` : line.label;
@@ -413,8 +427,13 @@ function inboxFilters(state: AppState, live: LiveState): HTMLElement {
 }
 
 function inboxSearch(state: AppState, live: LiveState): HTMLElement {
-  return h('div', { class: 'inbox-search' }, [
-    icon('search', 16),
+  // Working while the lists are read for a new search: the rows stay, and the
+  // magnifier turns into a spinner so the wait has a visible owner.
+  const searching = live.inboxPending && live.inboxQuery.search !== null;
+  return h('div', { class: 'inbox-search', 'aria-busy': searching ? 'true' : 'false' }, [
+    searching
+      ? h('span', { class: 'spinner inbox-search__spinner', role: 'status', 'aria-label': t(state, 'جارٍ البحث', 'Searching') })
+      : icon('search', 16),
     h('input', {
       class: 'inbox-search__input', type: 'search', value: live.inboxSearchDraft,
       placeholder: t(state, 'ابحث بالاسم أو الهاتف أو المعرّف', 'Search name, phone or ID'),
@@ -1101,6 +1120,11 @@ function deliveryNote(state: AppState, message: TimelineMessage): readonly Child
  *
  * Separate drafts, separate controls and a different surface, because one field
  * that sends to two places is how an internal remark reaches a customer.
+ *
+ * Laid out the way people already know from WhatsApp and their mail: which
+ * surface this is on top, the text in the middle, and one row underneath with
+ * the tools at the start and Send at the end. The tabs used to share that row
+ * with the tools, the hint, Templates and Send, and nothing on it had a place.
  */
 function composer(state: AppState, live: LiveState, conversation: Conversation): HTMLElement {
   if(conversation.capabilities?.reply === false && conversation.capabilities.note === false) return h('div',{class:'composer composer--readonly',role:'status'},[icon('eye',16),h('span',{},[t(state,'عرض للقراءة فقط — المحادثة مع مسؤولها الحالي.','Read-only — this conversation stays with its current assignee.')])]);
@@ -1109,9 +1133,18 @@ function composer(state: AppState, live: LiveState, conversation: Conversation):
     composerTab(state, 'reply', t(state, 'رد', 'Reply'), 'reply'),
     composerTab(state, 'note', t(state, 'ملاحظة داخلية', 'Private note'), 'note'),
   ]);
+  const blocked = mode === 'note' && conversation.capabilities?.note === false || mode === 'reply' && conversation.capabilities?.reply === false;
   return h('div', { class: `composer composer--${mode}` }, [
+    h('div', { class: 'composer__head' }, [
+      tabs,
+      mode === 'note'
+        ? h('span', { class: 'composer__hint' }, [icon('lock', 12), t(state, 'مرئية لفريقك فقط', 'Visible to your team only')])
+        : h('span', { class: 'composer__hint' }, [t(state, 'Enter للإرسال · Shift+Enter لسطر جديد', 'Enter to send · Shift+Enter for a new line')]),
+    ]),
     h('div', { class: 'composer__panel', role: 'tabpanel', id: 'composer-panel', 'aria-labelledby': `composer-tab-${mode}` }, [
-      (mode === 'note' && conversation.capabilities?.note === false || mode === 'reply' && conversation.capabilities?.reply === false) ? h('p',{class:'composer__blocked'},[tabs,t(state,'دورك يسمح بقراءة هذه المحادثة فقط.','Your role allows reading this conversation only.')]) : mode === 'note' ? noteComposer(state, live, tabs) : replyComposer(state, live, conversation, tabs),
+      blocked
+        ? h('p', { class: 'composer__blocked' }, [t(state, 'دورك يسمح بقراءة هذه المحادثة فقط.', 'Your role allows reading this conversation only.')])
+        : mode === 'note' ? noteComposer(state, live) : replyComposer(state, live, conversation),
     ]),
   ]);
 }
@@ -1135,15 +1168,19 @@ function composerTab(state: AppState, value: 'reply' | 'note', label: string, ic
   );
 }
 
+/** A failed send, said where the operator is looking: right above Send. */
+function composerError(live: LiveState): Child {
+  return live.error === null ? null : h('p', { class: 'composer__error', role: 'alert' }, [icon('alert', 14), live.error.message]);
+}
+
 /**
  * The reply box, present only when the caller may actually send. An unclaimed
  * conversation gets a Claim button instead: it is not that replying is
  * unavailable, it is that the conversation is not this agent's yet.
  */
-function replyComposer(state: AppState, live: LiveState, conversation: Conversation, tabs: HTMLElement): HTMLElement {
+function replyComposer(state: AppState, live: LiveState, conversation: Conversation): HTMLElement {
   if (conversation.assigneeMembershipId === null) {
     return h('div', { class: 'composer__toolbar composer__toolbar--claim' }, [
-      tabs,
       h('p', { class: 'composer__blocked' }, [
         t(state, 'استلم المحادثة لتتمكن من الرد.', 'Claim the conversation to reply.'),
       ]),
@@ -1162,7 +1199,6 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
   if (conversation.channel === 'whatsapp' && conversation.serviceWindow?.status !== 'open') {
     const unknown = conversation.serviceWindow?.status === 'unknown' || conversation.serviceWindow === undefined;
     return h('div', { class: 'composer__closed-window' }, [
-      tabs,
       h('div', { class: 'composer__closed-window-copy', role: 'status', 'aria-live': 'polite' }, [
         h('strong', {}, [unknown
           ? t(state, 'تعذّر التحقق من نافذة خدمة واتساب', 'We cannot verify an active WhatsApp customer service window')
@@ -1177,18 +1213,19 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
     const canSend = attachment.file.size > 0 && attachment.file.size <= MAX_CHAT_FILE_BYTES &&
       chatFileTypes(conversation.channel).includes(attachment.file.type);
     return h('div', { class: 'composer__box composer__voice' }, [
-      tabs,
       h('div', { class: 'composer__voice-status', dir: 'auto' }, [icon('paperclip', 18), attachment.file.name]),
       attachment.error === null ? null : h('p', { class: 'field__error', role: 'alert' }, [attachment.error]),
-      h('div', { class: 'composer__toolbar' }, [
-        button({ label: t(state, 'إلغاء المرفق', 'Remove attachment'), act: 'live-attachment-cancel', variant: 'ghost', small: true, disabled: attachment.sending }),
+      h('div', { class: 'composer__bar' }, [
+        h('div', { class: 'composer__tools' }, [
+          button({ label: t(state, 'إلغاء المرفق', 'Remove attachment'), act: 'live-attachment-cancel', variant: 'ghost', small: true, disabled: attachment.sending }),
+        ]),
         button({ label: t(state, 'إرسال المرفق', 'Send attachment'), icon: 'send', act: 'live-attachment-send',
-          variant: 'primary', small: true, disabled: !canSend, busy: attachment.sending }),
+          variant: 'primary', small: true, disabled: !canSend, busy: attachment.sending, extraClass: 'composer__send' }),
       ]),
     ]);
   }
   const voice = voiceDraft(live);
-  if (voice !== null) return voiceComposer(state, voice, tabs);
+  if (voice !== null) return voiceComposer(state, voice);
   return h('div', { class: 'composer__box' }, [
     // The text is the element's **content**, not a `value` attribute: a textarea
     // ignores that attribute, so rendering it that way would empty the composer
@@ -1206,16 +1243,15 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
       },
       [live.composer],
     ),
-    h('div', { class: 'composer__toolbar' }, [
-      tabs,
-      emojiPicker(state),
-      attachmentPicker(state, conversation.channel),
-      conversation.channel === 'whatsapp' ? button({ icon: 'mic', act: 'live-voice-start', variant: 'ghost', small: true,
-        title: t(state, 'تسجيل رسالة صوتية', 'Record voice message'), ariaLabel: t(state, 'تسجيل رسالة صوتية', 'Record voice message') }) : null,
-      live.error === null
-        ? h('span', { class: 'composer__hint' }, [t(state, 'Enter للإرسال · Shift+Enter لسطر جديد', 'Enter to send · Shift+Enter for a new line')])
-        : h('span', { class: 'composer__hint composer__hint--error', role: 'alert' }, [live.error.message]),
-      whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
+    composerError(live),
+    h('div', { class: 'composer__bar' }, [
+      h('div', { class: 'composer__tools', role: 'group', 'aria-label': t(state, 'أدوات الرسالة', 'Message tools') }, [
+        emojiPicker(state),
+        attachmentPicker(state, conversation.channel),
+        conversation.channel === 'whatsapp' ? button({ icon: 'mic', act: 'live-voice-start', variant: 'ghost', small: true,
+          title: t(state, 'تسجيل رسالة صوتية', 'Record voice message'), ariaLabel: t(state, 'تسجيل رسالة صوتية', 'Record voice message'), extraClass: 'composer__tool' }) : null,
+        whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
+      ]),
       button({
         label: t(state, 'إرسال', 'Send'),
         icon: 'send',
@@ -1239,7 +1275,7 @@ function clockOf(seconds: number): string {
  * it records, a timer and a meter that shows the microphone is really hearing;
  * afterwards, the same player the thread uses, so what you check is what they get.
  */
-function voiceComposer(state: AppState, voice: NonNullable<ReturnType<typeof voiceDraft>>, tabs: HTMLElement): HTMLElement {
+function voiceComposer(state: AppState, voice: NonNullable<ReturnType<typeof voiceDraft>>): HTMLElement {
   const reviewing = voice.status === 'ready' || voice.status === 'sending';
   return h('div', { class: 'composer__box composer__voice' }, [
     h('div', { class: 'recorder', 'data-state': voice.status }, [
@@ -1253,13 +1289,13 @@ function voiceComposer(state: AppState, voice: NonNullable<ReturnType<typeof voi
       voice.status === 'error' ? h('p', { class: 'recorder__error', role: 'alert' }, [voice.error]) : null,
     ]),
     reviewing && voice.error !== null ? h('p', { class: 'field__error recorder__send-error', role: 'alert' }, [voice.error]) : null,
-    h('div', { class: 'composer__toolbar' }, [
-      tabs,
-      h('span', { class: 'composer__hint' }),
-      button({
-        label: t(state, 'إلغاء التسجيل', 'Discard recording'), icon: 'trash', act: 'live-voice-cancel', variant: 'ghost', small: true,
-        disabled: voice.status === 'sending',
-      }),
+    h('div', { class: 'composer__bar' }, [
+      h('div', { class: 'composer__tools' }, [
+        button({
+          label: t(state, 'إلغاء التسجيل', 'Discard recording'), icon: 'trash', act: 'live-voice-cancel', variant: 'ghost', small: true,
+          disabled: voice.status === 'sending',
+        }),
+      ]),
       voice.status === 'recording' ? button({ label: t(state, 'إيقاف التسجيل', 'Stop recording'), icon: 'stop', act: 'live-voice-stop', small: true, variant: 'primary' }) : null,
       voice.status === 'error' ? button({ label: t(state, 'جرّب تاني', 'Try again'), icon: 'mic', act: 'live-voice-retry', small: true, variant: 'primary' }) : null,
       reviewing ? button({ label: t(state, 'إرسال التسجيل', 'Send recording'), icon: 'send', act: 'live-voice-send', variant: 'primary', busy: voice.status === 'sending', small: true, extraClass: 'composer__send' }) : null,
@@ -1270,10 +1306,10 @@ function voiceComposer(state: AppState, voice: NonNullable<ReturnType<typeof voi
 function whatsappTemplateButton(state: AppState, live: LiveState, conversationId: string, connectionId: string): HTMLElement | null {
   const connection = live.connections.status === 'ready' ? live.connections.value.find((item) => item.id === connectionId) : undefined;
   if (connection?.kind !== 'whatsapp' || !connection.capabilities.templates) return null;
-  return button({ label: t(state, 'قوالب واتساب', 'WhatsApp Templates'), icon: 'template', act: 'live-whatsapp-template-open', arg: conversationId, variant: 'default', small: true, title: t(state, 'قوالب واتساب', 'WhatsApp Templates'), extraClass: 'composer__templates' });
+  return button({ label: t(state, 'قوالب واتساب', 'WhatsApp Templates'), icon: 'template', act: 'live-whatsapp-template-open', arg: conversationId, variant: 'ghost', small: true, title: t(state, 'قوالب واتساب', 'WhatsApp Templates'), extraClass: 'composer__templates' });
 }
 
-function noteComposer(state: AppState, live: LiveState, tabs: HTMLElement): HTMLElement {
+function noteComposer(state: AppState, live: LiveState): HTMLElement {
   // The composer is only drawn beside an open conversation.
   const busy = live.busy === `note:${String(live.openConversationId)}`;
   return h('div', { class: 'composer__box composer__box--note' }, [
@@ -1291,10 +1327,8 @@ function noteComposer(state: AppState, live: LiveState, tabs: HTMLElement): HTML
       },
       [live.noteDraft],
     ),
-    h('div', { class: 'composer__toolbar' }, [
-      tabs,
-      emojiPicker(state),
-      h('span', { class: 'composer__hint' }, [icon('lock', 14), t(state, 'مرئية لفريقك فقط', 'Visible to your team only')]),
+    h('div', { class: 'composer__bar' }, [
+      h('div', { class: 'composer__tools', role: 'group', 'aria-label': t(state, 'أدوات الملاحظة', 'Note tools') }, [emojiPicker(state)]),
       button({
         label: t(state, 'إضافة ملاحظة', 'Add note'),
         icon: 'note',
@@ -1312,19 +1346,8 @@ function attachmentPicker(state: AppState, channel: string): HTMLElement | null 
   const types = chatFileTypes(channel);
   if (types.length === 0) return null;
   const label = t(state, 'إرفاق ملف', 'Attach a file');
-  return h('label', { class: 'composer__file-picker', title: label }, [
+  return h('label', { class: 'composer__file-picker composer__tool', title: label }, [
     icon('paperclip', 18),
     h('input', { type: 'file', accept: types.join(','), 'aria-label': label, 'data-act': 'live-attachment-file' }),
-  ]);
-}
-
-function emojiPicker(state: AppState): HTMLElement {
-  const opened = state.openMenu === 'composer-emoji';
-  const emojis = ['😀', '😊', '🙂', '😂', '😍', '🤔', '🙏', '👍', '👌', '👏', '❤️', '💙', '🎉', '🌟', '✅', '📚', '🚀', '💻', '📞', '👋', '🌸', '✨', '🤝', '💪'];
-  return h('div', { class: 'composer__emoji' }, [
-    button({ icon: 'smile', act: 'menu', arg: 'composer-emoji', variant: 'ghost', small: true,
-      expanded: opened, title: t(state, 'إيموجي', 'Emoji'), ariaLabel: t(state, 'إيموجي', 'Emoji') }),
-    opened ? h('div', { class: 'popover composer__emoji-picker', role: 'group', 'data-overlay': 'popover', 'aria-label': t(state, 'اختار إيموجي', 'Choose emoji') },
-      emojis.map((emoji) => h('button', { type: 'button', class: 'composer__emoji-item', 'data-act': 'live-emoji', 'data-arg': emoji, 'aria-label': emoji }, [emoji]))) : null,
   ]);
 }

@@ -112,13 +112,19 @@ test('records and plays a voice message, inserts emoji, uploads a file and filte
   expect(Buffer.from((body as unknown as { audio: string }).audio, 'base64').length).toBeGreaterThan(100);
   await page.getByRole('button', { name: 'Emoji', exact: true }).click();
   // Opens upwards in full, inside the window: it used to collapse off the bottom.
-  const picker = page.getByRole('group', { name: 'Choose emoji', exact: true });
+  const picker = page.getByRole('dialog', { name: 'Choose an emoji', exact: true });
   const opened = await picker.boundingBox();
   const composer = await page.locator('.composer').boundingBox();
   expect(opened!.height).toBeGreaterThan(100);
   expect(opened!.y + opened!.height).toBeLessThanOrEqual(composer!.y + composer!.height);
   await page.getByRole('button', { name: '😊', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Reply text', exact: true })).toHaveValue('😊');
+  // The picker stays open for another, and the search finds by word in either language.
+  await page.getByRole('searchbox', { name: 'Search emoji', exact: true }).fill('thanks');
+  await page.getByRole('button', { name: '🙏', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Reply text', exact: true })).toHaveValue('😊🙏');
+  await page.keyboard.press('Escape');
+  await expect(picker).toBeHidden();
   expect(await overflowsHorizontally(page)).toBe(false);
   await page.getByLabel('Attach a file', { exact: true }).setInputFiles({
     name: 'guide.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4'),

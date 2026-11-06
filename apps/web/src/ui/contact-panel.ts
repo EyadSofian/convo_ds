@@ -2,6 +2,7 @@ import type { ApiError } from '../api/client.js';
 import type { ConsentRecord, Contact, ContactCampaignHistory, ContactIdentity } from '../api/contacts.js';
 import type { Child } from '../dom.js';
 import { h } from '../dom.js';
+import { icon } from '../icons.js';
 import { dateFormat, formatNumber, initials, relativeTime } from '../format.js';
 import { contactNameField } from '../live/dispatch.js';
 import { hasPermission } from '../live/ability.js';
@@ -43,13 +44,45 @@ const PURPOSE_LABEL: Readonly<Record<string, Phrase>> = {
 };
 
 /**
+ * The sections of the panel beside a conversation, in the order an agent needs
+ * them mid-conversation: who this is, how the conversation is labelled and who
+ * owns it, then the rest. Each folds; `DEFAULT_PANEL_SECTIONS` says which start
+ * open, and the person's own choice is kept after that.
+ */
+export const PANEL_SECTION_IDS: readonly string[] = [
+  'profile',
+  'conversation-metadata',
+  'routing',
+  'notes',
+  'contact-methods',
+  'contact-metadata',
+  'consent',
+  'episodes',
+];
+
+/** A conversation fact the inbox stacks under the customer. */
+export interface PanelSection {
+  readonly node: Child;
+  /** A short count or state shown on the folded header, so it says what is inside. */
+  readonly summary?: string | undefined;
+}
+
+/** The conversation's own sections, by the id each folds under. */
+export interface ConversationSections {
+  readonly 'conversation-metadata': PanelSection;
+  readonly routing: PanelSection;
+  readonly notes: PanelSection;
+  readonly episodes: PanelSection;
+}
+
+/**
  * The panel beside the conversation.
  *
  * `extra` is what the inbox stacks under the customer — labels, assignment,
  * notes and episodes. They are facts about the *conversation*, not the person,
  * so they are passed in rather than read here.
  */
-export function renderContactPanel(state: AppState, live: LiveState, extra: readonly Child[] = []): HTMLElement {
+export function renderContactPanel(state: AppState, live: LiveState, extra: ConversationSections): HTMLElement {
   return h('aside', { class: 'zone zone--panel', 'aria-label': t(state, 'تفاصيل العميل', 'Customer details') }, [
     h('header', { class: 'zone__header' }, [
       h('h2', { class: 'zone__title' }, [t(state, 'التفاصيل', 'Details')]),
@@ -62,11 +95,75 @@ export function renderContactPanel(state: AppState, live: LiveState, extra: read
         title: t(state, 'إخفاء التفاصيل', 'Hide details'),
       }),
     ]),
-    h('div', { class: 'zone__body', 'data-scroll': 'panel' }, [panelBody(state, live.openContact, live), ...extra]),
+    h('div', { class: 'zone__body', 'data-scroll': 'panel' }, panelBody(state, live.openContact, live, extra)),
   ]);
 }
 
-function panelBody(state: AppState, resource: Resource<Contact>, live: LiveState): Child {
+function panelBody(state: AppState, resource: Resource<Contact>, live: LiveState, extra: ConversationSections): Child[] {
+  // A section the caller may not see arrives as nothing, and takes no space.
+  const folded = (id: keyof ConversationSections): Child => {
+    const { node, summary } = extra[id];
+    return node instanceof HTMLElement ? foldable(state, id, node, summary) : null;
+  };
+  if (resource.status !== 'ready') {
+    return [
+      contactPlaceholder(state, resource),
+      folded('conversation-metadata'),
+      folded('routing'),
+      folded('notes'),
+      folded('episodes'),
+    ];
+  }
+  const contact = resource.value;
+  return [
+    h('div', { class: 'contact contact--panel', 'data-contact': contact.id }, [
+      contactCard(state, contact),
+      foldable(state, 'profile', profileSection(state, contact, live, 'panel')),
+    ]),
+    folded('conversation-metadata'),
+    folded('routing'),
+    folded('notes'),
+    foldable(state, 'contact-methods', contactMethodsSection(state, contact, live, 'panel'), formatNumber(contact.identities.filter((identity) => identity.validTo === null).length, state.lang)),
+    foldable(state, 'contact-metadata', metadataSection(state, live, 'contact', contact), contact.labels.length === 0 ? undefined : formatNumber(contact.labels.length, state.lang)),
+    foldable(state, 'consent', consentSection(state, contact, live, 'panel'), broadcastStatus(state, contact)[0]),
+    folded('episodes'),
+  ];
+}
+
+/**
+ * Turns a panel section's heading into the control that folds it.
+ *
+ * The section is built by its own module, so this takes the finished element:
+ * the heading becomes a button with `aria-expanded`, and everything under it
+ * moves into a body that is `hidden` while folded — out of sight and out of
+ * the accessibility tree, but still the same controls when it opens.
+ */
+function foldable(state: AppState, id: string, section: HTMLElement, summary?: string): HTMLElement {
+  const open = state.panelSections.includes(id);
+  // Every panel section opens with its `sectionTitle` heading.
+  const title = Array.from(section.children).find((child) => child.classList.contains('panel-section__title')) as Element;
+  const bodyId = `panel-section-${id}`;
+  const rest = Array.from(section.childNodes).filter((node) => node !== title);
+  const toggle = h('button', {
+    type: 'button',
+    class: 'panel-section__toggle',
+    'data-act': 'panel-section',
+    'data-arg': id,
+    'aria-expanded': String(open),
+    'aria-controls': bodyId,
+  }, [
+    ...Array.from(title.childNodes),
+    summary === undefined ? null : h('span', { class: 'panel-section__summary' }, [summary]),
+    h('span', { class: 'panel-section__chevron', 'aria-hidden': 'true' }, [icon('chevronDown', 14)]),
+  ]);
+  title.replaceChildren(toggle);
+  section.replaceChildren(title, h('div', { class: 'panel-section__body', id: bodyId, hidden: !open }, rest));
+  section.setAttribute('data-folded', String(!open));
+  section.classList.add('panel-section--foldable');
+  return section;
+}
+
+function contactPlaceholder(state: AppState, resource: Resource<Contact>): HTMLElement {
   if (resource.status === 'idle') {
     return h('section', { class: 'panel-section' }, [
       emptyState({
@@ -79,10 +176,56 @@ function panelBody(state: AppState, resource: Resource<Contact>, live: LiveState
   if (resource.status === 'loading') {
     return h('section', { class: 'panel-section' }, [skeleton(state, 2)]);
   }
-  if (resource.status === 'error') {
-    return h('section', { class: 'panel-section' }, [contactError(state, resource.error)]);
-  }
-  return contactBody(state, resource.value, live, 'panel');
+  return h('section', { class: 'panel-section' }, [contactError(state, (resource as { readonly error: ApiError }).error)]);
+}
+
+/**
+ * Who this is, in one compact card: name, the number or handle they write
+ * from, where else they can be reached and since when. An opt-out is said
+ * here, above everything else, because it outranks any consent below it.
+ */
+function contactCard(state: AppState, contact: Contact): HTMLElement {
+  const liveIdentities = contact.identities.filter((identity) => identity.validTo === null);
+  const primary = liveIdentities[0];
+  const since = dateFormat(state.lang, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(contact.createdAt));
+  return h('section', { class: 'contact-card', 'aria-label': t(state, 'ملف العميل', 'Customer profile') }, [
+    h('div', { class: 'contact-card__top' }, [
+      avatar({ initials: initials(contact.displayName), size: 'lg', seed: contact.displayName }),
+      h('div', { class: 'contact-card__who' }, [
+        h('p', { class: 'contact-card__name' }, [isolated(contact.displayName)]),
+        primary === undefined
+          ? h('p', { class: 'contact-card__id' }, [t(state, 'لا توجد هوية سارية', 'No live identity')])
+          : h('p', { class: 'contact-card__id', dir: 'ltr' }, [isolated(primary.externalId, true)]),
+      ]),
+    ]),
+    h('div', { class: 'contact-card__meta' }, [
+      ...liveIdentities.map((identity) => h('span', { class: 'contact-card__chip', title: identity.externalId }, [
+        h('span', { class: `contact__reach-mark channel-tile--${identity.kind}`, 'aria-hidden': 'true' }, [channelMark(identity.kind, 11)]),
+        phrase(state, CHANNEL_NAMES, identity.kind),
+      ])),
+      h('span', { class: 'contact-card__since' }, [t(state, `عميل منذ ${since}`, `Customer since ${since}`)]),
+    ]),
+    contact.suppressed.length === 0
+      ? null
+      : h('p', { class: 'consent__suppressed contact-card__alert', role: 'status' }, [
+          icon('alert', 14),
+          t(
+            state,
+            `ألغى الاشتراك على ${contact.suppressed.map((channel) => phrase(state, CHANNEL_NAMES, channel)).join('، ')} — لا تُرسل له حملات حتى مع وجود موافقة.`,
+            `Opted out on ${contact.suppressed.map((channel) => phrase(state, CHANNEL_NAMES, channel)).join(', ')} — no campaigns are sent, even where consent is recorded.`,
+          ),
+        ]),
+  ]);
+}
+
+/** Whether a broadcast may reach them, by the panel's order of authority. */
+function broadcastStatus(state: AppState, contact: Contact): readonly [string, Tone] {
+  const marketing = contact.consent.find((record) => record.purpose === 'marketing');
+  return contact.suppressed.length > 0
+    ? [t(state, 'ألغى الاشتراك', 'Opted out'), 'danger']
+    : marketing?.state === 'withdrawn'
+      ? [t(state, 'سحب موافقته', 'Withdrew'), 'warning']
+      : [t(state, 'يستلم', 'Receives'), 'success'];
 }
 
 export function contactError(state: AppState, error: ApiError, retryAct?: string): HTMLElement {
@@ -100,7 +243,6 @@ export function contactError(state: AppState, error: ApiError, retryAct?: string
  * beside a conversation stacks them.
  */
 export function contactBody(state: AppState, contact: Contact, live: LiveState, where: 'panel' | 'screen'): HTMLElement {
-  const busy = live.busy === `contact:${contact.id}`;
   const liveIdentities = contact.identities.filter((identity) => identity.validTo === null);
   return h('div', { class: `contact contact--${where}`, 'data-contact': contact.id }, [
     h('section', { class: 'contact__who', 'aria-label': t(state, 'ملف العميل', 'Customer profile') }, [
@@ -136,33 +278,8 @@ export function contactBody(state: AppState, contact: Contact, live: LiveState, 
     profileFacts(state, contact, liveIdentities.length),
 
     h('div', { class: 'contact__cards' }, [
-      h('section', { class: 'panel-section contact__card contact__details', 'aria-labelledby': `details-${where}` }, [
-        sectionTitle('user', 'blue', t(state, 'بيانات العميل', 'Profile details'), `details-${where}`),
-        h('div', { class: 'inline-form' }, [
-          h('label', { class: 'field' }, [
-            h('span', { class: 'field__label' }, [t(state, 'الاسم المعروض', 'Display name')]),
-            // The shared form action records it without a re-render: a name field
-            // that redrew on every keystroke would move the caret.
-            h('input', {
-              class: 'input',
-              type: 'text',
-              'data-act': 'form',
-              'data-form': contactNameField(contact.id),
-              value: state.dialogForm[contactNameField(contact.id)] ?? contact.displayName,
-            }),
-          ]),
-          button({ label: t(state, 'حفظ', 'Save'), act: `live-contact-save-${where}`, arg: contact.id, small: true, busy }),
-        ]),
-        attributeList(state, contact),
-      ]),
-
-      h('section', { class: 'panel-section contact__card contact__channels', 'aria-labelledby': `identities-${where}` }, [
-        sectionTitle('link', 'cyan', t(state, 'طرق التواصل', 'Contact methods'), `identities-${where}`),
-        contact.identities.length === 0
-          ? h('p', { class: 'field__hint' }, [t(state, 'لا توجد هويات مسجلة.', 'No identities recorded.')])
-          : h('ul', { class: 'contact__identities' }, contact.identities.map((identity) => identityRow(state, identity))),
-        hasPermission(live, 'contact.edit') ? addChannel(state, live, contact) : null,
-      ]),
+      profileSection(state, contact, live, where),
+      contactMethodsSection(state, contact, live, where),
 
       consentSection(state, contact, live, where),
 
@@ -172,6 +289,41 @@ export function contactBody(state: AppState, contact: Contact, live: LiveState, 
 
       metadataSection(state, live, 'contact', contact),
     ]),
+  ]);
+}
+
+/** The display name an agent may correct, and the business fields kept on them. */
+function profileSection(state: AppState, contact: Contact, live: LiveState, where: 'panel' | 'screen'): HTMLElement {
+  const busy = live.busy === `contact:${contact.id}`;
+  return h('section', { class: 'panel-section contact__card contact__details', 'aria-labelledby': `details-${where}` }, [
+    sectionTitle('user', 'blue', t(state, 'بيانات العميل', 'Profile details'), `details-${where}`),
+    h('div', { class: 'inline-form' }, [
+      h('label', { class: 'field' }, [
+        h('span', { class: 'field__label' }, [t(state, 'الاسم المعروض', 'Display name')]),
+        // The shared form action records it without a re-render: a name field
+        // that redrew on every keystroke would move the caret.
+        h('input', {
+          class: 'input',
+          type: 'text',
+          'data-act': 'form',
+          'data-form': contactNameField(contact.id),
+          value: state.dialogForm[contactNameField(contact.id)] ?? contact.displayName,
+        }),
+      ]),
+      button({ label: t(state, 'حفظ', 'Save'), act: `live-contact-save-${where}`, arg: contact.id, small: true, busy }),
+    ]),
+    attributeList(state, contact),
+  ]);
+}
+
+/** Every identity, with its channel and whether it is still live. */
+function contactMethodsSection(state: AppState, contact: Contact, live: LiveState, where: 'panel' | 'screen'): HTMLElement {
+  return h('section', { class: 'panel-section contact__card contact__channels', 'aria-labelledby': `identities-${where}` }, [
+    sectionTitle('link', 'cyan', t(state, 'طرق التواصل', 'Contact methods'), `identities-${where}`),
+    contact.identities.length === 0
+      ? h('p', { class: 'field__hint' }, [t(state, 'لا توجد هويات مسجلة.', 'No identities recorded.')])
+      : h('ul', { class: 'contact__identities' }, contact.identities.map((identity) => identityRow(state, identity))),
+    hasPermission(live, 'contact.edit') ? addChannel(state, live, contact) : null,
   ]);
 }
 
@@ -222,13 +374,8 @@ function campaignHistoryRow(state: AppState, entry: ContactCampaignHistory): HTM
  * an opt-out anywhere outranks a recorded grant.
  */
 function profileFacts(state: AppState, contact: Contact, reachable: number): HTMLElement {
-  const marketing = contact.consent.find((record) => record.purpose === 'marketing');
   // Broadcasts reach everyone who has not said no.
-  const [consentLabel, consentTone]: readonly [string, Tone] = contact.suppressed.length > 0
-    ? [t(state, 'ألغى الاشتراك', 'Opted out'), 'danger']
-    : marketing?.state === 'withdrawn'
-      ? [t(state, 'سحب موافقته', 'Withdrew'), 'warning']
-      : [t(state, 'يستلم', 'Receives'), 'success'];
+  const [consentLabel, consentTone] = broadcastStatus(state, contact);
   const since = dateFormat(state.lang, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(contact.createdAt));
   return h('dl', { class: 'contact__facts' }, [
     fact('blue', t(state, 'وسائل سارية', 'Live channels'), formatNumber(reachable, state.lang)),

@@ -352,3 +352,45 @@ describe('campaigns and reports', () => {
     expect(app.navigations.at(-1)).toEqual({ screen: 'broadcasts', conversationId: null });
   });
 });
+
+describe('the emoji picker and the customer panel', () => {
+  it('opens the emoji picker with an empty search, whatever was typed last time', () => {
+    app.state.emojiQuery = 'قلب';
+    runAction('menu', app.context, 'composer-emoji');
+    expect(app.state.openMenu).toBe('composer-emoji');
+    expect(app.state.emojiQuery).toBe('');
+    // Another menu leaves the emoji search alone.
+    app.state.emojiQuery = 'heart';
+    runAction('menu', app.context, 'inbox-filters');
+    expect(app.state.emojiQuery).toBe('heart');
+  });
+
+  it('switches category, which also clears a search', () => {
+    app.state.emojiQuery = 'ok';
+    runAction('emoji-category', app.context, 'hearts');
+    expect(app.state.emojiCategory).toBe('hearts');
+    expect(app.state.emojiQuery).toBe('');
+    expect(app.renders).toBe(1);
+  });
+
+  it('keeps a search short', () => {
+    runAction('emoji-search', app.context, 'x'.repeat(80));
+    expect(app.state.emojiQuery).toHaveLength(40);
+  });
+
+  it('puts the latest pick first and keeps the list unique', () => {
+    runAction('emoji-recent', app.context, '👍');
+    runAction('emoji-recent', app.context, '🙏');
+    runAction('emoji-recent', app.context, '👍');
+    expect(app.state.emojiRecent).toEqual(['👍', '🙏']);
+  });
+
+  it('folds and unfolds one panel section at a time', () => {
+    expect(app.state.panelSections).toContain('profile');
+    runAction('panel-section', app.context, 'profile');
+    expect(app.state.panelSections).not.toContain('profile');
+    runAction('panel-section', app.context, 'consent');
+    runAction('panel-section', app.context, 'profile');
+    expect(app.state.panelSections).toEqual(expect.arrayContaining(['profile', 'consent']));
+  });
+});
