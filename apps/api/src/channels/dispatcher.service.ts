@@ -320,6 +320,7 @@ export class ChannelDispatcherService {
       if (refusal !== null) {
         await settle(sql, claim.message_id, 'skipped', refusal.reason, refusal.detail);
         await settleCampaignRecipient(sql, claim.campaign_recipient_id, 'skipped', refusal.reason);
+        await this.announce(sql, tenantId, claim, 'skipped');
         await sql.query('DELETE FROM outbox WHERE message_id = $1', [claim.message_id]);
         return null;
       }
@@ -511,6 +512,8 @@ export class ChannelDispatcherService {
           await this.conversations.noteDelivery(sql, tenantId, conversation, {
             messageId: claim.message_id, state: 'sent', at: new Date(), anomaly: null,
           });
+        } else {
+          await this.announce(sql, tenantId, claim, 'provider_accepted');
         }
         return 'accepted';
       }
@@ -530,6 +533,7 @@ export class ChannelDispatcherService {
         }
         // Out of the outbox, permanently. Nothing automatic may touch it again.
         await sql.query('DELETE FROM outbox WHERE message_id = $1', [claim.message_id]);
+        await this.announce(sql, tenantId, claim, 'outcome_unknown');
         return 'outcome_unknown';
       }
 
@@ -548,6 +552,7 @@ export class ChannelDispatcherService {
           return this.rejectStale(sql, attemptId);
         }
         await sql.query('DELETE FROM outbox WHERE message_id = $1', [claim.message_id]);
+        await this.announce(sql, tenantId, claim, outcome.retryable ? 'failed' : 'rejected');
         return 'rejected';
       }
 
@@ -570,7 +575,21 @@ export class ChannelDispatcherService {
           WHERE message_id = $1`,
         [claim.message_id, outcome.code, BACKOFF_BASE_SECONDS * 2 ** (claim.attempts - 1)],
       );
+      await this.announce(sql, tenantId, claim, 'retry_scheduled');
       return 'retry';
+    });
+  }
+
+  /**
+   * Tells the screens showing this thread that the send moved, in the same
+   * transaction as the move. A reply is otherwise left on "Sending" until a
+   * receipt arrives, and a refusal never sends one.
+   */
+  private async announce(sql: SqlExecutor, tenantId: string, claim: ClaimRow, commandState: string): Promise<void> {
+    await this.conversations.noteSendOutcome(sql, tenantId, {
+      messageId: claim.message_id,
+      conversationId: claim.conversation_id,
+      commandState,
     });
   }
 

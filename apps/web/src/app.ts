@@ -22,6 +22,7 @@ import { allowedScreens, landingScreen } from './live/ability';
 import type { LiveContext } from './live/actions';
 import { loadChannelsScreen, loadPeopleScreen, loadSession, loadSettingsScreen } from './live/actions';
 import {
+  catchUpInbox,
   loadInboxScreen,
   openConversation,
   resumeRealtime,
@@ -29,7 +30,6 @@ import {
   stopRealtime,
 } from './live/inbox-actions';
 import type { RealtimeWiring } from './live/inbox-actions';
-import { refreshInboxLists } from './live/inbox-lists';
 import { loadContactsScreen } from './live/contact-actions';
 import { loadAnalyticsReport, loadCampaignsScreen, refreshCampaignReportExport } from './live/campaign-actions';
 import { loadAutomationsScreen } from './live/automation-actions';
@@ -45,7 +45,9 @@ import type { LiveState } from './live/store';
 import { attrOf, closestWithAttr, reconcile } from './dom';
 import { lockLoops } from './loops';
 import type { PreferenceStore } from './preferences';
-import { browserStore, readPreferences, writePreferences } from './preferences';
+import { browserStore, readHabits, readPreferences, writeHabits, writePreferences } from './preferences';
+import { ALL_EMOJI } from './ui/emoji-data';
+import { PANEL_SECTION_IDS } from './ui/contact-panel';
 import type { Route, RouterHost, ScreenId } from './router';
 import { onRouteChange, readRoute, writeRoute } from './router';
 import type { AppState } from './state';
@@ -301,6 +303,20 @@ function overlayOf(state: AppState): string | null {
 export const COMPOSER_MIN_HEIGHT = 44;
 export const COMPOSER_MAX_HEIGHT = 120;
 
+/**
+ * Puts `text` into the open composer at its caret (replacing any selection),
+ * then fires the same input event typing would. The picker only exists inside
+ * a composer, so there is always a box to put it in.
+ */
+function insertAtCaret(root: Element, text: string): void {
+  const input = root.querySelector('.composer__input') as HTMLTextAreaElement;
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  input.setRangeText(text, start, end, 'end');
+  input.focus();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function growComposer(root: Element): void {
   const input = root.querySelector('.composer__input');
   if (input instanceof HTMLTextAreaElement) growField(input);
@@ -351,6 +367,13 @@ export interface MountOptions {
   /** How follow-up reads are delayed, e.g. an export still being prepared. */
   readonly schedule?: Scheduler | undefined;
   /**
+   * The clock of the live-stream watchdog, kept apart from `schedule` so a
+   * test of export or reconnect timing is not also a test of it. Defaults to
+   * the browser's timers in production; a test that injects `schedule` alone
+   * gets no watchdog unless it injects this as well.
+   */
+  readonly watchSchedule?: Scheduler | undefined;
+  /**
    * The page's lifecycle: network, visibility and back/forward-cache restores.
    * Injected so a test can hide and show the tab without a browser.
    */
@@ -393,6 +416,22 @@ export function browserPageLifecycle(view: Window): PageLifecycle {
 export const REALTIME_RESUME_MS = 3000;
 export const REALTIME_RESUME_MAX_MS = 60_000;
 
+/**
+ * A stream that has said nothing for this long is treated as dead and
+ * replaced. The server sends a heartbeat after 15 s of quiet, so this is three
+ * missed heartbeats — long enough that a slow network is not mistaken for a
+ * dropped one, short enough that nobody works from a frozen screen for long.
+ */
+export const REALTIME_SILENCE_MS = 45_000;
+/** How often the open stream's silence is checked. */
+export const REALTIME_WATCH_MS = 15_000;
+/**
+ * Coming back to the tab after at least this long re-reads the lists and the
+ * open thread, quietly. A hidden tab's timers are throttled and a laptop may
+ * have slept, so what was missed is not knowable from the stream alone.
+ */
+export const RETURN_CATCH_UP_MS = 15_000;
+
 /** How long to wait before asking again about an export that is still running. */
 export const EXPORT_POLL_MS = 2500;
 
@@ -407,7 +446,8 @@ const SCREEN_LOADERS: Readonly<Record<Exclude<ScreenId, 'accept-invitation' | 'r
   roles: loadPeopleScreen,
   teams: loadPeopleScreen,
   channels: loadChannelsScreen,
-  inbox: loadInboxScreen,
+  // Coming back to the Inbox keeps what was on it while the lists are re-read.
+  inbox: (context) => loadInboxScreen(context, { keepRows: true }),
   contacts: loadContactsScreen,
   broadcasts: loadCampaignsScreen,
   automations: loadAutomationsScreen,
@@ -500,10 +540,19 @@ export function mount(options: MountOptions): AppHandle {
   let savedTheme = state.theme;
   let savedNav = state.navCollapsed;
   let savedLang = state.lang;
+  const habits = readHabits(store, {
+    emoji: (value) => ALL_EMOJI.some((entry) => entry.char === value),
+    section: (value) => PANEL_SECTION_IDS.includes(value),
+  });
+  state.emojiRecent = habits.emojiRecent ?? state.emojiRecent;
+  state.panelSections = habits.panelSections ?? state.panelSections;
+  let savedRecent = state.emojiRecent;
+  let savedSections = state.panelSections;
 
   const root = options.root;
   const host = options.host;
   const schedule: Scheduler = options.schedule ?? browserScheduler;
+  const watchSchedule: Scheduler | null = options.watchSchedule ?? (options.schedule === undefined ? browserScheduler : null);
   /** The screen whose lists have been loaded for the current session. */
   let loadedScreen: ScreenId | null = null;
   /** Whether the first render has happened. */
@@ -516,6 +565,9 @@ export function mount(options: MountOptions): AppHandle {
   let returnFocus: FocusSnapshot | null = null;
   let cancelPoll: Cancel | null = null;
   let cancelResume: Cancel | null = null;
+  let cancelWatch: Cancel | null = null;
+  /** When the tab was last hidden, by the app's clock; `null` while visible. */
+  let hiddenAt: number | null = null;
   let resumeAttempts = 0;
   let destroyed = false;
   let checkingUpdate = false;
@@ -564,6 +616,11 @@ export function mount(options: MountOptions): AppHandle {
       savedNav = state.navCollapsed;
       savedLang = state.lang;
       writePreferences(store, { theme: state.theme, navCollapsed: state.navCollapsed, lang: state.lang });
+    }
+    if (state.emojiRecent !== savedRecent || state.panelSections !== savedSections) {
+      savedRecent = state.emojiRecent;
+      savedSections = state.panelSections;
+      writeHabits(store, { emojiRecent: state.emojiRecent, panelSections: state.panelSections });
     }
     root.className = 'app-root';
     const nextOverlay = overlayOf(state);
@@ -637,6 +694,7 @@ export function mount(options: MountOptions): AppHandle {
     if (!ensureScreen()) render();
     followExport();
     followRealtime();
+    watchRealtime();
   };
   bindVoicePlayback(refresh);
 
@@ -787,9 +845,16 @@ export function mount(options: MountOptions): AppHandle {
     open: options.openEventSource ?? browserEventSource,
   });
 
-  const cancelFollow = (): void => {
+  const cancelRetry = (): void => {
     cancelResume?.();
     cancelResume = null;
+  };
+
+  /** Every live-stream timer: the retry of a dead stream and the watchdog. */
+  const cancelFollow = (): void => {
+    cancelRetry();
+    cancelWatch?.();
+    cancelWatch = null;
   };
 
   /**
@@ -798,11 +863,38 @@ export function mount(options: MountOptions): AppHandle {
    * are re-read, in the background: rows stay on screen while they refresh,
    * because an operator coming back to the tab is not starting over.
    */
-  const resumeLive = (force: boolean): void => {
-    if (!workspaceOpen(state) || state.offline) return;
-    if (!resumeRealtime(liveContext, realtimeWiring(), force)) return;
-    if (loadedScreen === 'inbox') void refreshInboxLists(liveContext);
+  const resumeLive = (force: boolean): boolean => {
+    if (!workspaceOpen(state) || state.offline) return false;
+    if (!resumeRealtime(liveContext, realtimeWiring(), force)) return false;
+    if (loadedScreen === 'inbox') void catchUpInbox(liveContext);
     void refreshNotificationCount(liveContext);
+    return true;
+  };
+
+  /**
+   * Replaces a stream that went silent while still reading as open.
+   *
+   * `EventSource` only notices a connection is gone when the socket says so. A
+   * proxy that dropped it, or a laptop that slept, leaves a socket that never
+   * speaks again: the pill says Live and nothing arrives, which is the screen
+   * an operator has to reload to fix. One timer at a time, re-armed after each
+   * check and only while the stream claims to be live.
+   */
+  const watchRealtime = (): void => {
+    const watching = watchSchedule !== null && workspaceOpen(state) && !state.offline &&
+      state.live.realtime.status === 'live' && state.live.subscription !== null;
+    if (!watching) {
+      cancelWatch?.();
+      cancelWatch = null;
+      return;
+    }
+    if (cancelWatch !== null) return;
+    cancelWatch = watchSchedule(() => {
+      cancelWatch = null;
+      const subscription = state.live.subscription;
+      if (subscription !== null && subscription.quietFor() >= REALTIME_SILENCE_MS && resumeLive(true)) return;
+      watchRealtime();
+    }, REALTIME_WATCH_MS);
   };
 
   /**
@@ -817,7 +909,9 @@ export function mount(options: MountOptions): AppHandle {
     const dead = workspaceOpen(state) && !state.offline && realtime.status === 'stale' &&
       (subscription === null || subscription.ended());
     if (!dead) {
-      cancelFollow();
+      // Only the retry: the watchdog has its own rules, and cancelling it on
+      // every render would keep pushing its next check back.
+      cancelRetry();
       return;
     }
     if (cancelResume !== null) return;
@@ -841,16 +935,27 @@ export function mount(options: MountOptions): AppHandle {
   };
 
   /**
-   * Returning to the tab keeps everything on screen. Nothing is re-probed or
-   * reloaded; a stream that died while hidden is replaced, and one that is
-   * still retrying is left to `EventSource`.
+   * Returning to the tab keeps everything on screen; nothing is blanked or
+   * re-probed. A stream that died or went silent while hidden is replaced, one
+   * that is still retrying is left to `EventSource`, and after a real absence
+   * the lists and the open thread are re-read in the background.
    */
   const onVisibility = (): void => {
     // Registered only when a lifecycle was supplied.
-    if ((page as PageLifecycle).visible()) {
-      resumeLive(false);
-      void checkForUpdate();
+    if (!(page as PageLifecycle).visible()) {
+      hiddenAt = clock().getTime();
+      return;
     }
+    const away = hiddenAt === null ? 0 : clock().getTime() - hiddenAt;
+    hiddenAt = null;
+    // A stream that went quiet while the tab was hidden is replaced now rather
+    // than at the watchdog's next tick; the replacement re-reads what it missed.
+    const silent = (state.live.subscription?.quietFor() ?? 0) >= REALTIME_SILENCE_MS;
+    const replaced = resumeLive(silent);
+    if (!replaced && away >= RETURN_CATCH_UP_MS && loadedScreen === 'inbox' && workspaceOpen(state) && !state.offline) {
+      void catchUpInbox(liveContext);
+    }
+    void checkForUpdate();
   };
 
   // Standalone mobile PWAs do not consistently emit pageshow when resumed.
@@ -952,6 +1057,14 @@ export function mount(options: MountOptions): AppHandle {
     }
     if (act === 'app-update') {
       options.reloadForUpdate?.();
+      return;
+    }
+    // An emoji goes in where the caret is, as if typed. The textarea keeps its
+    // selection while the picker has focus, so the browser can place it, and
+    // the input event records the draft exactly as typing would.
+    if (act === 'live-emoji') {
+      insertAtCaret(root, attrOf(target, 'data-arg'));
+      dispatch('emoji-recent', attrOf(target, 'data-arg'));
       return;
     }
     // A submit button's form already dispatches on `submit`.

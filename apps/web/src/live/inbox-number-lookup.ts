@@ -11,7 +11,13 @@ export async function lookupInboxNumber(context: LiveContext, search: string): P
     const pending = { key: search, result: LOADING };
     context.live.inboxNumberLookup = pending;
     context.refresh();
-    const options = await context.live.channels.quickWhatsAppOptions(tenantId);
+    // The connections behind the lookup hardly ever change, and asking for them
+    // again on every search put a second round trip in front of each one.
+    const known = context.live.quickWhatsAppOptions;
+    const options = known.status === 'ready'
+      ? { ok: true as const, data: known.value }
+      : await context.live.channels.quickWhatsAppOptions(tenantId);
+    if (options.ok && known.status !== 'ready') context.live.quickWhatsAppOptions = ready(options.data, context.now());
     if (context.live.inboxNumberLookup !== pending) return;
     if (!options.ok) {
       context.live.inboxNumberLookup = { key: search, result: failed(options.error) };

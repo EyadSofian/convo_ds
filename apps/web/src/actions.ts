@@ -4,6 +4,7 @@ import type { AppState } from './state';
 import { clampListWidth, NO_ANALYTICS_FILTERS } from './state';
 import type { Role } from './api/people';
 import { rowsOf } from './live/store';
+import { EMOJI_MENU, rememberEmoji } from './ui/emoji-data';
 
 /**
  * Every interactive control in the UI carries `data-act` (+ optional `data-arg`)
@@ -68,6 +69,33 @@ const toggleTheme: ActionHandler = (context) => {
 
 const toggleMenu: ActionHandler = (context, arg) => {
   context.state.openMenu = context.state.openMenu === arg ? null : arg;
+  // The emoji search starts empty each time; yesterday's query is not a filter
+  // anybody expects to find still applied.
+  if (context.state.openMenu === EMOJI_MENU) context.state.emojiQuery = '';
+  context.refresh();
+};
+
+const emojiCategory: ActionHandler = (context, arg) => {
+  context.state.emojiCategory = arg;
+  context.state.emojiQuery = '';
+  context.refresh();
+};
+
+const emojiSearch: ActionHandler = (context, arg) => {
+  context.state.emojiQuery = arg.slice(0, 40);
+  context.refresh();
+};
+
+/** Records an emoji the composer just took, so it leads the picker next time. */
+const emojiRecent: ActionHandler = (context, arg) => {
+  context.state.emojiRecent = rememberEmoji(context.state.emojiRecent, arg);
+  context.refresh();
+};
+
+/** Opens or folds one section of the customer panel. */
+const panelSection: ActionHandler = (context, arg) => {
+  const open = context.state.panelSections;
+  context.state.panelSections = open.includes(arg) ? open.filter((id) => id !== arg) : [...open, arg];
   context.refresh();
 };
 
@@ -384,6 +412,10 @@ export const ACTIONS: Readonly<Record<string, ActionHandler>> = {
   'role-grant-scope': roleGrantScope,
   'role-draft-discard': roleDraftDiscard,
   'assign-pick': assignPick,
+  'emoji-category': emojiCategory,
+  'emoji-search': emojiSearch,
+  'emoji-recent': emojiRecent,
+  'panel-section': panelSection,
 };
 
 export function runAction(name: string, context: ActionContext, arg: string): boolean {

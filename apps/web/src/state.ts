@@ -103,6 +103,17 @@ export interface AppState {
   supervisorPickerOpen: boolean;
   /** Which surface the composer writes to. A note never reaches a customer. */
   composerTab: ComposerTab;
+  /** The emoji picker's open category. */
+  emojiCategory: string;
+  /** What is typed in the emoji picker's search. Cleared each time it opens. */
+  emojiQuery: string;
+  /** Emoji this person picked recently, newest first. A local convenience only. */
+  emojiRecent: readonly string[];
+  /**
+   * Sections of the customer panel this person has open. The panel opens on
+   * what an agent needs mid-conversation and keeps the rest one click away.
+   */
+  panelSections: readonly string[];
   /** The channel kind whose connections the Channels screen is narrowed to. */
   channelKind: string;
   /** The connection whose management details are expanded. */
@@ -147,6 +158,9 @@ export interface AppState {
  * network failure rather than inventing a success. `mount` always passes the
  * real one.
  */
+/** The customer-panel sections open until somebody chooses otherwise. */
+export const DEFAULT_PANEL_SECTIONS: readonly string[] = ['profile', 'conversation-metadata', 'routing'];
+
 export function createState(
   now: Date,
   live: LiveState = createLiveState(
@@ -177,6 +191,10 @@ export function createState(
     inboxQueue: 'unassigned',
     supervisorPickerOpen: false,
     composerTab: 'reply',
+    emojiCategory: 'recent',
+    emojiQuery: '',
+    emojiRecent: [],
+    panelSections: DEFAULT_PANEL_SECTIONS,
     channelKind: '',
     expandedConnection: null,
     analyticsFilters: NO_ANALYTICS_FILTERS,

@@ -1059,6 +1059,43 @@ describe('the customer panel beside a conversation', () => {
     expect(text(panel)).toContain('15559998888');
   });
 
+  it('opens on who the customer is and keeps the rest folded until asked', async () => {
+    const api = inboxApi().on(`GET /tenants/${TENANT}/contacts/${CONTACT}`, {
+      status: 200,
+      body: { data: contact({ suppressed: ['whatsapp'], labels: [{ id: 'l-1', name: 'VIP', color: '#2563eb' }] }) },
+    });
+    const { root, app } = await open(api, `#/inbox/${CONVERSATION}`);
+    const panel = root.querySelector('.zone--panel') as HTMLElement;
+    // One card: the name, the number they write from, and the opt-out first.
+    expect(text(panel.querySelector('.contact-card') as HTMLElement)).toContain('سارة عبد الله');
+    expect(panel.querySelector('.contact-card__id')?.textContent).toContain('15559998888');
+    expect(panel.querySelector('.contact-card__alert')).not.toBeNull();
+    expect(panel.querySelector('.contact__facts')).toBeNull();
+
+    const toggle = (id: string): HTMLButtonElement => panel.querySelector(`.panel-section__toggle[data-arg="${id}"]`) as HTMLButtonElement;
+    expect(toggle('profile').getAttribute('aria-expanded')).toBe('true');
+    expect(toggle('consent').getAttribute('aria-expanded')).toBe('false');
+    expect((panel.querySelector('#panel-section-consent') as HTMLElement).hidden).toBe(true);
+    // A folded header still says what is inside it.
+    expect(text(toggle('consent'))).toContain('ألغى الاشتراك');
+
+    click(root, '.panel-section__toggle[data-arg="consent"]');
+    const reopened = root.querySelector('.zone--panel') as HTMLElement;
+    expect(reopened.querySelector('.panel-section__toggle[data-arg="consent"]')?.getAttribute('aria-expanded')).toBe('true');
+    expect((reopened.querySelector('#panel-section-consent') as HTMLElement).hidden).toBe(false);
+    expect(app.state.panelSections).toContain('consent');
+    expect(text(reopened.querySelector('.panel-section__toggle[data-arg="contact-metadata"]') as HTMLElement)).toContain('1');
+  });
+
+  it('says so when the customer has no identity that is still live', async () => {
+    const api = inboxApi().on(`GET /tenants/${TENANT}/contacts/${CONTACT}`, {
+      status: 200,
+      body: { data: contact({ identities: [] }) },
+    });
+    const { root } = await open(api, `#/inbox/${CONVERSATION}`);
+    expect(root.querySelector('.zone--panel .contact-card__id')?.textContent).toBe('لا توجد هوية سارية');
+  });
+
   it('says there is no record yet when nobody has written', async () => {
     const { root } = await open(inboxApi(null), `#/inbox/${CONVERSATION}`);
     // A conversation we started does not invent a person from a phone number.

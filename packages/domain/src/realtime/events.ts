@@ -33,7 +33,11 @@ export const REALTIME_SCHEMA_VERSION = 1;
 export const REALTIME_EVENT_TYPES = [
   /** A customer message was normalized into the inbox. */
   'message.inbound',
-  /** A provider receipt moved an outbound message's delivery state. */
+  /**
+   * A provider receipt, or the provider's answer to a send, moved an outbound
+   * message's state. A send outcome carries `commandState` and a null
+   * `deliveryState`; a receipt carries the delivery state it reported.
+   */
   'message.delivery',
   /**
    * The business sent a message from outside CONVO (a Meta echo). Carries no

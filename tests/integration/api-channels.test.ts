@@ -2323,6 +2323,50 @@ describe('the outbound path', () => {
     expect(timeline.json()).toMatchObject({ data: expect.arrayContaining([expect.objectContaining({ template_name: 'order_update', template_language: 'ar', template_preview: 'تحديث الطلب A-52' })]) });
   });
 
+  it('tells every open screen when the provider answers a reply, accepted or refused', async () => {
+    // Without this a reply sat on "Sending" until a receipt came, and a refusal
+    // never sends one: the screen looked stuck until somebody reloaded it.
+    const to = peer();
+    await openWindow(to);
+    const conversationRows = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `SELECT id::text FROM conversations WHERE connection_id=$1 AND peer_identity=$2 AND status <> 'archived'`, [connectionId, to],
+    ));
+    const conversationId = conversationRows.rows[0]!.id;
+    const reply = async (text: string): Promise<string> => {
+      const response = await send(api, owner, 'POST', `/conversations/${conversationId}/messages`, {
+        messageType: 'text', text, clientMessageId: clientId(),
+      });
+      expect(response.statusCode, response.body).toBe(202);
+      return (response.json() as { data: { id: string } }).data.id;
+    };
+    const events = async (): Promise<{ entity_id: string; payload: Record<string, unknown> }[]> => (await withTenant(api.pool, api.tenantId, (client) =>
+      client.query<{ entity_id: string; payload: Record<string, unknown> }>(
+        `SELECT entity_id::text, payload FROM realtime_events
+          WHERE tenant_id=$1 AND type='message.delivery' AND conversation_id=$2 ORDER BY seq`,
+        [api.tenantId, conversationId],
+      ))).rows;
+
+    const acceptedId = await reply('تمام');
+    answer = accepted(`wamid.announced-${to}`);
+    expect((await dispatcher.dispatch(api.tenantId)).accepted).toBe(1);
+
+    const refusedId = await reply('مرفوض');
+    answer = { status: 'definitely_rejected', code: 'recipient_blocked', message: 'No.', retryable: false };
+    expect((await dispatcher.dispatch(api.tenantId)).rejected).toBe(1);
+
+    expect(await events()).toEqual([
+      expect.objectContaining({ entity_id: acceptedId, payload: expect.objectContaining({ messageId: acceptedId, commandState: 'provider_accepted', deliveryState: null }) }),
+      expect.objectContaining({ entity_id: refusedId, payload: expect.objectContaining({ messageId: refusedId, commandState: 'rejected' }) }),
+    ]);
+
+    // A conversation that is gone has nobody to tell.
+    const conversations = api.app.get(ConversationService);
+    await withTenant(api.pool, api.tenantId, (client) => conversations.noteSendOutcome(asExecutor(client), api.tenantId, {
+      messageId: refusedId, conversationId: randomUUID(), commandState: 'rejected',
+    }));
+    expect(await events()).toHaveLength(2);
+  });
+
   it('filters and paginates the authorized conversation catalogue with escaped search semantics', async () => {
     const to = peer();
     await openWindow(to);

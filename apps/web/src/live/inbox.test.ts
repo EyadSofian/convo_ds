@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike } from '../api/client.js';
 import type { AppHandle, Cancel, MountOptions, PageEvent, PageLifecycle } from '../app.js';
-import { mount, REALTIME_RESUME_MAX_MS, REALTIME_RESUME_MS } from '../app.js';
+import { mount, REALTIME_RESUME_MAX_MS, REALTIME_RESUME_MS, REALTIME_SILENCE_MS, REALTIME_WATCH_MS, RETURN_CATCH_UP_MS } from '../app.js';
 import type { RouterHost } from '../router.js';
 import type { EventSourceLike } from './realtime.js';
 
@@ -674,6 +674,34 @@ describe('reading and replying', () => {
     const sent = api.calls.filter((call) => call.method === 'POST' && call.path.endsWith('/messages'));
     expect(sent).toHaveLength(1);
     expect(sent[0]?.body).toMatchObject({ messageType: 'text', text: '❤️😀' });
+  });
+
+  it('puts an emoji where the caret is, keeps the picker open, and remembers it', async () => {
+    const stored: Record<string, string> = { 'convo.emoji': JSON.stringify(['🙏', 'not-an-emoji']), 'convo.panel': JSON.stringify(['profile', 'nope']) };
+    const preferences = { getItem: (key: string) => stored[key] ?? null, setItem: (key: string, value: string) => { stored[key] = value; } };
+    const { root, app } = await open(claimedApi(), `#/inbox/${CONVERSATION}`, { preferences });
+    // Only what this build knows comes back from storage.
+    expect(app.state.emojiRecent).toEqual(['🙏']);
+    expect(app.state.panelSections).toEqual(['profile']);
+
+    type(root, '.composer__input', 'Hello world');
+    const input = root.querySelector('.composer__input') as HTMLTextAreaElement;
+    input.setSelectionRange(5, 5);
+    click(root, '.composer__emoji [data-act="menu"]');
+    expect(root.querySelector('.emoji-picker')).not.toBeNull();
+    click(root, '.emoji-picker__tab[data-arg="hearts"]');
+    click(root, '.emoji-picker__item[data-arg="💙"]');
+
+    expect(app.state.live.composer).toBe('Hello💙 world');
+    expect((root.querySelector('.composer__input') as HTMLTextAreaElement).value).toBe('Hello💙 world');
+    expect((root.querySelector('[data-act="live-inbox-send"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(root.querySelector('.emoji-picker')).not.toBeNull();
+    expect(app.state.emojiRecent).toEqual(['💙', '🙏']);
+    expect(JSON.parse(stored['convo.emoji'] as string)).toEqual(['💙', '🙏']);
+
+    // Searching narrows the grid without leaving the picker.
+    type(root, '.emoji-picker__search-input', 'thanks');
+    expect(root.querySelector('.emoji-picker__item[data-arg="🙏"]')).not.toBeNull();
   });
 
   it('keeps what was typed when the send is refused', async () => {
@@ -1484,6 +1512,99 @@ describe('leaving the tab and coming back', () => {
     app.destroy();
     handle = null;
     expect(page.count()).toBe(0);
+  });
+
+  describe('a stream that stops speaking', () => {
+    const unassigned = `GET /tenants/${TENANT}/conversations/unassigned`;
+    const thread = `GET /tenants/${TENANT}/conversations/${CONVERSATION}/messages`;
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Real timers for the test's own waits; only the clock is moved by hand. */
+    function movableClock(): (ms: number) => void {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(NOW);
+      return (ms) => {
+        vi.setSystemTime(Date.now() + ms);
+      };
+    }
+
+    it('is kept while it sends heartbeats, and replaced once it falls silent', async () => {
+      const advance = movableClock();
+      const watch = manualSchedule();
+      const api = resumeApi();
+      const { root } = await open(api, '#/inbox', { now: undefined, page: new FakePage(), watchSchedule: watch.schedule });
+      const first = FakeStream.last as FakeStream;
+      // One check is pending, however many times the screen has redrawn.
+      expect(watch.delays).toEqual([REALTIME_WATCH_MS]);
+
+      // Quiet, but the heartbeat says the line is still up.
+      advance(REALTIME_SILENCE_MS);
+      first.emit('heartbeat', {});
+      watch.run();
+      await settle();
+      expect(FakeStream.opened).toBe(1);
+      expect(watch.delays).toHaveLength(2);
+
+      // Nothing at all for longer than the limit: the socket is gone.
+      const lists = api.countOf(unassigned);
+      advance(REALTIME_SILENCE_MS);
+      watch.run();
+      await settle();
+      expect(first.closed).toBe(true);
+      expect(FakeStream.opened).toBe(2);
+      expect(api.countOf(unassigned)).toBe(lists + 1);
+      // Rows stay on screen; the pill says reconnecting until the new one opens.
+      expect(root.querySelector('.convrow--card')).not.toBeNull();
+      expect(pill(root)).toBe('stale');
+      (FakeStream.last as FakeStream).emit('open', {});
+      await settle();
+      expect(pill(root)).toBe('live');
+      expect(watch.delays).toHaveLength(3);
+    });
+
+    it('re-reads the lists and the open thread after a real absence from the tab', async () => {
+      const advance = movableClock();
+      const page = new FakePage();
+      const api = claimedApi().on(`GET /tenants/${TENANT}/notifications/unread-count`, { status: 200, body: { data: { count: 0 } } });
+      const { root } = await open(api, `#/inbox/${CONVERSATION}`, { now: undefined, page });
+      const lists = api.countOf(unassigned);
+      const messages = api.countOf(thread);
+
+      page.isVisible = false;
+      page.fire('visibilitychange');
+      // A heartbeat arrived while hidden, so the stream itself is fine.
+      advance(RETURN_CATCH_UP_MS);
+      (FakeStream.last as FakeStream).emit('heartbeat', {});
+      page.isVisible = true;
+      page.fire('visibilitychange');
+      await settle();
+
+      expect(FakeStream.opened).toBe(1);
+      expect(api.countOf(unassigned)).toBe(lists + 1);
+      expect(api.countOf(thread)).toBe(messages + 1);
+      expect(root.querySelector('.skeleton')).toBeNull();
+      expect(text(root)).toContain('مرحبا، أريد التسجيل');
+    });
+
+    it('replaces a stream that went silent while the tab was hidden', async () => {
+      const advance = movableClock();
+      const page = new FakePage();
+      await open(resumeApi(), '#/inbox', { now: undefined, page });
+      const first = FakeStream.last as FakeStream;
+
+      page.isVisible = false;
+      page.fire('visibilitychange');
+      advance(REALTIME_SILENCE_MS);
+      page.isVisible = true;
+      page.fire('visibilitychange');
+      await settle();
+
+      expect(first.closed).toBe(true);
+      expect(FakeStream.opened).toBe(2);
+    });
   });
 });
 

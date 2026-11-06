@@ -53,6 +53,9 @@ async function readInboxLists(context: LiveContext): Promise<void> {
     ]);
     // A newer read — a filter, a sort, a reset — owns the lists now.
     if (!current()) return;
+    // This read answered the current query, so it also answers a search that
+    // was still waiting when it overtook that search's own read.
+    live.inboxPending = false;
     const now = context.now();
     if (live.supervisorAgentId === null) {
       if (unassigned.ok) live.unassigned = ready(unassigned.data, now);
@@ -72,3 +75,4 @@ async function readInboxLists(context: LiveContext): Promise<void> {
     context.refresh();
   });
 }
+

@@ -7,6 +7,7 @@ import { LIVE_ACTIONS } from '../live/dispatch.js';
 import { cancelVoice, METER_BARS, startVoice, voiceDraft } from '../live/voice-message.js';
 import { hydrateVoiceNotes, resetVoicePlayback } from '../live/voice-playback.js';
 import { renderInbox } from './live-inbox.js';
+import { EMOJI_CATEGORIES } from './emoji-data.js';
 
 function setup(lang: 'en' | 'ar') {
   const state = createState(new Date()); state.lang = lang; state.route = { screen: 'inbox', conversationId: 'c', params: {} }; state.composerTab = 'reply';
@@ -199,6 +200,17 @@ describe('voice and emoji composer', () => {
     }
   });
 
+  it('says it is searching, in the search box, while the rows stay', () => {
+    const c = setup('en');
+    c.live.inboxQuery = { ...c.live.inboxQuery, search: 'sara' };
+    c.live.inboxPending = true;
+    const busy = renderInbox(c.state);
+    expect(busy.querySelector('.inbox-search__spinner')?.getAttribute('aria-label')).toBe('Searching');
+    expect(busy.querySelector('.zone--list > .zone__body')?.getAttribute('aria-busy')).toBe('true');
+    c.live.inboxPending = false;
+    expect(renderInbox(c.state).querySelector('.inbox-search__spinner')).toBeNull();
+  });
+
   it('leaves the file picker out of channels that cannot deliver attachments', () => {
     const c = setup('en');
     const open = c.live.openConversation as { status: 'ready'; value: object };
@@ -208,10 +220,15 @@ describe('voice and emoji composer', () => {
 
   it.each(['en', 'ar'] as const)('inserts emoji into replies and notes and keeps playback authenticated: %s', async lang => {
     const c = setup(lang); c.state.openMenu = 'composer-emoji';
-    const panel = renderInbox(c.state); expect(panel.querySelectorAll('.composer__emoji-item')).toHaveLength(24);
-    await LIVE_ACTIONS['live-emoji']?.(c, '😊'); expect(c.live.composer).toBe('😊'); expect(c.state.openMenu).toBeNull();
-    c.state.composerTab = 'note'; c.state.openMenu = 'composer-emoji'; expect(renderInbox(c.state).querySelectorAll('.composer__emoji-item')).toHaveLength(24);
-    await LIVE_ACTIONS['live-emoji']?.(c, '👍'); expect(c.live.noteDraft).toBe('👍');
+    const smileys = EMOJI_CATEGORIES[0]!.emojis.length;
+    // Nothing used yet: the picker opens on the first real category, not an empty Recent.
+    const panel = renderInbox(c.state); expect(panel.querySelectorAll('.emoji-picker__item')).toHaveLength(smileys);
+    expect(panel.querySelector('.emoji-picker__tab[data-arg="recent"]')).toBeNull();
+    await LIVE_ACTIONS['live-emoji']?.(c, '😊'); expect(c.live.composer).toBe('😊');
+    // The picker stays open for the next pick, and remembers this one.
+    expect(c.state.openMenu).toBe('composer-emoji'); expect(c.state.emojiRecent).toEqual(['😊']);
+    c.state.composerTab = 'note'; expect(renderInbox(c.state).querySelectorAll('.emoji-picker__item')).toHaveLength(1);
+    await LIVE_ACTIONS['live-emoji']?.(c, '👍'); expect(c.live.noteDraft).toBe('👍'); expect(c.state.emojiRecent).toEqual(['👍', '😊']);
     c.state.composerTab = 'reply'; c.live.timeline = ready([{ id: '11111111-2222-4333-8444-555555555555', direction: 'out', content_type: 'audio', text: null, at: new Date().toISOString(), attachments: [{ type: 'audio', storedMedia: true, filename: 'voice.ogg', isVoice: true }], command_state: 'queued' }] as never, 1);
     expect(renderInbox(c.state).querySelector('.msg__bubble--voice [data-voice]')?.getAttribute('data-voice')).toContain('/tenants/t/conversations/c/voice-messages/');
     c.live.session = { status: 'signed_out', error: null }; expect(renderInbox(c.state).querySelector('[data-voice]')).toBeNull();

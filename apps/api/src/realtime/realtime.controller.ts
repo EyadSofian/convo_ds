@@ -154,9 +154,11 @@ export class RealtimeController {
         position = page.cursor;
         resume = page.cursor;
         if (page.events.length === 0 && Date.now() - lastFrameAt >= tuning.heartbeatMs) {
-          // A comment frame: it keeps proxies and load balancers from closing an
-          // idle connection, and it is invisible to `EventSource`.
-          raw.write(': keep-alive\n\n');
+          // The comment keeps proxies and load balancers from closing an idle
+          // connection. The named event, with no `id`, leaves `Last-Event-ID`
+          // alone and lets the browser tell a quiet stream from a dead socket
+          // that `EventSource` still believes is open.
+          raw.write(': keep-alive\nevent: heartbeat\ndata: {}\n\n');
           lastFrameAt = Date.now();
         }
         if (!open || Date.now() >= deadline) {

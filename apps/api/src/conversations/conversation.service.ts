@@ -302,6 +302,44 @@ export class ConversationService {
   }
 
   /**
+   * Says on the feed that the provider answered a send from this conversation.
+   *
+   * Without it a reply sat on "Sending" in every open screen until a receipt
+   * arrived — and a refusal never sends one, so a failed reply looked like a
+   * slow one until somebody reloaded. Delivered under `message.delivery`, the
+   * type a campaign send already uses for the same moment, so subscribers
+   * re-read the thread exactly as they do for a receipt.
+   */
+  async noteSendOutcome(
+    sql: SqlExecutor,
+    tenantId: string,
+    send: { readonly messageId: string; readonly conversationId: string | null; readonly commandState: string },
+  ): Promise<void> {
+    if (send.conversationId === null) return;
+    const conversation = await readConversation(sql, send.conversationId);
+    if (conversation === null) return;
+    await this.realtime.emit(sql, tenantId, {
+      type: 'message.delivery',
+      entityType: 'message',
+      entityId: send.messageId,
+      entityVersion: send.commandState === 'provider_accepted' ? deliveryRank('sent') : deliveryRank('failed'),
+      conversationId: conversation.id,
+      connectionId: conversation.connectionId,
+      teamId: conversation.teamId,
+      assigneeMembershipId: conversation.assigneeMembershipId,
+      occurredAt: new Date(),
+      payload: {
+        messageId: send.messageId,
+        commandState: send.commandState,
+        deliveryState: null,
+        anomaly: null,
+        priority: conversation.priority,
+        status: conversation.status,
+      },
+    });
+  }
+
+  /**
    * The Unassigned queue, projected.
    *
    * The projection happens here, on the server, from the columns — not by
@@ -438,20 +476,36 @@ export class ConversationService {
       const rows = await sql.query<
         RawConversation & { display_name: string; kind: string; contact_display_name: string | null; assignee_name: string | null; last_message_preview: string | null; read_through: Date | null; cursor_value:string; participant_membership_ids: readonly string[] }
       >(
+        // The page is chosen first — filtered, ordered and cut on the
+        // conversation alone — and the per-row work (preview, participants,
+        // names) runs only for that page. Joined into one flat query, Postgres
+        // built a preview for every match before it sorted and kept fifty: a
+        // partial phone number on a large inbox matched thousands of threads
+        // and took tens of seconds. The ORDER BY/LIMIT subquery cannot be
+        // flattened, so this holds whatever the planner prefers.
+        //
         // The read cursor is joined for THIS membership only. Unread is a fact
         // about a person, so a row's unread flag is not a property of the row —
         // two agents looking at the same list see different answers, correctly.
-        `SELECT ${DETAIL_COLUMNS}, n.display_name, n.kind, contact.display_name AS contact_display_name, assignee.display_name AS assignee_name,
-                left(btrim(preview.text_body), 160) AS last_message_preview, r.read_through, ${cursorValue(query.sort)} AS cursor_value,
+        `SELECT ${DETAIL_COLUMNS}, c.inbox_display_name AS display_name, c.inbox_kind AS kind,
+                contact.display_name AS contact_display_name, assignee.display_name AS assignee_name,
+                left(btrim(preview.text_body), 160) AS last_message_preview, c.viewer_read_through AS read_through,
+                ${cursorValue(query.sort)} AS cursor_value,
                 ARRAY(SELECT participant.membership_id::text FROM conversation_participants participant WHERE participant.conversation_id = c.id
                       UNION
                       SELECT collaborator.membership_id::text FROM conversation_collaborators collaborator WHERE collaborator.conversation_id = c.id AND collaborator.removed_at IS NULL) AS participant_membership_ids
-           FROM conversations c
-           JOIN channel_connections n ON n.id = c.connection_id
+           FROM (
+             SELECT c.*, n.display_name AS inbox_display_name, n.kind AS inbox_kind, r.read_through AS viewer_read_through
+               FROM conversations c
+               JOIN channel_connections n ON n.id = c.connection_id
+               LEFT JOIN conversation_reads r
+                 ON r.conversation_id = c.id AND r.membership_id = ${viewer}
+              WHERE ${compiled.where}${cursor}
+              ORDER BY ${compiled.order}
+              LIMIT ${limit}
+           ) c
            LEFT JOIN contacts contact ON contact.id=c.contact_id AND contact.deleted_at IS NULL
            LEFT JOIN memberships assignee ON assignee.id=c.assignee_membership_id
-           LEFT JOIN conversation_reads r
-             ON r.conversation_id = c.id AND r.membership_id = ${viewer}
            LEFT JOIN LATERAL (
              SELECT latest.text_body FROM (
                (SELECT e.text_body, e.occurred_at AS at, e.id
@@ -465,17 +519,23 @@ export class ConversationService {
                    AND ${externalEcho('x')}
                  ORDER BY x.occurred_at DESC LIMIT 1)
                UNION ALL
+               -- Two branches rather than one OR: with the attribution test
+               -- OR-ed in, no index could serve the lookup and every row
+               -- scanned every outbound message. The newest of the two is the
+               -- newest of their union, which is what the outer LIMIT keeps.
                (SELECT COALESCE(m.template_preview, m.text_body) AS text_body, m.created_at AS at, m.id
                   FROM outbound_messages m
-                 WHERE (${conversationEventBoundary('c', 'm', 'm.created_at')})
-                    OR EXISTS (SELECT 1 FROM campaign_conversation_attributions attribution
-                                WHERE attribution.conversation_id=c.id AND attribution.outbound_message_id=m.id)
+                 WHERE ${conversationEventBoundary('c', 'm', 'm.created_at')}
+                 ORDER BY m.created_at DESC LIMIT 1)
+               UNION ALL
+               (SELECT COALESCE(m.template_preview, m.text_body) AS text_body, m.created_at AS at, m.id
+                  FROM campaign_conversation_attributions attribution
+                  JOIN outbound_messages m ON m.id = attribution.outbound_message_id
+                 WHERE attribution.tenant_id = c.tenant_id AND attribution.conversation_id = c.id
                  ORDER BY m.created_at DESC LIMIT 1)
              ) latest ORDER BY latest.at DESC, latest.id DESC LIMIT 1
            ) preview ON true
-          WHERE ${compiled.where}${cursor}
-          ORDER BY ${compiled.order}
-          LIMIT ${limit}`,
+          ORDER BY ${compiled.order}`,
         params,
       );
       const pageRows=rows.rows.slice(0,query.limit);const items: ConversationListRow[] = [];
