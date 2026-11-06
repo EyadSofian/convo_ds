@@ -138,8 +138,9 @@ projection so the composer can become writable without a browser refresh.
    the connection: it subscribes the Page with its own token (which needs
    `pages_manage_metadata`) and imports the last 30 days, up to 100 conversations
    and Meta's limit of 20 messages each. For Instagram the conversation list is
-   read without messages and each thread is read on its own, because Meta times
-   out when the Instagram list carries them. If a batch or a thread fails,
+   read without messages, five at a time (one at a time once a page times out),
+   and each thread is read on its own, because Meta's Instagram reads time out
+   at larger sizes. The whole fetch stops after 60 seconds. If a batch or a thread fails,
    messages already read are imported and the dashboard reports that the sync
    was partial. Repeating it is safe. Imported messages
    show the customer and what was said, never reopen a resolved thread and never
