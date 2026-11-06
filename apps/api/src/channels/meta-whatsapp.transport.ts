@@ -467,29 +467,28 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     }
     const subscription = await this.subscribePage(credential, pageId);
     const deadline = Date.now() + META_HISTORY_READ_BUDGET_MS;
-    // Instagram's expanded conversation response can time out even when the
-    // same Page token validates and subscribes. Keep each read much smaller.
-    const pageSize = kind === 'instagram' ? 5 : 25;
+    const read = (path: string) => {
+      const remaining = deadline - Date.now();
+      return remaining <= 0
+        ? Promise.resolve(META_HISTORY_TIMEOUT)
+        : this.graphGet(path, credential, Math.min(this.timeoutMs, remaining));
+    };
+    const threadFields = `messages.limit(20){${META_HISTORY_MESSAGE_FIELDS}}`;
+    // Instagram times out when its conversation list carries the messages, even
+    // five at a time, and a retry starts from the same newest page and stops in
+    // the same place. So for Instagram the list is read bare, which is quick,
+    // and each thread's messages are a small read of their own: one slow
+    // thread then costs that thread, not every conversation after it.
+    const perThread = kind === 'instagram';
+    const listFields = encodeURIComponent(perThread ? 'id,updated_time' : `updated_time,${threadFields}`);
+    const pageSize = 25;
     const messages: unknown[] = [];
     let conversations = 0;
     let after: string | null = null;
     let historyIncomplete = false;
     for (let page = 0; page < META_HISTORY_CONVERSATIONS / pageSize; page += 1) {
       const cursor: string = after === null ? '' : `&after=${encodeURIComponent(after)}`;
-      const fields = encodeURIComponent(`updated_time,messages.limit(20){${META_HISTORY_MESSAGE_FIELDS}}`);
-      const read = (limit: number) => {
-        const remaining = deadline - Date.now();
-        return remaining <= 0 ? Promise.resolve(META_HISTORY_TIMEOUT) : this.graphGet(
-          `${pageId}/conversations?platform=${kind}&limit=${String(limit)}&fields=${fields}${cursor}`,
-          credential, Math.min(this.timeoutMs, remaining),
-        );
-      };
-      let answer = await read(pageSize);
-      if (kind === 'instagram' && !answer.ok && answer.code === 'provider_timeout') {
-        // Retry the same cursor once so a single slow batch doesn't lose the
-        // newest conversations or skip over them.
-        answer = await read(1);
-      }
+      const answer = await read(`${pageId}/conversations?platform=${kind}&limit=${String(pageSize)}&fields=${listFields}${cursor}`);
       if (!answer.ok) {
         if (conversations === 0) return answer.code === 'provider_timeout' ? META_HISTORY_TIMEOUT : answer;
         historyIncomplete = true;
@@ -503,8 +502,16 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
         return conversation !== null && Date.parse(String(conversation['updated_time'])) >= since.getTime() ? [conversation] : [];
       });
       conversations += recent.length;
-      for (const conversation of recent) {
-        const data = record(conversation['messages'])?.['data'];
+      for (const listed of recent) {
+        let conversation: Record<string, unknown> | null = listed;
+        if (perThread) {
+          const thread = await read(`${encodeURIComponent(String(listed['id']))}?fields=${encodeURIComponent(threadFields)}`);
+          // A thread Meta would not return is skipped, and the sync says it is
+          // partial; the threads around it are still worth having.
+          if (!thread.ok) historyIncomplete = true;
+          conversation = thread.ok ? record(thread.body) : null;
+        }
+        const data = record(conversation?.['messages'])?.['data'];
         messages.push(...(Array.isArray(data) ? data as unknown[] : []));
       }
       const paging = record(body?.['paging']);
