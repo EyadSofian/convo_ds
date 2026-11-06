@@ -197,7 +197,7 @@ describe('syncing a Meta Page', () => {
       ok: true, subscriptionError: null, conversations: 3, historyIncomplete: true, messages: [{ id: 'first' }, { id: 'second' }],
     });
     const reads = calls.filter((call) => call.method === 'GET').map((call) => decodeURIComponent(call.url));
-    expect(reads[0]).toContain(`${GRAPH}/123/conversations?platform=instagram&limit=25&fields=id,updated_time`);
+    expect(reads[0]).toContain(`${GRAPH}/123/conversations?platform=instagram&limit=5&fields=id,updated_time`);
     expect(reads[0]).not.toContain('messages');
     // A Graph id is a path segment, so it is encoded rather than trusted.
     expect(calls[2]?.url).toContain(`${GRAPH}/ig%2Fone?fields=`);
@@ -205,7 +205,7 @@ describe('syncing a Meta Page', () => {
   });
 
   it('keeps earlier messages if the remaining history exceeds the time budget', async () => {
-    const time = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValue(40_000);
+    const time = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValue(60_000);
     try {
       const { adapter, calls } = transport((call) => call.method === 'POST' ? subscribed() : json(200, {
         data: [conversation('2026-11-01T00:00:00Z', 'first')],
@@ -220,12 +220,36 @@ describe('syncing a Meta Page', () => {
     }
   });
 
+  it('asks for a slow Instagram list page again at one, and keeps that size', async () => {
+    const { adapter, calls } = transport((call) => {
+      if (call.method === 'POST') return subscribed();
+      const url = new URL(call.url);
+      if (url.pathname.endsWith('/conversations')) {
+        if (url.searchParams.get('limit') === '5') return new DOMException('late', 'TimeoutError');
+        return url.searchParams.has('after')
+          ? json(200, { data: [{ id: 'ig-2', updated_time: '2026-11-01T00:00:00Z' }] })
+          : json(200, { data: [{ id: 'ig-1', updated_time: '2026-11-01T00:00:00Z' }], paging: { next: 'more', cursors: { after: 'c1' } } });
+      }
+      return json(200, { messages: { data: [{ id: url.pathname.split('/').at(-1) }] } });
+    });
+    expect(await adapter.syncMetaPage('instagram', TOKEN, '123', SINCE)).toEqual({
+      ok: true, subscriptionError: null, conversations: 2, messages: [{ id: 'ig-1' }, { id: 'ig-2' }],
+    });
+    const lists = calls.filter((call) => call.method === 'GET' && new URL(call.url).pathname.endsWith('/conversations'));
+    expect(lists.map((call) => new URL(call.url).searchParams.get('limit'))).toEqual(['5', '1', '1']);
+  });
+
   it('reports a history timeout when even the conversation list cannot be read', async () => {
     const { adapter, calls } = transport((call) => call.method === 'POST' ? subscribed() : new DOMException('late', 'TimeoutError'));
     expect(await adapter.syncMetaPage('instagram', TOKEN, '123', SINCE)).toMatchObject({
       ok: false, code: 'provider_timeout', message: 'Meta took too long to return the message history.',
     });
-    expect(calls.filter((call) => call.method === 'GET')).toHaveLength(1);
+    // Five, then one; nothing smaller to try after that.
+    expect(calls.filter((call) => call.method === 'GET').map((call) => new URL(call.url).searchParams.get('limit'))).toEqual(['5', '1']);
+    // Messenger's list is not shrunk: one read, then the same answer.
+    const messenger = transport((call) => call.method === 'POST' ? subscribed() : new DOMException('late', 'TimeoutError'));
+    expect(await messenger.adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toMatchObject({ ok: false, code: 'provider_timeout' });
+    expect(messenger.calls.filter((call) => call.method === 'GET')).toHaveLength(1);
   });
 
   it('stops at the first conversation older than the window', async () => {

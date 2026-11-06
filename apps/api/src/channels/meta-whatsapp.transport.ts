@@ -115,7 +115,7 @@ function isMetaMediaUrl(value: string): boolean {
 }
 
 const META_HISTORY_CONVERSATIONS = 100;
-const META_HISTORY_READ_BUDGET_MS = 40_000;
+const META_HISTORY_READ_BUDGET_MS = 60_000;
 const META_HISTORY_TIMEOUT = {
   ok: false, code: 'provider_timeout', message: 'Meta took too long to return the message history.', retryable: true,
 } as const;
@@ -481,14 +481,22 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     // thread then costs that thread, not every conversation after it.
     const perThread = kind === 'instagram';
     const listFields = encodeURIComponent(perThread ? 'id,updated_time' : `updated_time,${threadFields}`);
-    const pageSize = 25;
+    // Even bare, Instagram's list has run past the timeout at 25 a page while a
+    // page of one answered. So it starts at five, and a page that times out is
+    // asked for again at one, which then holds for the rest of the walk.
+    let pageSize = perThread ? 5 : 25;
     const messages: unknown[] = [];
     let conversations = 0;
     let after: string | null = null;
     let historyIncomplete = false;
     for (let page = 0; page < META_HISTORY_CONVERSATIONS / pageSize; page += 1) {
       const cursor: string = after === null ? '' : `&after=${encodeURIComponent(after)}`;
-      const answer = await read(`${pageId}/conversations?platform=${kind}&limit=${String(pageSize)}&fields=${listFields}${cursor}`);
+      const list = () => read(`${pageId}/conversations?platform=${kind}&limit=${String(pageSize)}&fields=${listFields}${cursor}`);
+      let answer = await list();
+      if (!answer.ok && answer.code === 'provider_timeout' && pageSize === 5) {
+        pageSize = 1;
+        answer = await list();
+      }
       if (!answer.ok) {
         if (conversations === 0) return answer.code === 'provider_timeout' ? META_HISTORY_TIMEOUT : answer;
         historyIncomplete = true;
