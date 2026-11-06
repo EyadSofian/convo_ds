@@ -172,6 +172,7 @@ export interface ConnectChannelInput {
 export interface MetaHistoryResult {
   readonly webhook_subscribed: boolean;
   readonly subscription_error: string | null;
+  readonly history_incomplete?: true;
   readonly conversations: number;
   readonly messages: number;
   readonly imported: number;

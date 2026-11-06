@@ -1249,7 +1249,7 @@
           { "$ref": "#/components/parameters/CsrfToken" }
         ],
         "responses": {
-          "201": { "description": "What the sync found at Meta and imported here." },
+          "201": { "description": "What the sync found at Meta and imported here. history_incomplete is true if a later page could not be read; earlier pages were imported." },
           "401": { "$ref": "#/components/responses/Error" },
           "403": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },

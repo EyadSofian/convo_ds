@@ -114,8 +114,11 @@ function isMetaMediaUrl(value: string): boolean {
   }
 }
 
-/** Bounded so one click is one bounded read: at most 100 conversations. */
-const META_HISTORY_PAGES = 4;
+const META_HISTORY_CONVERSATIONS = 100;
+const META_HISTORY_READ_BUDGET_MS = 40_000;
+const META_HISTORY_TIMEOUT = {
+  ok: false, code: 'provider_timeout', message: 'Meta took too long to return the message history.', retryable: true,
+} as const;
 
 export class MetaWhatsAppTransport implements ChannelTransportPort {
   readonly name = 'meta-whatsapp-cloud';
@@ -463,14 +466,35 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       return { ok: false, code: 'page_not_configured', message: 'Configure the Facebook Page ID first.', retryable: false };
     }
     const subscription = await this.subscribePage(credential, pageId);
+    const deadline = Date.now() + META_HISTORY_READ_BUDGET_MS;
+    // Instagram's expanded conversation response can time out even when the
+    // same Page token validates and subscribes. Keep each read much smaller.
+    const pageSize = kind === 'instagram' ? 5 : 25;
     const messages: unknown[] = [];
     let conversations = 0;
     let after: string | null = null;
-    for (let page = 0; page < META_HISTORY_PAGES; page += 1) {
+    let historyIncomplete = false;
+    for (let page = 0; page < META_HISTORY_CONVERSATIONS / pageSize; page += 1) {
       const cursor: string = after === null ? '' : `&after=${encodeURIComponent(after)}`;
       const fields = encodeURIComponent(`updated_time,messages.limit(20){${META_HISTORY_MESSAGE_FIELDS}}`);
-      const answer = await this.graphGet(`${pageId}/conversations?platform=${kind}&limit=25&fields=${fields}${cursor}`, credential);
-      if (!answer.ok) return { ok: false, code: answer.code, message: answer.message, retryable: answer.retryable };
+      const read = (limit: number) => {
+        const remaining = deadline - Date.now();
+        return remaining <= 0 ? Promise.resolve(META_HISTORY_TIMEOUT) : this.graphGet(
+          `${pageId}/conversations?platform=${kind}&limit=${String(limit)}&fields=${fields}${cursor}`,
+          credential, Math.min(this.timeoutMs, remaining),
+        );
+      };
+      let answer = await read(pageSize);
+      if (kind === 'instagram' && !answer.ok && answer.code === 'provider_timeout') {
+        // Retry the same cursor once so a single slow batch doesn't lose the
+        // newest conversations or skip over them.
+        answer = await read(1);
+      }
+      if (!answer.ok) {
+        if (conversations === 0) return answer.code === 'provider_timeout' ? META_HISTORY_TIMEOUT : answer;
+        historyIncomplete = true;
+        break;
+      }
       const body = record(answer.body);
       const rows: readonly unknown[] = Array.isArray(body?.['data']) ? body['data'] as unknown[] : [];
       // Graph lists the most recently active first, so the first old one ends it.
@@ -488,7 +512,10 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       if (recent.length < rows.length || paging?.['next'] === undefined || typeof next !== 'string') break;
       after = next;
     }
-    return { ok: true, subscriptionError: subscription.ok ? null : subscription.message, conversations, messages };
+    return {
+      ok: true, subscriptionError: subscription.ok ? null : subscription.message, conversations, messages,
+      ...(historyIncomplete ? { historyIncomplete: true } : {}),
+    };
   }
 
   /**
@@ -541,13 +568,13 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       : { ok: false, code: 'provider_response_unusable', message: 'Meta did not confirm the Page subscription.', retryable: true };
   }
 
-  private async graphGet(path: string, credential: string): Promise<
+  private async graphGet(path: string, credential: string, timeoutMs = this.timeoutMs): Promise<
     | { readonly ok: true; readonly body: unknown }
     | { readonly ok: false; readonly code: string; readonly message: string; readonly retryable: boolean }
   > {
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.graphBase}/${path}`, { method: 'GET', headers: { authorization: `Bearer ${credential}` }, signal: AbortSignal.timeout(this.timeoutMs) });
+      response = await this.fetchImpl(`${this.graphBase}/${path}`, { method: 'GET', headers: { authorization: `Bearer ${credential}` }, signal: AbortSignal.timeout(timeoutMs) });
     } catch (error) {
       return { ok: false, code: isTimeout(error) ? 'provider_timeout' : 'provider_unreachable', message: 'The WhatsApp Cloud API could not be reached.', retryable: true };
     }

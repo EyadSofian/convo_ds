@@ -156,6 +156,13 @@ export function describeError(state: AppState, error: ApiError): ErrorCopy {
     };
   }
   if (error.status >= 500) {
+    if (error.code === 'provider_timeout') {
+      return {
+        title: t(state, 'مزود الرسائل اتأخر في الرد', 'The messaging provider took too long to respond'),
+        body: t(state, 'أعد المحاولة بعد قليل.', 'Try again in a moment.'),
+        requestId,
+      };
+    }
     return {
       title: t(state, 'تعذّر إكمال الطلب', 'The server couldn’t complete this'),
       body: t(state, 'أعد المحاولة. إن تكرر الخطأ، أرسل رقم الطلب إلى الدعم.', 'Try again. If it keeps happening, share the request ID with support.'),
