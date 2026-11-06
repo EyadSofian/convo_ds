@@ -64,6 +64,8 @@ export type MetaPageSync =
       readonly ok: true;
       /** Graph's refusal of the subscription, when it refused. Reading can still work. */
       readonly subscriptionError: string | null;
+      /** Meta did not return a later page; the earlier pages can still be imported. */
+      readonly historyIncomplete?: true;
       readonly conversations: number;
       /** Raw Graph messages. The adapter is what knows how to read them. */
       readonly messages: readonly unknown[];

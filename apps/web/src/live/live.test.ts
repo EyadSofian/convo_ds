@@ -2004,10 +2004,16 @@ describe('the Channels screen', () => {
     const answers = [
       { imported: 3, recovered: 1, conversations: 2, messages: 9, webhook_subscribed: true, subscription_error: null },
       { imported: 0, recovered: 0, conversations: 1, messages: 1, webhook_subscribed: false, subscription_error: 'Needs pages_manage_metadata' },
+      { imported: 1, recovered: 0, conversations: 1, messages: 1, webhook_subscribed: true, subscription_error: null, history_incomplete: true },
     ];
     const api = channelApi();
     const messengerRow = (((api as unknown as { routes?: unknown }).routes), { id: 'cn-1' });
-    const { app, root } = openChannels(api.on(`POST /tenants/${TENANT}/channels/${messengerRow.id}/meta-history/sync`, () => ({ status: 201, body: { data: answers.shift() } })));
+    const { app, root } = openChannels(api.on(`POST /tenants/${TENANT}/channels/${messengerRow.id}/meta-history/sync`, () => {
+      const answer = answers.shift();
+      return answer === undefined
+        ? { status: 503, body: { error: { code: 'provider_timeout', message: 'Meta took too long.', request_id: 'timeout-1' } } }
+        : { status: 201, body: { data: answer } };
+    }));
     await settle();
     await app.dispatch('live-sync-meta-history', 'cn-1');
     await settle();
@@ -2016,7 +2022,13 @@ describe('the Channels screen', () => {
     await app.dispatch('live-sync-meta-history', 'cn-1');
     await settle();
     expect(toasts(app).some((toast) => toast.includes('The Page is still not subscribed to events: Needs pages_manage_metadata'))).toBe(true);
-    expect(root).toBeTruthy();
+    await app.dispatch('live-sync-meta-history', 'cn-1');
+    await settle();
+    expect(toasts(app).some((toast) => toast.includes('Meta did not return the rest of the message history'))).toBe(true);
+    await app.dispatch('live-sync-meta-history', 'cn-1');
+    await settle();
+    expect(text(root)).toContain('The messaging provider took too long to respond');
+    expect(text(root)).toContain('timeout-1');
   });
 
   it('rejects a non-numeric WABA ID in the connection editor before calling the API', async () => {

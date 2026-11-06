@@ -137,7 +137,9 @@ projection so the composer can become writable without a browser refresh.
    `messaging_handovers` and `standby`. Then press **Fetch messages from Meta** on
    the connection: it subscribes the Page with its own token (which needs
    `pages_manage_metadata`) and imports the last 30 days, up to 100 conversations
-   and Meta's limit of 20 messages each. Repeating it is safe. Imported messages
+   and Meta's limit of 20 messages each. Instagram is fetched in smaller batches.
+   If a later batch fails, messages already read are imported and the dashboard
+   reports that the sync was partial. Repeating it is safe. Imported messages
    show the customer and what was said, never reopen a resolved thread and never
    notify anybody, and a thread archived after them stays archived. Meta's own
    refusal is what the button shows, because it is the next step to take.
