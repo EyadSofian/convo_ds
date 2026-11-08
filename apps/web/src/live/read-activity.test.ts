@@ -150,4 +150,24 @@ describe('team read activity without a realtime connection', () => {
     await earlier;
     expect(state.live.timeline).toMatchObject({ value: [{ id: 'old' }, { id: 'new', seen_by: [reader] }] });
   });
+
+  it('keeps a newer timeline when it overtakes a receipt refresh', async () => {
+    const { state, api, context } = setup();
+    api.timeline.mockImplementationOnce(async () => {
+      await loadTimeline(context, 'thread');
+      return { ok: true, data: { messages: [message('new')], nextCursor: null } };
+    });
+    await markConversationRead(context, 'thread');
+    expect(state.live.timeline).toMatchObject({ value: [{ id: 'new', seen_by: [reader] }] });
+  });
+
+  it('does not apply receipts to a thread that is loading again', async () => {
+    const { state, api, context } = setup();
+    api.timeline.mockImplementationOnce(async () => {
+      state.live.timeline = { status: 'loading' };
+      return { ok: true, data: { messages: [message('new', [reader])], nextCursor: null } };
+    });
+    await markConversationRead(context, 'thread');
+    expect(state.live.timeline).toEqual({ status: 'loading' });
+  });
 });
