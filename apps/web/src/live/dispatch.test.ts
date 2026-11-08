@@ -789,6 +789,9 @@ describe('WhatsApp template dispatch table', () => {
         whatsappTemplates,
         replyTemplate: vi.fn().mockResolvedValue({ ok: true, data: {} }),
         timeline: vi.fn().mockResolvedValue({ ok: true, data: { messages: [], nextCursor: null } }),
+        markRead: vi.fn().mockResolvedValue({ ok: true, data: {} }),
+        list: vi.fn().mockResolvedValue({ ok: true, data: { items: [], nextCursor: null } }),
+        unassigned: vi.fn().mockResolvedValue({ ok: true, data: [] }),
       },
       channels: { syncWhatsAppTemplates: vi.fn().mockResolvedValue({ ok: true, data: {} }) },
     });
