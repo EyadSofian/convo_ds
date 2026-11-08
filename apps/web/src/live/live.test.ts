@@ -2004,7 +2004,8 @@ describe('the Channels screen', () => {
     const answers = [
       { imported: 3, recovered: 1, conversations: 2, messages: 9, webhook_subscribed: true, subscription_error: null },
       { imported: 0, recovered: 0, conversations: 1, messages: 1, webhook_subscribed: false, subscription_error: 'Needs pages_manage_metadata' },
-      { imported: 1, recovered: 0, conversations: 1, messages: 1, webhook_subscribed: true, subscription_error: null, history_incomplete: true },
+      { imported: 1, recovered: 0, conversations: 1, messages: 1, webhook_subscribed: true, subscription_error: null, history_incomplete: true,
+        history_failure: { stage: 'conversations', code: 'provider_timeout', message: 'Meta took too long to return the message history.' } },
     ];
     const api = channelApi();
     const messengerRow = (((api as unknown as { routes?: unknown }).routes), { id: 'cn-1' });
@@ -2025,6 +2026,7 @@ describe('the Channels screen', () => {
     await app.dispatch('live-sync-meta-history', 'cn-1');
     await settle();
     expect(toasts(app).some((toast) => toast.includes('Meta did not return the rest of the message history'))).toBe(true);
+    expect(toasts(app).some((toast) => toast.includes('provider_timeout — Meta took too long to return the message history.'))).toBe(true);
     await app.dispatch('live-sync-meta-history', 'cn-1');
     await settle();
     expect(text(root)).toContain('The messaging provider took too long to respond');

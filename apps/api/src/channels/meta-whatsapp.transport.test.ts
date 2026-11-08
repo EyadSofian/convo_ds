@@ -195,6 +195,7 @@ describe('syncing a Meta Page', () => {
     // The slow thread is skipped and the sync says it was partial; the others stand.
     expect(await adapter.syncMetaPage('instagram', TOKEN, '123', SINCE)).toEqual({
       ok: true, subscriptionError: null, conversations: 3, historyIncomplete: true, messages: [{ id: 'first' }, { id: 'second' }],
+      historyFailure: { stage: 'messages', code: 'provider_timeout', message: 'The WhatsApp Cloud API could not be reached.' },
     });
     const reads = calls.filter((call) => call.method === 'GET').map((call) => decodeURIComponent(call.url));
     expect(reads[0]).toContain(`${GRAPH}/123/conversations?platform=instagram&limit=5&fields=id,updated_time`);
@@ -213,6 +214,7 @@ describe('syncing a Meta Page', () => {
       }));
       expect(await adapter.syncMetaPage('messenger', TOKEN, '123', SINCE)).toMatchObject({
         ok: true, conversations: 1, historyIncomplete: true, messages: [{ id: 'first' }],
+        historyFailure: { stage: 'conversations', code: 'provider_timeout' },
       });
       expect(calls.filter((call) => call.method === 'GET')).toHaveLength(1);
     } finally {

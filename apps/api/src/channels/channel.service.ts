@@ -90,6 +90,7 @@ export interface MetaHistorySummary {
   readonly webhook_subscribed: boolean;
   readonly subscription_error: string | null;
   readonly history_incomplete?: true;
+  readonly history_failure?: { readonly stage: 'conversations' | 'messages'; readonly code: string; readonly message: string };
   readonly conversations: number;
   readonly messages: number;
   /** Messages that were not here before this sync. */
@@ -507,6 +508,7 @@ export class ChannelService {
           webhook_subscribed: synced.subscriptionError === null,
           subscription_error: synced.subscriptionError,
           ...(synced.historyIncomplete === true ? { history_incomplete: true as const } : {}),
+          ...(synced.historyFailure === undefined ? {} : { history_failure: synced.historyFailure }),
           conversations: synced.conversations,
           messages: synced.messages.length,
           imported: imported.stored,

@@ -2,6 +2,31 @@ import {expect,test} from '@playwright/test';
 import {CONVERSATION,CONNECTION,MEMBERSHIP,installApi} from './support/api';
 import {freezeClock,setDirection,setTheme,overflowsHorizontally} from './support/workspace';
 
+for (const channel of ['whatsapp', 'messenger', 'instagram']) {
+ test(`Seen by updates in ${channel} after opening without a realtime event`,async({page})=>{
+  await freezeClock(page);await installApi(page);
+  let reads=0;
+  const conversation={id:CONVERSATION,connectionId:CONNECTION,peerIdentity:'controlled-peer',contactId:null,contactDisplayName:'Test customer',teamId:null,assigneeMembershipId:MEMBERSHIP,assigneeName:'Ahmed Ibrahim',status:'open',priority:'normal',version:1,waitingSince:null,inboxLabel:'Test inbox',channel,participantMembershipIds:[],pendingReason:null,snoozedUntil:null,snoozeTimezone:null,resolution:null,resolvedAt:null,lastActivityAt:'2026-09-09T09:15:00Z',ownerState:'human_active',ownerVersion:1};
+  await page.route(/\/api\/v1\/tenants\/[^/]+\/conversations(?:[/?]|$)/,async route=>{
+   const path=new URL(route.request().url()).pathname;
+   if(path.endsWith('/read')){
+    reads+=1;
+    return route.fulfill({json:{data:{readThrough:'2026-09-09T09:20:00Z'}}});
+   }
+   if(path.endsWith(`/conversations/${CONVERSATION}`))return route.fulfill({json:{data:conversation}});
+   if(path.endsWith('/messages'))return route.fulfill({json:{data:[{
+    id:'controlled-message',direction:'in',at:'2026-09-09T09:15:00Z',content_type:'text',text:'Controlled test',
+    attachments:[],author_membership_id:null,command_state:null,delivery_state:null,delivery_anomaly:null,provider_message_id:'test',
+    seen_by:reads>0?[{membershipId:MEMBERSHIP,name:'Ahmed Ibrahim',seenAt:'2026-09-09T09:20:00Z'}]:[],
+   }],pagination:{next_cursor:null,has_more:false}}});
+   return route.fallback();
+  });
+  await page.goto(`/#/inbox/${CONVERSATION}?lang=en`);
+  await expect(page.locator('.msg__team-seen')).toHaveText('Seen by Ahmed Ibrahim');
+  expect(reads).toBe(1);
+ });
+}
+
 test('a read-only inbox shows assignment, authorship and team readers without send or reassignment controls',async({page})=>{
  await freezeClock(page);await installApi(page);
  const conversation={id:CONVERSATION,connectionId:CONNECTION,peerIdentity:'201001234567',contactId:null,contactDisplayName:'Mona Test',teamId:null,assigneeMembershipId:MEMBERSHIP,assigneeName:'Ahmed Ibrahim',status:'open',priority:'normal',version:4,waitingSince:null,inboxLabel:'Digital School',channel:'whatsapp',participantMembershipIds:[],pendingReason:null,snoozedUntil:null,snoozeTimezone:null,resolution:null,resolvedAt:null,lastActivityAt:'2026-09-09T09:15:00Z',ownerState:'human_active',ownerVersion:1,capabilities:{reply:false,note:false,assign:false,handoff:false,close:false}};

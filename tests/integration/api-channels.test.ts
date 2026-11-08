@@ -3475,12 +3475,14 @@ describe('customers who only exist at Meta', () => {
 
   it('uses the linked Page for Instagram and says what is missing when there is none', async () => {
     const linked = await connectPage('instagram', 'ig-sync-1', { facebookPageId: '700000000000007' });
-    answer = { ok: true, subscriptionError: null, historyIncomplete: true, conversations: 1, messages: [
+    answer = { ok: true, subscriptionError: null, historyIncomplete: true,
+      historyFailure: { stage: 'conversations', code: 'provider_timeout', message: 'Meta took too long.' }, conversations: 1, messages: [
       graphMessage('ig_hist_1', 'igsid-1', 'ig-sync-1', '2026-10-20T10:00:00+0000'),
     ] };
     const synced = await send(api, owner, 'POST', `/channels/${linked}/meta-history/sync`);
     expect(synced.statusCode, synced.body).toBe(201);
     expect(synced.json()).toMatchObject({ data: { history_incomplete: true, imported: 1 } });
+    expect(synced.json()).toMatchObject({ data: { history_failure: { stage: 'conversations', code: 'provider_timeout', message: 'Meta took too long.' } } });
     expect(seen.at(-1)).toMatchObject({ kind: 'instagram', pageId: '700000000000007' });
     await normalizer.drain(api.tenantId);
     expect(await threadOf(linked, 'igsid-1')).toBeDefined();
