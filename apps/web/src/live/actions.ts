@@ -411,9 +411,11 @@ export function syncMetaHistory(context: LiveContext, connectionId: string): Pro
         `اتجلب ${String(found)} رسالة جديدة من ${String(result.conversations)} محادثة عند Meta.`,
         `${String(found)} new messages from ${String(result.conversations)} conversations at Meta.`,
       );
-      const history = result.history_incomplete === true
+      const partial = result.history_incomplete === true
         ? `${summary} ${t(context.state, 'Meta ما رجّعتش باقي سجل الرسائل. جرّب الجلب مرة تانية.', 'Meta did not return the rest of the message history. Try fetching again.')}`
         : summary;
+      const history = result.history_failure === undefined ? partial
+        : `${partial} ${t(context.state, 'سبب التوقف من Meta:', 'Meta stopped the import:')} ${result.history_failure.code} — ${result.history_failure.message}`;
       if (result.subscription_error === null) return history;
       return `${history} ${t(context.state, 'الصفحة لسه مش مشتركة في الأحداث:', 'The Page is still not subscribed to events:')} ${result.subscription_error}`;
     },

@@ -3,7 +3,7 @@ import type { TransitionCommand } from '../api/conversations.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { refreshInboxLists } from './inbox-lists.js';
-import { adoptConversation, failed, forTenant, fromResult, LOADING, ready } from './store.js';
+import { adoptConversation, claimRead, failed, forTenant, fromResult, LOADING, ready, singleFlight } from './store.js';
 
 /**
  * The lifecycle, the notes and the read cursor, from the browser.
@@ -259,21 +259,34 @@ function noteRefusal(context: LiveContext, error: ApiError): string {
 /**
  * Moves this person's read cursor.
  *
- * Deliberately quiet: no toast, no event, nothing on the customer's side. The
- * only visible effect is that the row stops being bold in this person's list,
- * which is the entire point of a cursor that belongs to one person.
+ * Records the actual viewer, then reads the server's team receipts back. A
+ * dropped realtime event must not leave Seen by stale after a successful read.
+ * Older loaded messages stay on screen, and this sends no customer receipt.
  */
 export async function markConversationRead(
   context: LiveContext,
   conversationId: string,
 ): Promise<void> {
   const { live } = context;
-  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-  return forTenant(context, undefined, async (tenantId) => {
-    const result = await live.conversationsApi.markRead(tenantId, conversationId);
-    if (result.ok) {
-      await refreshInboxLists(context);
-    }
+  return singleFlight(live, `read:${conversationId}`, async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (live.openConversationId !== conversationId || live.timeline.status !== 'ready') return;
+    await forTenant(context, undefined, async (tenantId) => {
+      const result = await live.conversationsApi.markRead(tenantId, conversationId);
+      if (!result.ok) return;
+      const current = claimRead(live, `timeline:${conversationId}`);
+      const [page] = await Promise.all([
+        live.conversationsApi.timeline(tenantId, conversationId, null),
+        refreshInboxLists(context),
+      ]);
+      if (!page.ok || !current() || live.openConversationId !== conversationId || live.timeline.status !== 'ready') return;
+      const receipts = new Map(page.data.messages.map((message) => [message.id, message.seen_by]));
+      live.timeline = ready(live.timeline.value.map((message) => {
+        const seen = receipts.get(message.id);
+        return seen === undefined ? message : { ...message, seen_by: seen };
+      }), context.now());
+      context.refresh();
+    });
   });
 }
 

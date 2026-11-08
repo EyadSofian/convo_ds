@@ -489,6 +489,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     let conversations = 0;
     let after: string | null = null;
     let historyIncomplete = false;
+    let historyFailure: { stage: 'conversations' | 'messages'; code: string; message: string } | undefined;
     for (let page = 0; page < META_HISTORY_CONVERSATIONS / pageSize; page += 1) {
       const cursor: string = after === null ? '' : `&after=${encodeURIComponent(after)}`;
       const list = () => read(`${pageId}/conversations?platform=${kind}&limit=${String(pageSize)}&fields=${listFields}${cursor}`);
@@ -500,6 +501,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       if (!answer.ok) {
         if (conversations === 0) return answer.code === 'provider_timeout' ? META_HISTORY_TIMEOUT : answer;
         historyIncomplete = true;
+        historyFailure ??= { stage: 'conversations', code: answer.code, message: answer.message };
         break;
       }
       const body = record(answer.body);
@@ -516,7 +518,10 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
           const thread = await read(`${encodeURIComponent(String(listed['id']))}?fields=${encodeURIComponent(threadFields)}`);
           // A thread Meta would not return is skipped, and the sync says it is
           // partial; the threads around it are still worth having.
-          if (!thread.ok) historyIncomplete = true;
+          if (!thread.ok) {
+            historyIncomplete = true;
+            historyFailure ??= { stage: 'messages', code: thread.code, message: thread.message };
+          }
           conversation = thread.ok ? record(thread.body) : null;
         }
         const data = record(conversation?.['messages'])?.['data'];
@@ -530,6 +535,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
     return {
       ok: true, subscriptionError: subscription.ok ? null : subscription.message, conversations, messages,
       ...(historyIncomplete ? { historyIncomplete: true } : {}),
+      ...(historyFailure === undefined ? {} : { historyFailure }),
     };
   }
 

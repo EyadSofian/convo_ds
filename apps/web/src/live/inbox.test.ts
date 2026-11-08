@@ -1333,6 +1333,38 @@ describe('leaving the tab and coming back', () => {
     return root.querySelector('.header [data-realtime]')?.getAttribute('data-realtime') ?? null;
   }
 
+  it('records a view when a short hidden-tab absence ends with a conversation on screen', async () => {
+    const page = new FakePage();
+    const api = claimedApi().on(unreadCount, { status: 200, body: { data: { count: 0 } } })
+      .on(`POST /tenants/${TENANT}/conversations/${CONVERSATION}/read`, { status: 200, body: { data: { readThrough: NOW.toISOString() } } });
+    await open(api, `#/inbox/${CONVERSATION}`, { page });
+    const readPath = `POST /tenants/${TENANT}/conversations/${CONVERSATION}/read`;
+    const before = api.countOf(readPath);
+    page.isVisible = false;
+    page.fire('visibilitychange');
+    page.isVisible = true;
+    page.fire('visibilitychange');
+    await settle();
+    expect(api.countOf(readPath)).toBe(before + 1);
+    expect(FakeStream.opened).toBe(1);
+  });
+
+  it('does not try to record a read while the device is offline', async () => {
+    const page = new FakePage();
+    const api = claimedApi().on(unreadCount, { status: 200, body: { data: { count: 0 } } })
+      .on(`POST /tenants/${TENANT}/conversations/${CONVERSATION}/read`, { status: 200, body: { data: { readThrough: NOW.toISOString() } } });
+    await open(api, `#/inbox/${CONVERSATION}`, { page });
+    const readPath = `POST /tenants/${TENANT}/conversations/${CONVERSATION}/read`;
+    const before = api.countOf(readPath);
+    page.fire('offline');
+    page.isVisible = false;
+    page.fire('visibilitychange');
+    page.isVisible = true;
+    page.fire('visibilitychange');
+    await settle();
+    expect(api.countOf(readPath)).toBe(before);
+  });
+
   it('keeps everything on screen and asks the server for nothing', async () => {
     const page = new FakePage();
     const api = resumeApi();

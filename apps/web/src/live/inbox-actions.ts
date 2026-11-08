@@ -8,7 +8,7 @@ import { loadEpisodes, loadNotes, markConversationRead } from './lifecycle-actio
 import { loadRouting } from './routing-actions.js';
 import { subscribe } from './realtime.js';
 import type { EventSourceFactory, RealtimeEvent } from './realtime.js';
-import { adoptConversation, currentTenantId, failed, forTenant, fromResult, LOADING, ready, refetching, reloading, rowsOf, singleFlight } from './store.js';
+import { adoptConversation, claimRead, currentTenantId, failed, forTenant, fromResult, LOADING, ready, refetching, reloading, rowsOf, singleFlight } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadSavedViews } from './saved-view-actions.js';
 import { loadNotifications } from './notification-actions.js';
@@ -273,11 +273,10 @@ export async function openConversation(context: LiveContext, id: string): Promis
     // Read last, and only once the contents are actually on screen: a cursor
     // moved before the messages arrived would mark as seen what a failed
     // timeline never showed anybody.
-    // Supervisor inspection is observational. It never alters the selected
-    // agent's cursor and it also avoids manufacturing a supervisor read side
-    // effect merely from opening a read-only lens.
+    // The read belongs to the signed-in viewer, including a supervisor. The
+    // selected agent's cursor is never sent to, or changed by, this endpoint.
     if (live.openConversationId !== id) return;
-    if (live.supervisorAgentId === null && live.timeline.status === 'ready') await markConversationRead(context, id);
+    if (live.timeline.status === 'ready') await markConversationRead(context, id);
   });
 }
 
@@ -305,10 +304,11 @@ export async function refreshOpenConversation(context: LiveContext, id: string):
 export async function loadTimeline(context: LiveContext, id: string): Promise<void> {
   const { live } = context;
   return forTenant(context, undefined, async (tenantId) => {
+    const current = claimRead(live, `timeline:${id}`);
     const page = await live.conversationsApi.timeline(tenantId, id, null);
     // A realtime event or a send for a thread that is no longer open: its
     // messages belong to that thread, not to the one on screen.
-    if (live.openConversationId !== id) return;
+    if (!current() || live.openConversationId !== id) return;
     live.timeline = page.ok ? ready(page.data.messages, context.now()) : failed(page.error);
     live.timelineCursor = page.ok ? page.data.nextCursor : null;
     context.refresh();
@@ -420,6 +420,7 @@ export async function claimConversation(
         ? refreshOpenConversation(context, result.data.id)
         : Promise.resolve(),
     ]);
+    await markConversationRead(context, result.data.id);
     pushToast(context.state, t(context, 'المحادثة الآن لديك.', 'The conversation is yours.'));
     return true;
   });
@@ -477,6 +478,7 @@ export async function sendReply(context: LiveContext): Promise<boolean> {
     }
     live.composer = '';
     await loadTimeline(context, id);
+    await markConversationRead(context, id);
     return true;
   });
 }
@@ -592,6 +594,7 @@ export async function sendWhatsAppTemplate(context: LiveContext): Promise<boolea
   state.dialog = null;
   state.dialogForm = {};
   await loadTimeline(context, conversationId);
+  await markConversationRead(context, conversationId);
   return true;
 }
 
@@ -760,7 +763,10 @@ export async function applyRealtimeEvent(
     }
   }
   await Promise.all(tasks);
-  if(event.type === 'message.inbound' && event.scope.conversationId === live.openConversationId && live.timeline.status === 'ready' && live.supervisorAgentId === null) await markConversationRead(context,event.scope.conversationId);
+  if (
+    (event.type === 'message.inbound' || event.type === 'message.external' || event.type === 'message.delivery') &&
+    event.scope.conversationId === live.openConversationId
+  ) await markConversationRead(context, event.scope.conversationId);
 }
 
 /**
@@ -779,6 +785,7 @@ export async function catchUpInbox(context: LiveContext): Promise<void> {
       singleFlight(live, `record:${id}`, () => refreshOpenConversation(context, id)),
     ]),
   ]);
+  if (id !== null) await markConversationRead(context, id);
 }
 
 /** Refresh only the selected workload projection after relevant realtime work. */

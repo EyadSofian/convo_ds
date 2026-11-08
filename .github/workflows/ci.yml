@@ -51,8 +51,8 @@ jobs:
       - name: Install portal browser
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Inbox composer and line filters
-        run: pnpm exec playwright test --project=desktop-1366 tests/e2e/voice-message.spec.ts
+      - name: Inbox composer, line filters and team read activity
+        run: pnpm exec playwright test --project=desktop-1366 tests/e2e/voice-message.spec.ts tests/e2e/team-activity.spec.ts
 
       - name: Client progress portal
         run: pnpm test:progress

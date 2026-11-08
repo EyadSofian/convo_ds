@@ -37,7 +37,12 @@ function setup() {
   const timeline = vi.fn().mockResolvedValue({ ok: true, data: { messages: [], nextCursor: null } });
   const syncWhatsAppTemplates = vi.fn().mockResolvedValue({ ok: true, data: { synced: 1 } });
   Object.assign(state.live, {
-    conversationsApi: { whatsappTemplates, replyTemplate, reply, timeline },
+    conversationsApi: {
+      whatsappTemplates, replyTemplate, reply, timeline,
+      markRead: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
+      unassigned: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+      list: vi.fn().mockResolvedValue({ ok: true, data: { items: [], nextCursor: null } }),
+    },
     channels: { syncWhatsAppTemplates },
   });
   const refresh = vi.fn();

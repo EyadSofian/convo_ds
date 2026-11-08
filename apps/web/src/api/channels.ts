@@ -173,6 +173,7 @@ export interface MetaHistoryResult {
   readonly webhook_subscribed: boolean;
   readonly subscription_error: string | null;
   readonly history_incomplete?: true;
+  readonly history_failure?: { readonly stage: 'conversations' | 'messages'; readonly code: string; readonly message: string };
   readonly conversations: number;
   readonly messages: number;
   readonly imported: number;

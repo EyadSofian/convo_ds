@@ -142,7 +142,9 @@ projection so the composer can become writable without a browser refresh.
    and each thread is read on its own, because Meta's Instagram reads time out
    at larger sizes. The whole fetch stops after 60 seconds. If a batch or a thread fails,
    messages already read are imported and the dashboard reports that the sync
-   was partial. Repeating it is safe. Imported messages
+   was partial, with the first failing stage and Meta's refusal code/message.
+   A timeout does not prove an access refusal; check the actual reason before
+   requesting new permissions. Repeating it is safe. Imported messages
    show the customer and what was said, never reopen a resolved thread and never
    notify anybody, and a thread archived after them stays archived. Meta's own
    refusal is what the button shows, because it is the next step to take.

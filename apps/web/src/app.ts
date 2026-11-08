@@ -40,6 +40,7 @@ import { parseLeadSheet } from './lead-sheet';
 import { cancelVoice, syncVoice } from './live/voice-message';
 import { bindVoicePlayback, hydrateVoiceNotes } from './live/voice-playback';
 import { refreshNotificationCount, runNotificationAction } from './live/notification-actions';
+import { markConversationRead } from './live/lifecycle-actions';
 import { createLiveState, renewLiveState, rowsOf } from './live/store';
 import type { LiveState } from './live/store';
 import { attrOf, closestWithAttr, reconcile } from './dom';
@@ -954,6 +955,9 @@ export function mount(options: MountOptions): AppHandle {
     const replaced = resumeLive(silent);
     if (!replaced && away >= RETURN_CATCH_UP_MS && loadedScreen === 'inbox' && workspaceOpen(state) && !state.offline) {
       void catchUpInbox(liveContext);
+    } else if (!replaced && loadedScreen === 'inbox' && state.live.openConversationId !== null && !state.offline) {
+      // Messages may have arrived while hidden even during a short absence.
+      void markConversationRead(liveContext, state.live.openConversationId);
     }
     void checkForUpdate();
   };

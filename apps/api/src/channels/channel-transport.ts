@@ -66,6 +66,11 @@ export type MetaPageSync =
       readonly subscriptionError: string | null;
       /** Meta did not return a later page; the earlier pages can still be imported. */
       readonly historyIncomplete?: true;
+      readonly historyFailure?: {
+        readonly stage: 'conversations' | 'messages';
+        readonly code: string;
+        readonly message: string;
+      };
       readonly conversations: number;
       /** Raw Graph messages. The adapter is what knows how to read them. */
       readonly messages: readonly unknown[];
