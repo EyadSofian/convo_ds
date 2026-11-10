@@ -143,6 +143,7 @@ describe('migrate', () => {
       'ownership_transfers',
       'password_recovery_challenges',
       'permissions',
+      'quick_replies',
       'realtime_events',
       'role_permissions',
       'roles',

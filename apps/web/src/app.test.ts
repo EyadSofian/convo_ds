@@ -946,6 +946,72 @@ describe('layers, focus and the keyboard', () => {
     expect(api.called(`POST /tenants/${TENANT}/conversations/${conversation}/messages`)).toBe(true);
   });
 
+  it('inserts quick replies from "/" shortcuts with the keyboard and from the button at the caret', async () => {
+    const conversation = '55555555-5555-4555-8555-555555555555';
+    const prices = { id: 'q-1', shortcut: 'prices', title: 'Prices', kind: 'text', body: 'From 1,000 EGP.', location: null, version: 1, updatedAt: NOW.toISOString() };
+    const branch = { id: 'q-2', shortcut: 'branch', title: 'Branch', kind: 'location', body: '', location: { name: 'Nasr City', address: null, latitude: 30, longitude: 31 }, version: 1, updatedAt: NOW.toISOString() };
+    const api = signedIn()
+      .on(`GET /tenants/${TENANT}/conversations/${conversation}`, { status: 200, body: { data: {
+        id: conversation, peerIdentity: '2010', channel: 'messenger', inboxLabel: 'Page', status: 'open',
+        priority: 'normal', assigneeMembershipId: 'm-1111', version: 2, contactId: null, labels: [], customFields: [],
+      } } })
+      .on(`GET /tenants/${TENANT}/conversations/${conversation}/messages`, { status: 200, body: { data: { messages: [], next_cursor: null } } })
+      .on(`GET /tenants/${TENANT}/quick-replies`, { status: 200, body: { data: [prices, branch], page: { next_cursor: null, has_more: false } } });
+    const { root, app } = start(`#/inbox/${conversation}`, api, { openEventSource: SILENT_STREAM });
+    await settle();
+    const input = (): HTMLTextAreaElement => root.querySelector('.composer__input') as HTMLTextAreaElement;
+    const options = (): string[] => Array.from(root.querySelectorAll('.slash-list [role="option"]')).map((option) => option.getAttribute('data-arg') ?? '');
+
+    type(input(), '/');
+    expect(options()).toEqual(['q-1', 'q-2']);
+    expect(input().getAttribute('aria-activedescendant')).toBe('slash-active');
+    type(input(), '/pr');
+    expect(options()).toEqual(['q-1']);
+    expect(press(input(), 'ArrowDown').defaultPrevented).toBe(true);
+    expect(press(input(), 'Enter').defaultPrevented).toBe(true);
+    await settle();
+    expect(input().value).toBe('From 1,000 EGP.');
+    expect(app.state.live.composer).toBe('From 1,000 EGP.');
+    expect(root.querySelector('.slash-list')).toBeNull();
+    expect(api.called(`POST /tenants/${TENANT}/conversations/${conversation}/messages`)).toBe(false);
+
+    type(input(), 'Hi /');
+    press(input(), 'ArrowDown');
+    press(input(), 'ArrowUp');
+    press(input(), 'ArrowDown');
+    expect(root.querySelector('#slash-active')?.getAttribute('data-arg')).toBe('q-2');
+    expect(press(input(), 'Tab').defaultPrevented).toBe(true);
+    expect(input().value).toBe('Hi 📍 Nasr City\nhttps://www.google.com/maps/search/?api=1&query=30,31');
+
+    // Composing text, an unmatched shortcut and Escape leave the draft to the person.
+    type(input(), '/');
+    expect(press(input(), 'Enter', { isComposing: true }).defaultPrevented).toBe(false);
+    type(input(), '/zzz');
+    expect(root.querySelector('.slash-list')?.textContent).toContain('/zzz');
+    expect(press(input(), 'ArrowDown').defaultPrevented).toBe(false);
+    expect(press(input(), 'Escape').defaultPrevented).toBe(true);
+    expect(root.querySelector('.slash-list')).toBeNull();
+    expect(press(input(), 'ArrowDown').defaultPrevented).toBe(false);
+
+    // The button inserts at the caret and closes its list.
+    type(input(), 'Hello ');
+    click(root.querySelector('[data-act="menu"][data-arg="quick-replies"]'));
+    await settle();
+    expect(root.querySelectorAll('.quick-replies [data-act="live-quick-reply-pick"]')).toHaveLength(2);
+    click(root.querySelector('.quick-replies [data-arg="q-1"]'));
+    await settle();
+    expect(input().value).toBe('Hello From 1,000 EGP.');
+    expect(root.querySelector('.quick-replies')).toBeNull();
+    // A pick for a reply that is gone does nothing.
+    app.state.live.quickReplies = { status: 'ready', value: [], loadedAt: 1 };
+    const ghost = document.createElement('button');
+    ghost.setAttribute('data-act', 'live-quick-reply-pick');
+    ghost.setAttribute('data-arg', 'q-404');
+    root.appendChild(ghost);
+    click(ghost);
+    expect(input().value).toBe('Hello From 1,000 EGP.');
+  });
+
   it('updates the template preview in place and resets the send idempotency key when a variable changes', async () => {
     const conversation = '55555555-5555-4555-8555-555555555555';
     const api = signedIn()

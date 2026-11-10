@@ -770,12 +770,28 @@ export class CampaignService {
       if (exists.length === 0) throw notFound();
       const rows = await sql.query<{
         id: string; contact_id: string; display_name: string; external_id: string;
-        state: string; last_error: unknown; estimated_amount_minor: string | null; currency: string | null; replied: boolean;
+        state: string; last_error: unknown; estimated_amount_minor: string | null; currency: string | null;
+        seen: boolean; replied: boolean; conversation_id: string | null;
       }>(
+        // Seen and replied are separate facts: a read receipt says the message
+        // was opened, a reply says the customer wrote back. Read receipts can be
+        // turned off, so a customer may reply without ever showing as seen.
+        // The conversation is the one the broadcast landed in, or else the
+        // customer's latest thread on the broadcast's line.
         `SELECT r.id::text,r.contact_id::text,c.display_name,i.external_id,r.state,r.last_error,
                 b.estimated_amount_minor::text,b.currency,
-                (r.state IN ('accepted','delivered','read') AND campaign_recipient_replied(r.id)) AS replied
+                (r.state = 'read') AS seen,
+                (r.state IN ('accepted','delivered','read') AND campaign_recipient_replied(r.id)) AS replied,
+                coalesce(
+                  (SELECT a.conversation_id::text FROM campaign_conversation_attributions a
+                    JOIN conversations attributed ON attributed.id=a.conversation_id AND attributed.deleted_at IS NULL
+                    WHERE a.recipient_id=r.id ORDER BY a.sent_at DESC LIMIT 1),
+                  (SELECT thread.id::text FROM conversations thread
+                    WHERE thread.contact_id=r.contact_id AND thread.connection_id=campaign.connection_id AND thread.deleted_at IS NULL
+                    ORDER BY thread.last_activity_at DESC, thread.id DESC LIMIT 1)
+                ) AS conversation_id
            FROM campaign_recipients r JOIN campaign_executions e ON e.id=r.execution_id
+           JOIN campaigns campaign ON campaign.id=e.campaign_id
            JOIN contacts c ON c.id=r.contact_id JOIN contact_identities i ON i.id=r.identity_id
            LEFT JOIN budget_reservations b ON b.recipient_id=r.id
           WHERE e.campaign_id=$1 ORDER BY r.id`, [campaignId],

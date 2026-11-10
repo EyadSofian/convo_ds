@@ -48,6 +48,7 @@ import { lockLoops } from './loops';
 import type { PreferenceStore } from './preferences';
 import { browserStore, readHabits, readPreferences, writeHabits, writePreferences } from './preferences';
 import { ALL_EMOJI } from './ui/emoji-data';
+import { matchQuickReplies, quickReplyText } from './live/quick-replies';
 import { PANEL_SECTION_IDS } from './ui/contact-panel';
 import type { Route, RouterHost, ScreenId } from './router';
 import { onRouteChange, readRoute, writeRoute } from './router';
@@ -316,6 +317,23 @@ function insertAtCaret(root: Element, text: string): void {
   input.setRangeText(text, start, end, 'end');
   input.focus();
   input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+/**
+ * Puts a saved reply in the reply box: over the "/shortcut" that asked for it,
+ * or at the caret when it came from the button. Like typing, it fires the
+ * input event, so the draft, the Send button and the "/" list all follow.
+ */
+function insertQuickReply(root: Element, state: AppState, id: string): boolean {
+  const reply = rowsOf(state.live.quickReplies).find((item) => item.id === id);
+  const input = root.querySelector('.composer__input:not(.composer__input--note)');
+  if (reply === undefined || !(input instanceof HTMLTextAreaElement)) return false;
+  const range = state.live.slash ?? { start: input.selectionStart, end: input.selectionEnd };
+  input.setRangeText(quickReplyText(reply), range.start, range.end, 'end');
+  state.openMenu = null;
+  input.focus();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
 }
 
 function growComposer(root: Element): void {
@@ -1071,6 +1089,10 @@ export function mount(options: MountOptions): AppHandle {
       dispatch('emoji-recent', attrOf(target, 'data-arg'));
       return;
     }
+    if (act === 'live-quick-reply-pick') {
+      if (insertQuickReply(root, state, attrOf(target, 'data-arg'))) refresh();
+      return;
+    }
     // A submit button's form already dispatches on `submit`.
     if (target instanceof HTMLButtonElement && target.type === 'submit' && target.form !== null) {
       target.form.requestSubmit();
@@ -1161,7 +1183,10 @@ export function mount(options: MountOptions): AppHandle {
     // control its emptiness gates is updated in place instead. Without this the
     // Send button stayed disabled until something else happened to redraw.
     // The draft grows as it is typed, not only when something else redraws.
-    if (target instanceof HTMLTextAreaElement && target.classList.contains('composer__input')) growField(target);
+    if (target instanceof HTMLTextAreaElement && target.classList.contains('composer__input')) {
+      growField(target);
+      if (act === 'live-composer') dispatch('live-slash', String(target.selectionStart));
+    }
     const enables = target.getAttribute('data-enables');
     const gated = enables === null ? null : root.querySelector(`[data-act="${enables}"]`);
     if (gated instanceof HTMLButtonElement && gated.getAttribute('aria-busy') !== 'true') {
@@ -1215,6 +1240,35 @@ export function mount(options: MountOptions): AppHandle {
   const onKeyDown = (event: Event): void => {
     const keyboard = event as KeyboardEvent;
     const target = keyboard.target;
+
+    // While a "/shortcut" is being typed, the keys drive its list: arrows
+    // move, Enter or Tab inserts the highlighted reply, Escape closes it.
+    if (target instanceof HTMLTextAreaElement && target.getAttribute('data-act') === 'live-composer' &&
+        state.live.slash !== null && !keyboard.isComposing) {
+      const matches = matchQuickReplies(rowsOf(state.live.quickReplies), state.live.slash.query);
+      if (keyboard.key === 'Escape') {
+        keyboard.preventDefault();
+        // Handled here: the page-level fallback must not see it as a send or a dialog close.
+        keyboard.stopPropagation();
+        dispatch('live-slash-close');
+        return;
+      }
+      if (matches.length > 0 && (keyboard.key === 'ArrowDown' || keyboard.key === 'ArrowUp')) {
+        keyboard.preventDefault();
+        // Handled here: the page-level fallback must not see it as a send or a dialog close.
+        keyboard.stopPropagation();
+        dispatch('live-slash-move', keyboard.key === 'ArrowDown' ? '1' : '-1');
+        return;
+      }
+      if (matches.length > 0 && ((keyboard.key === 'Enter' && !keyboard.shiftKey) || keyboard.key === 'Tab')) {
+        keyboard.preventDefault();
+        // Handled here: the page-level fallback must not see it as a send or a dialog close.
+        keyboard.stopPropagation();
+        const chosen = matches[Math.min(state.live.slashActive, matches.length - 1)] as (typeof matches)[number];
+        if (insertQuickReply(root, state, chosen.id)) refresh();
+        return;
+      }
+    }
 
     // Enter sends a reply; Shift+Enter keeps the deliberate multi-line path.
     // Ignore composition so choosing an Arabic/Asian IME candidate never sends.

@@ -16,6 +16,7 @@ import { audienceSection } from './campaign-audience';
 import { contactCreateDialog } from './contact-create-dialog';
 import { inboxAccessFields } from './inbox-access.js';
 import { renderAdminDialog } from './admin-dialogs';
+import { quickReplyDeleteDialog, quickReplyDialog } from './quick-replies-panel.js';
 
 function closeButton(state: AppState): HTMLElement {
   return button({ label: t(state, 'إلغاء', 'Cancel'), act: 'close-dialog', variant: 'ghost' });
@@ -44,6 +45,8 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'saved-inbox-view') return savedInboxView(state, dialog.arg);
   if (dialog.kind === 'workspace-label') return workspaceLabel(state, dialog.arg);
   if (dialog.kind === 'retire-label') return retireLabelDialog(state, dialog.arg);
+  if (dialog.kind === 'quick-reply' || dialog.kind === 'quick-reply-location') return quickReplyDialog(state, dialog.arg, dialog.kind === 'quick-reply' ? 'text' : 'location');
+  if (dialog.kind === 'quick-reply-delete') return quickReplyDeleteDialog(state, dialog.arg);
   if (dialog.kind === 'inline-label') return inlineLabel(state, dialog.arg);
   if (dialog.kind === 'automation-delete') return automationDelete(state, dialog.arg);
   if (dialog.kind === 'whatsapp-template') return whatsappTemplatePicker(state);

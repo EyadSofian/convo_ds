@@ -12,6 +12,7 @@ import { adoptConversation, claimRead, currentTenantId, failed, forTenant, fromR
 import { loadMetadataCatalog } from './metadata-catalog.js';
 import { loadSavedViews } from './saved-view-actions.js';
 import { loadNotifications } from './notification-actions.js';
+import { loadQuickReplies } from './quick-reply-actions.js';
 
 /**
  * The Inbox, against the real API.
@@ -216,6 +217,7 @@ export async function openConversation(context: LiveContext, id: string): Promis
     live.timeline = LOADING;
     live.timelineCursor = null;
     live.composer = '';
+    live.slash = null;
     // The note draft belongs to the conversation it was being written about.
     // Carrying it to the next thread is how an internal remark about one
     // customer ends up filed against another.
@@ -269,6 +271,8 @@ export async function openConversation(context: LiveContext, id: string): Promis
       loadNotes(context, id),
       loadEpisodes(context, id),
       loadRouting(context, id),
+      // Saved replies for the composer, read once per workspace visit.
+      loadQuickReplies(context),
     ]);
     // Read last, and only once the contents are actually on screen: a cursor
     // moved before the messages arrived would mark as seen what a failed
@@ -477,6 +481,7 @@ export async function sendReply(context: LiveContext): Promise<boolean> {
       return false;
     }
     live.composer = '';
+    live.slash = null;
     await loadTimeline(context, id);
     await markConversationRead(context, id);
     return true;

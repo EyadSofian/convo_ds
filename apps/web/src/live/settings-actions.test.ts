@@ -31,4 +31,19 @@ describe('settings screen loading', () => {
     expect(app.labels).toHaveBeenCalledWith('tenant-1', true);
     expect(app.state.live.workspaceLabels).toMatchObject({ status: 'ready', value: [] });
   });
+
+  it('reads the quick replies fresh for someone who manages them', async () => {
+    const app = setup('tenant-1');
+    const quickReplies = vi.fn().mockResolvedValue(ok([]));
+    Object.defineProperty(app.state.live.metadataApi, 'quickReplies', { value: quickReplies });
+    await loadSettingsScreen(app.context);
+    expect(quickReplies).not.toHaveBeenCalled();
+    app.state.live.session = {
+      status: 'signed_in', email: 'owner@test.local', tenantId: 'tenant-1',
+      memberships: [{ id: 'm', tenant: { id: 'tenant-1', name: 'DS', slug: 'ds' }, role: { id: 'r', key: 'admin', name: 'Admin' }, permissions: ['catalog.manage'] }],
+    };
+    app.state.live.quickReplies = { status: 'ready', value: [], loadedAt: 0 };
+    await loadSettingsScreen(app.context);
+    expect(quickReplies).toHaveBeenCalledWith('tenant-1');
+  });
 });

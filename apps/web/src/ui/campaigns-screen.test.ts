@@ -233,9 +233,9 @@ describe('the recipient ledger', () => {
     expect(renderBroadcasts(state).querySelector('.ledger')?.textContent).toContain('No recipients');
 
     const rows: CampaignRecipient[] = [
-      { id: 'r1', contact_id: 'k', display_name: 'Mona', external_id: '2010', state: 'failed', replied: false, last_error: { code: 'provider_rejected' }, estimated_amount_minor: '12.5', currency: 'USD' },
-      { id: 'r2', contact_id: 'k', display_name: 'Omar', external_id: '2011', state: 'delivered', replied: true, last_error: null, estimated_amount_minor: null, currency: null },
-      { id: 'r3', contact_id: 'k', display_name: 'Lina', external_id: '2012', state: 'weird', replied: false, last_error: null, estimated_amount_minor: '1', currency: null },
+      { id: 'r1', contact_id: 'k', display_name: 'Mona', external_id: '2010', state: 'failed', seen: false, replied: false, conversation_id: null, last_error: { code: 'provider_rejected' }, estimated_amount_minor: '12.5', currency: 'USD' },
+      { id: 'r2', contact_id: 'k', display_name: 'Omar', external_id: '2011', state: 'delivered', seen: false, replied: true, conversation_id: 'conv-2', last_error: null, estimated_amount_minor: null, currency: null },
+      { id: 'r3', contact_id: 'k', display_name: 'Lina', external_id: '2012', state: 'weird', seen: false, replied: false, conversation_id: null, last_error: null, estimated_amount_minor: '1', currency: null },
     ];
     state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: rows };
     const ledger = renderBroadcasts(state).querySelector('.ledger') as HTMLElement;
@@ -244,9 +244,53 @@ describe('the recipient ledger', () => {
     expect(ledger.textContent).toContain('12.5 USD');
     expect(ledger.querySelectorAll('tbody tr')[2]?.querySelector('.badge--neutral')?.textContent).toBe('weird');
     // Who wrote back is said per person and in total, on the broadcast itself.
-    expect(ledger.querySelector('.ledger__summary')?.textContent).toBe('1 of 3 replied');
+    expect(ledger.querySelector('.ledger__summary')?.textContent).toBe('1 of 3 replied · 0 saw the message');
     expect(Array.from(ledger.querySelectorAll('tbody tr')[1]?.querySelectorAll('.badge') ?? []).map((item) => item.textContent)).toEqual(['Delivered', 'Replied']);
     expect(ledger.querySelectorAll('tbody tr')[0]?.textContent).not.toContain('Replied');
+    // Each row leads to the customer's conversation when there is one.
+    expect(ledger.querySelectorAll('tbody tr')[1]?.querySelector('a')?.getAttribute('href')).toBe('#/inbox/conv-2');
+    expect(ledger.querySelectorAll('tbody tr')[0]?.textContent).toContain('No conversation');
+  });
+
+  it('filters by outcome, keeping seen and replied apart, and counts each filter', () => {
+    const state = screen([campaign({ state: 'running', execution })]);
+    state.live.selectedCampaignId = 'c-1';
+    const row = (id: string, overrides: Partial<CampaignRecipient>): CampaignRecipient => ({
+      id, contact_id: id, display_name: id, external_id: id, state: 'delivered', seen: false, replied: false,
+      conversation_id: `conv-${id}`, last_error: null, estimated_amount_minor: null, currency: null, ...overrides,
+    });
+    const rows = [
+      row('replied-unseen', { replied: true }),
+      row('replied-seen', { state: 'read', seen: true, replied: true }),
+      row('seen-silent', { state: 'read', seen: true }),
+      row('silent', {}),
+      row('queued', { state: 'queued' }),
+      row('failed', { state: 'failed', conversation_id: null }),
+    ];
+    state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: rows };
+    const names = (): string[] => Array.from(renderBroadcasts(state).querySelectorAll('.ledger tbody tr .table__primary')).map((cell) => cell.textContent ?? '');
+    const counts = Array.from(renderBroadcasts(state).querySelectorAll('.ledger .segmented__item')).map((item) => `${item.getAttribute('data-arg') ?? ''}=${item.querySelector('.segmented__count')?.textContent ?? ''}`);
+    expect(counts).toEqual(['all=6', 'replied=2', 'seen_no_reply=1', 'not_replied=2', 'failed=1']);
+    expect(renderBroadcasts(state).querySelector('.ledger__summary')?.textContent).toBe('2 of 6 replied · 2 saw the message');
+    expect(names()).toHaveLength(6);
+    state.live.campaignRecipientFilter = 'replied';
+    expect(names()).toEqual(['replied-unseen', 'replied-seen']);
+    state.live.campaignRecipientFilter = 'seen_no_reply';
+    expect(names()).toEqual(['seen-silent']);
+    state.live.campaignRecipientFilter = 'not_replied';
+    expect(names()).toEqual(['seen-silent', 'silent']);
+    state.live.campaignRecipientFilter = 'failed';
+    expect(names()).toEqual(['failed']);
+    // Seen and replied are separate columns: a reply without a read receipt shows as replied only.
+    state.live.campaignRecipientFilter = 'replied';
+    const first = renderBroadcasts(state).querySelector('.ledger tbody tr') as HTMLElement;
+    expect(Array.from(first.querySelectorAll('.badge')).map((item) => item.textContent)).toEqual(['Delivered', 'Replied']);
+    state.live.campaignRecipientFilter = 'seen_no_reply';
+    const seen = renderBroadcasts(state).querySelector('.ledger tbody tr') as HTMLElement;
+    expect(Array.from(seen.querySelectorAll('.badge')).map((item) => item.textContent)).toEqual(['Read', 'Seen']);
+    state.live.campaignRecipients = { status: 'ready', loadedAt: 1, value: [row('silent', {})] };
+    state.live.campaignRecipientFilter = 'replied';
+    expect(renderBroadcasts(state).querySelector('.ledger')?.textContent).toContain('No recipients with this outcome.');
   });
 
   it('reads a typed error code out of a ledger error, and nothing out of anything else', () => {

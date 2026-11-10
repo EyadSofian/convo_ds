@@ -6,6 +6,7 @@ import { hasPermission } from '../live/ability.js';
 import { openSession, rowsOf } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { t } from './copy.js';
+import { quickRepliesPanel } from './quick-replies-panel.js';
 import {
   badge,
   button,
@@ -51,6 +52,7 @@ export function renderSettings(state: AppState): HTMLElement {
       ]),
     ]),
     sessionsPanel(state),
+    hasPermission(live, 'catalog.manage') ? quickRepliesPanel(state) : null,
     hasPermission(live, 'catalog.manage') ? labelsPanel(state) : null,
     settingsSection(t(state, 'إعدادات مساحة العمل', 'Workspace settings'), t(state, 'تظهر الإمكانات غير المتصلة بالخادم كمعلومات فقط.', 'Capabilities without a server endpoint are shown as information only.'), [
       ...[t(state, 'اسم مساحة العمل والمنطقة الزمنية', 'Workspace name and time zone'), t(state, 'ساعات العمل والرد الآلي', 'Business hours and away replies'), t(state, 'مدة الاحتفاظ بالبيانات', 'Data retention')]

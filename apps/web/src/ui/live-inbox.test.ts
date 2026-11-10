@@ -579,6 +579,27 @@ describe('Inbox list controls', () => {
     let root = renderInbox(app);
     expect(root.querySelector('.composer__input')).not.toBeNull();
     expect(root.querySelector('[data-act="live-whatsapp-template-open"]')).not.toBeNull();
+    // How long free-form replies stay allowed, and a warning in the last hour.
+    expect(root.querySelector('.composer__window')?.textContent).toBe('Free-form window open · closes in 24h');
+    expect(root.querySelector('[data-act="menu"][data-arg="quick-replies"]')).not.toBeNull();
+    const open = app.live.openConversation.status === 'ready' ? app.live.openConversation.value : null;
+    app.live.openConversation = ready({ ...open, serviceWindow: { status: 'open', lastCustomerInboundAt: NOW.toISOString(), serviceWindowExpiresAt: new Date(NOW.getTime() + 25 * 60000).toISOString() } } as never, 1);
+    expect(renderInbox(app).querySelector('.composer__window--ending')?.textContent).toBe('Free-form window open · closes in 25 min');
+    app.lang = 'ar';
+    expect(renderInbox(app).querySelector('.composer__window')?.textContent).toContain('25 دقيقة');
+    app.live.openConversation = ready({ ...open, serviceWindow: { status: 'open', lastCustomerInboundAt: NOW.toISOString(), serviceWindowExpiresAt: new Date(NOW.getTime() + 3 * 3600000).toISOString() } } as never, 1);
+    expect(renderInbox(app).querySelector('.composer__window')?.textContent).toContain('3 ساعة');
+    app.live.openConversation = ready({ ...open, serviceWindow: { status: 'open', lastCustomerInboundAt: null, serviceWindowExpiresAt: null } } as never, 1);
+    expect(renderInbox(app).querySelector('.composer__window')).toBeNull();
+    app.lang = 'en';
+    app.live.openConversation = ready(open as never, 1);
+    // Typing "/" shows the suggestions and points the reply box at them.
+    app.live.slash = { start: 0, end: 1, query: '' };
+    app.live.quickReplies = ready([{ id: 'q-1', shortcut: 'hi', title: 'Hi', kind: 'text', body: 'Hello', location: null, version: 1, updatedAt: NOW.toISOString() }], 1);
+    root = renderInbox(app);
+    expect(root.querySelector('.composer__slash [role="option"]')?.getAttribute('data-arg')).toBe('q-1');
+    expect(root.querySelector('.composer__input')?.getAttribute('aria-controls')).toBe('slash-list');
+    app.live.slash = null;
     app.live.supervisorAgentId = 'member-1';
     root = renderInbox(app);
     expect(root.querySelector('.composer__input')).toBeNull();
