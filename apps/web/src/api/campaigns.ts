@@ -39,8 +39,12 @@ export interface CampaignRecipient {
   readonly last_error: unknown;
   readonly estimated_amount_minor: string | null;
   readonly currency: string | null;
+  /** A read receipt arrived. Separate from replied: receipts can be switched off. */
+  readonly seen: boolean;
   /** Wrote back after this broadcast and before the next one that reached them. */
   readonly replied: boolean;
+  /** Where to answer them: the thread the broadcast landed in, or their latest on the line. */
+  readonly conversation_id: string | null;
 }
 
 export interface CampaignLead {

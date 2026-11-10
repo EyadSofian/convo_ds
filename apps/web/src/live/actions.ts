@@ -7,6 +7,8 @@ import { pushToast } from '../state.js';
 import { ERROR_CODES, phrase } from '../ui/copy.js';
 import { currentTenantId, fromResult, LOADING, reloading } from './store.js';
 import { disableBrowserPush } from './notification-actions.js';
+import { hasPermission } from './ability.js';
+import { loadQuickReplies } from './quick-reply-actions.js';
 
 /**
  * Server-backed actions for the People, Roles and Teams screens.
@@ -170,6 +172,8 @@ export async function loadSettingsScreen(context: LiveContext): Promise<void> {
   live.sessions = fromResult(result, context.now());
   if (labels !== null) live.workspaceLabels = fromResult(labels, context.now());
   context.refresh();
+  // The quick reply manager reads them fresh: somebody may have changed one.
+  if (hasPermission(live, 'catalog.manage')) await loadQuickReplies(context, true);
 }
 
 /** Revokes one of this user's other sessions. The current one signs out instead. */

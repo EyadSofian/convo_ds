@@ -18,7 +18,8 @@ import type {
 } from '../api/conversations.js';
 import { INBOX_QUERY_DEFAULT, type InboxQuery } from '@convo/domain';
 import type { Contact, ContactCampaignHistory, ContactsApi, ContactSummary } from '../api/contacts.js';
-import type { CustomField, Label, MetadataApi } from '../api/metadata.js';
+import type { CustomField, Label, MetadataApi, QuickReply } from '../api/metadata.js';
+import type { SlashToken } from './quick-replies.js';
 import type { AssignmentReportRow, AudiencePreview, Campaign, CampaignLead, CampaignRecipient, CampaignReport, CampaignReportExport, CampaignsApi, OperationalReport, ResponseReport, ResolutionReport, TeamReportRow } from '../api/campaigns.js';
 import { disconnectedCampaignsApi } from '../api/campaigns.js';
 import {
@@ -207,6 +208,10 @@ export type SessionState =
  * screen greying out. `error` is the server's answer to the last attempt, kept
  * beside the form that caused it.
  */
+/** The broadcast ledger's outcome filter. Seen and replied are separate facts. */
+export type RecipientFilter = 'all' | 'replied' | 'seen_no_reply' | 'not_replied' | 'failed';
+export const RECIPIENT_FILTERS: readonly RecipientFilter[] = ['all', 'replied', 'seen_no_reply', 'not_replied', 'failed'];
+
 export type CampaignView = 'all' | 'drafts' | 'scheduled' | 'sending' | 'completed' | 'audiences';
 
 export interface LiveState {
@@ -260,6 +265,12 @@ export interface LiveState {
   timelineCursor: string | null;
   /** What the operator has typed but not sent. Never sent on their behalf. */
   composer: string;
+  /** The workspace's saved replies, for the composer's picker and "/" shortcuts. */
+  quickReplies: Resource<readonly QuickReply[]>;
+  /** The "/shortcut" being typed in the reply box, while it is being typed. */
+  slash: SlashToken | null;
+  /** Which "/" suggestion Enter would use. */
+  slashActive: number;
   attachmentDraft: AttachmentDraft | null;
   inboxLines: Resource<readonly InboxLine[]>;
   /**
@@ -329,6 +340,8 @@ export interface LiveState {
   sessions: Resource<readonly SessionSummary[]>;
   campaigns: Resource<readonly Campaign[]>;
   campaignRecipients: Resource<readonly CampaignRecipient[]>;
+  /** Which recipients the ledger shows: everyone, or only one outcome. */
+  campaignRecipientFilter: RecipientFilter;
   campaignLeads: Resource<readonly CampaignLead[]>;
   campaignReport: Resource<CampaignReport>;
   operationalReport: Resource<OperationalReport>;
@@ -459,6 +472,9 @@ export function createLiveState(
     timeline: IDLE,
     timelineCursor: null,
     composer: '',
+    quickReplies: IDLE,
+    slash: null,
+    slashActive: 0,
     attachmentDraft: null,
     inboxLines: IDLE,
     notes: IDLE,
@@ -488,6 +504,7 @@ export function createLiveState(
     sessions: IDLE,
     campaigns: IDLE,
     campaignRecipients: IDLE,
+    campaignRecipientFilter: 'all',
     campaignLeads: IDLE,
     campaignReport: IDLE,
     operationalReport: IDLE,

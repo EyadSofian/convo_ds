@@ -215,7 +215,8 @@ describe('campaign API', () => {
              VALUES ($1,$2,$3,$4,'message','{}'::jsonb,$5::jsonb) RETURNING id::text`,
             [api.tenantId, api.connectionId, receipt, `reply-${index}`, JSON.stringify({ kind: 'message',
               providerMessageId: `wamid.reply.${index}`, peerIdentity: owned.peer_identity, assetIdentity: 'phone-campaign',
-              contentType: 'text', text, occurredAt: new Date().toISOString(), attachments: [], detail: {},
+              // A millisecond apart: equal times would leave their order to chance.
+              contentType: 'text', text, occurredAt: new Date(Date.now() + index).toISOString(), attachments: [], detail: {},
             })])).rows[0]!.id;
           await sql.query('INSERT INTO channel_event_queue (tenant_id,event_id) VALUES ($1,$2)', [api.tenantId, event]);
         }
@@ -330,7 +331,7 @@ describe('campaign API', () => {
       const repliedIn = async (campaignId: string) => {
         const answer = await send(api, 'GET', `/campaigns/${campaignId}/recipients`);
         expect(answer.statusCode, answer.body).toBe(200);
-        return (answer.json() as { data: { external_id: string; replied: boolean; state: string; last_error: { code?: string } | null }[] }).data;
+        return (answer.json() as { data: { external_id: string; seen: boolean; replied: boolean; conversation_id: string | null; state: string; last_error: { code?: string } | null }[] }).data;
       };
 
       // Somebody who wrote before the broadcast has not replied to it.
@@ -362,6 +363,12 @@ describe('campaign API', () => {
       expect(recipients.filter((row) => row.replied).map((row) => row.external_id)).toEqual([replier]);
       expect(recipients.find((row) => row.external_id === sentOnly)?.state).toBe('accepted');
       expect(recipients.find((row) => row.external_id === refused)).toMatchObject({ state: 'failed', last_error: { code: 'provider_error_131026' } });
+      // Replied without a read receipt: seen and replied are separate facts.
+      expect(recipients.find((row) => row.external_id === replier)).toMatchObject({ seen: false, replied: true });
+      // Whoever wrote in has a conversation the list links straight to.
+      const replierThread = recipients.find((row) => row.external_id === replier)?.conversation_id ?? null;
+      expect(replierThread).toMatch(/^[0-9a-f-]{36}$/);
+      expect((await send(api, 'GET', `/conversations/${String(replierThread)}`)).statusCode).toBe(200);
 
       // A later broadcast takes the replies after it; the first one keeps its own.
       const second = await launch('second', 'student 4', 1);
@@ -389,6 +396,12 @@ describe('campaign API', () => {
       await settle();
       expect((await repliedIn(third))[0]).toMatchObject({ state: 'delivered', replied: true });
       expect((await reportFor(first)).milestones.replied).toBe(1);
+
+      // A read receipt marks the recipient seen, whether or not they answer.
+      expect((await repliedIn(first)).find((row) => row.external_id === delivered)?.seen).toBe(false);
+      await journal('read_status', delivered, await providerIdOf('first', delivered), later(200));
+      await settle();
+      expect((await repliedIn(first)).find((row) => row.external_id === delivered)).toMatchObject({ state: 'read', seen: true });
 
       // The export says the same thing, per recipient.
       const exported = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ replied_milestone: boolean; external_id: string }>(

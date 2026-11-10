@@ -512,6 +512,16 @@ describe('campaign actions', () => {
     await loadCampaignRecipients(readyCase.context, 'campaign-1');
     expect(readyCase.state.live.selectedCampaignId).toBe('campaign-1');
     expect(readyCase.state.live.campaignRecipients).toMatchObject({ status: 'ready', value: [] });
+    // The outcome filter stays while the same campaign reloads, and resets for another.
+    readyCase.state.live.campaignRecipientFilter = 'replied';
+    await loadCampaignRecipients(readyCase.context, 'campaign-1');
+    expect(readyCase.state.live.campaignRecipientFilter).toBe('replied');
+    await loadCampaignRecipients(readyCase.context, 'campaign-2');
+    expect(readyCase.state.live.campaignRecipientFilter).toBe('all');
+    expect(await LIVE_ACTIONS['live-campaign-recipient-filter']?.(readyCase.context, 'seen_no_reply')).toBe(true);
+    expect(readyCase.state.live.campaignRecipientFilter).toBe('seen_no_reply');
+    expect(await LIVE_ACTIONS['live-campaign-recipient-filter']?.(readyCase.context, 'bogus')).toBe(false);
+    expect(readyCase.state.live.campaignRecipientFilter).toBe('seen_no_reply');
 
     const refused = setup();
     vi.mocked(refused.campaigns.recipients).mockResolvedValueOnce(fail());

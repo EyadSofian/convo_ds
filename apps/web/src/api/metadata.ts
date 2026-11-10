@@ -32,6 +32,34 @@ export interface EntityMetadata {
   readonly customFields: readonly FieldEntry[];
 }
 
+/** A place a location quick reply points the customer to. */
+export interface QuickReplyLocation {
+  readonly name: string;
+  readonly address: string | null;
+  readonly latitude: number;
+  readonly longitude: number;
+}
+
+/** A saved reply an agent drops into the composer with a button or "/shortcut". */
+export interface QuickReply {
+  readonly id: string;
+  readonly shortcut: string;
+  readonly title: string;
+  readonly kind: 'text' | 'location';
+  readonly body: string;
+  readonly location: QuickReplyLocation | null;
+  readonly version: number;
+  readonly updatedAt: string;
+}
+
+export interface QuickReplyInput {
+  readonly shortcut: string;
+  readonly title: string;
+  readonly kind: 'text' | 'location';
+  readonly body: string;
+  readonly location: QuickReplyLocation | null;
+}
+
 export interface MetadataMutation {
   readonly version: number;
   readonly addLabels?: readonly string[];
@@ -72,6 +100,22 @@ export class MetadataApi {
     input: { readonly target: FieldTarget; readonly key: string; readonly name: string; readonly type: FieldType; readonly options: readonly string[] },
   ): Promise<ApiResult<CustomField>> {
     return this.client.post<CustomField>(`/tenants/${tenantId}/custom-fields`, { body: input });
+  }
+
+  quickReplies(tenantId: string): Promise<ApiResult<readonly QuickReply[]>> {
+    return this.client.get<readonly QuickReply[]>(`/tenants/${tenantId}/quick-replies`);
+  }
+
+  createQuickReply(tenantId: string, input: QuickReplyInput): Promise<ApiResult<QuickReply>> {
+    return this.client.post<QuickReply>(`/tenants/${tenantId}/quick-replies`, { body: input });
+  }
+
+  updateQuickReply(tenantId: string, id: string, version: number, input: QuickReplyInput): Promise<ApiResult<QuickReply>> {
+    return this.client.patch<QuickReply>(`/tenants/${tenantId}/quick-replies/${id}`, { body: { ...input, version } });
+  }
+
+  deleteQuickReply(tenantId: string, id: string, version: number): Promise<ApiResult<{ readonly deleted: boolean }>> {
+    return this.client.delete<{ readonly deleted: boolean }>(`/tenants/${tenantId}/quick-replies/${id}`, { body: { version } });
   }
 
   conversation(tenantId: string, id: string, input: MetadataMutation): Promise<ApiResult<MetadataResult>> {

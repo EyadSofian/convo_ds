@@ -6,8 +6,8 @@ import { icon } from '../icons.js';
 import { filterFromConditions } from '@convo/domain';
 import { hasPermission } from '../live/ability.js';
 import { whatsappNumbers } from '../live/audience.js';
-import { rowsOf } from '../live/store.js';
-import type { CampaignView, LiveState } from '../live/store.js';
+import { RECIPIENT_FILTERS, rowsOf } from '../live/store.js';
+import type { CampaignView, LiveState, RecipientFilter } from '../live/store.js';
 import type { AppState } from '../state.js';
 import { CAMPAIGN_STATES, CHANNEL_NAMES, ERROR_CODES, phrase, RECIPIENT_STATES, t } from './copy.js';
 import {
@@ -497,34 +497,70 @@ function ledger(state: AppState, live: LiveState, campaign: Campaign): Child {
   ]);
 }
 
+/** Which recipients each outcome filter keeps. Seen and replied are judged apart. */
+export function recipientMatches(row: CampaignRecipient, filter: RecipientFilter): boolean {
+  if (filter === 'replied') return row.replied;
+  if (filter === 'seen_no_reply') return row.seen && !row.replied;
+  if (filter === 'not_replied') return !row.replied && ['accepted', 'delivered', 'read'].includes(row.state);
+  if (filter === 'failed') return row.state === 'failed';
+  return true;
+}
+
+/**
+ * The recipient ledger, with the outcome a team acts on as a filter: who wrote
+ * back, who opened it and stayed silent, who never answered. Each row opens
+ * the customer's conversation, so following up is one click from the list.
+ */
 function recipientTable(state: AppState, rows: readonly CampaignRecipient[]): HTMLElement {
-  const replied = rows.filter((row) => row.replied).length;
+  const filter = state.live.campaignRecipientFilter;
+  const count = (value: RecipientFilter): number => rows.filter((row) => recipientMatches(row, value)).length;
+  const replied = count('replied');
+  const seen = rows.filter((row) => row.seen).length;
+  const shown = rows.filter((row) => recipientMatches(row, filter));
+  const labels: Readonly<Record<RecipientFilter, string>> = {
+    all: t(state, 'الكل', 'All'),
+    replied: t(state, 'ردّوا', 'Replied'),
+    seen_no_reply: t(state, 'شافوا ولم يردّوا', 'Seen, no reply'),
+    not_replied: t(state, 'لم يردّوا', 'No reply'),
+    failed: t(state, 'فشلت', 'Failed'),
+  };
+  const yes = (on: boolean, label: string, tone: Tone): Child => on ? badge(label, tone) : h('span', { class: 'muted', 'aria-label': t(state, 'لا', 'No') }, ['—']);
   return h('div', { class: 'tablewrap' }, [
     h('p', { class: 'ledger__summary' }, [t(
       state,
-      `${formatNumber(replied, state.lang)} من ${formatNumber(rows.length, state.lang)} ردّوا`,
-      `${formatNumber(replied, state.lang)} of ${formatNumber(rows.length, state.lang)} replied`,
+      `${formatNumber(replied, state.lang)} من ${formatNumber(rows.length, state.lang)} ردّوا · ${formatNumber(seen, state.lang)} شافوا الرسالة`,
+      `${formatNumber(replied, state.lang)} of ${formatNumber(rows.length, state.lang)} replied · ${formatNumber(seen, state.lang)} saw the message`,
     )]),
-    h('table', { class: 'table' }, [
-      h('thead', {}, [h('tr', {}, [
-        h('th', { scope: 'col' }, [t(state, 'المستلم', 'Recipient')]),
-        h('th', { scope: 'col' }, [t(state, 'الحالة', 'Status')]),
-        h('th', { scope: 'col' }, [t(state, 'السبب', 'Reason')]),
-        h('th', { scope: 'col', class: 'num' }, [t(state, 'التكلفة المقدّرة', 'Estimated cost')]),
-      ])]),
-      h('tbody', {}, rows.map((row) => {
-        const code = errorCodeOf(row.last_error);
-        return h('tr', {}, [
-          h('td', {}, [h('span', { class: 'table__primary' }, [isolated(row.display_name)]), h('span', { class: 'table__sub' }, [isolated(row.external_id, true)])]),
-          h('td', {}, [
-            badge(phrase(state, RECIPIENT_STATES, row.state), RECIPIENT_TONE[row.state] ?? 'neutral'),
-            row.replied ? badge(t(state, 'ردّ', 'Replied'), 'success') : null,
-          ]),
-          h('td', {}, [code === null ? '—' : phrase(state, ERROR_CODES, code)]),
-          h('td', { class: 'num' }, [row.estimated_amount_minor === null ? '—' : isolated(`${row.estimated_amount_minor} ${row.currency ?? ''}`.trim(), true)]),
-        ]);
-      })),
-    ]),
+    segmented(RECIPIENT_FILTERS.map((value) => ({ value, label: labels[value], count: count(value) })), filter, 'live-campaign-recipient-filter', t(state, 'تصفية المستلمين', 'Filter recipients')),
+    shown.length === 0
+      ? h('p', { class: 'muted ledger__empty' }, [t(state, 'لا يوجد مستلمون بهذه الحالة.', 'No recipients with this outcome.')])
+      : h('table', { class: 'table' }, [
+        h('thead', {}, [h('tr', {}, [
+          h('th', { scope: 'col' }, [t(state, 'المستلم', 'Recipient')]),
+          h('th', { scope: 'col' }, [t(state, 'التسليم', 'Delivery')]),
+          h('th', { scope: 'col' }, [t(state, 'شاف', 'Seen')]),
+          h('th', { scope: 'col' }, [t(state, 'ردّ', 'Replied')]),
+          h('th', { scope: 'col' }, [t(state, 'السبب', 'Reason')]),
+          h('th', { scope: 'col', class: 'num' }, [t(state, 'التكلفة المقدّرة', 'Estimated cost')]),
+          h('th', { scope: 'col' }, [h('span', { class: 'sr-only' }, [t(state, 'المحادثة', 'Conversation')])]),
+        ])]),
+        h('tbody', {}, shown.map((row) => {
+          const code = errorCodeOf(row.last_error);
+          return h('tr', {}, [
+            h('td', {}, [h('span', { class: 'table__primary' }, [isolated(row.display_name)]), h('span', { class: 'table__sub' }, [isolated(row.external_id, true)])]),
+            h('td', {}, [badge(phrase(state, RECIPIENT_STATES, row.state), RECIPIENT_TONE[row.state] ?? 'neutral')]),
+            h('td', {}, [yes(row.seen, t(state, 'شاف', 'Seen'), 'accent')]),
+            h('td', {}, [yes(row.replied, t(state, 'ردّ', 'Replied'), 'success')]),
+            h('td', {}, [code === null ? '—' : phrase(state, ERROR_CODES, code)]),
+            h('td', { class: 'num' }, [row.estimated_amount_minor === null ? '—' : isolated(`${row.estimated_amount_minor} ${row.currency ?? ''}`.trim(), true)]),
+            h('td', {}, [row.conversation_id === null
+              ? h('span', { class: 'muted' }, [t(state, 'لا محادثة', 'No conversation')])
+              // A link, not an action: the Inbox opens on that thread exactly as a
+              // pasted address would, and the back button returns to this list.
+              : h('a', { class: 'btn btn--sm btn--ghost', href: `#/inbox/${encodeURIComponent(row.conversation_id)}` }, [icon('chat', 14), t(state, 'فتح المحادثة', 'Open conversation')])]),
+          ]);
+        })),
+      ]),
   ]);
 }
 

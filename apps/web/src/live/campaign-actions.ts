@@ -302,6 +302,8 @@ export async function testSendCampaign(
 export async function loadCampaignRecipients(context: LiveContext, id: string): Promise<void> {
   const tenantId = currentTenantId(context.live);
   if (tenantId === null) return;
+  // A filter belongs to the campaign it was chosen on.
+  if (context.live.selectedCampaignId !== id) context.live.campaignRecipientFilter = 'all';
   context.live.selectedCampaignId = id;
   context.live.campaignRecipients = LOADING;
   context.refresh();

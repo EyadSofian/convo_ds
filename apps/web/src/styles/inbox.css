@@ -1004,6 +1004,152 @@
     font-size: var(--text-xs);
   }
 
+  /* -------------------------------------------------------- quick replies --
+     The button's list opens upwards like the emoji picker; the "/" list sits
+     on top of the reply box, where the eye already is while typing.
+     -------------------------------------------------------------------- */
+
+  .composer__box {
+    position: relative;
+  }
+
+  .quick-replies {
+    inset-block: auto calc(100% + var(--space-2));
+    inset-inline: 0 auto;
+    display: grid;
+    gap: var(--space-2);
+    inline-size: min(360px, calc(100vw - var(--space-6)));
+    min-inline-size: 0;
+    max-block-size: min(420px, 60vh);
+    padding: var(--space-2);
+    overflow-y: auto;
+    transform-origin: bottom;
+  }
+
+  .quick-replies__heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin: 0;
+    padding-inline: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+  }
+
+  .quick-replies__tip {
+    font-weight: var(--weight-regular, 400);
+  }
+
+  .quick-replies__list {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .quick-replies__empty {
+    margin: 0;
+    padding: var(--space-3) var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    text-align: center;
+  }
+
+  .quick-reply {
+    display: grid;
+    gap: 2px;
+    inline-size: 100%;
+    padding: var(--space-2);
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .quick-reply:hover,
+  .quick-reply:focus-visible,
+  .quick-reply--active {
+    background: var(--surface-2);
+  }
+
+  .quick-reply__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-inline-size: 0;
+  }
+
+  .quick-reply__shortcut {
+    flex: none;
+    color: var(--accent-text);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--text-xs);
+  }
+
+  .quick-reply__title {
+    min-inline-size: 0;
+    overflow: hidden;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .quick-reply__preview {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .quick-reply__cell {
+    max-inline-size: 420px;
+    white-space: pre-line;
+  }
+
+  .slash-list {
+    position: absolute;
+    inset-block-end: calc(100% + var(--space-1));
+    inset-inline: var(--space-2);
+    z-index: var(--z-popover);
+    display: grid;
+    gap: var(--space-1);
+    max-block-size: min(320px, 50vh);
+    padding: var(--space-1);
+    overflow-y: auto;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .slash-list__hint {
+    margin: 0;
+    padding: 0 var(--space-2) var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+  }
+
+  .composer__window {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin: 0 var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+  }
+
+  .composer__window--ending {
+    color: var(--warning, var(--danger));
+  }
+
   /* ---------------------------------------------------------- emoji picker -- */
 
   .emoji-picker {

@@ -55,8 +55,9 @@ import {
   setPriority,
   settleHandoff,
 } from './routing-actions.js';
+import { closeSlash, deleteQuickReply, loadQuickReplies, moveSlash, saveQuickReply, trackSlash } from './quick-reply-actions.js';
 import { createAndAssignLabel, createField, createLabel, retireLabel, setEntityLabel, setFieldValue, updateLabel } from './metadata-actions.js';
-import { currentTenantId, forTenant, fromResult, rowsOf } from './store.js';
+import { currentTenantId, forTenant, fromResult, RECIPIENT_FILTERS, rowsOf } from './store.js';
 import { hasPermission } from './ability.js';
 import { idList } from './audience.js';
 import { derivedChannelId, newContactFields, standardFieldKey } from './contact-profile.js';
@@ -715,6 +716,14 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
     return true;
   },
 
+  'live-campaign-recipient-filter': async (context, arg) => {
+    const filter = RECIPIENT_FILTERS.find((value) => value === arg);
+    if (filter === undefined) return false;
+    context.live.campaignRecipientFilter = filter;
+    context.refresh();
+    return true;
+  },
+
   'live-campaign-schedule': async (context, arg) => {
     const typed = form(context, 'campaignScheduleAt');
     // `datetime-local` has no zone: it means that wall-clock time *here*, which
@@ -1309,6 +1318,13 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
   },
 
   'live-inbox-send': async (context) => sendReply(context),
+  // The "/" list follows the caret; the page reports where it is after each keystroke.
+  'live-slash': async (context, caret) => { trackSlash(context, Number(caret)); },
+  'live-slash-move': async (context, step) => { moveSlash(context, Number(step)); },
+  'live-slash-close': async (context) => { closeSlash(context); },
+  'live-quick-replies-reload': async (context) => loadQuickReplies(context, true),
+  'live-quick-reply-save': async (context) => saveQuickReply(context),
+  'live-quick-reply-delete-confirm': async (context, arg) => deleteQuickReply(context, arg),
   'live-attachment-cancel': async (context) => { context.live.attachmentDraft = null; context.refresh(); },
   'live-attachment-send': async (context) => sendAttachment(context),
   'live-voice-start': async (context) => startVoice(context),

@@ -41,6 +41,7 @@ import {
 import { movedAway, priorityBadge, routingSection } from './routing-panel.js';
 import { voiceNote } from './voice-note.js';
 import { emojiPicker } from './emoji-picker.js';
+import { quickReplyPicker, slashSuggestions } from './quick-reply-picker.js';
 
 /**
  * The Inbox, backed entirely by the API.
@@ -1226,7 +1227,12 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
   }
   const voice = voiceDraft(live);
   if (voice !== null) return voiceComposer(state, voice);
+  const suggestions = slashSuggestions(state);
   return h('div', { class: 'composer__box' }, [
+    // Always present, so opening the list never shifts the textarea to a new
+    // position: the redraw matches children by position, and a moved textarea
+    // would be rebuilt under the keystroke that opened the list.
+    h('div', { class: 'composer__slash' }, [suggestions]),
     // The text is the element's **content**, not a `value` attribute: a textarea
     // ignores that attribute, so rendering it that way would empty the composer
     // on every re-render — and a realtime event mid-sentence is a re-render.
@@ -1239,14 +1245,18 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
         'data-act': 'live-composer',
         'data-enables': 'live-inbox-send',
         'aria-label': t(state, 'نص الرد', 'Reply text'),
-        placeholder: t(state, 'اكتب ردًا للعميل…', 'Write a reply to the customer…'),
+        'aria-controls': suggestions === null ? undefined : 'slash-list',
+        'aria-activedescendant': suggestions === null ? undefined : 'slash-active',
+        placeholder: t(state, 'اكتب ردًا للعميل… أو / لرد سريع', 'Write a reply to the customer… or / for a quick reply'),
       },
       [live.composer],
     ),
     composerError(live),
+    serviceWindowHint(state, conversation),
     h('div', { class: 'composer__bar' }, [
       h('div', { class: 'composer__tools', role: 'group', 'aria-label': t(state, 'أدوات الرسالة', 'Message tools') }, [
         emojiPicker(state),
+        quickReplyPicker(state),
         attachmentPicker(state, conversation.channel),
         conversation.channel === 'whatsapp' ? button({ icon: 'mic', act: 'live-voice-start', variant: 'ghost', small: true,
           title: t(state, 'تسجيل رسالة صوتية', 'Record voice message'), ariaLabel: t(state, 'تسجيل رسالة صوتية', 'Record voice message'), extraClass: 'composer__tool' }) : null,
@@ -1263,6 +1273,22 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
         extraClass: 'composer__send',
       }),
     ]),
+  ]);
+}
+
+/**
+ * How long free-form replies stay allowed on WhatsApp. Meta accepts ordinary
+ * messages only within 24 hours of the customer's last message; the closed
+ * state is handled above, so this only ever says how much time is left.
+ */
+function serviceWindowHint(state: AppState, conversation: Conversation): HTMLElement | null {
+  const expires = conversation.serviceWindow?.serviceWindowExpiresAt;
+  if (conversation.channel !== 'whatsapp' || typeof expires !== 'string') return null;
+  const minutes = Math.max(0, Math.round((Date.parse(expires) - state.clock.getTime()) / 60_000));
+  const left = minutes >= 60 ? t(state, `${String(Math.floor(minutes / 60))} ساعة`, `${String(Math.floor(minutes / 60))}h`) : t(state, `${String(minutes)} دقيقة`, `${String(minutes)} min`);
+  return h('p', { class: minutes < 60 ? 'composer__window composer__window--ending' : 'composer__window' }, [
+    icon('clock', 12),
+    t(state, `نافذة الرد الحر مفتوحة · تُغلق بعد ${left}`, `Free-form window open · closes in ${left}`),
   ]);
 }
 

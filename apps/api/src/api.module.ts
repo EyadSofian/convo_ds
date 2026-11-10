@@ -82,6 +82,8 @@ import { AssignmentReportService } from './campaigns/assignment-report.service.j
 import { LifecycleReportService } from './campaigns/lifecycle-report.service.js';
 import { TeamReportService } from './campaigns/team-report.service.js';
 import { CampaignReportExportService } from './campaigns/report-export.service.js';
+import { QuickReplyController } from './quick-replies/quick-reply.controller.js';
+import { QuickReplyService } from './quick-replies/quick-reply.service.js';
 import { SegmentController } from './segments/segment.controller.js';
 import { SegmentService } from './segments/segment.service.js';
 import { AutomationController } from './automations/automation.controller.js';
@@ -157,6 +159,7 @@ export class ApiModule {
         CampaignController,
         RealtimeController,
         NotificationController,
+        QuickReplyController,
         SegmentController,
         AutomationController,
       ],
@@ -235,6 +238,7 @@ export class ApiModule {
         OutboundService,
         MembershipService,
         PermissionService,
+        QuickReplyService,
         SegmentService,
         AutomationService,
         AutomationEventService,
