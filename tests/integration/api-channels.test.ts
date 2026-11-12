@@ -2323,6 +2323,52 @@ describe('the outbound path', () => {
     expect(timeline.json()).toMatchObject({ data: expect.arrayContaining([expect.objectContaining({ template_name: 'order_update', template_language: 'ar', template_preview: 'تحديث الطلب A-52' })]) });
   });
 
+  it('lets an assigned inbox agent send an approved template after 24 hours without channel management', async () => {
+    const email = `closed-window-${randomUUID()}@channels.test`;
+    const user = await api.pool.query<{ id: string }>(
+      `INSERT INTO users(email,password_hash,status) VALUES($1,$2,'active') RETURNING id::text`,
+      [email, await argon2.hash(MEMBER_PASSWORD, { type: argon2.argon2id })],
+    );
+    const memberId = await withTenant(api.pool, api.tenantId, async (client) => {
+      const role = await client.query<{ id: string }>(`SELECT id::text FROM roles WHERE key='agent'`);
+      const member = await client.query<{ id: string }>(
+        `INSERT INTO memberships(tenant_id,user_id,role_id,status) VALUES($1,$2,$3,'active') RETURNING id::text`,
+        [api.tenantId, user.rows[0]!.id, role.rows[0]!.id],
+      );
+      const id = member.rows[0]!.id;
+      await client.query(`INSERT INTO membership_scopes(tenant_id,membership_id,scope_type,scope_id) VALUES($1,$2,'inbox',$3)`, [api.tenantId, id, connectionId]);
+      return id;
+    });
+    const agent = await login(api, email, MEMBER_PASSWORD);
+    const to = peer();
+    await openWindow(to, String(Math.floor((Date.now() - 25 * 60 * 60 * 1000) / 1000)));
+    const thread = await withTenant(api.pool, api.tenantId, (client) => client.query<{ id: string }>(
+      `UPDATE conversations SET assignee_membership_id=$1 WHERE connection_id=$2 AND peer_identity=$3 RETURNING id::text`,
+      [memberId, connectionId, to],
+    ));
+    const conversationId = thread.rows[0]!.id;
+    const templateId = await syncApprovedTemplate();
+    expect((await send(api, agent, 'GET', '/channels')).statusCode).toBe(403);
+    const catalogue = await send(api, agent, 'GET', `/conversations/${conversationId}/whatsapp-templates`);
+    expect(catalogue.statusCode, catalogue.body).toBe(200);
+    expect(catalogue.json().data).toEqual(expect.arrayContaining([expect.objectContaining({ id: templateId })]));
+    const plain = await send(api, agent, 'POST', `/conversations/${conversationId}/messages`, { messageType: 'text', text: 'Hello', clientMessageId: clientId() });
+    expect(plain.statusCode).toBe(422);
+    const queued = await send(api, agent, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'template', text: '', template: { id: templateId, parameters: { 'body:1': 'A-53' } }, clientMessageId: clientId(),
+    });
+    expect(queued.statusCode, queued.body).toBe(202);
+    answer = accepted(`wamid.agent-template-${to}`);
+    expect((await dispatcher.dispatch(api.tenantId)).accepted).toBe(1);
+    expect(sent.at(-1)?.template?.name).toBe('order_update');
+    await withTenant(api.pool, api.tenantId, (client) => client.query(`UPDATE conversations SET assignee_membership_id=NULL WHERE id=$1`, [conversationId]));
+    expect((await send(api, agent, 'GET', `/conversations/${conversationId}/whatsapp-templates`)).statusCode).toBe(403);
+    const denied = await send(api, agent, 'POST', `/conversations/${conversationId}/messages`, {
+      messageType: 'template', text: '', template: { id: templateId, parameters: { 'body:1': 'A-53' } }, clientMessageId: clientId(),
+    });
+    expect(denied.statusCode).toBe(403);
+  });
+
   it('tells every open screen when the provider answers a reply, accepted or refused', async () => {
     // Without this a reply sat on "Sending" until a receipt came, and a refusal
     // never sends one: the screen looked stuck until somebody reloaded it.
