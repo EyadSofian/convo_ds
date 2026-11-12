@@ -457,11 +457,17 @@ describe('Inbox list controls', () => {
     expect(root.textContent).toContain('24-hour messaging window closed');
     expect(root.textContent).toContain('WhatsApp template · welcome');
     expect(root.textContent).toContain('مرحبًا يا Sara');
-    app.live.connections = ready([{ id: 'connection-1', kind: 'whatsapp', capabilities: { templates: false } }] as never, 1);
-    root = renderInbox(app);
-    expect(root.querySelector('[data-act="live-whatsapp-template-open"]')).toBeNull();
-    app.live.connections = { status: 'loading' };
-    expect(renderInbox(app).querySelector('[data-act="live-whatsapp-template-open"]')).toBeNull();
+    // Agents get a 403 from channel management. That must not hide replies.
+    for (const connections of [
+      { status: 'error', error: { status: 403, code: 'permission_denied', message: 'No channel management access', requestId: null, details: [] } },
+      { status: 'loading' },
+      ready([], 1),
+    ] as const) {
+      app.live.connections = connections;
+      root = renderInbox(app);
+      expect(root.querySelector('[data-act="live-whatsapp-template-open"]')?.getAttribute('data-arg')).toBe('conversation-1');
+      expect(root.querySelector('.composer__input')).toBeNull();
+    }
   });
 
   it('shows Unicode emoji messages and Instagram reactions without turning reactions into customer messages', () => {

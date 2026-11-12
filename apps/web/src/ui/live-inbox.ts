@@ -1206,7 +1206,7 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
           : t(state, 'انتهت نافذة المحادثة لمدة 24 ساعة', '24-hour messaging window closed')]),
         h('p', {}, [t(state, 'استخدم قالبًا معتمدًا لمتابعة المحادثة.', 'Use an approved template to continue this conversation.')]),
       ]),
-      whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
+      whatsappTemplateButton(state, conversation),
     ]);
   }
   const attachment = live.attachmentDraft;
@@ -1260,7 +1260,7 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
         attachmentPicker(state, conversation.channel),
         conversation.channel === 'whatsapp' ? button({ icon: 'mic', act: 'live-voice-start', variant: 'ghost', small: true,
           title: t(state, 'تسجيل رسالة صوتية', 'Record voice message'), ariaLabel: t(state, 'تسجيل رسالة صوتية', 'Record voice message'), extraClass: 'composer__tool' }) : null,
-        whatsappTemplateButton(state, live, conversation.id, conversation.connectionId),
+        whatsappTemplateButton(state, conversation),
       ]),
       button({
         label: t(state, 'إرسال', 'Send'),
@@ -1329,10 +1329,11 @@ function voiceComposer(state: AppState, voice: NonNullable<ReturnType<typeof voi
   ]);
 }
 
-function whatsappTemplateButton(state: AppState, live: LiveState, conversationId: string, connectionId: string): HTMLElement | null {
-  const connection = live.connections.status === 'ready' ? live.connections.value.find((item) => item.id === connectionId) : undefined;
-  if (connection?.kind !== 'whatsapp' || !connection.capabilities.templates) return null;
-  return button({ label: t(state, 'قوالب واتساب', 'WhatsApp Templates'), icon: 'template', act: 'live-whatsapp-template-open', arg: conversationId, variant: 'ghost', small: true, title: t(state, 'قوالب واتساب', 'WhatsApp Templates'), extraClass: 'composer__templates' });
+function whatsappTemplateButton(state: AppState, conversation: Conversation): HTMLElement | null {
+  // The composer already checks reply access. Agents cannot read the channel
+  // management catalogue; template discovery and sending use the scoped thread API.
+  if (conversation.channel !== 'whatsapp') return null;
+  return button({ label: t(state, 'قوالب واتساب', 'WhatsApp Templates'), icon: 'template', act: 'live-whatsapp-template-open', arg: conversation.id, variant: 'ghost', small: true, title: t(state, 'قوالب واتساب', 'WhatsApp Templates'), extraClass: 'composer__templates' });
 }
 
 function noteComposer(state: AppState, live: LiveState): HTMLElement {

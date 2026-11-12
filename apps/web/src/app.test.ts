@@ -1012,10 +1012,10 @@ describe('layers, focus and the keyboard', () => {
     expect(input().value).toBe('Hello From 1,000 EGP.');
   });
 
-  it('updates the template preview in place and resets the send idempotency key when a variable changes', async () => {
+  it('opens, previews and sends a closed-window template without channel management access', async () => {
     const conversation = '55555555-5555-4555-8555-555555555555';
     const api = signedIn()
-      .on(`GET /tenants/${TENANT}/channels`, { status: 200, body: { data: [{ id: 'cn-1', kind: 'whatsapp', disconnected_at: null, status: 'healthy', display_name: 'Line', external_asset_id: '1', provider_app_id: null, evidence: [], capabilities: { windowHours: null, outboundTypes: [], attachmentTypes: [], inboundEvents: [], templates: true, deliveryReceipts: true, readReceipts: true }, created_at: NOW.toISOString(), credential_held: true, last_error_code: null }] } })
+      .on(`GET /tenants/${TENANT}/channels`, { status: 403, body: { error: { code: 'permission_denied', message: 'Channel management is not allowed.' } } })
       .on(`GET /tenants/${TENANT}/conversations/${conversation}`, { status: 200, body: { data: { id: conversation, peerIdentity: '2010', connectionId: 'cn-1', channel: 'whatsapp', serviceWindow: { status: 'closed', lastCustomerInboundAt: NOW.toISOString(), serviceWindowExpiresAt: NOW.toISOString() }, inboxLabel: 'Line', status: 'open', priority: 'normal', assigneeMembershipId: 'm-1111', version: 2, contactId: null, labels: [], customFields: [] } } })
       .on(`GET /tenants/${TENANT}/conversations/${conversation}/messages`, { status: 200, body: { data: { messages: [], next_cursor: null } } })
       .on(`GET /tenants/${TENANT}/conversations/${conversation}/whatsapp-templates`, { status: 200, body: { data: [{ id: 'template-1', provider_template_id: 'meta-1', name: 'hello', language: 'en', category: 'utility', status: 'approved', components: [{ type: 'header', text: 'For {{1}}', format: 'TEXT', buttons: [] }, { type: 'body', text: 'Hello {{1}}', format: null, buttons: [] }], parameters: [{ key: 'header:1', component: 'header', index: null, position: 1, example: null }, { key: 'body:1', component: 'body', index: null, position: 1, example: null }], sendSupported: true, unsupportedReason: null, lastSyncedAt: NOW.toISOString() }], page: { next_cursor: null, has_more: false } } });
@@ -1033,6 +1033,13 @@ describe('layers, focus and the keyboard', () => {
     expect(app.state.dialogForm['whatsappTemplateClientMessageId']).toBeUndefined();
     type(input, '');
     expect(root.querySelector('[data-template-preview-key="body:1"]')?.textContent).toBe('{{1}}');
+    api.on(`POST /tenants/${TENANT}/conversations/${conversation}/messages`, { status: 202, body: { data: { id: 'queued-template' } } });
+    type(input, 'Mona');
+    type(root.querySelector('[data-wa-parameter="header:1"]') as HTMLInputElement, 'Registration');
+    click(root.querySelector('[data-act="live-whatsapp-template-send"]'));
+    await settle();
+    expect(api.called(`POST /tenants/${TENANT}/conversations/${conversation}/messages`)).toBe(true);
+    expect(app.state.dialog).toBeNull();
   });
 
   it('submits a form’s own action with its argument when Enter is pressed', async () => {
