@@ -181,6 +181,30 @@ describe('term 5 — resource scope', () => {
   });
 });
 
+describe('operations — watch every inbox, work your own', () => {
+  const OTHER_INBOX = 'inbox-wa-alex';
+  const operations = asRole('operations', { scopes: [{ type: 'inbox', id: INBOX }] });
+
+  it('reads a conversation, its contact and its campaign on another inbox', () => {
+    for (const key of ['conversation.read', 'conversation.unassigned.preview', 'contact.read', 'campaign.read'] as const) {
+      expect(authorize(operations, key, { inboxId: OTHER_INBOX, assigneeMembershipId: SOMEONE_ELSE }), key)
+        .toEqual({ allowed: true, scope: 'tenant' });
+    }
+  });
+
+  it('refuses every act on another inbox, and allows it on its own, whoever holds the conversation', () => {
+    const acts = ['conversation.reply', 'conversation.note', 'conversation.claim', 'conversation.assign',
+      'conversation.handoff.request', 'conversation.close', 'contact.edit', 'campaign.draft',
+      'campaign.approve', 'campaign.launch', 'campaign.control'] as const;
+    for (const key of acts) {
+      expect(authorize(operations, key, { inboxId: OTHER_INBOX, assigneeMembershipId: SOMEONE_ELSE }), key)
+        .toEqual({ allowed: false, reason: 'out_of_scope' });
+      expect(authorize(operations, key, { inboxId: INBOX, assigneeMembershipId: SOMEONE_ELSE }), key)
+        .toEqual({ allowed: true, scope: 'scoped' });
+    }
+  });
+});
+
 describe('own scope', () => {
   const agent = (): Principal => asRole('agent', { scopes: [{ type: 'inbox', id: INBOX }] });
 

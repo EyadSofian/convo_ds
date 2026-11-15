@@ -87,7 +87,7 @@ describe('one-time installation bootstrap (MODE-03)', () => {
       );
       expect(tenant.rows).toEqual([{ name: 'Acme Support', slug: 'acme', status: 'active' }]);
 
-      // All seven built-in roles land at creation, so there is something to
+      // All eight built-in roles land at creation, so there is something to
       // invite people into. Platform Super Admin is not among them: it lives
       // outside tenant membership (business-rules.md §7).
       const role = await client.query<{ key: string; is_builtin: boolean }>(
@@ -99,6 +99,7 @@ describe('one-time installation bootstrap (MODE-03)', () => {
         'analyst',
         'campaign_manager',
         'integration_developer',
+        'operations',
         'owner',
         'supervisor',
       ]);

@@ -1,5 +1,5 @@
 /**
- * The seven built-in tenant roles and their exact scope matrices.
+ * The eight built-in tenant roles and their exact scope matrices.
  *
  * Transcribed from `docs/product/business-rules.md` §7. That table is the
  * product design; this file is its executable form, and `roles.test.ts` asserts
@@ -55,6 +55,7 @@ export const BUILTIN_ROLE_KEYS = [
   'campaign_manager',
   'analyst',
   'integration_developer',
+  'operations',
 ] as const;
 
 export type BuiltinRoleKey = (typeof BUILTIN_ROLE_KEYS)[number];
@@ -205,6 +206,43 @@ export const BUILTIN_ROLES: Readonly<Record<BuiltinRoleKey, BuiltinRole>> = Obje
       'integration.manage': 'tenant',
       // Integration health only — scoped to what their own integrations report.
       'report.read': 'scoped',
+    },
+    grantable: [],
+  },
+
+  operations: {
+    key: 'operations',
+    name: 'Operations',
+    grants: {
+      // Sees every inbox, works only its own. Every read below is `tenant` so an
+      // operations lead can follow what happens on another inbox; every write is
+      // `scoped`, so the same person can reply, claim, assign, close and send a
+      // campaign only on the inboxes granted to their membership. Another
+      // inbox is view-only: the server refuses the act, and the conversation's
+      // `capabilities` tell the browser to draw it read-only.
+      'conversation.read': 'tenant',
+      'conversation.unassigned.preview': 'tenant',
+      'conversation.reply': 'scoped',
+      'conversation.note': 'scoped',
+      'conversation.claim': 'scoped',
+      'conversation.assign': 'scoped',
+      'conversation.handoff.request': 'scoped',
+      'conversation.close': 'scoped',
+      'contact.read': 'tenant',
+      'contact.edit': 'scoped',
+      'consent.read': 'tenant',
+      'consent.record': 'scoped',
+      'suppression.write': 'scoped',
+      'campaign.read': 'tenant',
+      'campaign.draft': 'scoped',
+      // Unlike Campaign Manager, Operations sends its own campaigns end to end,
+      // so it approves too — still bound to the revision, and still only for a
+      // campaign whose sending inbox is in this membership's scope.
+      'campaign.approve': 'scoped',
+      'campaign.launch': 'scoped',
+      'campaign.control': 'scoped',
+      'report.read': 'tenant',
+      'catalog.read': 'tenant',
     },
     grantable: [],
   },

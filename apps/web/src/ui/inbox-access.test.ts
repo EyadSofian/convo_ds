@@ -12,7 +12,8 @@ function state() {
   s.live.memberInboxes = ready([{ id: 'line-a', display_name: 'Admissions', kind: 'whatsapp', external_asset_id: '3904' }], 1);
   s.live.roles = ready([{ id: 'agent', key: 'agent', name: 'Agent', is_builtin: true, description: '', updated_at: '', grants: [] },
     { id: 'admin', key: 'admin', name: 'Admin', is_builtin: true, description: '', updated_at: '', grants: [] },
-    { id: 'custom', key: 'custom', name: 'Custom', is_builtin: false, description: '', updated_at: '', grants: [{ permission_key: 'conversation.read', scope_level: 'tenant' }] }], 1);
+    { id: 'custom', key: 'custom', name: 'Custom', is_builtin: false, description: '', updated_at: '', grants: [{ permission_key: 'conversation.read', scope_level: 'tenant' }] },
+    { id: 'operations', key: 'operations', name: 'Operations', is_builtin: true, description: '', updated_at: '', grants: [{ permission_key: 'conversation.read', scope_level: 'tenant' }, { permission_key: 'conversation.reply', scope_level: 'scoped' }] }], 1);
   return s;
 }
 
@@ -40,6 +41,14 @@ describe('member inbox access choices', () => {
     expect(inboxAccessFields(s, 'invite').textContent).toContain('The server couldn’t complete this');
     s.dialogForm['inviteMode'] = 'tenant';
     expect(readInboxAccess(s, 'invite', [], 'admin')).toEqual([{ type: 'tenant', id: null }]);
+  });
+
+  it('lets a role that reads everywhere but acts on its own inboxes keep a selection', () => {
+    const s = state();
+    s.dialogForm = { inviteMode: 'selected', 'inviteInbox_line-a': 'true' };
+    expect(readInboxAccess(s, 'invite', [], 'operations')).toEqual([{ type: 'inbox', id: 'line-a' }]);
+    // A role the browser has not loaded is left to the server to judge.
+    expect(readInboxAccess(s, 'invite', [], 'unknown-role')).toEqual([{ type: 'inbox', id: 'line-a' }]);
   });
 
   it('handles loading and empty directories, and names missing members honestly', () => {

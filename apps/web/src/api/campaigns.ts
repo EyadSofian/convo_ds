@@ -1,5 +1,6 @@
 import { API_BASE_URL, ApiClient, type ApiResult, type PagedData } from './client.js';
 import type { LeadSheetRow } from '../lead-sheet.js';
+import type { ChannelConnection } from './channels.js';
 
 export type CampaignState = 'draft' | 'validating' | 'ready' | 'scheduled' | 'running' |
   'pausing' | 'paused' | 'dispatch_completed' | 'cancelling' | 'cancelled' | 'failed';
@@ -352,6 +353,10 @@ export class CampaignsApi {
   }
   list(tenantId: string): Promise<ApiResult<readonly Campaign[]>> {
     return this.client.get(`/tenants/${tenantId}/campaigns`);
+  }
+  /** The inboxes this person may send a campaign from, for a role without `channel.manage`. */
+  senders(tenantId: string): Promise<ApiResult<readonly ChannelConnection[]>> {
+    return this.client.get(`/tenants/${tenantId}/campaigns/senders`);
   }
   create(tenantId: string, input: CreateCampaignInput, key: string): Promise<ApiResult<Campaign>> {
     return this.client.post(`/tenants/${tenantId}/campaigns`, { body: input, idempotencyKey: key });

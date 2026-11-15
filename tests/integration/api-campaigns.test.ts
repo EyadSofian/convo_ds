@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import argon2 from 'argon2';
 import { readFileSync } from 'node:fs';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
@@ -131,6 +132,35 @@ function draft(api: Harness, overrides: Record<string, unknown> = {}): Record<st
   };
 }
 
+/** Signs in a second person holding `roleKey`, limited to `inboxes`. */
+async function member(api: Harness, email: string, roleKey: string, inboxes: readonly string[]): Promise<Harness> {
+  const password = 'campaign member password';
+  const user = await api.pool.query<{ id: string }>(
+    `INSERT INTO users (email, password_hash, status) VALUES ($1, $2, 'active') RETURNING id::text`,
+    [email, await argon2.hash(password, { type: argon2.argon2id })],
+  );
+  await withTenant(api.pool, api.tenantId, async (sql) => {
+    const membership = await sql.query<{ id: string }>(
+      `INSERT INTO memberships (tenant_id, user_id, role_id, status)
+       SELECT $1, $2, id, 'active' FROM roles WHERE key = $3 RETURNING id::text`,
+      [api.tenantId, user.rows[0]!.id, roleKey],
+    );
+    for (const inbox of inboxes) {
+      await sql.query(
+        `INSERT INTO membership_scopes (tenant_id, membership_id, scope_type, scope_id) VALUES ($1, $2, 'inbox', $3)`,
+        [api.tenantId, membership.rows[0]!.id, inbox],
+      );
+    }
+  });
+  const login = await api.server.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { email, password } });
+  expect(login.statusCode, login.body).toBe(200);
+  const cookies = login.headers['set-cookie'];
+  const lines = cookies === undefined ? [] : Array.isArray(cookies) ? cookies : [cookies];
+  const cookie = lines.map((line) => line.split(';')[0]).join('; ');
+  const csrf = cookie.split(';').map((value) => value.trim()).find((value) => value.startsWith('convo_csrf='))?.slice(11) ?? '';
+  return { ...api, cookie, csrf };
+}
+
 function dataOf(response: LightMyRequestResponse): { id: string; state: string } {
   return (response.json() as { data: { id: string; state: string } }).data;
 }
@@ -140,6 +170,62 @@ describe('campaign API', () => {
 
   beforeAll(async () => { api = await setup(); }, 120_000);
   afterAll(async () => { if (api !== undefined) await api.app.close(); });
+
+  it('lets Operations send only from its own inbox and only watch campaigns on the others', async () => {
+    const ownInbox = await withTenant(api.pool, api.tenantId, async (sql) => (await sql.query<{ id: string }>(
+      `INSERT INTO channel_connections
+         (tenant_id,kind,external_asset_id,display_name,status,asset_verified_at,credential_verified_at,
+          webhook_subscribed_at,first_inbound_at,first_outbound_at)
+       VALUES ($1,'whatsapp','phone-operations','WhatsApp Operations','healthy',now(),now(),now(),now(),now()) RETURNING id::text`,
+      [api.tenantId],
+    )).rows[0]!.id);
+    const elsewhere = await send(api, 'POST', '/campaigns', draft(api, { name: 'Another inbox broadcast' }), 'operations-elsewhere');
+    expect(elsewhere.statusCode, elsewhere.body).toBe(201);
+    const { id, version } = (elsewhere.json() as { data: { id: string; version: number } }).data;
+    const operations = await member(api, 'operations@campaign.test', 'operations', [ownInbox]);
+
+    // A channel administrator is offered every inbox; Operations only its own,
+    // and never the fields only a channel administrator needs.
+    const everyInbox = await send(api, 'GET', '/campaigns/senders');
+    expect(everyInbox.statusCode, everyInbox.body).toBe(200);
+    expect((everyInbox.json() as { data: { id: string }[] }).data.map((row) => row.id).sort()).toEqual([api.connectionId, ownInbox].sort());
+    const senders = await send(operations, 'GET', '/campaigns/senders');
+    expect(senders.statusCode, senders.body).toBe(200);
+    expect((senders.json() as { data: Record<string, unknown>[] }).data).toEqual([expect.objectContaining({
+      id: ownInbox, provider_app_id: null, credential_fingerprint: null, origins: [], outbound_url: null,
+    })]);
+
+    // Another inbox's campaign is visible…
+    const listed = await send(operations, 'GET', '/campaigns');
+    expect(listed.statusCode, listed.body).toBe(200);
+    expect((listed.json() as { data: { id: string }[] }).data.map((row) => row.id)).toContain(id);
+    // …and every act on it, or from that inbox, is refused.
+    const refused = [
+      await send(operations, 'POST', '/campaigns', draft(api), 'operations-create-elsewhere'),
+      await send(operations, 'POST', '/campaigns/audience-preview', { connectionId: api.connectionId, audienceFilter: {} }),
+      await send(operations, 'PATCH', `/campaigns/${id}`, { ...draft(api, { connectionId: ownInbox }), expectedVersion: version }, 'operations-move'),
+      await send(operations, 'POST', `/campaigns/${id}/test-send`, { testRecipientId: randomUUID(), expectedVersion: version }, 'operations-test'),
+      await send(operations, 'POST', `/campaigns/${id}/validate`),
+      await send(operations, 'POST', `/campaigns/${id}/approve`),
+      await send(operations, 'POST', `/campaigns/${id}/launch`, { mode: 'now' }, 'operations-launch'),
+      await send(operations, 'POST', `/campaigns/${id}/control`, { action: 'cancel' }),
+      await send(operations, 'POST', `/campaigns/${id}/retry`, {}, 'operations-retry'),
+      await send(operations, 'POST', `/campaigns/${id}/clone`, { name: 'Copied elsewhere' }, 'operations-clone'),
+    ];
+    for (const response of refused) {
+      expect(response.statusCode, response.body).toBe(403);
+      expect(response.json()).toMatchObject({ error: { code: 'permission_denied' } });
+    }
+
+    // Its own inbox is its to work, end to end.
+    const own = await send(operations, 'POST', '/campaigns', draft(api, { name: 'Own inbox broadcast', connectionId: ownInbox }), 'operations-own');
+    expect(own.statusCode, own.body).toBe(201);
+    const validated = await send(operations, 'POST', `/campaigns/${dataOf(own).id}/validate`);
+    expect(validated.statusCode, validated.body).toBe(201);
+    const approved = await send(operations, 'POST', `/campaigns/${dataOf(own).id}/approve`);
+    expect(approved.statusCode, approved.body).toBe(201);
+    expect((approved.json() as { data: { approved: boolean } }).data.approved).toBe(true);
+  });
 
   it('routes imported lead owners and shows accepted outreach before and after customer replies', async () => {
     const api = await setup();

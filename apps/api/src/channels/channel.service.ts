@@ -818,7 +818,7 @@ export function statusOf(row: ConnectionReadinessEvidence): Readiness {
   });
 }
 
-async function readConnections(
+export async function readConnections(
   sql: SqlExecutor,
   connectionId: string | null,
 ): Promise<readonly ChannelConnectionSummary[]> {

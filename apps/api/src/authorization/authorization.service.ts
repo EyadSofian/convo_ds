@@ -95,6 +95,18 @@ export class AuthorizationService {
     return principal;
   }
 
+  /**
+   * Authorizes one key against a resource the caller only learns after loading
+   * the principal — a campaign's sending inbox, read under the same lock the
+   * write takes. Throws the same typed denial as `requirePermission`.
+   */
+  requireResource(principal: Principal, permission: PermissionKey, resource: ResourceRef): void {
+    const decision = authorize(principal, permission, resource);
+    if (!decision.allowed) {
+      throw denial(decision);
+    }
+  }
+
   /** Rejects a tenant id that cannot name a tenant, before any query runs. */
   assertTenantId(tenantId: string): void {
     if (!UUID_PATTERN.test(tenantId)) {

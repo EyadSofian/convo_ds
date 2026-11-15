@@ -211,6 +211,24 @@ describe('the detail', () => {
   });
 });
 
+describe('a campaign on an inbox the person may not send from', () => {
+  it('is drawn read-only for a sender, and stays workable for a channel administrator', () => {
+    const elsewhere = campaign({ connection_id: 'cn-other', state: 'ready', approved: true });
+    const sender = screen([elsewhere]);
+    expect(actions(sender)).not.toContain('live-campaign-launch');
+    expect(actions(sender)).not.toContain('live-campaign-editor');
+    expect(renderBroadcasts(sender).querySelector('.campaign-detail')?.textContent).toContain('Read-only');
+
+    const administrator = screen([elsewhere], [...ALL, 'channel.manage']);
+    expect(actions(administrator)).toContain('live-campaign-launch');
+    expect(renderBroadcasts(administrator).querySelector('.campaign-detail')?.textContent).not.toContain('Read-only');
+
+    const own = screen([campaign({ state: 'ready', approved: true })]);
+    expect(actions(own)).toContain('live-campaign-launch');
+    expect(renderBroadcasts(own).querySelector('.campaign-detail')?.textContent).not.toContain('Read-only');
+  });
+});
+
 describe('the recipient ledger', () => {
   const execution = { id: 'e', state: 'running', scheduled_for: null };
 

@@ -30,7 +30,7 @@ const ROLE_MIGRATION = readFileSync(
  * Reading only 0007 would let a later migration add a grant this module has
  * never heard of, which is exactly the drift these tests exist to catch.
  */
-const GRANT_MIGRATIONS = ['0007_role_matrix.sql', '0018_work_routing.sql', '0019_metadata_catalogue.sql', '0028_automation_foundation.sql'].map((name) =>
+const GRANT_MIGRATIONS = ['0007_role_matrix.sql', '0018_work_routing.sql', '0019_metadata_catalogue.sql', '0028_automation_foundation.sql', '0064_operations_role.sql'].map((name) =>
   readFileSync(fileURLToPath(new URL(`../../../database/migrations/${name}`, import.meta.url)), 'utf8'),
 );
 
@@ -60,15 +60,17 @@ describe('migration 0007 seeds exactly this matrix', () => {
    * every authorization decision in the API is made against a matrix the
    * database does not hold — so drift is a build failure, not a review comment.
    */
-  it('seeds the same seven roles with the same display names', () => {
-    const block = ROLE_MIGRATION.slice(
-      ROLE_MIGRATION.indexOf('INSERT INTO builtin_role_definitions'),
-      ROLE_MIGRATION.indexOf('INSERT INTO builtin_role_grants'),
+  it('seeds the same eight roles with the same display names', () => {
+    // Every migration that defines a role, in order: 0007 seeded the first
+    // seven and 0064 added Operations.
+    const seeded = GRANT_MIGRATIONS.flatMap((migration) =>
+      [...statementsOf(migration, 'INSERT INTO builtin_role_definitions')].flatMap((block) =>
+        [...block.matchAll(/^\s*\('([a-z_]+)', '([^']+)'\)/gm)].map((m) => [
+          m[1] as string,
+          m[2] as string,
+        ]),
+      ),
     );
-    const seeded = [...block.matchAll(/^\s*\('([a-z_]+)', '([^']+)'\)/gm)].map((m) => [
-      m[1] as string,
-      m[2] as string,
-    ]);
     expect(seeded.map(([key]) => key)).toEqual([...BUILTIN_ROLE_KEYS]);
     for (const [key, name] of seeded) {
       expect(BUILTIN_ROLES[key as BuiltinRoleKey].name).toBe(name);
@@ -166,9 +168,9 @@ describe('scope algebra', () => {
   });
 });
 
-describe('the seven built-in roles', () => {
-  it('defines exactly seven, and no Platform Super Admin among them', () => {
-    expect(BUILTIN_ROLE_KEYS).toHaveLength(7);
+describe('the eight built-in roles', () => {
+  it('defines exactly eight, and no Platform Super Admin among them', () => {
+    expect(BUILTIN_ROLE_KEYS).toHaveLength(8);
     expect(Object.keys(BUILTIN_ROLES).sort()).toEqual([...BUILTIN_ROLE_KEYS].sort());
     // Platform Super Admin is outside tenant membership (business-rules.md §7).
     expect(BUILTIN_ROLE_KEYS as readonly string[]).not.toContain('platform_super_admin');
@@ -194,91 +196,91 @@ describe('the seven built-in roles', () => {
   const MATRIX: readonly (readonly [PermissionKey, Record<BuiltinRoleKey, ScopeLevel>])[] = [
     [
       'conversation.read',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'tenant' },
     ],
     [
       'conversation.reply',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'scoped' },
     ],
     [
       'conversation.note',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'scoped' },
     ],
     [
       'conversation.unassigned.preview',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'scoped', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'scoped', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'tenant' },
     ],
     [
       'conversation.claim',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'scoped', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'scoped', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'scoped' },
     ],
     [
       'conversation.assign',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'scoped' },
     ],
     [
       'conversation.close',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'scoped' },
     ],
     [
       'contact.edit',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none', operations: 'scoped' },
     ],
     [
       'contact.merge',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'none' },
     ],
     [
       'contact.export',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'none' },
     ],
     [
       'consent.read',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none', operations: 'tenant' },
     ],
     [
       'consent.record',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none', operations: 'scoped' },
     ],
     [
       'campaign.draft',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none', operations: 'scoped' },
     ],
     [
       'campaign.approve',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'scoped' },
     ],
     [
       'campaign.launch',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none', operations: 'scoped' },
     ],
     [
       'campaign.read',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'scoped', analyst: 'none', integration_developer: 'none', operations: 'tenant' },
     ],
     [
       'report.read',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'scoped', analyst: 'tenant', integration_developer: 'scoped' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'scoped', agent: 'own', campaign_manager: 'scoped', analyst: 'tenant', integration_developer: 'scoped', operations: 'tenant' },
     ],
     [
       'channel.manage',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'none' },
     ],
     [
       'member.manage',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'none' },
     ],
     [
       'role.manage',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'none' },
     ],
     [
       'integration.manage',
-      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'tenant' },
+      { owner: 'tenant', admin: 'tenant', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'tenant', operations: 'none' },
     ],
     [
       'tenant.delete',
-      { owner: 'tenant', admin: 'none', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none' },
+      { owner: 'tenant', admin: 'none', supervisor: 'none', agent: 'none', campaign_manager: 'none', analyst: 'none', integration_developer: 'none', operations: 'none' },
     ],
   ];
 
@@ -305,6 +307,25 @@ describe('the seven built-in roles', () => {
   it('never grants a Campaign Manager approval of their own campaign', () => {
     expect(scopeFor('campaign_manager', 'campaign.approve')).toBe('none');
     expect(scopeFor('campaign_manager', 'campaign.launch')).toBe('scoped');
+  });
+
+  it('lets Operations read every inbox and act only on its own', () => {
+    const operations = BUILTIN_ROLES.operations.grants;
+    // Reads reach the whole company, so another inbox can be watched.
+    for (const key of ['conversation.read', 'conversation.unassigned.preview', 'contact.read', 'consent.read', 'campaign.read', 'report.read'] as const) {
+      expect(operations[key], key).toBe('tenant');
+    }
+    // Every act is held to the inboxes on the membership's scope.
+    for (const [key, scope] of grantsOf('operations')) {
+      if (key.endsWith('.read') || key.endsWith('.preview')) continue;
+      expect(scope, key).toBe('scoped');
+    }
+    // It sends campaigns end to end, but never manages channels or people.
+    expect(scopeFor('operations', 'campaign.approve')).toBe('scoped');
+    expect(scopeFor('operations', 'campaign.launch')).toBe('scoped');
+    expect(scopeFor('operations', 'channel.manage')).toBe('none');
+    expect(scopeFor('operations', 'member.manage')).toBe('none');
+    expect(scopeFor('operations', 'contact.export')).toBe('none');
   });
 
   it('records merge and export as an extra grant, not a silent denial', () => {

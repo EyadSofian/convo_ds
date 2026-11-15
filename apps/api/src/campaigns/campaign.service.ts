@@ -3,7 +3,7 @@ import type { Principal } from '@convo/domain';
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { CampaignState, SqlExecutor } from '@convo/domain';
-import { applyCampaignTrigger, bindingsComplete, campaignEditTarget, defineWhatsAppTemplate, normalizeSearchText } from '@convo/domain';
+import { applyCampaignTrigger, authorize, bindingsComplete, campaignEditTarget, defineWhatsAppTemplate, normalizeSearchText } from '@convo/domain';
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import type { ApiConfig } from '../config.js';
@@ -14,7 +14,7 @@ import { unlessConstraint } from '../pg-error.js';
 import { requireRow } from '../require-row.js';
 import { API_CONFIG } from '../tokens.js';
 import { fieldText, prepareTemplate } from '../channels/template-send.js';
-import { statusOf, type ConnectionReadinessEvidence } from '../channels/channel.service.js';
+import { readConnections, statusOf, type ChannelConnectionSummary, type ConnectionReadinessEvidence } from '../channels/channel.service.js';
 import { campaignCommandContent } from './campaign-dispatch.js';
 import { boundTemplateOf } from './campaign-request.js';
 import type { AudiencePreviewInput, CampaignDraftInput, CampaignTestSendInput, CampaignUpdateInput, TestRecipientInput } from './campaign-request.js';
@@ -198,7 +198,23 @@ export class CampaignService {
           filter.conversationLabelIds ?? [], filter.contactIds ?? []],
       );
       return requireRow(rows.rows, 'audience preview returned no row');
-    });
+    }, { inboxId: input.connectionId });
+  }
+
+  /**
+   * The inboxes this person may send a campaign from.
+   *
+   * The channel list behind Channels is `channel.manage`, which a role that only
+   * sends campaigns does not hold; without this the campaign editor had no
+   * sender to offer it. Filtered by the same decision every campaign write
+   * makes, so an inbox outside a scoped membership is never offered, and
+   * stripped of the fields only a channel administrator needs.
+   */
+  senders(session: AuthenticatedSession, tenantId: string): Promise<readonly ChannelConnectionSummary[]> {
+    return this.authorization.authorized(session, tenantId, 'campaign.draft', async ({ sql, principal }) =>
+      (await readConnections(sql, null))
+        .filter((connection) => authorize(principal, 'campaign.draft', { inboxId: connection.id }).allowed)
+        .map((connection) => ({ ...connection, provider_app_id: null, credential_fingerprint: null, origins: [], outbound_url: null })));
   }
 
   list(session: AuthenticatedSession, tenantId: string): Promise<readonly CampaignView[]> {
@@ -222,7 +238,7 @@ export class CampaignService {
       key: idempotencyKey,
       requestHash: requestHash(rawBody as JsonValue, this.config.secrets.idempotencyHash),
     }, async (sql) => {
-      const principal = await this.authorization.requirePermission(sql, session, 'campaign.draft');
+      const principal = await this.authorization.requirePermission(sql, session, 'campaign.draft', { inboxId: input.connectionId });
       await requireConnection(sql, input.connectionId, false);
       input = await withCatalogueTemplate(sql, input, principal);
       const campaign = await sql.query<{ id: string }>(
@@ -263,8 +279,9 @@ export class CampaignService {
       operation: `campaign.update:${campaignId}`, key: idempotencyKey,
       requestHash: requestHash(rawBody as JsonValue, this.config.secrets.idempotencyHash),
     }, async (sql) => {
-      const principal = await this.authorization.requirePermission(sql, session, 'campaign.draft');
+      const principal = await this.authorization.requirePermission(sql, session, 'campaign.draft', { inboxId: input.connectionId });
       const campaign = await locked(sql, campaignId);
+      this.authorization.requireResource(principal, 'campaign.draft', { inboxId: campaign.connection_id });
       const target = campaignEditTarget(campaign.control_state);
       if (target === null) throw conflict('campaign_edit_locked', 'A launched campaign cannot be edited. Clone it into a new draft.');
       if (campaign.version !== input.expectedVersion) throw conflict('version_conflict', 'The campaign changed after you opened it. Reload before saving.');
@@ -380,6 +397,7 @@ export class CampaignService {
     }, async (sql) => {
       const principal = await this.authorization.requirePermission(sql, session, 'campaign.draft');
       const campaign = await locked(sql, campaignId);
+      this.authorization.requireResource(principal, 'campaign.draft', { inboxId: campaign.connection_id });
       if (campaignEditTarget(campaign.control_state) === null) {
         throw conflict('campaign_test_send_locked', 'Test the current definition before launch, or clone this campaign.');
       }
@@ -442,6 +460,7 @@ export class CampaignService {
     this.authorization.assertTenantId(campaignId);
     return this.authorization.authorized(session, tenantId, 'campaign.draft', async ({ sql, principal }) => {
       const campaign = await locked(sql, campaignId);
+      this.authorization.requireResource(principal, 'campaign.draft', { inboxId: campaign.connection_id });
       const started = transition(campaign.control_state, 'validate');
       await requireCatalogueTemplate(sql, campaign.connection_id, campaign.content, principal);
       await requireConnection(sql, campaign.connection_id, true);
@@ -460,6 +479,7 @@ export class CampaignService {
     this.authorization.assertTenantId(campaignId);
     return this.authorization.authorized(session, tenantId, 'campaign.approve', async ({ sql, principal }) => {
       const campaign = await locked(sql, campaignId);
+      this.authorization.requireResource(principal, 'campaign.approve', { inboxId: campaign.connection_id });
       if (campaign.control_state !== 'ready') throw conflict('campaign_not_ready', 'Validate this campaign before approving it.');
       await unlessConstraint('campaign_approvals_live_uq', conflict('campaign_already_approved', 'This revision is already approved.'), () =>
         sql.query(
@@ -489,6 +509,7 @@ export class CampaignService {
     }, async (sql) => {
       const principal = await this.authorization.requirePermission(sql, session, 'campaign.launch');
       const campaign = await locked(sql, campaignId);
+      this.authorization.requireResource(principal, 'campaign.launch', { inboxId: campaign.connection_id });
       await requireCatalogueTemplate(sql, campaign.connection_id, campaign.content, principal);
       await requireConnection(sql, campaign.connection_id, true);
       if (campaign.expires_at !== null && campaign.expires_at.getTime() <= Date.now()) {
@@ -568,6 +589,7 @@ export class CampaignService {
       );
       const source = sourceResult.rows[0];
       if (source === undefined) throw notFound();
+      this.authorization.requireResource(principal, 'campaign.draft', { inboxId: source.connection_id });
       await requireConnection(sql, source.connection_id, false);
       const campaign = await sql.query<{ id: string }>(
         `INSERT INTO campaigns (tenant_id,name,objective,connection_id,created_by_membership_id)
@@ -607,6 +629,7 @@ export class CampaignService {
     }, async (sql) => {
       const principal = await this.authorization.requirePermission(sql, session, 'campaign.control');
       const campaign = await locked(sql, campaignId);
+      this.authorization.requireResource(principal, 'campaign.control', { inboxId: campaign.connection_id });
       const executionResult = await sql.query<{ id: string; state: string; stop_version: string }>(
         `SELECT id::text,state,stop_version::text FROM campaign_executions
           WHERE campaign_id=$1 FOR UPDATE`, [campaignId],
@@ -709,6 +732,7 @@ export class CampaignService {
     this.authorization.assertTenantId(campaignId);
     return this.authorization.authorized(session, tenantId, 'campaign.control', async ({ sql, principal }) => {
       const campaign = await locked(sql, campaignId);
+      this.authorization.requireResource(principal, 'campaign.control', { inboxId: campaign.connection_id });
       const first = transition(campaign.control_state, action);
       let state = first.to;
       if (action === 'pause') state = transition(state, 'pause_settled').to;

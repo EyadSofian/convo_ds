@@ -62,6 +62,7 @@ describe('CampaignsApi', () => {
     await api.updateLeadOutcome('tenant-1', 'campaign-1', 'lead-1', {
       status: 'lost', lostReason: 'no_interest', revenueAmountMinor: 0, currency: 'EGP',
     });
+    await api.senders('tenant-1');
 
     expect(calls.map(({ path, init }) => [init.method, path])).toEqual([
       ['GET', '/api/v1/tenants/tenant-1/campaigns'],
@@ -82,6 +83,7 @@ describe('CampaignsApi', () => {
       ['GET', '/api/v1/tenants/tenant-1/reports/campaigns/exports/export-1'],
       ['GET', '/api/v1/tenants/tenant-1/campaigns/campaign-1/leads'],
       ['PATCH', '/api/v1/tenants/tenant-1/campaigns/campaign-1/leads/lead-1'],
+      ['GET', '/api/v1/tenants/tenant-1/campaigns/senders'],
     ]);
     expect(JSON.parse(String(calls[1]?.init.body))).toEqual(leads);
     expect(JSON.parse(String(calls[2]?.init.body))).toEqual(leads);
