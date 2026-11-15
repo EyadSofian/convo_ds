@@ -68,15 +68,19 @@ const EXPORT: CampaignReportExport = {
 const ok = <T>(data: T): ApiResult<T> => ({ ok: true, data });
 const fail = <T>(): ApiResult<T> => ({ ok: false, error: ERROR });
 
-function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>; lang?: 'ar' | 'en' } = {}) {
+function setup(options: { tenant?: string | null; mutation?: ApiResult<Campaign>; lang?: 'ar' | 'en'; permissions?: readonly string[] } = {}) {
   const state = createState(NOW);
   state.lang = options.lang ?? 'en';
   state.live.session = options.tenant === null
     ? { status: 'signed_in', email: 'owner@example.com', memberships: [], tenantId: null }
-    : { status: 'signed_in', email: 'owner@example.com', memberships: [], tenantId: options.tenant ?? 'tenant-1' };
+    : { status: 'signed_in', email: 'owner@example.com', tenantId: options.tenant ?? 'tenant-1', memberships: [{
+      id: 'm', tenant: { id: options.tenant ?? 'tenant-1', name: 'School', slug: 'school' }, role: { id: 'r', key: 'owner', name: 'Owner' },
+      permissions: options.permissions ?? ['channel.manage'],
+    }] };
   const mutation = options.mutation ?? ok(CAMPAIGN);
   const campaigns = {
     list: vi.fn().mockResolvedValue(ok([CAMPAIGN])),
+    senders: vi.fn().mockResolvedValue(ok([{ id: 'sender-1', disconnected_at: null }])),
     create: vi.fn().mockResolvedValue(mutation),
     update: vi.fn().mockResolvedValue(mutation),
     validate: vi.fn().mockResolvedValue(mutation),
@@ -411,6 +415,15 @@ describe('campaign actions', () => {
     expect(await LIVE_ACTIONS['live-campaign-retry']?.(ready.context, 'campaign-1')).toBe(false);
     expect(ready.state.toasts).toHaveLength(count);
     expect(ready.state.live.error).toEqual(ERROR);
+  });
+
+  it('offers a sender without channel.manage only the inboxes it may send from', async () => {
+    const operations = setup({ permissions: ['campaign.draft', 'campaign.launch'] });
+    await loadCampaignsScreen(operations.context);
+    expect(operations.campaigns.senders).toHaveBeenCalledWith('tenant-1');
+    expect(operations.channels.connections).not.toHaveBeenCalled();
+    expect(operations.state.live.connections).toMatchObject({ status: 'ready', value: [{ id: 'sender-1' }] });
+    expect(operations.channels.testRecipients).toHaveBeenCalledWith('tenant-1', 'sender-1');
   });
 
   it('loads campaigns and channel choices together, including a refused read', async () => {

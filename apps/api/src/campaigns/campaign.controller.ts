@@ -33,6 +33,12 @@ export class CampaignController {
     return pageEnvelope(await this.campaigns.list(session, tenantId), null, request.id);
   }
 
+  @Get('tenants/:tenantId/campaigns/senders')
+  async senders(@Param('tenantId') tenantId: string, @Req() request: FastifyRequest) {
+    const session = await this.auth.authenticate(request.headers.cookie);
+    return pageEnvelope(await this.campaigns.senders(session, tenantId), null, request.id);
+  }
+
   @Get('tenants/:tenantId/reports/campaigns')
   async report(@Param('tenantId') tenantId: string, @Query() query: unknown, @Req() request: FastifyRequest) {
     const session = await this.auth.authenticate(request.headers.cookie);

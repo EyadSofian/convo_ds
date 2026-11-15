@@ -141,29 +141,31 @@ Estimated, reserved, committed and reconciled usage are four distinct quantities
 
 `Tenant` = all objects in the company. `Scoped` = explicitly allowed teams/inboxes. `Own` = currently assigned conversations (or participated unassigned conversations) inside allowed inboxes. `No` = denied.
 
-| Capability | Owner | Admin | Supervisor | Agent | Campaign Mgr | Analyst | Integration Dev |
-|---|---|---|---|---|---|---|---|
-| Read full conversation timeline | Tenant | Tenant | Scoped | Own | No | No | No |
-| Reply / private note | Tenant | Tenant | Scoped | Own | No | No | No |
-| View unassigned / claim | Tenant | Tenant | Scoped | Scoped | No | No | No |
-| Assign others / override routing | Tenant | Tenant | Scoped | No | No | No | No |
-| Ask a colleague to take a conversation | Tenant | Tenant | Scoped | Own | No | No | No |
-| Close / reopen / snooze | Tenant | Tenant | Scoped | Own | No | No | No |
-| Edit contact business fields | Tenant | Tenant | Scoped | Own conversation's contact | Scoped campaign contacts | No | No |
-| Merge / export contacts | Tenant | Tenant | Extra grant | No | Extra grant | No | No |
-| View consent / suppression | Tenant | Tenant | Scoped | Own conversation's contact | Scoped | Aggregates only | No |
-| Record opt-out | Tenant | Tenant | Scoped | Own conversation's contact | Scoped | No | No |
-| Draft / validate campaign | Tenant | Tenant | No | No | Scoped | No | No |
-| Approve campaign | Tenant (policy) | Tenant (policy) | No | No | No by default | No | No |
-| Launch / pause / cancel campaign | Tenant | Tenant | No | No | Scoped, approval required | No | No |
-| Read campaign recipient details | Tenant | Tenant | No | No | Scoped | No | No |
-| Reports | Tenant | Tenant | Scoped | Own workload | Campaign aggregates in scope | Tenant aggregates | Integration health |
-| Manage channels / secrets | Tenant | Tenant | No | No | No | No | Delegated integration creds only |
-| Invite / change roles / teams | Tenant | Tenant except Owner | No | No | No | No | No |
-| Grant service/API scopes | Tenant | Tenant within ceiling | No | No | No | No | Previously delegated only |
-| Configure webhooks / CRM mappings | Tenant | Tenant | No | No | No | No | Delegated scope |
-| Security audit / retention settings | Tenant | Tenant except destructive ownership | No | No | No | No | Own integration diagnostics |
-| Transfer ownership / delete company | Owner + fresh MFA | No | No | No | No | No | No |
+| Capability | Owner | Admin | Supervisor | Agent | Campaign Mgr | Analyst | Integration Dev | Operations |
+|---|---|---|---|---|---|---|---|---|
+| Read full conversation timeline | Tenant | Tenant | Scoped | Own | No | No | No | Tenant (read-only outside scope) |
+| Reply / private note | Tenant | Tenant | Scoped | Own | No | No | No | Scoped |
+| View unassigned / claim | Tenant | Tenant | Scoped | Scoped | No | No | No | Tenant view, Scoped claim |
+| Assign others / override routing | Tenant | Tenant | Scoped | No | No | No | No | Scoped |
+| Ask a colleague to take a conversation | Tenant | Tenant | Scoped | Own | No | No | No | Scoped |
+| Close / reopen / snooze | Tenant | Tenant | Scoped | Own | No | No | No | Scoped |
+| Edit contact business fields | Tenant | Tenant | Scoped | Own conversation's contact | Scoped campaign contacts | No | No | Scoped |
+| Merge / export contacts | Tenant | Tenant | Extra grant | No | Extra grant | No | No | No |
+| View consent / suppression | Tenant | Tenant | Scoped | Own conversation's contact | Scoped | Aggregates only | No | Tenant |
+| Record opt-out | Tenant | Tenant | Scoped | Own conversation's contact | Scoped | No | No | Scoped |
+| Draft / validate campaign | Tenant | Tenant | No | No | Scoped | No | No | Scoped (sending inbox) |
+| Approve campaign | Tenant (policy) | Tenant (policy) | No | No | No by default | No | No | Scoped (sending inbox) |
+| Launch / pause / cancel campaign | Tenant | Tenant | No | No | Scoped, approval required | No | No | Scoped (sending inbox), approval required |
+| Read campaign recipient details | Tenant | Tenant | No | No | Scoped | No | No | Tenant |
+| Reports | Tenant | Tenant | Scoped | Own workload | Campaign aggregates in scope | Tenant aggregates | Integration health | Tenant |
+| Manage channels / secrets | Tenant | Tenant | No | No | No | No | Delegated integration creds only | No |
+| Invite / change roles / teams | Tenant | Tenant except Owner | No | No | No | No | No | No |
+| Grant service/API scopes | Tenant | Tenant within ceiling | No | No | No | No | Previously delegated only | No |
+| Configure webhooks / CRM mappings | Tenant | Tenant | No | No | No | No | Delegated scope | No |
+| Security audit / retention settings | Tenant | Tenant except destructive ownership | No | No | No | No | Own integration diagnostics | No |
+| Transfer ownership / delete company | Owner + fresh MFA | No | No | No | No | No | No | No |
+
+**Operations** reads every inbox at `Tenant` and acts only on the inboxes granted to its membership: replying, claiming, assigning, closing, recording an opt-out and sending a campaign are `Scoped`, so another inbox is view-only. A campaign's scope is its sending inbox, checked on every draft, approval, launch and control.
 
 **Platform Super Admin** is outside this table. It manages installations, tenant lifecycle, placement, quotas and health through `/platform`. No membership, no chat read, no campaign send by default.
 

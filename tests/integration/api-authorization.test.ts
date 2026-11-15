@@ -154,7 +154,7 @@ describe('role boundary over HTTP', () => {
     await api.app.close();
   });
 
-  it('seeds all seven roles with the scope levels the domain matrix declares', async () => {
+  it('seeds all eight roles with the scope levels the domain matrix declares', async () => {
     const response = await api.server.inject({
       method: 'GET',
       url: `/api/v1/tenants/${api.tenantId}/roles`,
@@ -251,6 +251,7 @@ describe('role boundary over HTTP', () => {
     ['campaign_manager', 403, 403],
     ['analyst', 403, 403],
     ['integration_developer', 403, 403],
+    ['operations', 403, 403],
   ] as const)('gates roles and people correctly for %s', async (roleKey, roles, people) => {
     const email = `${roleKey}-probe@authz.test`;
     await addMember(api, email, roleKey, [{ type: 'tenant', id: null }]);
@@ -427,12 +428,12 @@ describe('tenant isolation under a reused pooled connection', () => {
       const mine = await withTenant(api.pool, api.tenantId, (client) =>
         client.query<{ count: string }>('SELECT count(*)::text AS count FROM roles'),
       );
-      expect(mine.rows[0]?.count).toBe('7');
+      expect(mine.rows[0]?.count).toBe('8');
 
       const theirs = await withTenant(api.pool, otherTenantId, (client) =>
         client.query<{ count: string }>('SELECT count(*)::text AS count FROM roles'),
       );
-      // No such tenant, so it must see zero roles — not the seven belonging
+      // No such tenant, so it must see zero roles — not the eight belonging
       // to the tenant whose context the connection last held.
       expect(theirs.rows[0]?.count).toBe('0');
 

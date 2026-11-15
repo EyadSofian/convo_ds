@@ -55,8 +55,8 @@ export function inboxAccessFields(state: AppState, prefix: string, initial: read
     h('p', { class: 'field__hint' }, [t(state,
       'اختيار إنبوكسات محددة يستبدل نطاق مساحة العمل والفرق. عضوية الفريق تبقى كما هي، وصلاحيات الدور تحدد قراءة المحادثات والرد عليها.',
       'Selected inboxes replace workspace and team access scopes. Team membership stays the same; the role controls reading and replying.')]),
-    notice('plain', 'shield', t(state, 'الأدمن والمالك يريان كل الإنبوكسات بصلاحيات دورهما. لتقييد مستخدم اختر دور موظف أو مشرف بنطاق محدود.',
-      'Admins and Owners have workspace-wide role permissions. Use an Agent or scoped Supervisor role to restrict inbox access.')),
+    notice('plain', 'shield', t(state, 'الأدمن والمالك يريان كل الإنبوكسات بصلاحيات دورهما. لتقييد مستخدم اختر دور موظف أو مشرف أو عمليات بنطاق محدود. دور العمليات يرى كل الإنبوكسات ويعمل فقط على الإنبوكسات المحددة له.',
+      'Admins and Owners have workspace-wide role permissions. Use an Agent, Supervisor or Operations role to restrict inbox access. Operations views every inbox and works only on its selected ones.')),
     state.formErrors[`${prefix}Access`] === undefined ? null : h('p', { class: 'field__error', role: 'alert' }, [state.formErrors[`${prefix}Access`]]),
   ]);
 }
@@ -67,7 +67,11 @@ export function readInboxAccess(state: AppState, prefix: string, initial: readon
   if (mode === 'existing') return initial;
   if (mode === 'tenant') return [{ type: 'tenant', id: null }];
   const role = rowsOf(state.live.roles).find((r) => r.id === roleId);
-  if (role?.key === 'admin' || role?.key === 'owner' || role?.grants.some((g) => g.permission_key === 'conversation.read' && g.scope_level === 'tenant')) return null;
+  // Selected inboxes only mean something to a role that holds a grant below
+  // `tenant`. Operations reads every inbox but acts on its own, so its inbox
+  // choice is real; a role that is company-wide in every grant would be shown
+  // a restriction that does not exist.
+  if (role?.key === 'admin' || role?.key === 'owner' || (role !== undefined && role.grants.length > 0 && role.grants.every((g) => g.scope_level === 'tenant'))) return null;
   if (mode !== 'selected') return [];
   const ids = selectedInboxIds(state, prefix, initial);
   if (state.live.memberInboxes.status !== 'ready' || ids.length === 0) return null;

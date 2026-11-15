@@ -54,6 +54,7 @@ function setup(permissions: readonly string[] = ['campaign.draft', 'campaign.app
     approve: vi.fn().mockResolvedValue(ok(approved)),
     launch: vi.fn().mockResolvedValue(ok(running)),
     list: vi.fn().mockResolvedValue(ok([running])),
+    senders: vi.fn().mockResolvedValue(ok([])),
     previewAudience: vi.fn().mockResolvedValue(ok(PREVIEW)),
     previewLeads: vi.fn().mockResolvedValue(ok({ totalRows: 2, validLeads: 1, newContacts: 1, existingContacts: 0,
       duplicateLeads: 1, invalidMobileNumbers: 0, missingRequiredFields: 0, readyToSend: 1, issues: [] })),

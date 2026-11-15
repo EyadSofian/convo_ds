@@ -6682,6 +6682,32 @@
         }
       }
     },
+    "/tenants/{tenantId}/campaigns/senders": {
+      "get": {
+        "operationId": "listCampaignSenders",
+        "summary": "List the inboxes this person may send a campaign from",
+        "description": "The channel connections on which the caller holds `campaign.draft`, filtered by the same inbox scope every campaign write is checked against. Channel-administrator fields (provider app id, credential fingerprint, origins, outbound URL) are blanked. Requires `campaign.draft`. A caller with no membership in this company receives 404, not 403.",
+        "security": [{ "SessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RequestId" },
+          { "$ref": "#/components/parameters/TenantId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "The inboxes a campaign may be sent from.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChannelConnectionListResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/tenants/{tenantId}/campaigns/audience-preview": {
       "post": {
         "operationId": "previewCampaignAudience",

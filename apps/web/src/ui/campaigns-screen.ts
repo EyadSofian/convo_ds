@@ -258,8 +258,13 @@ function campaignTable(state: AppState, campaigns: readonly Campaign[], selected
 
 /* ----------------------------------------------------------------- detail -- */
 
-function campaignDetail(state: AppState, live: LiveState, campaign: Campaign, can: Abilities): HTMLElement {
+function campaignDetail(state: AppState, live: LiveState, campaign: Campaign, granted: Abilities): HTMLElement {
   const connection = rowsOf(live.connections).find((entry) => entry.id === campaign.connection_id);
+  // Without `channel.manage` the list holds only the inboxes this person may
+  // send from, so a campaign on any other inbox is one they may watch and not
+  // touch. The server refuses the act either way; this only stops offering it.
+  const viewOnly = live.connections.status === 'ready' && connection === undefined && !hasPermission(live, 'channel.manage');
+  const can = viewOnly ? { ...granted, draft: false, approve: false, launch: false, control: false } : granted;
   const busyPrefix = (name: string): boolean => live.busy === `campaign-${name}:${campaign.id}`;
   return h('section', { class: 'panel campaign-detail', 'aria-labelledby': 'campaign-detail-title', 'data-campaign-detail': campaign.id }, [
     h('header', { class: 'panel__header' }, [
@@ -271,6 +276,7 @@ function campaignDetail(state: AppState, live: LiveState, campaign: Campaign, ca
             ? badge(t(state, 'معتمدة', 'Approved'), 'success', { icon: 'check' })
             : badge(t(state, 'غير معتمدة', 'Not approved'), 'warning'),
           badge(t(state, `النسخة ${String(campaign.revision)}`, `Revision ${String(campaign.revision)}`), 'neutral'),
+          viewOnly ? badge(t(state, 'قراءة فقط', 'Read-only'), 'neutral', { icon: 'eye' }) : null,
         ]),
       ]),
     ]),

@@ -44,6 +44,8 @@ export const ROUTING_GRANTS: Readonly<Record<string, RoutingAbility>> = {
   campaign_manager: { mayAssign: false, mayAsk: false },
   analyst: { mayAssign: false, mayAsk: false },
   integration_developer: { mayAssign: false, mayAsk: false },
+  // Assigns and hands off on its own inboxes; the server holds it to them.
+  operations: { mayAssign: true, mayAsk: true },
 };
 
 const LEGACY_ROUTING_PERMISSIONS: Readonly<Record<string, readonly string[]>> = Object.fromEntries(

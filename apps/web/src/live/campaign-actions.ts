@@ -3,6 +3,7 @@ import type { Campaign, CampaignLead, CampaignLeadOutcome, CampaignTestSend } fr
 import type { ChannelTestRecipient } from '../api/channels.js';
 import { pushToast } from '../state.js';
 import type { LiveContext } from './actions.js';
+import { hasPermission } from './ability.js';
 import { currentTenantId, failed, fromResult, LOADING, refetching } from './store.js';
 
 function t(context: LiveContext, ar: string, en: string): string {
@@ -18,7 +19,11 @@ export async function loadCampaignsScreen(context: LiveContext): Promise<void> {
   context.refresh();
   const [campaigns, connections] = await Promise.all([
     context.live.campaignsApi.list(tenantId),
-    context.live.channels.connections(tenantId),
+    // A channel administrator sees every connection; anybody else is offered
+    // only the inboxes they may send a campaign from.
+    hasPermission(context.live, 'channel.manage')
+      ? context.live.channels.connections(tenantId)
+      : context.live.campaignsApi.senders(tenantId),
   ]);
   const now = context.now();
   context.live.campaigns = fromResult(campaigns, now);
