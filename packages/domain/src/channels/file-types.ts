@@ -1,6 +1,7 @@
 import type { ChannelKind } from './kinds.js';
 
-export const MAX_CHAT_FILE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_CHAT_FILE_BYTES = 5 * 1024 * 1024;
+export const MAX_CHAT_FILE_BYTES = 16 * 1024 * 1024;
 export const CHAT_FILE_CONTENT_TYPE = 'application/vnd.convo.chat-file';
 
 const IMAGES = ['image/jpeg', 'image/png'] as const;
@@ -20,6 +21,10 @@ const VIDEO = ['video/mp4', 'video/3gpp'] as const;
 const IMAGE_TYPES = new Set<string>(IMAGES);
 const AUDIO_TYPES = new Set<string>(AUDIO);
 const VIDEO_TYPES = new Set<string>(VIDEO);
+
+export function chatFileSizeLimit(kind: string, mimeType: string): number {
+  return kind === 'whatsapp' && VIDEO_TYPES.has(mimeType) ? MAX_CHAT_FILE_BYTES : DEFAULT_CHAT_FILE_BYTES;
+}
 
 export function chatFileTypes(kind: string): readonly string[] {
   if (kind === 'whatsapp') return [...IMAGES, ...DOCUMENTS, ...AUDIO, ...VIDEO];

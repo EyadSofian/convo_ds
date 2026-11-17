@@ -276,7 +276,7 @@ describe('durable notification browser actions', () => {
     api.list.mockResolvedValue(page([{...record('new'),senderName:'Ahmed',messagePreview:'Private customer text'},record('old'),record('already-read','2026-09-09T09:30:00Z')]));
     await loadNotifications(context,true);await Promise.resolve();
     expect(showNotification).toHaveBeenCalledTimes(1);expect(showNotification.mock.calls[0]?.[1]).not.toHaveProperty('messagePreview');
-    expect(context.state.toasts.at(-1)?.text).toContain('Ahmed');
+    expect(context.state.toasts).toHaveLength(0);
     await loadNotifications(context,true);expect(showNotification).toHaveBeenCalledTimes(1);
     context.live.pushStatus='enabled';api.list.mockResolvedValue(page([record('push-owned')]));await loadNotifications(context,true);expect(showNotification).toHaveBeenCalledTimes(1);
     showNotification.mockRejectedValue(new Error('OS blocked'));await runNotificationAction(context,'notification-test','');expect(context.live.pushStatus).toBe('error');
@@ -317,7 +317,7 @@ describe('durable notification browser actions', () => {
     vi.mocked(window.focus).mockRestore();
   });
 
-  it('shows the first live alert, routes campaign notifications, and tolerates an OS failure', async () => {
+  it('routes the first campaign notification to device alerts and tolerates an OS failure', async () => {
     const { context, api } = setup();
     context.state.lang = 'en';
     window.localStorage.setItem('convo.notifications.enabled', 'true');
@@ -328,10 +328,57 @@ describe('durable notification browser actions', () => {
     vi.stubGlobal('Notification', { permission: 'granted' });
     api.list.mockResolvedValue(page([record('history'), { ...record('new'), targetType: 'campaign', senderName: 'Ahmed' }]));
     await loadNotifications(context, true, 'new');
-    expect(context.state.toasts.map(toast => toast.text)).toEqual(['New notification from Ahmed']);
+    expect(context.state.toasts).toHaveLength(0);
     expect(showNotification).toHaveBeenCalledWith('New DS Omnichannel activity', expect.objectContaining({
       data: { url: `/#/broadcasts?campaign=${TARGET}` },
     }));
+  });
+
+  it('shows one short alert for a burst and keeps all the notifications in the bell', async () => {
+    vi.useFakeTimers();
+    try {
+      const { context, api } = setup();
+      context.state.lang = 'en';
+      const burst = [{ ...record('third'), senderName: 'Ahmed' }, record('second'), record('first')];
+      api.list.mockResolvedValueOnce(page([record('before-opt-in')])).mockResolvedValueOnce(page(burst));
+      await loadNotifications(context, true, 'before-opt-in');
+      expect(context.state.toasts).toHaveLength(0);
+      await runNotificationAction(context, 'notification-toggle-popups', '');
+      expect(createState(new Date()).notificationPopups).toBe(true);
+      api.unreadCount.mockResolvedValue({ ok: true, data: { count: 3 } });
+      await loadNotifications(context, true);
+      expect(context.state.toasts.map((toast) => toast.text)).toEqual(['New notification from Ahmed']);
+      expect(context.live.notifications).toMatchObject({ status: 'ready', value: [...burst, record('before-opt-in')] });
+      expect(context.live.notificationUnreadCount).toMatchObject({ status: 'ready', value: 3 });
+      await vi.advanceTimersByTimeAsync(999);
+      expect(context.state.toasts).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(context.state.toasts).toEqual([]);
+      expect(api.markRead).not.toHaveBeenCalled();
+      context.state.lang = 'ar';
+      api.list.mockResolvedValueOnce(page([{ ...record('while-enabled'), senderName: 'أحمد' }, ...burst]));
+      await loadNotifications(context, true);
+      expect(context.state.toasts.map((toast) => toast.text)).toEqual(['إشعار جديد من أحمد']);
+      await runNotificationAction(context, 'notification-toggle-popups', '');
+      expect(context.state.toasts).toHaveLength(0);
+      expect(createState(new Date()).notificationPopups).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(context.state.toasts).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the toggle usable when the browser blocks storage', async () => {
+    const { context } = setup();
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw Error('blocked'); });
+    try {
+      await runNotificationAction(context, 'notification-toggle-popups', '');
+      expect(context.state.notificationPopups).toBe(true);
+      expect(createState(new Date()).notificationPopups).toBe(false);
+    } finally {
+      storage.mockRestore();
+    }
   });
 
   it('ignores a stale registration result and does not mark a hidden tab as seen', async () => {

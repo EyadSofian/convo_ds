@@ -398,6 +398,12 @@ function renderNotifications(state: AppState): HTMLElement {
       state.live.notificationNextCursor === null ? null : h('button', { type: 'button', role: 'menuitem', class: 'notification-menu__more',
         'data-act': 'notification-more', disabled: state.live.busy === 'notification-more' }, [t(state, 'تحميل المزيد', 'Load more')]),
       h('div', { class: 'notification-menu__push' }, [
+        h('button', { type: 'button', role: 'menuitemcheckbox', class: 'notification-menu__more',
+          'data-act': 'notification-toggle-popups', 'aria-checked': String(state.notificationPopups) }, [
+          t(state, 'التنبيهات المنبثقة داخل التطبيق', 'In-app notification popups'),
+          ' · ',
+          state.notificationPopups ? t(state, 'مفعّلة', 'On') : t(state, 'مقفولة', 'Off'),
+        ]),
         (state.live.pushStatus === 'enabled' || state.live.pushStatus === 'browser')
           ? h('div', {}, [h('span', {}, [state.live.pushStatus==='browser'?t(state,'تنبيهات المتصفح مفعّلة أثناء فتح التطبيق','Browser alerts enabled while the app is open'):t(state, 'تنبيهات هذا الجهاز مفعّلة', 'Device alerts enabled')]),h('button',{type:'button',role:'menuitem',class:'notification-menu__more','data-act':'notification-test'},[t(state,'اختبار الإشعارات','Test notification')])])
           : state.live.pushStatus === 'checking'
@@ -505,10 +511,10 @@ export function renderToasts(state: AppState): HTMLElement | null {
     'div',
     { class: 'toasts', role: 'status', 'aria-live': 'polite' },
     state.toasts.map((toast) =>
-      h('div', { class: `toast toast--${toast.tone}` }, [
+      h('div', { class: `toast toast--${toast.tone}${toast.transient ? ' toast--activity' : ''}` }, [
         icon(toast.tone === 'default' ? 'check' : 'alert', 16),
         h('span', { class: 'toast__text' }, [toast.text]),
-        h(
+        toast.transient ? null : h(
           'button',
           {
             type: 'button',

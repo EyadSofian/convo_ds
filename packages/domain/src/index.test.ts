@@ -90,6 +90,7 @@ describe('@convo/domain public surface', () => {
       "canonicalAuthority",
       "capabilitiesFor",
       "chatFileMessageType",
+      "chatFileSizeLimit",
       "chatFileTypes",
       "checkCursor",
       "checkHandoffAction",

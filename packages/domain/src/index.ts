@@ -346,6 +346,6 @@ export type {
   RenderedEmail,
 } from './email/messages.js';
 
-export { CHAT_FILE_CONTENT_TYPE, MAX_CHAT_FILE_BYTES, chatFileMessageType, chatFileTypes } from './channels/file-types.js';
+export { CHAT_FILE_CONTENT_TYPE, MAX_CHAT_FILE_BYTES, chatFileMessageType, chatFileSizeLimit, chatFileTypes } from './channels/file-types.js';
 export type { ChatFileMessageType } from './channels/file-types.js';
 export type { OutboundMedia } from './channels/port.js';

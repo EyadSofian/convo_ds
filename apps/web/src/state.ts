@@ -39,6 +39,7 @@ export interface Toast {
   readonly id: string;
   readonly text: string;
   readonly tone: 'default' | 'warning' | 'danger';
+  readonly transient?: boolean;
 }
 
 export interface DialogState {
@@ -130,6 +131,7 @@ export interface AppState {
    */
   clock: Date;
   toasts: Toast[];
+  notificationPopups: boolean;
   sequence: number;
   /**
    * Whether the browser reports no network. Presentation only: it changes the
@@ -160,6 +162,25 @@ export interface AppState {
  */
 /** The customer-panel sections open until somebody chooses otherwise. */
 export const DEFAULT_PANEL_SECTIONS: readonly string[] = ['profile', 'conversation-metadata', 'routing'];
+
+const NOTIFICATION_POPUPS_KEY = 'convo.notifications.popups';
+
+function readNotificationPopups(): boolean {
+  try {
+    return window.localStorage.getItem(NOTIFICATION_POPUPS_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setNotificationPopups(state: AppState, enabled: boolean): void {
+  state.notificationPopups = enabled;
+  try {
+    window.localStorage.setItem(NOTIFICATION_POPUPS_KEY, String(enabled));
+  } catch {
+    // Keep the preference for the current page if browser storage is unavailable.
+  }
+}
 
 export function createState(
   now: Date,
@@ -201,6 +222,7 @@ export function createState(
     analyticsView: 'campaigns',
     clock: now,
     toasts: [],
+    notificationPopups: readNotificationPopups(),
     sequence: 0,
     offline: false,
     roleDraft: null,

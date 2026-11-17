@@ -4496,6 +4496,14 @@ describe('recorded WhatsApp voice and phone search', () => {
     expect((await upload('attachment-bad-04', 'x.pdf', 'application/pdf', Buffer.alloc(0))).json().error.code).toBe('file_invalid');
     expect((await upload('attachment-bad-05', 'x.pdf', 'application/pdf', '{}', 'application/json')).json().error.code).toBe('file_invalid');
     expect((await upload('attachment-bad-06', 'x.pdf', 'application/pdf', Buffer.alloc(5 * 1024 * 1024 + 1))).statusCode).toBe(413);
+    const video = Buffer.alloc(16 * 1024 * 1024);
+    const largeVideo = await upload('attachment-video-01', 'offer.mp4', 'video/mp4', video);
+    expect(largeVideo.statusCode, largeVideo.body).toBe(202);
+    const videoId = largeVideo.json().data.id;
+    const storedVideo = await send(api, owner, 'GET', `/conversations/${conversationId}/attachments/${videoId}`);
+    expect(storedVideo.statusCode).toBe(200);
+    expect(storedVideo.rawPayload.byteLength).toBe(video.byteLength);
+    expect((await upload('attachment-video-02', 'large.mp4', 'video/mp4', Buffer.alloc(video.length + 1))).statusCode).toBe(413);
     const dispatcher = api.app.get(ChannelDispatcherService);
     await dispatcher.dispatch(api.tenantId);
     await dispatcher.dispatch(api.tenantId);

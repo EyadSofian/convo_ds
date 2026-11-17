@@ -118,6 +118,10 @@ describe('header', () => {
     expect(open.querySelector('.notification-row__preview')?.textContent).toBe('Controlled message preview');
     expect(open.querySelector('.notification-menu__more[data-act="notification-more"]')).not.toBeNull();
     expect(open.querySelector('[data-act="notification-enable-push"]')).not.toBeNull();
+    const popups = '[data-act="notification-toggle-popups"]';
+    expect(open.querySelector(popups)?.getAttribute('aria-checked')).toBe('false');
+    state.notificationPopups = true;
+    expect(bell().querySelector(popups)?.getAttribute('aria-checked')).toBe('true');
     for (const status of ['enabled', 'browser', 'checking', 'denied', 'unavailable', 'error'] as const) {
       state.live.pushStatus = status;
       expect(bell().querySelector('.notification-menu__push')?.textContent).toBeTruthy();
@@ -312,5 +316,9 @@ describe('toasts', () => {
     expect(toasts?.getAttribute('aria-live')).toBe('polite');
     expect(toasts?.querySelectorAll('.toast')).toHaveLength(2);
     expect(toasts?.querySelector('.toast--warning [data-act="toast"]')?.getAttribute('aria-label')).toBe('Dismiss');
+    state.toasts.push({ id: 'activity', text: 'New message', tone: 'default', transient: true });
+    const activity = renderToasts(state)?.querySelector('.toast--activity');
+    expect(activity?.textContent).toContain('New message');
+    expect(activity?.querySelector('button')).toBeNull();
   });
 });

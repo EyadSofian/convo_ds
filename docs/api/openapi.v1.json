@@ -2955,7 +2955,7 @@
       "post": {
         "operationId": "queueChatAttachment",
         "summary": "Upload an attachment to a conversation",
-        "description": "Queues one supported file up to 5 MiB, as binary bytes. Requires the same permissions as a conversation reply. Reuse the Idempotency-Key header for retry.",
+        "description": "Queues one supported file as binary bytes, up to 16 MiB for WhatsApp video or 5 MiB for other attachments. Requires the same permissions as a conversation reply. Reuse the Idempotency-Key header for retry.",
         "security": [
           {
             "SessionCookie": []
