@@ -355,9 +355,10 @@ describe('durable notification browser actions', () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(context.state.toasts).toEqual([]);
       expect(api.markRead).not.toHaveBeenCalled();
-      api.list.mockResolvedValueOnce(page([record('while-enabled'), ...burst]));
+      context.state.lang = 'ar';
+      api.list.mockResolvedValueOnce(page([{ ...record('while-enabled'), senderName: 'أحمد' }, ...burst]));
       await loadNotifications(context, true);
-      expect(context.state.toasts).toHaveLength(1);
+      expect(context.state.toasts.map((toast) => toast.text)).toEqual(['إشعار جديد من أحمد']);
       await runNotificationAction(context, 'notification-toggle-popups', '');
       expect(context.state.toasts).toHaveLength(0);
       expect(createState(new Date()).notificationPopups).toBe(false);
