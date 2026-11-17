@@ -12,6 +12,7 @@ import type { ApiAdapters } from '../../apps/api/src/app.js';
 import { parseApiConfig } from '../../apps/api/src/config.js';
 import { ChannelDispatcherService } from '../../apps/api/src/channels/dispatcher.service.js';
 import { ProfileLookupError } from '../../apps/api/src/channels/channel-transport.js';
+import { oggOpusSamples } from '../../apps/api/src/channels/voice-conversion.js';
 import { ChannelNormalizationService } from '../../apps/api/src/channels/normalization.service.js';
 import { ConversationService } from '../../apps/api/src/conversations/conversation.service.js';
 import type { InboundMediaResult, MetaPageSync, ProviderTemplate, TemplateFetchResult } from '../../apps/api/src/channels/channel-transport.js';
@@ -2278,6 +2279,52 @@ describe('the outbound path', () => {
     expect(message['delivery_anomaly']).toBe('delivered_after_read');
   });
 
+  it('folds every receipt of one send that arrived in the same normalisation pass', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'ثلاث إيصالات', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = accepted('wamid.batch-1');
+    await dispatcher.dispatch(api.tenantId);
+
+    // Exactly how a broadcast behaves: the provider's three receipts land in one
+    // burst and one normalisation pass stamps them all with the same
+    // `observed_at`, because that is the transaction's clock.
+    await deliver(api, statusDelivery('wamid.batch-1', 'sent', '1789000030', to));
+    await deliver(api, statusDelivery('wamid.batch-1', 'delivered', '1789000031', to));
+    await deliver(api, statusDelivery('wamid.batch-1', 'read', '1789000032', to));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    const message = (read.json() as { data: Record<string, unknown> }).data;
+    // The highest receipt wins whatever order the three came back in, and the
+    // three agreed with each other, so there is nothing anomalous to record.
+    expect(message['delivery_state']).toBe('read');
+    expect(message['delivery_anomaly']).toBeNull();
+  });
+
+  it('keeps receipts a bounded sweep could not reach in one pass', async () => {
+    const to = peer();
+    await openWindow(to);
+    const response = await queue({ text: 'مسح محدود', peerIdentity: to });
+    const id = (response.json() as { data: { id: string } }).data.id;
+    answer = accepted('wamid.bounded-1');
+    await dispatcher.dispatch(api.tenantId);
+
+    await deliver(api, statusDelivery('wamid.bounded-1', 'sent', '1789000040', to));
+    await deliver(api, statusDelivery('wamid.bounded-1', 'delivered', '1789000041', to));
+    await normalizer.drain(api.tenantId);
+
+    // A sweep that can only take one row must leave the other one to the next
+    // sweep. Losing it is how a delivered broadcast reports as merely sent.
+    await dispatcher.reconcileReceipts(api.tenantId, 1);
+    await dispatcher.reconcileReceipts(api.tenantId, 50);
+
+    const read = await send(api, owner, 'GET', `/outbound-messages/${id}`);
+    expect((read.json() as { data: Record<string, unknown> }).data['delivery_state']).toBe('delivered');
+  });
+
   it('runs the receipt fold twice without double counting', async () => {
     const before = await dispatcher.reconcileReceipts(api.tenantId);
     const again = await dispatcher.reconcileReceipts(api.tenantId);
@@ -4462,6 +4509,16 @@ describe('recorded WhatsApp voice and phone search', () => {
     expect((await send(api, owner, 'GET', `/conversations/${randomUUID()}/voice-messages/${id}/audio`)).statusCode).toBe(404);
     expect((await send(api, owner, 'GET', `${path}/bad/audio`)).statusCode).toBe(404);
     expect((await api.server.inject({ method: 'GET', url: `/api/v1/tenants/${api.tenantId}${path}/${id}/audio` })).statusCode).toBe(401);
+  });
+  it('turns a real Chrome recording into an Ogg Opus file Android WhatsApp will play', async () => {
+    // Chrome's WebM timestamps jitter by a millisecond or two. Converted as they
+    // were, the granules trailed the audio and the note failed on Android.
+    const recording = readFileSync(new URL('../../apps/api/src/channels/__fixtures__/chrome-recording.webm', import.meta.url));
+    const path = `/conversations/${conversationId}/voice-messages`;
+    const result = await send(api, owner, 'POST', path, { audio: recording.toString('base64'), clientMessageId: 'voice-message-chrome' });
+    expect(result.statusCode, result.body).toBe(202);
+    const audio = await send(api, owner, 'GET', `${path}/${result.json().data.id}/audio`);
+    expect(Number(oggOpusSamples(audio.rawPayload)) / 48000).toBeCloseTo(3.07, 1);
   });
   it('uploads and downloads documents and images through the existing conversation authorization', async () => {
     const path = `/api/v1/tenants/${api.tenantId}/conversations/${conversationId}/attachments`;

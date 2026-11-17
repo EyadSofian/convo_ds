@@ -489,6 +489,24 @@ describe('campaign API', () => {
       await settle();
       expect((await repliedIn(first)).find((row) => row.external_id === delivered)).toMatchObject({ state: 'read', seen: true });
 
+      // A broadcast's three receipts arrive in one burst and are normalised
+      // together, so they share an `observed_at`. Every one of them still has
+      // to count, or a delivered-and-read broadcast reports as merely sent.
+      await withTenant(api.pool, api.tenantId, async (sql) => {
+        const contact = await sql.query<{ id: string }>(
+          `INSERT INTO contacts (tenant_id,display_name,search_name) VALUES ($1,'Student 5','student 5') RETURNING id::text`,
+          [api.tenantId]);
+        await sql.query(`INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id) VALUES ($1,$2,'whatsapp',$3,'201000000004')`,
+          [api.tenantId, contact.rows[0]!.id, api.connectionId]);
+      });
+      const burst = await launch('burst', 'student 5', 1);
+      const burstMessage = await providerIdOf('burst', '201000000004');
+      await journal('delivery_status', '201000000004', burstMessage, later(300), { detail: { state: 'sent' } });
+      await journal('delivery_status', '201000000004', burstMessage, later(301), { detail: { state: 'delivered' } });
+      await journal('read_status', '201000000004', burstMessage, later(302));
+      await settle();
+      expect((await reportFor(burst)).milestones).toMatchObject({ accepted: 1, delivered: 1, read: 1 });
+
       // The export says the same thing, per recipient.
       const exported = await withTenant(api.pool, api.tenantId, (sql) => sql.query<{ replied_milestone: boolean; external_id: string }>(
         `SELECT r.replied_milestone,i.external_id FROM campaign_report_rows r
