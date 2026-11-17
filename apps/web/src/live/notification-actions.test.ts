@@ -276,7 +276,7 @@ describe('durable notification browser actions', () => {
     api.list.mockResolvedValue(page([{...record('new'),senderName:'Ahmed',messagePreview:'Private customer text'},record('old'),record('already-read','2026-09-09T09:30:00Z')]));
     await loadNotifications(context,true);await Promise.resolve();
     expect(showNotification).toHaveBeenCalledTimes(1);expect(showNotification.mock.calls[0]?.[1]).not.toHaveProperty('messagePreview');
-    expect(context.state.toasts.at(-1)?.text).toContain('Ahmed');
+    expect(context.state.toasts).toHaveLength(0);
     await loadNotifications(context,true);expect(showNotification).toHaveBeenCalledTimes(1);
     context.live.pushStatus='enabled';api.list.mockResolvedValue(page([record('push-owned')]));await loadNotifications(context,true);expect(showNotification).toHaveBeenCalledTimes(1);
     showNotification.mockRejectedValue(new Error('OS blocked'));await runNotificationAction(context,'notification-test','');expect(context.live.pushStatus).toBe('error');
@@ -317,7 +317,7 @@ describe('durable notification browser actions', () => {
     vi.mocked(window.focus).mockRestore();
   });
 
-  it('shows the first live alert, routes campaign notifications, and tolerates an OS failure', async () => {
+  it('routes the first campaign notification to device alerts and tolerates an OS failure', async () => {
     const { context, api } = setup();
     context.state.lang = 'en';
     window.localStorage.setItem('convo.notifications.enabled', 'true');
@@ -328,7 +328,7 @@ describe('durable notification browser actions', () => {
     vi.stubGlobal('Notification', { permission: 'granted' });
     api.list.mockResolvedValue(page([record('history'), { ...record('new'), targetType: 'campaign', senderName: 'Ahmed' }]));
     await loadNotifications(context, true, 'new');
-    expect(context.state.toasts.map(toast => toast.text)).toEqual(['New notification from Ahmed']);
+    expect(context.state.toasts).toHaveLength(0);
     expect(showNotification).toHaveBeenCalledWith('New DS Omnichannel activity', expect.objectContaining({
       data: { url: `/#/broadcasts?campaign=${TARGET}` },
     }));
@@ -339,18 +339,27 @@ describe('durable notification browser actions', () => {
     try {
       const { context, api } = setup();
       const burst = [record('third'), record('second'), record('first')];
-      api.list.mockResolvedValueOnce(page([])).mockResolvedValueOnce(page(burst));
+      api.list.mockResolvedValueOnce(page([record('before-opt-in')])).mockResolvedValueOnce(page(burst));
+      await loadNotifications(context, true, 'before-opt-in');
+      expect(context.state.toasts).toHaveLength(0);
+      await runNotificationAction(context, 'notification-toggle-popups', '');
+      expect(createState(new Date()).notificationPopups).toBe(true);
       api.unreadCount.mockResolvedValue({ ok: true, data: { count: 3 } });
-      await loadNotifications(context);
       await loadNotifications(context, true);
       expect(context.state.toasts).toHaveLength(1);
-      expect(context.live.notifications).toMatchObject({ status: 'ready', value: burst });
+      expect(context.live.notifications).toMatchObject({ status: 'ready', value: [...burst, record('before-opt-in')] });
       expect(context.live.notificationUnreadCount).toMatchObject({ status: 'ready', value: 3 });
       await vi.advanceTimersByTimeAsync(999);
       expect(context.state.toasts).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(1);
       expect(context.state.toasts).toEqual([]);
       expect(api.markRead).not.toHaveBeenCalled();
+      api.list.mockResolvedValueOnce(page([record('while-enabled'), ...burst]));
+      await loadNotifications(context, true);
+      expect(context.state.toasts).toHaveLength(1);
+      await runNotificationAction(context, 'notification-toggle-popups', '');
+      expect(context.state.toasts).toHaveLength(0);
+      expect(createState(new Date()).notificationPopups).toBe(false);
     } finally {
       vi.useRealTimers();
     }

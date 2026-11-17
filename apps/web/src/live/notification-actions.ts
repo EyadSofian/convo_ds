@@ -2,7 +2,7 @@ import type { Notification } from '../api/notifications.js';
 import type { LiveContext } from './actions.js';
 import { openConversation } from './inbox-actions.js';
 import { currentTenantId, failed, LOADING, ready } from './store.js';
-import { nextId, routeParamsWithLanguage } from '../state.js';
+import { nextId, routeParamsWithLanguage, setNotificationPopups } from '../state.js';
 
 const DEVICE_KEY = 'convo.push.deviceId';
 const ALERTS_KEY = 'convo.notifications.enabled';
@@ -84,10 +84,12 @@ function announceNewNotifications(context: LiveContext, latest: readonly Notific
   if (known === undefined && alertId === undefined) return;
   for (const entry of latest) {
     if ((known?.has(entry.id) ?? entry.id !== alertId) || entry.readAt !== null) continue;
-    const ar = context.state.lang === 'ar';
-    const title = ar ? 'إشعار جديد' : 'New notification';
-    const sender = entry.senderName ? (ar ? ` من ${entry.senderName}` : ` from ${entry.senderName}`) : '';
-    showActivityToast(context, title + sender);
+    if (context.state.notificationPopups) {
+      const ar = context.state.lang === 'ar';
+      const title = ar ? 'إشعار جديد' : 'New notification';
+      const sender = entry.senderName ? (ar ? ` من ${entry.senderName}` : ` from ${entry.senderName}`) : '';
+      showActivityToast(context, title + sender);
+    }
     // Server push owns background alerts. The fallback covers an open app.
     if (alertsEnabled() && context.live.pushStatus !== 'enabled') {
       void browserAlert(context, entry).catch(() => undefined);
@@ -300,6 +302,15 @@ function targetOf(notification: Notification): { screen: 'inbox' | 'broadcasts' 
 }
 
 export function runNotificationAction(context: LiveContext, name: string, arg: string): Promise<void> | null {
+  if (name === 'notification-toggle-popups') {
+    const { state } = context;
+    setNotificationPopups(state, !state.notificationPopups);
+    if (!state.notificationPopups) {
+      state.toasts = state.toasts.filter((toast) => !toast.transient);
+    }
+    context.refresh();
+    return Promise.resolve();
+  }
   if (name === 'notification-enable-push') return enableBrowserPush(context);
   if (name === 'notification-test')return browserAlert(context,null).catch(()=>{context.live.pushStatus='error';context.refresh();});
   if (name === 'notification-toggle') {
