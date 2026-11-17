@@ -338,7 +338,8 @@ describe('durable notification browser actions', () => {
     vi.useFakeTimers();
     try {
       const { context, api } = setup();
-      const burst = [record('third'), record('second'), record('first')];
+      context.state.lang = 'en';
+      const burst = [{ ...record('third'), senderName: 'Ahmed' }, record('second'), record('first')];
       api.list.mockResolvedValueOnce(page([record('before-opt-in')])).mockResolvedValueOnce(page(burst));
       await loadNotifications(context, true, 'before-opt-in');
       expect(context.state.toasts).toHaveLength(0);
@@ -346,7 +347,7 @@ describe('durable notification browser actions', () => {
       expect(createState(new Date()).notificationPopups).toBe(true);
       api.unreadCount.mockResolvedValue({ ok: true, data: { count: 3 } });
       await loadNotifications(context, true);
-      expect(context.state.toasts).toHaveLength(1);
+      expect(context.state.toasts.map((toast) => toast.text)).toEqual(['New notification from Ahmed']);
       expect(context.live.notifications).toMatchObject({ status: 'ready', value: [...burst, record('before-opt-in')] });
       expect(context.live.notificationUnreadCount).toMatchObject({ status: 'ready', value: 3 });
       await vi.advanceTimersByTimeAsync(999);
@@ -360,8 +361,22 @@ describe('durable notification browser actions', () => {
       await runNotificationAction(context, 'notification-toggle-popups', '');
       expect(context.state.toasts).toHaveLength(0);
       expect(createState(new Date()).notificationPopups).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(context.state.toasts).toHaveLength(0);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('keeps the toggle usable when the browser blocks storage', async () => {
+    const { context } = setup();
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw Error('blocked'); });
+    try {
+      await runNotificationAction(context, 'notification-toggle-popups', '');
+      expect(context.state.notificationPopups).toBe(true);
+      expect(createState(new Date()).notificationPopups).toBe(false);
+    } finally {
+      storage.mockRestore();
     }
   });
 
