@@ -2168,9 +2168,10 @@ describe('delivery receipts on the feed', () => {
     await deliver(api, statusDelivery(INBOX_A, providerIdFor(peer), 'read', String(readAt), peer));
     await normalizer.drain(api.tenantId);
     await dispatcher.reconcileReceipts(api.tenantId);
+    // Stamped after the read: the provider contradicting itself.
     await deliver(
       api,
-      statusDelivery(INBOX_A, providerIdFor(peer), 'delivered', String(readAt - 1), peer),
+      statusDelivery(INBOX_A, providerIdFor(peer), 'delivered', String(readAt + 1), peer),
     );
     await normalizer.drain(api.tenantId);
     await dispatcher.reconcileReceipts(api.tenantId);
@@ -2181,6 +2182,37 @@ describe('delivery receipts on the feed', () => {
     // anomaly, and the state stayed where it was.
     expect(receipts.map((event) => event.payload['deliveryState'])).toEqual(['read', 'read']);
     expect(receipts.at(-1)?.payload['anomaly']).toBe('delivered_after_read');
+  });
+
+  it('says nothing when a delivered the provider stamped before the read arrives late', async () => {
+    const peer = '15557000032';
+    await customerWrites(INBOX_A, peer, 'متأخر بس مش متناقض', 'wamid.rt-32');
+    const queued = await send(api, owner, 'POST', `/channels/${inboxA}/messages`, {
+      peerIdentity: peer,
+      messageType: 'text',
+      text: 'رد ثالث',
+      clientMessageId: 'realtime-receipt-3',
+    });
+    expect(queued.statusCode).toBe(202);
+    await dispatcher.dispatch(api.tenantId);
+    const before = await feed(owner);
+
+    const readAt = providerClock + 41;
+    await deliver(api, statusDelivery(INBOX_A, providerIdFor(peer), 'read', String(readAt), peer));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+    // An older fact arriving late, which is what a batched burst looks like.
+    // Nothing disagrees, so neither the state nor the screens move.
+    await deliver(
+      api,
+      statusDelivery(INBOX_A, providerIdFor(peer), 'delivered', String(readAt - 1), peer),
+    );
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+
+    const page = await feed(owner, before.cursor);
+    const receipts = page.events.filter((event) => event.type === 'message.delivery');
+    expect(receipts.map((event) => [event.payload['deliveryState'], event.payload['anomaly']])).toEqual([['read', null]]);
   });
 });
 

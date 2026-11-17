@@ -13,6 +13,8 @@ import { ConversationService } from '../conversations/conversation.service.js';
 import type { ChannelTransportPort } from './channel-transport.js';
 import { ChannelCredentialService } from './credential.service.js';
 import { capabilitiesOf } from './outbound.service.js';
+import { foldReceipts } from './receipt-fold.js';
+import type { ReceiptRow } from './receipt-fold.js';
 import { latestConversationInbound } from '../conversations/event-boundary.js';
 import { statusOf } from './channel.service.js';
 
@@ -622,6 +624,18 @@ export class ChannelDispatcherService {
    * send response is not lost — it is simply an event whose message we cannot
    * identify yet, and this pass picks it up once the provider id is known
    * (DEL-17).
+   *
+   * Two rules keep a burst of receipts from losing one another, and a broadcast
+   * is nothing but bursts:
+   *
+   * - **The cursor is a pair, not an instant.** Receipts normalised together
+   *   share an `observed_at`, so a cursor on the timestamp alone cannot say
+   *   which of them it had reached. `(observed_at, id)` can, because a primary
+   *   key breaks every tie (0066).
+   * - **A message's new receipts fold into each other, not each into the row.**
+   *   Folding each one against the state read at the top of the sweep makes the
+   *   last row written win rather than the highest, which is how a message that
+   *   was delivered and read reported as merely sent.
    */
   async reconcileReceipts(tenantId: string, limit = 200): Promise<number> {
     // Telling the screens is not what makes a receipt true. One that cannot be told
@@ -630,20 +644,8 @@ export class ChannelDispatcherService {
     let notifyFailure: unknown = null;
     const handled = await withTenant(this.pool, tenantId, async (client) => {
       const sql = asExecutor(client);
-      const receipts = await sql.query<{
-        provider_message_id: string;
-        incoming_state: DeliveryState;
-        failure_code: string | null;
-        occurred_at: Date;
-        message_id: string;
-        delivery_state: string | null;
-        delivery_state_at: Date | null;
-        delivery_anomaly: string | null;
-        connection_id: string;
-        peer_identity: string;
-        observed_at: Date;
-      }>(
-        `SELECT e.provider_message_id,
+      const receipts = await sql.query<ReceiptRow>(
+        `SELECT e.id::text AS receipt_id, e.provider_message_id,
                 ${RECEIPT_STATE} AS incoming_state,
                 e.detail->'errors'->0->>'code' AS failure_code,
                 e.occurred_at, e.observed_at,
@@ -655,44 +657,36 @@ export class ChannelDispatcherService {
             -- Each receipt is folded once. Re-folding one that has already
             -- been applied is how a correctly-ordered pair turns into a
             -- fabricated delivered_after_read on the second sweep (0015).
-            AND e.observed_at > coalesce(m.receipts_folded_through, '-infinity'::timestamptz)
-          ORDER BY e.observed_at
+            AND (e.observed_at, e.id) >
+                (coalesce(m.receipts_folded_through, '-infinity'::timestamptz),
+                 coalesce(m.receipts_folded_through_event, '00000000-0000-0000-0000-000000000000'::uuid))
+          ORDER BY e.observed_at, e.id
           LIMIT $1`,
         [limit],
       );
 
       let folded = 0;
-      // Highest observation folded per message, so a message with two new
-      // receipts in one sweep advances past both rather than only the first.
-      const watermark = new Map<string, Date>();
-      for (const receipt of receipts.rows) {
-        const seen = watermark.get(receipt.message_id);
-        if (seen === undefined || receipt.observed_at > seen) {
-          watermark.set(receipt.message_id, receipt.observed_at);
-        }
-        const next = foldDelivery(
-          receipt.delivery_state === null || receipt.delivery_state_at === null
-            ? null
-            : {
-                state: receipt.delivery_state as DeliveryState,
-                at: receipt.delivery_state_at,
-                anomaly: receipt.delivery_anomaly,
-              },
-          { state: receipt.incoming_state, at: receipt.occurred_at },
-        );
+      for (const message of foldReceipts(receipts.rows)) {
         // Before the check below: a receipt held at send time has already moved the
         // message but not its broadcast recipient.
-        await settleRecipient(sql, receipt.message_id, next.state, receipt.failure_code);
-        const changed =
-          next.state !== receipt.delivery_state || next.anomaly !== receipt.delivery_anomaly;
-        if (!changed) {
+        await settleRecipient(sql, message.messageId, message.fold.state, message.failureCode);
+        // Advanced even when nothing changed: the receipts have still been
+        // considered, and considering them again can only produce the false
+        // anomaly this cursor exists to prevent.
+        await sql.query(
+          `UPDATE outbound_messages
+              SET receipts_folded_through = $2, receipts_folded_through_event = $3
+            WHERE id = $1`,
+          [message.messageId, message.cursorAt, message.cursorId],
+        );
+        if (!message.changed) {
           continue;
         }
         await sql.query(
           `UPDATE outbound_messages
               SET delivery_state = $2, delivery_state_at = $3, delivery_anomaly = $4
             WHERE id = $1`,
-          [receipt.message_id, next.state, next.at, next.anomaly],
+          [message.messageId, message.fold.state, message.fold.at, message.fold.anomaly],
         );
         folded += 1;
         // The screen showing this conversation learns the tick moved, in the
@@ -702,32 +696,21 @@ export class ChannelDispatcherService {
           const conversation = await this.conversations.ensure(
             sql,
             tenantId,
-            receipt.connection_id,
-            receipt.peer_identity,
+            message.connectionId,
+            message.peerIdentity,
             'outbound_contact',
           );
           await this.conversations.noteDelivery(sql, tenantId, conversation, {
-            messageId: receipt.message_id,
-            state: next.state,
-            at: next.at,
-            anomaly: next.anomaly,
+            messageId: message.messageId,
+            state: message.fold.state,
+            at: message.fold.at,
+            anomaly: message.fold.anomaly,
           });
           await sql.query('RELEASE SAVEPOINT receipt_notice');
         } catch (error) {
           await sql.query('ROLLBACK TO SAVEPOINT receipt_notice');
           notifyFailure = error;
         }
-      }
-      for (const [messageId, observedAt] of watermark) {
-        // Advanced even for a receipt that changed nothing: it has still been
-        // considered, and considering it again can only produce the false
-        // anomaly this watermark exists to prevent.
-        await sql.query(
-          `UPDATE outbound_messages
-              SET receipts_folded_through = greatest(coalesce(receipts_folded_through, $2), $2)
-            WHERE id = $1`,
-          [messageId, observedAt],
-        );
       }
       return folded;
     });
@@ -950,7 +933,9 @@ async function reconcileHeldReceipts(
     `SELECT ${RECEIPT_STATE} AS incoming_state, e.occurred_at
        FROM inbound_events e
       WHERE e.provider_message_id = $1 AND e.kind IN ('delivery_status', 'read_status')
-      ORDER BY e.occurred_at`,
+      -- The provider's order, with our own as the tie-break, so this and the
+      -- sweep that may see the same receipts again reach the same answer.
+      ORDER BY e.occurred_at, e.observed_at, e.id`,
     [providerMessageId],
   );
   let fold: DeliveryFold | null = null;

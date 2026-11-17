@@ -154,6 +154,11 @@ export interface DeliveryFold {
  * receipt that would have is recorded as an anomaly rather than discarded. The
  * timeline stays at `read`; the fact that `delivered` arrived afterwards is
  * kept, because it is evidence about the provider, not noise (EVT-04, DEL-16).
+ *
+ * "Afterwards" is the provider's clock, not ours. A lower receipt the provider
+ * stamped earlier is an older fact arriving late — which is what every batched
+ * burst of receipts looks like — and recording that as a conflict buried the
+ * real ones among hundreds of invented ones.
  */
 export function foldDelivery(
   current: DeliveryFold | null,
@@ -168,6 +173,13 @@ export function foldDelivery(
   if (incoming.state === current.state) {
     // A redelivered receipt for a state we already hold. Not an anomaly: the
     // provider is allowed to say the same thing twice.
+    return current;
+  }
+  if (incoming.at <= current.at) {
+    // A lower receipt the provider stamped *before* the one we hold. Nothing
+    // disagrees: the provider said sent, then delivered, and we simply read the
+    // two in the other order. Calling that an anomaly reported a conflict for
+    // every broadcast whose receipts arrived in one burst.
     return current;
   }
   return {
