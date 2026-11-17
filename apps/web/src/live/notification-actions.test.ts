@@ -334,6 +334,28 @@ describe('durable notification browser actions', () => {
     }));
   });
 
+  it('shows one short alert for a burst and keeps all the notifications in the bell', async () => {
+    vi.useFakeTimers();
+    try {
+      const { context, api } = setup();
+      const burst = [record('third'), record('second'), record('first')];
+      api.list.mockResolvedValueOnce(page([])).mockResolvedValueOnce(page(burst));
+      api.unreadCount.mockResolvedValue({ ok: true, data: { count: 3 } });
+      await loadNotifications(context);
+      await loadNotifications(context, true);
+      expect(context.state.toasts).toHaveLength(1);
+      expect(context.live.notifications).toMatchObject({ status: 'ready', value: burst });
+      expect(context.live.notificationUnreadCount).toMatchObject({ status: 'ready', value: 3 });
+      await vi.advanceTimersByTimeAsync(999);
+      expect(context.state.toasts).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(context.state.toasts).toEqual([]);
+      expect(api.markRead).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('ignores a stale registration result and does not mark a hidden tab as seen', async () => {
     const { context, api } = setup();
     const markRead = vi.fn();

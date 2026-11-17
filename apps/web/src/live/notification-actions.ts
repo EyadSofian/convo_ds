@@ -2,7 +2,7 @@ import type { Notification } from '../api/notifications.js';
 import type { LiveContext } from './actions.js';
 import { openConversation } from './inbox-actions.js';
 import { currentTenantId, failed, LOADING, ready } from './store.js';
-import { pushToast, routeParamsWithLanguage } from '../state.js';
+import { nextId, routeParamsWithLanguage } from '../state.js';
 
 const DEVICE_KEY = 'convo.push.deviceId';
 const ALERTS_KEY = 'convo.notifications.enabled';
@@ -87,13 +87,25 @@ function announceNewNotifications(context: LiveContext, latest: readonly Notific
     const ar = context.state.lang === 'ar';
     const title = ar ? 'إشعار جديد' : 'New notification';
     const sender = entry.senderName ? (ar ? ` من ${entry.senderName}` : ` from ${entry.senderName}`) : '';
-    pushToast(context.state, title + sender);
+    showActivityToast(context, title + sender);
     // Server push owns background alerts. The fallback covers an open app.
     if (alertsEnabled() && context.live.pushStatus !== 'enabled') {
       void browserAlert(context, entry).catch(() => undefined);
     }
   }
 }
+function showActivityToast(context: LiveContext, text: string): void {
+  const { state } = context;
+  if (state.toasts.some((toast) => toast.transient)) return;
+  const id = nextId(state, 'toast');
+  state.toasts = [...state.toasts, { id, text, tone: 'default', transient: true }];
+  setTimeout(() => {
+    if (!state.toasts.some((toast) => toast.id === id)) return;
+    state.toasts = state.toasts.filter((toast) => toast.id !== id);
+    context.refresh();
+  }, 1_000);
+}
+
 function syncAppBadge(count: number): void {
   if (typeof navigator === 'undefined') return;
   const app = navigator as Navigator & { setAppBadge?: (value: number) => Promise<void>; clearAppBadge?: () => Promise<void> };

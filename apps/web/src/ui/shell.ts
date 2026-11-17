@@ -505,10 +505,10 @@ export function renderToasts(state: AppState): HTMLElement | null {
     'div',
     { class: 'toasts', role: 'status', 'aria-live': 'polite' },
     state.toasts.map((toast) =>
-      h('div', { class: `toast toast--${toast.tone}` }, [
+      h('div', { class: `toast toast--${toast.tone}${toast.transient ? ' toast--activity' : ''}` }, [
         icon(toast.tone === 'default' ? 'check' : 'alert', 16),
         h('span', { class: 'toast__text' }, [toast.text]),
-        h(
+        toast.transient ? null : h(
           'button',
           {
             type: 'button',

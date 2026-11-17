@@ -5,7 +5,7 @@ import type { Child } from '../dom.js';
 import { h } from '../dom.js';
 import { clockTime, dayLabel, initials, relativeTime } from '../format.js';
 import { icon } from '../icons.js';
-import { chatFileTypes, MAX_CHAT_FILE_BYTES, INBOX_FILTER_CATALOGUE, type InboxFilter, type InboxFilterDefinition } from '@convo/domain';
+import { chatFileTypes, chatFileSizeLimit, INBOX_FILTER_CATALOGUE, type InboxFilter, type InboxFilterDefinition } from '@convo/domain';
 import { hasPermission, routingAbility } from '../live/ability.js';
 import { toggled } from '../live/audience.js';
 import { activeFilterCount, simpleFilterValue } from '../live/inbox-query.js';
@@ -1211,7 +1211,7 @@ function replyComposer(state: AppState, live: LiveState, conversation: Conversat
   }
   const attachment = live.attachmentDraft;
   if (attachment !== null && attachment.conversationId === conversation.id) {
-    const canSend = attachment.file.size > 0 && attachment.file.size <= MAX_CHAT_FILE_BYTES &&
+    const canSend = attachment.file.size > 0 && attachment.file.size <= chatFileSizeLimit(conversation.channel, attachment.file.type) &&
       chatFileTypes(conversation.channel).includes(attachment.file.type);
     return h('div', { class: 'composer__box composer__voice' }, [
       h('div', { class: 'composer__voice-status', dir: 'auto' }, [icon('paperclip', 18), attachment.file.name]),

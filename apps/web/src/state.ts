@@ -39,6 +39,7 @@ export interface Toast {
   readonly id: string;
   readonly text: string;
   readonly tone: 'default' | 'warning' | 'danger';
+  readonly transient?: boolean;
 }
 
 export interface DialogState {

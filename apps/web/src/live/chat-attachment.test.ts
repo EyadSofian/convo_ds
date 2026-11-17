@@ -51,6 +51,17 @@ describe('attachment drafts', () => {
     expect(context.live.conversationsApi.replyFile).not.toHaveBeenCalled();
   });
 
+  it('accepts a WhatsApp video over 5 MB and explains the limit for larger videos', async () => {
+    const context = setup();
+    const file = new File([new Uint8Array(6 * 1024 * 1024)], 'offer.mp4', { type: 'video/mp4' });
+    selectAttachment(context, file);
+    expect(context.live.attachmentDraft?.error).toBeNull();
+    expect(await sendAttachment(context)).toBe(true);
+    selectAttachment(context, new File([new Uint8Array(16 * 1024 * 1024 + 1)], 'large.mp4', { type: 'video/mp4' }));
+    expect(context.live.attachmentDraft?.error).toBe('This file must be 16 MB or smaller.');
+    expect(await sendAttachment(context)).toBe(false);
+  });
+
   it('leaves drafts alone while recording, uploading or switching conversations', async () => {
     const context = setup();
     vi.mocked(voiceDraft).mockReturnValueOnce({ status: 'recording' } as never);

@@ -1,4 +1,4 @@
-import { chatFileMessageType, type OutboundMedia } from '@convo/domain';
+import { chatFileMessageType, chatFileSizeLimit, type OutboundMedia } from '@convo/domain';
 import { requireTemplateAccess, templateAccessPredicate } from './template-access.js';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
@@ -279,6 +279,10 @@ export class OutboundService {
       }
       const messageType = media.isVoice ? 'audio' : chatFileMessageType(channel.kind, media.mimeType);
       if (messageType === null) throw new ApiHttpError(422, 'file_type_unsupported', 'This file type cannot be sent on the selected channel.');
+      const limit = chatFileSizeLimit(channel.kind, media.mimeType);
+      if (media.data.byteLength > limit) {
+        throw new ApiHttpError(413, 'file_too_large', `The attachment must be ${limit / (1024 * 1024)} MB or smaller.`);
+      }
       return this.queueAuthorized(sql, principal, tenantId, connectionId, { ...parsed.value, messageType }, conversationId, true, media);
     }, resource);
   }

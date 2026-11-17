@@ -91,7 +91,7 @@ export class ConversationController {
     const encodedName = request.headers['x-convo-file-name'];
     if (!Buffer.isBuffer(body) || body.length === 0 || body.length > MAX_CHAT_FILE_BYTES ||
       typeof mimeType !== 'string' || typeof encodedName !== 'string') {
-      throw new ApiHttpError(422, 'file_invalid', 'Choose a non-empty file up to 5 MB.');
+      throw new ApiHttpError(422, 'file_invalid', 'Choose a non-empty attachment and provide its file type and name.');
     }
     let filename: string;
     // eslint-disable-next-line no-control-regex -- Strip control bytes before putting the name in a response header.
