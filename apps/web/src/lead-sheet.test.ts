@@ -110,3 +110,22 @@ describe('broadcast lead sheet', () => {
     expect(await parseLeadSheet(file('leads.xlsx', zipped))).toMatchObject({ ok: false });
   });
 });
+
+it.each([',', ';', '\t'])('reads Excel CSV separators and explicit separator lines (%s)', async (separator) => {
+  const columns = ['Lead Name', 'Mobile', 'Label', 'Assign To', 'Campaign Name'];
+  const values = ['Test Lead', '01012345678', 'Offer', '', 'Autumn'];
+  for (const prefix of ['', `\uFEFFsep=${separator}\r\n`]) {
+    const source = prefix + columns.join(separator) + '\r\n' + values.join(separator);
+    expect(await parseLeadSheet(file('leads.csv', strToU8(source)))).toMatchObject({
+      ok: true, rows: [{ mobile: '01012345678', assignTo: '', campaignName: 'Autumn' }],
+    });
+  }
+});
+
+it('ignores empty trailing Excel columns and identifies stray cells in unnamed columns', async () => {
+  const header = 'Lead Name,Mobile,Label,Assign To,Campaign Name,,,';
+  const valid = header + '\nTest,01012345678,Offer,,Autumn,,,';
+  expect(await parseLeadSheet(file('leads.csv', strToU8(valid)))).toMatchObject({ ok: true, rows: [{ mobile: '01012345678' }] });
+  const stray = valid + '\nTest,01012345678,Offer,,Autumn,,,?';
+  expect(await parseLeadSheet(file('leads.csv', strToU8(stray)))).toMatchObject({ ok: false, message: expect.stringContaining('Row 3: column 8') });
+});
