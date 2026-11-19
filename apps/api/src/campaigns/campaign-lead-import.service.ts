@@ -56,7 +56,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 /** Egyptian local numbers and explicit international numbers, stored as E.164 digits for WhatsApp. */
 export function normalizeLeadMobile(input: string): string | null {
-  const raw = input.trim().replace(/[\s().-]/g, '');
+  const raw = input.normalize('NFKC')
+    .replace(/\p{Cf}/gu, '')
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 1632))
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 1776))
+    .trim().replace(/^'/, '').replace(/[\s().-]/g, '');
   if (!/^\+?\d+$/.test(raw)) return null;
   let digits = raw.replace(/^\+/, '');
   if (digits.startsWith('00')) digits = digits.slice(2);
@@ -314,7 +318,11 @@ async function inspect(sql: SqlExecutor, tenantId: string, input: LeadImportInpu
       issues.push({ row: number, code: 'length', message: `Row ${number}: a value is too long.` }); continue;
     }
     const mobile = normalizeLeadMobile(row.mobile);
-    if (mobile === null) { invalidMobile += 1; issues.push({ row: number, code: 'mobile', message: `Row ${number}: use an Egyptian 01… number or an international +country-code number.` }); continue; }
+    if (mobile === null) {
+      invalidMobile += 1;
+      issues.push({ row: number, code: 'mobile', message: `Row ${number}: Mobile ${JSON.stringify(row.mobile)} could not be read as a phone number. Use an 11-digit Egyptian 01… number or an international +country-code number. Check for missing digits, letters or Excel scientific notation.` });
+      continue;
+    }
     if (seen.has(mobile)) { duplicate += 1; issues.push({ row: number, code: 'duplicate', message: `Row ${number}: this mobile already occurs in the sheet and will be skipped.` }); continue; }
     seen.add(mobile);
     if (row.campaignName !== input.campaignName) issues.push({ row: number, code: 'campaign', message: `Row ${number}: Campaign Name must match the broadcast name “${input.campaignName}”.` });

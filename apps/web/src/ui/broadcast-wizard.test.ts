@@ -125,6 +125,25 @@ describe('the steps', () => {
     state.dialogForm = { ...state.dialogForm, campaignName: 'Another campaign' };
     expect(text(render(state))).toContain('Sheet not checked yet');
   });
+  it.each(['ar', 'en'] as const)('explains a blocked import and shows every invalid row (%s)', (lang) => {
+    const state = wizard(ALL_WITH_CHANNELS, lang);
+    state.dialogForm = { campaignName: 'Autumn offer' };
+    const rows = Array.from({ length: 10 }, (_, index) => ({
+      leadName: `Lead ${index}`, mobile: '0101234567', courseName: '', label: 'Offer', assignTo: '', campaignName: 'Autumn offer',
+    }));
+    setBroadcastUpload(state, 'leads.csv', { ok: true, rows });
+    Object.assign(broadcastUpload(state)!, { previewKey: uploadKey(state), preview: {
+      totalRows: 10, readyToSend: 0, newContacts: 0, existingContacts: 0, duplicateLeads: 0,
+      invalidMobileNumbers: 10, missingRequiredFields: 0, validLeads: 0,
+      issues: rows.map((_, index) => ({ row: index + 2, code: 'mobile', message: `Row ${index + 2}: Mobile "0101234567" is invalid` })),
+    } });
+    const root = render(state);
+    expect(root.querySelectorAll('.broadcast__import-issues p')).toHaveLength(10);
+    expect(root.querySelector('.broadcast__import-issues')?.textContent).toContain('Row 11');
+    expect(root.querySelector('.broadcast__import-issues')?.textContent).toContain('"0101234567"');
+    expect(root.textContent).toContain(lang === 'ar' ? 'استيراد الملف متوقف' : 'Import is paused');
+  });
+
   it('offers lead import in Audience and does not preselect everyone', () => {
     const state = wizard();
     state.dialogForm = { broadcastStep: '2', campaignName: 'Autumn offer' };

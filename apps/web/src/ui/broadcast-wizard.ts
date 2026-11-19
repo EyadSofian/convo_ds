@@ -204,7 +204,12 @@ function leadSheetCard(state: AppState): HTMLElement {
     upload?.error ? notice('danger', 'alert', upload.error) : null,
     preview === null ? null : h('div', { class: 'broadcast__import-stats', 'aria-live': 'polite' }, stats.map(([label, count]) =>
       h('div', {}, [h('strong', {}, [formatNumber(count, state.lang)]), h('span', {}, [label])]))),
-    preview?.issues.length ? h('div', { class: 'broadcast__import-issues', role: 'status' }, preview.issues.slice(0, 8).map((issue) => h('p', {}, [issue.message]))) : null,
+    preview !== null && preview.readyToSend === 0 && preview.issues.some((issue) => issue.code !== 'duplicate')
+      ? notice('warning', 'alert', t(state,
+        `استيراد الملف متوقف لحين تصحيح الأخطاء أدناه. تم التعرف على ${preview.validLeads} رقمًا فريدًا، لكن لن يصبح الملف جاهزًا حتى تنتهي الأخطاء.`,
+        `Import is paused until the errors below are fixed. ${preview.validLeads} unique numbers were recognized. Ready will update after all blocking errors are corrected.`))
+      : null,
+    preview?.issues.length ? h('div', { class: 'broadcast__import-issues', role: 'status' }, preview.issues.map((issue) => h('p', {}, [issue.message]))) : null,
     preview?.assignments?.length ? h('div', { class: 'broadcast__assignments' }, [
       h('strong', {}, [t(state, 'مسؤول المتابعة من الملف', 'Follow-up owner from sheet')]),
       h('p', { class: 'field__hint' }, [t(state,
