@@ -78,6 +78,16 @@ describe('campaign lead import boundary', () => {
     expect(normalizeLeadMobile('001212345678')).toBe('1212345678');
   });
 
+  it('accepts pasted Unicode digits and spreadsheet text markers without changing the destination', () => {
+    for (const raw of [
+      '٠١٠١٢٣٤٥٦٧٨', '۰۱۰۱۲۳۴۵۶۷۸', '\u200e01012345678\u200f',
+      "'01012345678", '\u202a+201012345678\u202c', '＋２０１０１２３４５６７８',
+    ]) expect(normalizeLeadMobile(raw)).toBe('201012345678');
+    for (const raw of ['0101234567', '1.01235E+09', '01012345678 ext 2', '01012345678/01112345678']) {
+      expect(normalizeLeadMobile(raw)).toBeNull();
+    }
+  });
+
   it('refuses overlarge or malformed payloads', () => {
     expect(() => parseLeadImport({ connectionId: 'bad', campaignName: 'Test', rows: [] })).toThrow();
     expect(() => parseLeadImport(null)).toThrow();
@@ -98,6 +108,7 @@ describe('campaign lead import boundary', () => {
     expect(preview).toMatchObject({ totalRows: 5, missingRequiredFields: 1, invalidMobileNumbers: 1, duplicateLeads: 1, readyToSend: 0 });
     expect(preview.issues.map((issue) => issue.code)).toEqual(['missing', 'mobile', 'campaign', 'assignee', 'duplicate', 'length']);
     expect(preview.issues[0]?.message).toBe('Row 2: fill in Lead Name.');
+    expect(preview.issues[1]?.message).toContain('Mobile "bad"');
     expect(preview.issues[2]?.message).toContain('“PMP October”');
   });
 

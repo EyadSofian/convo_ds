@@ -566,6 +566,18 @@ describe('campaign API', () => {
     const preview = await send(api, 'POST', '/campaigns/lead-import-preview', payload);
     expect(preview.statusCode, preview.body).toBe(200);
     expect(preview.json()).toMatchObject({ data: { totalRows: 3, readyToSend: 2, newContacts: 1, existingContacts: 1, duplicateLeads: 1 } });
+    const pasted = await send(api, 'POST', '/campaigns/lead-import-preview', {
+      ...payload, rows: [
+        { ...rows[0], mobile: '\u200e201000000000\u200f' },
+        { ...rows[1], mobile: "'٠١٠١٢٣٤٥٦٧٨" },
+        { ...rows[2], mobile: '＋２０１０１２３４５６７８' },
+      ],
+    });
+    expect(pasted.statusCode, pasted.body).toBe(200);
+    expect(pasted.json()).toMatchObject({ data: {
+      totalRows: 3, readyToSend: 2, newContacts: 1, existingContacts: 1, duplicateLeads: 1, invalidMobileNumbers: 0,
+    } });
+
 
     const safe = { contactIds: ['00000000-0000-4000-8000-000000000000'] };
     const created = await send(api, 'POST', '/campaigns', draft(api, { name, audienceFilter: safe }), 'lead-sheet-create');
