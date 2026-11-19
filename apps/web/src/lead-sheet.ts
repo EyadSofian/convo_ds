@@ -34,6 +34,15 @@ export async function parseLeadSheet(file: Pick<File, 'name' | 'size' | 'text' |
     return { ok: false, message: 'The spreadsheet could not be read. Save it as .xlsx or UTF-8 CSV and try again.' };
   }
   const header = table.shift()?.map((value) => value.replace(/\p{Cf}/gu, '').trim().replace(/\s+/g, ' ').toLowerCase()) ?? [];
+  while (header.length > 0 && header[header.length - 1] === '') {
+    const column = header.length - 1;
+    const occupied = table.findIndex((row) => (row[column]?.trim() ?? '') !== '');
+    if (occupied !== -1) {
+      return { ok: false, message: `Row ${occupied + 2}: column ${column + 1} has data but no column name. Remove the extra column before importing.` };
+    }
+    header.pop();
+    for (const row of table) row.splice(column, 1);
+  }
   const headers = Object.values(LEAD_SHEET_HEADERS).flatMap((format) =>
     [format, format.filter((column) => column !== 'Assign To')]).find((format) =>
     format.length === header.length && format.every((value, index) => header[index] === value.toLowerCase()));

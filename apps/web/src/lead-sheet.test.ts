@@ -121,3 +121,11 @@ it.each([',', ';', '\t'])('reads Excel CSV separators and explicit separator lin
     });
   }
 });
+
+it('ignores empty trailing Excel columns and identifies stray cells in unnamed columns', async () => {
+  const header = 'Lead Name,Mobile,Label,Assign To,Campaign Name,,,';
+  const valid = header + '\nTest,01012345678,Offer,,Autumn,,,';
+  expect(await parseLeadSheet(file('leads.csv', strToU8(valid)))).toMatchObject({ ok: true, rows: [{ mobile: '01012345678' }] });
+  const stray = valid + '\nTest,01012345678,Offer,,Autumn,,,?';
+  expect(await parseLeadSheet(file('leads.csv', strToU8(stray)))).toMatchObject({ ok: false, message: expect.stringContaining('Row 3: column 8') });
+});
