@@ -33,12 +33,12 @@ export async function parseLeadSheet(file: Pick<File, 'name' | 'size' | 'text' |
   } catch {
     return { ok: false, message: 'The spreadsheet could not be read. Save it as .xlsx or UTF-8 CSV and try again.' };
   }
-  const header = table.shift()?.map((value) => value.replace(/^\uFEFF/, '').trim().toLowerCase()) ?? [];
+  const header = table.shift()?.map((value) => value.replace(/\p{Cf}/gu, '').trim().replace(/\s+/g, ' ').toLowerCase()) ?? [];
   const headers = Object.values(LEAD_SHEET_HEADERS).flatMap((format) =>
     [format, format.filter((column) => column !== 'Assign To')]).find((format) =>
     format.length === header.length && format.every((value, index) => header[index] === value.toLowerCase()));
   if (headers === undefined) {
-    return { ok: false, message: 'Expected columns in order: Lead Name, Mobile, optional Course Name, Label, optional Assign To, Campaign Name.' };
+    return { ok: false, message: `Expected columns in order: Lead Name, Mobile, optional Course Name, Label, optional Assign To, Campaign Name. Received: ${header.join(' | ')}` };
   }
   const data = table.filter((row) => row.some((cell) => cell.trim() !== ''));
   if (data.length === 0 || data.length > 500) return { ok: false, message: 'Import between 1 and 500 leads per file.' };
@@ -51,6 +51,13 @@ export async function parseLeadSheet(file: Pick<File, 'name' | 'size' | 'text' |
 }
 
 function csvRows(source: string): string[][] {
+  source = source.replace(/^\uFEFF/, '');
+  const separator = /^sep=([,;\t])\r?\n/i.exec(source);
+  if (separator !== null) source = source.slice(separator[0].length);
+  const firstLine = source.split(/[\r\n]/, 1)[0]!;
+  const delimiter = separator?.[1] ?? [',', ';', '\t']
+    .sort((a, b) => firstLine.split(b).length - firstLine.split(a).length)[0]!;
+
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = '';
@@ -61,7 +68,7 @@ function csvRows(source: string): string[][] {
       if (quote && source[i + 1] === '"') { cell += '"'; i += 1; }
       else if (quote || cell === '') quote = !quote;
       else throw new Error('Invalid CSV quote');
-    } else if (char === ',' && !quote) { row.push(cell); cell = ''; }
+    } else if (char === delimiter && !quote) { row.push(cell); cell = ''; }
     else if ((char === '\n' || char === '\r') && !quote) {
       if (char === '\r' && source[i + 1] === '\n') i += 1;
       row.push(cell); rows.push(row); row = []; cell = '';
