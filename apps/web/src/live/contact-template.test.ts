@@ -2,12 +2,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Contact } from '../api/contacts.js';
 import type { ChannelsApi } from '../api/channels.js';
-import type { AutomationsApi, WhatsAppTemplate } from '../api/automations.js';
+import type { WhatsAppTemplate } from '../api/automations.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';
 import { openContactTemplate, sendContactTemplate } from './contact-actions.js';
 import { LIVE_ACTIONS } from './dispatch.js';
+import { loadInboxScreen, openConversation } from './inbox-actions.js';
+import type * as InboxActions from './inbox-actions.js';
 import { ready } from './store.js';
+
+vi.mock('./inbox-actions.js', async (importOriginal) => ({
+  ...await importOriginal<typeof InboxActions>(),
+  loadInboxScreen: vi.fn(), openConversation: vi.fn(),
+}));
 
 const contact: Contact = {
   id: 'contact-1', displayName: 'Mona', attributes: {}, version: 1, labels: [], customFields: [], createdAt: '2026-10-19T00:00:00Z',
@@ -15,7 +22,7 @@ const contact: Contact = {
   consent: [], suppressed: [],
 };
 const template: WhatsAppTemplate = {
-  id: 'template-1', connectionId: 'connection-1', providerTemplateId: 'meta-1', templateName: 'course_inquiry_update_ar',
+  id: 'template-1', connectionId: 'operations', providerTemplateId: 'meta-1', templateName: 'course_inquiry_update_ar',
   language: 'ar', category: 'UTILITY', status: 'approved', components: [{ type: 'BODY', text: 'مرحبًا {{1}}، حالة طلبك {{2}}.' }],
   variables: [], lastSyncedAt: '2026-10-19T00:00:00Z',
 };
@@ -24,15 +31,15 @@ function setup(suppressed: readonly string[] = []) {
   const state = createState(new Date('2026-10-19T12:00:00Z'));
   state.live.session = { status: 'signed_in', email: 'admin@example.com', tenantId: 'tenant-1', memberships: [] };
   state.live.selectedContact = ready({ ...contact, suppressed }, 1);
-  const send = vi.fn().mockResolvedValue({ ok: true, data: { id: 'message-1', command_state: 'queued' } });
-  const channels = { sendContactTemplate: send, connections: vi.fn().mockResolvedValue({ ok: true, data: [] }) } as unknown as ChannelsApi;
-  const automationsApi = { whatsappTemplates: vi.fn().mockResolvedValue({ ok: true, data: [template] }) } as unknown as AutomationsApi;
+  const send = vi.fn().mockResolvedValue({ ok: true, data: { conversationId: 'operations-thread' } });
+  const quickWhatsAppOptions = vi.fn().mockResolvedValue({ ok: true, data: {
+    connections: [{ id: 'operations', displayName: 'Operations' }],
+    templates: [template],
+  } });
+  const channels = { sendQuickWhatsApp: send, quickWhatsAppOptions } as unknown as ChannelsApi;
   Object.defineProperty(state.live, 'channels', { value: channels });
-  Object.defineProperty(state.live, 'automationsApi', { value: automationsApi });
-  state.live.connections = ready([{ id: 'connection-1', kind: 'whatsapp', status: 'healthy' }] as never, 1);
-  state.live.whatsappTemplates = ready([template], 1);
   const context: LiveContext = { state, live: state.live, refresh: vi.fn(), now: () => 1, newKey: () => 'message-key-123', endSession: vi.fn(), switchWorkspace: vi.fn() };
-  return { state, context, send };
+  return { state, context, send, quickWhatsAppOptions };
 }
 
 describe('contact WhatsApp template send', () => {
@@ -42,8 +49,35 @@ describe('contact WhatsApp template send', () => {
     expect(state.dialog).toEqual({ kind: 'contact-template', arg: contact.id });
     state.dialogForm = { contactTemplateId: template.id, contactTemplateParam_body_1: 'منى', contactTemplateParam_body_2: 'مفتوح' };
     expect(await sendContactTemplate(context)).toBe(true);
-    expect(send).toHaveBeenCalledWith('tenant-1', 'connection-1', '201500000000', template.id, { 'body:1': 'منى', 'body:2': 'مفتوح' }, 'message-key-123');
+    expect(send).toHaveBeenCalledWith('tenant-1', 'operations', {
+      contactId: contact.id, peerIdentity: '201500000000',
+      template: { id: template.id, parameters: { 'body:1': 'منى', 'body:2': 'مفتوح' } },
+      clientMessageId: 'message-key-123',
+    });
+    expect(state.route).toMatchObject({ screen: 'inbox', conversationId: 'operations-thread' });
+    expect(loadInboxScreen).toHaveBeenCalledWith(context);
+    expect(openConversation).toHaveBeenCalledWith(context, 'operations-thread');
     expect(state.dialog).toBeNull();
+  });
+
+  it('requires a choice between inboxes and rejects templates from a different inbox', async () => {
+    const { state, context, send, quickWhatsAppOptions } = setup();
+    quickWhatsAppOptions.mockResolvedValue({ ok: true, data: {
+      connections: [{ id: 'sales', displayName: 'Sales' }, { id: 'operations', displayName: 'Operations' }],
+      templates: [template],
+    } });
+    state.live.openContact = state.live.selectedContact;
+    state.live.selectedContact = { status: 'idle' };
+    await openContactTemplate(context, contact.id);
+    state.dialogForm = { contactTemplateId: template.id, contactTemplateParam_body_1: 'منى', contactTemplateParam_body_2: 'مفتوح' };
+    expect(await sendContactTemplate(context)).toBe(false);
+    state.dialogForm['contactTemplateConnection'] = 'sales';
+    expect(await sendContactTemplate(context)).toBe(false);
+    state.dialogForm['contactTemplateConnection'] = 'unauthorized';
+    expect(await sendContactTemplate(context)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    state.dialogForm['contactTemplateConnection'] = 'operations';
+    expect(await sendContactTemplate(context)).toBe(true);
   });
 
   it('does not queue a contact who opted out or a template with missing values', async () => {
@@ -59,17 +93,15 @@ describe('contact WhatsApp template send', () => {
     expect(missing.send).not.toHaveBeenCalled();
   });
 
-  it('refuses stale contact selection and loads channel and template catalogues when needed', async () => {
+  it('refuses stale contact selection and loads the scoped sending options', async () => {
     const { state, context } = setup();
     state.live.selectedContact = { status: 'idle' };
     expect(await openContactTemplate(context, contact.id)).toBe(false);
     state.live.selectedContact = ready(contact, 1);
     expect(await openContactTemplate(context, 'somebody-else')).toBe(false);
-    state.live.connections = { status: 'idle' };
-    state.live.whatsappTemplates = { status: 'idle' };
+    state.live.quickWhatsAppOptions = { status: 'idle' };
     expect(await LIVE_ACTIONS['live-contact-template-open']?.(context, contact.id)).toBe(true);
-    expect(state.live.connections.status).toBe('ready');
-    expect(state.live.whatsappTemplates.status).toBe('ready');
+    expect(state.live.quickWhatsAppOptions.status).toBe('ready');
   });
 
   it('refuses missing dialog, identity or approved template', async () => {
@@ -101,6 +133,6 @@ describe('contact WhatsApp template send', () => {
     expect(await LIVE_ACTIONS['live-contact-template-send']?.(context, '')).toBe(false);
     expect(state.live.error).toEqual(error);
     expect(await sendContactTemplate(context)).toBe(true);
-    expect(send.mock.calls[0]?.at(-1)).toBe(send.mock.calls[1]?.at(-1));
+    expect(send.mock.calls[0]?.[2].clientMessageId).toBe(send.mock.calls[1]?.[2].clientMessageId);
   });
 });

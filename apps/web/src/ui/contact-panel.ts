@@ -1,3 +1,4 @@
+import { contactTemplateNumbers } from '../live/contact-actions.js';
 import type { ApiError } from '../api/client.js';
 import type { ConsentRecord, Contact, ContactCampaignHistory, ContactIdentity } from '../api/contacts.js';
 import type { Child } from '../dom.js';
@@ -118,6 +119,7 @@ function panelBody(state: AppState, resource: Resource<Contact>, live: LiveState
   return [
     h('div', { class: 'contact contact--panel', 'data-contact': contact.id }, [
       contactCard(state, contact),
+      contactSendButton(state, live, contact),
       foldable(state, 'profile', profileSection(state, contact, live, 'panel')),
     ]),
     folded('conversation-metadata'),
@@ -161,6 +163,13 @@ function foldable(state: AppState, id: string, section: HTMLElement, summary?: s
   section.setAttribute('data-folded', String(!open));
   section.classList.add('panel-section--foldable');
   return section;
+}
+
+function contactSendButton(state: AppState, live: LiveState, contact: Contact): HTMLElement | null {
+  if (live.supervisorAgentId !== null || !hasPermission(live, 'conversation.reply') ||
+    contact.suppressed.includes('whatsapp') || contactTemplateNumbers(contact).length === 0) return null;
+  return button({ label: t(state, 'إرسال رسالة واتساب', 'Send WhatsApp message'), icon: 'send',
+    act: 'live-contact-template-open', arg: contact.id, small: true });
 }
 
 function contactPlaceholder(state: AppState, resource: Resource<Contact>): HTMLElement {
@@ -261,9 +270,7 @@ export function contactBody(state: AppState, contact: Contact, live: LiveState, 
               )),
         ]),
       ]),
-      where === 'screen' && hasPermission(live, 'conversation.reply') && hasPermission(live, 'automation.read') && hasPermission(live, 'channel.manage') && !contact.suppressed.includes('whatsapp') && liveIdentities.some((identity) => identity.kind === 'whatsapp')
-        ? button({ label: t(state, 'إرسال قالب واتساب', 'Send WhatsApp template'), icon: 'send', act: 'live-contact-template-open', arg: contact.id, small: true })
-        : null,
+      contactSendButton(state, live, contact),
       contact.suppressed.length === 0
         ? null
         : h('p', { class: 'consent__suppressed', role: 'status' }, [

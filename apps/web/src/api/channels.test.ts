@@ -54,10 +54,9 @@ describe('channel API routes', () => {
   it('queues a contact template through the channel API with an idempotency key', async () => {
     const post = vi.fn().mockResolvedValue({ ok: true, data: { id: 'message-1' } });
     const api = new ChannelsApi({ post } as unknown as ApiClient);
-    await api.sendContactTemplate('tenant-1', 'channel-1', '201500000000', 'template-1', { 'body:1': 'Mona' }, 'message-key-123');
-    expect(post).toHaveBeenCalledWith('/tenants/tenant-1/channels/channel-1/messages', {
-      body: { peerIdentity: '201500000000', messageType: 'template', text: '', template: { id: 'template-1', parameters: { 'body:1': 'Mona' } }, clientMessageId: 'message-key-123', trafficClass: 'interactive' },
-    });
+    const body = { contactId: 'contact-1', peerIdentity: '201500000000', template: { id: 'template-1', parameters: { 'body:1': 'Mona' } }, clientMessageId: 'message-key-123' };
+    await api.sendQuickWhatsApp('tenant-1', 'channel-1', body);
+    expect(post).toHaveBeenCalledWith('/tenants/tenant-1/channels/channel-1/quick-messages', { body });
   });
   it('patches selected template versions and team availability', async () => {
     const patch=vi.fn().mockResolvedValue({ok:true,data:{updated:1}});

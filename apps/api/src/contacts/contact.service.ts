@@ -589,7 +589,7 @@ async function detailOf(sql: SqlExecutor, contactId: string): Promise<ContactDet
  * who holds *any* conversation with this person may edit their record, which is
  * what "own conversation's contact" means in the role matrix.
  */
-async function canReachContact(
+export async function canReachContact(
   sql: SqlExecutor,
   principal: Principal,
   contactId: string,

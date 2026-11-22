@@ -1168,7 +1168,7 @@
       "post": {
         "operationId": "queueQuickWhatsAppMessage",
         "summary": "Start an individual WhatsApp conversation with an approved template",
-        "description": "Requires conversation.reply and conversation.claim in scope, CSRF, an international phone number, a synchronized approved template, and its complete parameters. Creates or claims the conversation and queues the message atomically. The contact is created on first inbound reply; 202 means queued, not delivered.",
+        "description": "Requires conversation.reply and conversation.claim in scope, CSRF, an international phone number, a synchronized approved template, and its complete parameters. Creates or claims the conversation and queues the message atomically. With contactId, links a readable existing contact to the chosen inbox. Without it, the contact is created on first inbound reply. A 202 response means queued.",
         "security": [{ "SessionCookie": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/RequestId" },
@@ -10701,6 +10701,7 @@
         "additionalProperties": false,
         "required": ["peerIdentity", "template", "clientMessageId"],
         "properties": {
+          "contactId": { "type": "string", "format": "uuid", "description": "Existing contact whose active WhatsApp number is selected." },
           "peerIdentity": { "type": "string", "pattern": "^\\+?[1-9][0-9\\s().-]{7,20}$", "description": "International WhatsApp number, including country code." },
           "template": {
             "type": "object",

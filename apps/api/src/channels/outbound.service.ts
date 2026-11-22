@@ -16,6 +16,7 @@ import { authorize, buildWhatsAppTemplateComponents, defineWhatsAppTemplate, ren
 import type { AuthenticatedSession } from '../auth/auth.service.js';
 import { AuthorizationService } from '../authorization/authorization.service.js';
 import { LifecycleService } from '../conversations/lifecycle.service.js';
+import { canReachContact } from '../contacts/contact.service.js';
 import { ConversationService } from '../conversations/conversation.service.js';
 import { readConversation, readDetail } from '../conversations/record.js';
 import { latestConversationInbound } from '../conversations/event-boundary.js';
@@ -319,6 +320,11 @@ export class OutboundService {
     body: unknown,
   ): Promise<{ readonly conversationId: string; readonly message: OutboundMessageSummary }> {
     const input = body !== null && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {};
+    const contactId = input['contactId'];
+    if (contactId !== undefined) {
+      if (typeof contactId !== 'string') throw new ApiHttpError(400, 'invalid_input', 'Choose a valid contact.');
+      this.authorization.assertTenantId(contactId);
+    }
     const rawNumber = typeof input['peerIdentity'] === 'string' ? input['peerIdentity'].trim() : '';
     const peerIdentity = rawNumber.replace(/[\s()+.-]/g, '');
     if (!/^[1-9][0-9]{7,14}$/.test(peerIdentity)) {
@@ -341,6 +347,18 @@ export class OutboundService {
       if (!authorize(principal, 'conversation.reply', { inboxId: connectionId, assigneeMembershipId: principal.membershipId }).allowed) {
         throw new ApiHttpError(403, 'permission_denied', 'You cannot send from this inbox.');
       }
+      // Serialize starts before checking the message key so a retry sees the first commit.
+      await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`quick-whatsapp:${tenantId}:${peerIdentity}`]);
+      if (contactId !== undefined) {
+        const source = await sql.query(
+          `SELECT 1 FROM contact_identities i JOIN contacts c ON c.id=i.contact_id
+           WHERE i.contact_id=$1 AND i.kind='whatsapp' AND i.valid_to IS NULL
+             AND i.external_id IN ($2, '+' || $2) AND c.deleted_at IS NULL`, [contactId, peerIdentity],
+        );
+        if (source.rows.length === 0 || !await canReachContact(sql, principal, contactId, 'contact.read')) {
+          throw new ApiHttpError(404, 'resource_not_found', 'The WhatsApp number is unavailable for this contact.');
+        }
+      }
       const suppressed = await sql.query<{ id: string }>(
         `SELECT id::text FROM channel_suppressions WHERE tenant_id=$1 AND kind='whatsapp' AND peer_identity=$2 LIMIT 1`,
         [tenantId, peerIdentity],
@@ -360,14 +378,16 @@ export class OutboundService {
         return { conversationId: previous.conversation_id, message: previousMessage };
       }
 
-      // Serialize quick starts for this number across the workspace's sending lines.
-      await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`quick-whatsapp:${tenantId}:${peerIdentity}`]);
-      const existing = await findQuickWhatsAppCustomer(sql, principal, peerIdentity, connectionId);
-      if (existing?.state === 'other') throw new ApiHttpError(409, 'conversation_owned_by_another', 'This customer is already assigned to another agent. Check the number to see their follow-up owner.');
-      if (existing !== null && existing.connectionId !== connectionId) throw new ApiHttpError(409, 'customer_already_assigned', 'This customer already has a conversation. Check the number to use its existing inbox.');
+      // An explicit contact send starts or continues a thread on the chosen line.
+      // Generic quick sends still look up ownership across accessible lines.
+      if (contactId === undefined) {
+        const existing = await findQuickWhatsAppCustomer(sql, principal, peerIdentity, connectionId);
+        if (existing?.state === 'other') throw new ApiHttpError(409, 'conversation_owned_by_another', 'This customer is already assigned to another agent. Check the number to see their follow-up owner.');
+        if (existing !== null && existing.connectionId !== connectionId) throw new ApiHttpError(409, 'customer_already_assigned', 'This customer already has a conversation. Check the number to use its existing inbox.');
+      }
       const conversation = await this.conversations.ensure(sql, tenantId, connectionId, peerIdentity, 'outbound_contact');
-      const locked = requireRow((await sql.query<{ id: string; team_id: string | null; assignee_membership_id: string | null; status: string }>(
-        `SELECT id::text,team_id::text,assignee_membership_id::text,status FROM conversations WHERE id=$1 FOR UPDATE`,
+      const locked = requireRow((await sql.query<{ id: string; team_id: string | null; assignee_membership_id: string | null; status: string; contact_id: string | null }>(
+        `SELECT id::text,team_id::text,assignee_membership_id::text,status,contact_id::text FROM conversations WHERE id=$1 FOR UPDATE`,
         [conversation.id],
       )).rows, 'the conversation vanished');
       if (locked.status !== 'open' && locked.status !== 'pending') throw new ApiHttpError(409, 'conversation_not_open', 'Open this conversation in Inbox to continue.');
@@ -385,9 +405,31 @@ export class OutboundService {
           [conversation.id, principal.membershipId],
         );
       }
+      if (contactId !== undefined) {
+        await this.linkOutboundContact(sql, tenantId, connectionId, peerIdentity, contactId, locked);
+      }
       const message = await this.queueAuthorized(sql, principal, tenantId, connectionId, parsed.value, conversation.id, false);
       return { conversationId: conversation.id, message };
     });
+  }
+
+  private async linkOutboundContact(
+    sql: SqlExecutor, tenantId: string, connectionId: string, peerIdentity: string, contactId: string,
+    conversation: { readonly id: string; readonly contact_id: string | null },
+  ): Promise<void> {
+    const conflict = () => new ApiHttpError(409, 'contact_identity_conflict', 'This number is linked to a different contact in the selected inbox.');
+    if (conversation.contact_id !== null && conversation.contact_id !== contactId) throw conflict();
+    await sql.query(
+      `INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id,provenance)
+       VALUES ($1,$2,'whatsapp',$3,$4,'{"source":"contact_outbound"}'::jsonb) ON CONFLICT DO NOTHING`,
+      [tenantId, contactId, connectionId, peerIdentity],
+    );
+    const identities = await sql.query<{ contact_id: string }>(
+      `SELECT contact_id::text FROM contact_identities WHERE kind='whatsapp' AND scope_id=$1
+       AND external_id IN ($2, '+' || $2) AND valid_to IS NULL FOR UPDATE`, [connectionId, peerIdentity],
+    );
+    if (identities.rows.length === 0 || identities.rows.some((row) => row.contact_id !== contactId)) throw conflict();
+    await sql.query('UPDATE conversations SET contact_id=$2 WHERE id=$1 AND contact_id IS NULL', [conversation.id, contactId]);
   }
 
   private async queueAuthorized(
