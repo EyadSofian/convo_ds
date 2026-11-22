@@ -251,14 +251,9 @@ export class ChannelsApi {
     return this.client.post<TemplateSyncResult>(`/tenants/${tenantId}/channels/${connectionId}/templates/sync`);
   }
 
-  sendContactTemplate(tenantId: string, connectionId: string, peerIdentity: string, templateId: string, parameters: Readonly<Record<string, string>>, clientMessageId: string): Promise<ApiResult<QueuedContactMessage>> {
-    return this.client.post<QueuedContactMessage>(`/tenants/${tenantId}/channels/${connectionId}/messages`, {
-      body: { peerIdentity, messageType: 'template', text: '', template: { id: templateId, parameters }, clientMessageId, trafficClass: 'interactive' },
-    });
-  }
-
   sendQuickWhatsApp(tenantId: string, connectionId: string, input: {
     readonly peerIdentity: string;
+    readonly contactId?: string;
     readonly template: { readonly id: string; readonly parameters: Readonly<Record<string, string>> };
     readonly clientMessageId: string;
   }): Promise<ApiResult<QuickWhatsAppResult>> {

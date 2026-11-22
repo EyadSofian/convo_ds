@@ -1,3 +1,4 @@
+import { contactTemplateContact, contactTemplateLine, contactTemplateNumbers } from '../live/contact-actions.js';
 import { normalizeSearchText } from '@convo/domain';
 import { templateLibraryDialog } from './template-library.js';
 import { quickWhatsAppCountries, quickWhatsAppNumber } from '../live/quick-whatsapp-phone.js';
@@ -131,22 +132,34 @@ function whatsappTemplatePicker(state: AppState): HTMLElement {
 }
 
 function contactTemplatePicker(state: AppState, contactId: string): HTMLElement {
-  const contact = state.live.selectedContact.status === 'ready' && state.live.selectedContact.value.id === contactId ? state.live.selectedContact.value : null;
-  const identities = contact?.identities.filter((identity) => identity.kind === 'whatsapp' && identity.validTo === null && rowsOf(state.live.connections).some((connection) => connection.id === identity.scopeId && connection.status === 'healthy')) ?? [];
-  const identityId = state.dialogForm['contactTemplateIdentity'] ?? identities[0]?.id ?? '';
-  const identity = identities.find((entry) => entry.id === identityId);
-  const templates = rowsOf(state.live.whatsappTemplates).filter((template) => template.connectionId === identity?.scopeId);
+  const contact = contactTemplateContact(state, contactId);
+  const numbers = contact === null ? [] : contactTemplateNumbers(contact);
+  const resource = state.live.quickWhatsAppOptions;
+  const options = resource.status === 'ready' ? resource.value : null;
+  const connections = options?.connections ?? [];
+  const connectionId = contactTemplateLine(state.dialogForm, connections);
+  const templates = options?.templates.filter((entry) => entry.connectionId === connectionId && entry.status === 'approved') ?? [];
   const templateId = state.dialogForm['contactTemplateId'] ?? '';
   const selected = templates.find((entry) => entry.id === templateId);
   const definition = selected === undefined ? null : templateDefinition(selected);
   return dialogShell(state, t(state, 'إرسال قالب للعميل', 'Send template to contact'), [
     contact === null ? notice('warning', 'alert', t(state, 'ملف العميل غير متاح. أعد فتحه.', 'Contact no longer available. Reopen it.')) : null,
     contact?.suppressed.includes('whatsapp') ? notice('warning', 'alert', t(state, 'ألغى العميل الاشتراك في واتساب؛ لا ترسل له.', 'This contact opted out of WhatsApp; do not send.')) : null,
-    identities.length === 0 ? notice('warning', 'alert', t(state, 'لا يوجد رقم واتساب متصل لهذا العميل.', 'No connected WhatsApp identity for this contact.')) : null,
-    identities.length > 0 ? selectControl({ act: 'form-toggle', form: 'contactTemplateIdentity', value: identityId, ariaLabel: t(state, 'رقم العميل', 'Contact number'), options: identities.map((entry) => ({ value: entry.id, label: entry.externalId })) }) : null,
-    state.live.whatsappTemplates.status === 'loading' ? h('p', { role: 'status' }, [t(state, 'جارٍ تحميل القوالب…', 'Loading templates…')]) : null,
-    state.live.whatsappTemplates.status === 'error' ? notice('warning', 'alert', state.live.whatsappTemplates.error.message) : null,
-    templates.length === 0 && state.live.whatsappTemplates.status === 'ready' ? notice('info', 'info', t(state, 'لا توجد قوالب معتمدة لهذا الرقم. زامنها من القنوات.', 'No approved templates on this number. Sync them from Channels.')) : null,
+    numbers.length === 0 ? notice('warning', 'alert', t(state, 'لا يوجد رقم واتساب صالح لهذا العميل.', 'No valid WhatsApp number for this contact.')) : null,
+    numbers.length > 0 ? field(t(state, 'رقم العميل', 'Contact number'), selectControl({
+      act: 'form-toggle', form: 'contactTemplateIdentity', value: state.dialogForm['contactTemplateIdentity'] ?? numbers[0]!,
+      options: numbers.map((number) => ({ value: number, label: `+${number}` })),
+    })) : null,
+    resource.status === 'loading' ? h('p', { role: 'status' }, [t(state, 'جارٍ تحميل صناديق الإرسال والقوالب…', 'Loading sending inboxes and templates…')]) : null,
+    resource.status === 'error' ? inlineError(state, resource.error) : null,
+    options !== null && connections.length === 0 ? notice('warning', 'alert', t(state, 'لا يوجد صندوق واتساب متاح للإرسال.', 'No WhatsApp inbox is available for sending.')) : null,
+    connections.length > 0 ? field(t(state, 'إرسال من Inbox', 'Send from inbox'), selectControl({
+      act: 'form-toggle', form: 'contactTemplateConnection', value: connectionId, options: [
+        { value: '', label: t(state, 'اختر صندوق الإرسال', 'Choose a sending inbox') },
+        ...connections.map((entry) => ({ value: entry.id, label: entry.displayName })),
+      ],
+    })) : null,
+    connectionId !== '' && templates.length === 0 ? notice('info', 'info', t(state, 'لا توجد قوالب معتمدة متاحة لهذا الصندوق.', 'No approved templates available for this inbox.')) : null,
     templates.length > 0 ? selectControl({ act: 'form-toggle', form: 'contactTemplateId', value: templateId, ariaLabel: t(state, 'القالب', 'Template'), options: [{ value: '', label: t(state, 'اختر قالبًا', 'Choose a template') }, ...templates.map((entry) => ({ value: entry.id, label: `${entry.templateName} · ${entry.language}${templateDefinition(entry).sendSupported ? '' : ' (unsupported)'}` }))] }) : null,
     definition !== null && !definition.sendSupported ? notice('warning', 'alert', definition.unsupportedReason!) : null,
     state.formErrors['contactTemplate'] ? notice('warning', 'alert', state.formErrors['contactTemplate']) : null,
@@ -157,7 +170,7 @@ function contactTemplatePicker(state: AppState, contactId: string): HTMLElement 
     state.live.error === null ? null : inlineError(state, state.live.error),
   ], [
     closeButton(state),
-    button({ label: t(state, 'إرسال القالب', 'Send template'), icon: 'send', act: 'live-contact-template-send', variant: 'primary', busy: state.live.busy === 'contact-template-send', disabled: contact === null || contact.suppressed.includes('whatsapp') || identity === undefined || definition === null || !definition.sendSupported }),
+    button({ label: t(state, 'إرسال القالب', 'Send template'), icon: 'send', act: 'live-contact-template-send', variant: 'primary', busy: state.live.busy === 'contact-template-send', disabled: contact === null || contact.suppressed.includes('whatsapp') || numbers.length === 0 || connectionId === '' || definition === null || !definition.sendSupported }),
   ], { description: t(state, 'يُرسل كقالب معتمد فقط، وتظهر نتيجة التسليم بعد رد Meta.', 'Queued as an approved template; delivery status follows Meta’s response.') });
 }
 

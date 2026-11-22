@@ -24,11 +24,10 @@ describe('send from Contacts', () => {
   it('offers an approved WhatsApp template on an authorized contact profile', () => {
     expect(render(grants).querySelector('[data-act="live-contact-template-open"]')?.getAttribute('data-arg')).toBe(contact.id);
   });
-  it('does not offer a direct send for the inbox panel, missing permissions, opt-outs or non-WhatsApp contacts', () => {
-    expect(render(grants, contact, 'panel').querySelector('[data-act="live-contact-template-open"]')).toBeNull();
+  it('offers the action with reply permission and hides it for opt-outs or non-WhatsApp contacts', () => {
+    expect(render(grants, contact, 'panel').querySelector('[data-act="live-contact-template-open"]')).not.toBeNull();
     expect(render([]).querySelector('[data-act="live-contact-template-open"]')).toBeNull();
-    expect(render(['conversation.reply']).querySelector('[data-act="live-contact-template-open"]')).toBeNull();
-    expect(render(['conversation.reply', 'automation.read']).querySelector('[data-act="live-contact-template-open"]')).toBeNull();
+    expect(render(['conversation.reply']).querySelector('[data-act="live-contact-template-open"]')).not.toBeNull();
     expect(render(grants, { ...contact, suppressed: ['whatsapp'] }).querySelector('[data-act="live-contact-template-open"]')).toBeNull();
     expect(render(grants, { ...contact, identities: [] }).querySelector('[data-act="live-contact-template-open"]')).toBeNull();
   });

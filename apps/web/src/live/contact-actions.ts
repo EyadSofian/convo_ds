@@ -1,10 +1,10 @@
 import { previewContactCsv, type Contact } from '../api/contacts.js';
-import { pushToast } from '../state.js';
+import { pushToast, type AppState } from '../state.js';
 import type { LiveContext } from './actions.js';
 import type { NewContactField } from './contact-profile.js';
 import { claimRead, forTenant, fromResult, LOADING, ready, refetching, rowsOf } from './store.js';
 import { loadMetadataCatalog } from './metadata-catalog.js';
-import { loadWhatsAppTemplates } from './audience-actions.js';
+import { loadInboxScreen, openConversation } from './inbox-actions.js';
 import { templateDefinition } from './template-binding.js';
 import { buildWhatsAppTemplateComponents } from '@convo/domain';
 import { hasPermission } from './ability.js';
@@ -288,30 +288,59 @@ export async function openContact(context: LiveContext, contactId: string): Prom
   });
 }
 
-/** Start a new WhatsApp conversation from a contact using an approved template. */
+export function contactTemplateContact(state: AppState, contactId: string): Contact | null {
+  const { openContact, selectedContact } = state.live;
+  const active = state.route.screen === 'contacts' ? selectedContact : openContact;
+  const fallback = state.route.screen === 'contacts' ? openContact : selectedContact;
+  for (const resource of [active, fallback]) {
+    if (resource.status === 'ready' && resource.value.id === contactId) return resource.value;
+  }
+  return null;
+}
+
+export function contactTemplateNumbers(contact: Contact): readonly string[] {
+  return [...new Set(contact.identities
+    .filter((identity) => identity.kind === 'whatsapp' && identity.validTo === null)
+    .map((identity) => identity.externalId.replace(/^\+/, ''))
+    .filter((number) => /^[1-9][0-9]{7,14}$/.test(number)))];
+}
+
+export function contactTemplateLine(form: Readonly<Record<string, string>>, connections: readonly { readonly id: string }[]): string {
+  return form['contactTemplateConnection'] ?? (connections.length === 1 ? connections[0]!.id : '');
+}
+
 export async function openContactTemplate(context: LiveContext, contactId: string): Promise<boolean> {
-  if (context.live.selectedContact.status !== 'ready' || context.live.selectedContact.value.id !== contactId) return false;
-  context.state.dialog = { kind: 'contact-template', arg: contactId };
-  context.state.dialogForm = {};
-  context.state.formErrors = {};
-  context.live.error = null;
-  context.refresh();
-  await Promise.all([
-    context.live.connections.status === 'ready' ? null : loadContactConnections(context),
-    context.live.whatsappTemplates.status === 'ready' ? null : loadWhatsAppTemplates(context),
-  ]);
-  return true;
+  const { state, live } = context;
+  if (live.supervisorAgentId !== null || live.busy !== null || contactTemplateContact(state, contactId) === null) return false;
+  const dialog = { kind: 'contact-template', arg: contactId };
+  state.dialog = dialog;
+  state.dialogForm = {};
+  state.formErrors = {};
+  live.error = null;
+  return forTenant(context, false, async (tenantId) => {
+    live.quickWhatsAppOptions = LOADING;
+    context.refresh();
+    const result = await live.channels.quickWhatsAppOptions(tenantId);
+    if (state.dialog !== dialog) return false;
+    live.quickWhatsAppOptions = fromResult(result, context.now());
+    context.refresh();
+    return true;
+  });
 }
 
 export async function sendContactTemplate(context: LiveContext): Promise<boolean> {
   const { live, state } = context;
-  if (state.dialog?.kind !== 'contact-template' || live.selectedContact.status !== 'ready' || live.selectedContact.value.id !== state.dialog.arg) return false;
-  const contact = live.selectedContact.value;
-  if (contact.suppressed.includes('whatsapp')) return false;
-  const identities = contact.identities.filter((entry) => entry.kind === 'whatsapp' && entry.validTo === null && rowsOf(live.connections).some((connection) => connection.id === entry.scopeId && connection.kind === 'whatsapp' && connection.status === 'healthy'));
-  const identity = identities.find((entry) => entry.id === (state.dialogForm['contactTemplateIdentity'] ?? identities[0]?.id));
-  if (identity === undefined) return false;
-  const template = rowsOf(live.whatsappTemplates).find((entry) => entry.id === state.dialogForm['contactTemplateId'] && entry.connectionId === identity.scopeId && entry.status === 'approved');
+  const dialog = state.dialog;
+  if (dialog?.kind !== 'contact-template' || live.busy !== null) return false;
+  const contact = contactTemplateContact(state, dialog.arg);
+  if (contact === null || contact.suppressed.includes('whatsapp') || live.quickWhatsAppOptions.status !== 'ready') return false;
+  const options = live.quickWhatsAppOptions.value;
+  const connectionId = contactTemplateLine(state.dialogForm, options.connections);
+  if (!options.connections.some((connection) => connection.id === connectionId)) return false;
+  const numbers = contactTemplateNumbers(contact);
+  const peerIdentity = state.dialogForm['contactTemplateIdentity'] ?? numbers[0];
+  if (peerIdentity === undefined || !numbers.includes(peerIdentity)) return false;
+  const template = options.templates.find((entry) => entry.id === state.dialogForm['contactTemplateId'] && entry.connectionId === connectionId && entry.status === 'approved');
   if (template === undefined) return false;
   const definition = templateDefinition(template);
   const parameters = Object.fromEntries(definition.parameters.map((entry) => [entry.key, (state.dialogForm[`contactTemplateParam_${entry.key.replaceAll(':', '_')}`] ?? '').trim()]));
@@ -323,13 +352,17 @@ export async function sendContactTemplate(context: LiveContext): Promise<boolean
   return forTenant(context, false, async (tenantId) => {
     live.busy = 'contact-template-send';
     live.error = null;
-    context.refresh();
-    const signature = JSON.stringify([identity.scopeId, identity.externalId, template.id, parameters]);
+    state.formErrors = {};
+    const signature = JSON.stringify([connectionId, peerIdentity, template.id, parameters]);
     const clientMessageId = state.dialogForm['contactTemplateSignature'] === signature && state.dialogForm['contactTemplateMessageId']
       ? state.dialogForm['contactTemplateMessageId']! : context.newKey();
     state.dialogForm = { ...state.dialogForm, contactTemplateSignature: signature, contactTemplateMessageId: clientMessageId };
-    const result = await live.channels.sendContactTemplate(tenantId, identity.scopeId, identity.externalId, template.id, parameters, clientMessageId);
+    context.refresh();
+    const result = await live.channels.sendQuickWhatsApp(tenantId, connectionId, {
+      contactId: contact.id, peerIdentity, template: { id: template.id, parameters }, clientMessageId,
+    });
     live.busy = null;
+    if (state.dialog !== dialog) { context.refresh(); return result.ok; }
     if (!result.ok) {
       live.error = result.error;
       context.refresh();
@@ -337,8 +370,11 @@ export async function sendContactTemplate(context: LiveContext): Promise<boolean
     }
     state.dialog = null;
     state.dialogForm = {};
+    state.inboxQueue = 'mine';
+    state.route = { screen: 'inbox', conversationId: result.data.conversationId, params: {} };
+    live.inboxQuery = { ...live.inboxQuery, queue: 'mine', cursor: null };
     pushToast(state, t(context, 'أُضيف القالب إلى قائمة الإرسال؛ انتظر حالة التسليم من Meta.', 'Template queued; check Meta delivery status.'));
-    context.refresh();
+    await Promise.all([loadInboxScreen(context), openConversation(context, result.data.conversationId)]);
     return true;
   });
 }

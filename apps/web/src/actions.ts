@@ -213,6 +213,14 @@ const formToggle: ActionHandler = (context, arg) => {
   const value = separator === -1 ? '' : arg.slice(separator + 1);
   const changed = name !== '' && context.state.dialogForm[name] !== value;
   formInput(context, arg);
+  if (changed && name === 'contactTemplateConnection') delete context.state.dialogForm['contactTemplateId'];
+  if (changed && (name === 'contactTemplateConnection' || name === 'contactTemplateId')) {
+    for (const key of Object.keys(context.state.dialogForm)) {
+      if (key.startsWith('contactTemplateParam_')) delete context.state.dialogForm[key];
+    }
+    context.state.formErrors = {};
+    context.state.live.error = null;
+  }
   if (changed && name === 'inboxFilterKey') {
     delete context.state.dialogForm['inboxFilterOperator'];
     delete context.state.dialogForm['inboxFilterValue'];

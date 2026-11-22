@@ -2615,6 +2615,68 @@ describe('the outbound path', () => {
 
   });
 
+  it('lets Operations send to a Sales contact only from its own WhatsApp inbox', async () => {
+    const connected = await connect(api, owner, `operations-outreach-${randomUUID()}`);
+    expect(connected.statusCode, connected.body).toBe(201);
+    const operationsId = connected.json().data.id as string;
+    const templateId = await syncApprovedTemplate('operations_contact_update', operationsId);
+    const to = peer();
+    await openWindow(to);
+    const email = `operations-${randomUUID()}@channels.test`;
+    const hash = await argon2.hash(MEMBER_PASSWORD, { type: argon2.argon2id });
+    const user = await api.pool.query<{ id: string }>(`INSERT INTO users(email,password_hash,status) VALUES($1,$2,'active') RETURNING id::text`, [email, hash]);
+    const sales = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const member = await sql.query<{ id: string }>(
+        `INSERT INTO memberships(tenant_id,user_id,role_id,status)
+         SELECT $1,$2,id,'active' FROM roles WHERE key='operations' RETURNING id::text`,
+        [api.tenantId, user.rows[0]!.id],
+      );
+      await sql.query(
+        `INSERT INTO membership_scopes(tenant_id,membership_id,scope_type,scope_id) VALUES($1,$2,'inbox',$3)`,
+        [api.tenantId, member.rows[0]!.id, operationsId],
+      );
+      const result = await sql.query<{ id: string; contact_id: string; assignee_membership_id: string }>(
+        `UPDATE conversations SET assignee_membership_id=(SELECT m.id FROM memberships m JOIN users u ON u.id=m.user_id WHERE u.email='owner@channels.test')
+         WHERE connection_id=$1 AND peer_identity=$2 RETURNING id::text,contact_id::text,assignee_membership_id::text`, [connectionId, to],
+      );
+      return { ...result.rows[0]!, operationsMember: member.rows[0]!.id };
+    });
+    const operator = await login(api, email, MEMBER_PASSWORD);
+    const options = await send(api, operator, 'GET', '/quick-whatsapp/options');
+    expect(options.json().data.connections.map((line: { id: string }) => line.id)).toEqual([operationsId]);
+    expect(options.json().data.templates).toEqual(expect.arrayContaining([expect.objectContaining({ id: templateId })]));
+    const payload = { contactId: sales.contact_id, peerIdentity: to, template: { id: templateId, parameters: { 'body:1': 'Update' } }, clientMessageId: clientId() };
+    const path = `/channels/${operationsId}/quick-messages`;
+    expect((await send(api, operator, 'POST', `/channels/${connectionId}/quick-messages`, payload)).statusCode).toBe(403);
+    expect((await send(api, operator, 'POST', path, { ...payload, peerIdentity: peer() })).statusCode).toBe(404);
+    const response = await send(api, operator, 'POST', path, payload);
+    expect(response.statusCode, response.body).toBe(202);
+    const { conversationId, message } = response.json().data;
+    expect(conversationId).not.toBe(sales.id);
+    const retry = await send(api, operator, 'POST', path, payload);
+    expect(retry.statusCode, retry.body).toBe(202);
+    expect(retry.json().data.message.id).toBe(message.id);
+    const secondOperator = await send(api, owner, 'POST', path, { ...payload, clientMessageId: clientId() });
+    expect(secondOperator.statusCode, secondOperator.body).toBe(409);
+    expect(secondOperator.json()).toMatchObject({ error: { code: 'conversation_owned_by_another' } });
+    await withTenant(api.pool, api.tenantId, async (sql) => {
+      const threads = await sql.query(
+        `SELECT id::text,connection_id::text,contact_id::text,assignee_membership_id::text FROM conversations WHERE id=ANY($1::uuid[])`,
+        [[sales.id, conversationId]],
+      );
+      expect(threads.rows).toEqual(expect.arrayContaining([
+        { id: sales.id, connection_id: connectionId, contact_id: sales.contact_id, assignee_membership_id: sales.assignee_membership_id },
+        { id: conversationId, connection_id: operationsId, contact_id: sales.contact_id, assignee_membership_id: sales.operationsMember },
+      ]));
+      const identity = await sql.query(
+        `SELECT contact_id::text FROM contact_identities WHERE scope_id=$1 AND external_id=$2 AND valid_to IS NULL`,
+        [operationsId, to],
+      );
+      expect(identity.rows).toEqual([{ contact_id: sales.contact_id }]);
+      await sql.query('DELETE FROM outbox WHERE message_id=$1', [message.id]);
+    });
+  });
+
   it('starts a one-to-one WhatsApp conversation without requiring a manual consent reference', async () => {
     const to = peer();
     const templateId = await syncApprovedTemplate('quick_registration_followup');

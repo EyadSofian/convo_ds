@@ -297,6 +297,20 @@ describe('dialogs and forms', () => {
     runAction('form-toggle', app.context, 'inboxFilterOperator:neq');
     expect(app.state.dialogForm['inboxFilterValue']).toBeUndefined();
   });
+
+  it('clears template fields when switching a contact send to another inbox', () => {
+    app.state.dialogForm = {
+      contactTemplateConnection: 'sales', contactTemplateId: 'sales-template', contactTemplateParam_body_1: 'Old value',
+      contactTemplateIdentity: '201500000000',
+    };
+    runAction('form-toggle', app.context, 'contactTemplateConnection:operations');
+    expect(app.state.dialogForm).toEqual({ contactTemplateConnection: 'operations', contactTemplateIdentity: '201500000000' });
+    app.state.dialogForm['contactTemplateParam_body_1'] = 'New value';
+    runAction('form-toggle', app.context, 'contactTemplateId:operations-template');
+    expect(app.state.dialogForm).toEqual({
+      contactTemplateConnection: 'operations', contactTemplateIdentity: '201500000000', contactTemplateId: 'operations-template',
+    });
+  });
 });
 
 describe('channels', () => {

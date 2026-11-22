@@ -43,7 +43,8 @@ describe('OutboundService defensive boundaries', () => {
     duplicate?: { id: string; conversation_id: string | null; author_membership: string | null };
     previousConnection?: string; previousPeer?: string;
     customer?: { id: string; connection_id: string; connection_name: string; assignee_membership_id: string | null; team_id: string | null; assignee_name: string | null; customer_name: string | null };
-    locked?: { id: string; team_id: string | null; assignee_membership_id: string | null; status: string };
+    contactSource?: boolean; linkedContacts?: readonly string[]; suppressed?: boolean;
+    locked?: { id: string; team_id: string | null; assignee_membership_id: string | null; status: string; contact_id?: string | null };
   } = {}) {
     const principal: Principal = { membershipId: id, membershipStatus: 'active', tenantStatus: 'active',
       grants: options.grants ?? { 'conversation.reply': 'tenant', 'conversation.claim': 'tenant' },
@@ -51,24 +52,26 @@ describe('OutboundService defensive boundaries', () => {
     const query = vi.fn(async <T>(statement: string) => {
       if (statement.includes('FROM conversations c')) return { rows: (options.customer === undefined ? [] : [options.customer]) as T[], rowCount: 0 };
       if (statement.includes('FROM channel_connections')) return { rows: [{ id, kind: options.kind ?? 'whatsapp', capabilities: null, disconnected_at: null }] as T[], rowCount: 1 };
-      if (statement.includes('FROM channel_suppressions')) return { rows: [] as T[], rowCount: 0 };
+      if (statement.includes('FROM channel_suppressions')) return { rows: (options.suppressed === true ? [{ id }] : []) as T[], rowCount: 0 };
+      if (statement.includes('FROM contact_identities i JOIN contacts c')) return { rows: (options.contactSource === true ? [{ id }] : []) as T[], rowCount: 0 };
+      if (statement.includes('FROM contact_identities WHERE')) return { rows: (options.linkedContacts ?? [id]).map((contact_id) => ({ contact_id })) as T[], rowCount: 0 };
       if (statement.includes('FROM outbound_messages WHERE tenant_id')) return { rows: (options.duplicate ? [options.duplicate] : []) as T[], rowCount: options.duplicate ? 1 : 0 };
       if (statement.includes('FROM outbound_messages') && statement.includes('ORDER BY created_at')) return { rows: [{
         id: 'previous-message', connection_id: options.previousConnection ?? id, peer_identity: options.previousPeer ?? '201001234567',
         message_type: 'template', client_message_id: 'quick-key-1', command_state: 'queued', state_reason: null,
         delivery_state: null, delivery_anomaly: null, provider_message_id: null, created_at: new Date(), settled_at: null,
       }] as T[], rowCount: 1 };
-      if (statement.includes('FROM conversations WHERE id=$1 FOR UPDATE')) return { rows: [options.locked ?? { id, team_id: null, assignee_membership_id: id, status: 'open' }] as T[], rowCount: 1 };
+      if (statement.includes('FROM conversations WHERE id=$1 FOR UPDATE')) return { rows: [options.locked ?? { id, team_id: null, assignee_membership_id: id, status: 'open', contact_id: null }] as T[], rowCount: 1 };
       return { rows: [] as T[], rowCount: 0 };
     });
     const sql = { query } as unknown as SqlExecutor;
-    const authorization = { withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal })) } as unknown as AuthorizationService;
+    const authorization = { assertTenantId: vi.fn(), withPrincipal: vi.fn(async (_session, _tenant, work) => work({ sql, principal })) } as unknown as AuthorizationService;
     const ensure = vi.fn().mockResolvedValue({ id });
     const service = new OutboundService(authorization, {} as LifecycleService, { ensure } as unknown as ConversationService);
     const message = { id: 'message-1', connection_id: id, peer_identity: '201001234567' };
     const queueAuthorized = vi.spyOn(service as never, 'queueAuthorized').mockResolvedValue(message as never);
-    const send = () => service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, {
-      peerIdentity: '+201001234567', template: { id, parameters: {} }, clientMessageId: 'quick-key-1',
+    const send = (input: Record<string, unknown> = {}) => service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, {
+      peerIdentity: '+201001234567', template: { id, parameters: {} }, clientMessageId: 'quick-key-1', ...input,
     });
     return { service, query, ensure, queueAuthorized, send };
   }
@@ -80,6 +83,20 @@ describe('OutboundService defensive boundaries', () => {
       { peerIdentity: '+201001234567', template: null, clientMessageId: 'quick-key-1' }]) {
       await expect(service.queueQuickWhatsApp({ userId: 'user' } as never, id, id, body)).rejects.toMatchObject({ status: 400 });
     }
+  });
+
+  it('requires a readable contact and refuses a conflicting destination identity', async () => {
+    const readable = { 'conversation.reply': 'tenant', 'contact.read': 'tenant' } as const;
+    const contactId = { contactId: id };
+    await expect(quickHarness().send({ contactId: 123 })).rejects.toMatchObject({ status: 400 });
+    await expect(quickHarness({ contactSource: true }).send(contactId)).rejects.toMatchObject({ status: 404 });
+    await expect(quickHarness({ contactSource: true, grants: readable, suppressed: true }).send(contactId)).rejects.toMatchObject({ code: 'consent_withdrawn' });
+    const locked = { id, team_id: null, assignee_membership_id: id, status: 'open', contact_id: 'another-contact' };
+    await expect(quickHarness({ contactSource: true, grants: readable, locked }).send(contactId)).rejects.toMatchObject({ code: 'contact_identity_conflict' });
+    for (const linkedContacts of [[], ['another-contact']]) {
+      await expect(quickHarness({ contactSource: true, grants: readable, linkedContacts }).send(contactId)).rejects.toMatchObject({ code: 'contact_identity_conflict' });
+    }
+    expect(await quickHarness({ contactSource: true, grants: readable, locked: { ...locked, contact_id: id } }).send(contactId)).toMatchObject({ conversationId: id });
   });
 
   it('requires a WhatsApp connection and a reply grant before quick sending', async () => {
