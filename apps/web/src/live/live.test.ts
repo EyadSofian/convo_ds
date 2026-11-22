@@ -979,6 +979,18 @@ describe('the Users screen', () => {
     expect(removed.querySelector('[data-arg="member-revoke:m-gone"]')).toBeNull();
   });
 
+  it('does not offer suspend, reactivate or ownership for an unknown membership status', async () => {
+    const api = signedInApi().on(`GET /tenants/${TENANT}/people`, {
+      status: 200, body: { data: [person({ status: 'archived' })] },
+    });
+    const { root } = start(api);
+    await settle();
+    openMenu(root, `member:${MEMBERSHIP}`);
+    expect(root.querySelector('[data-act="live-status"]')).toBeNull();
+    expect(root.querySelector(`[data-arg="ownership-offer:${MEMBERSHIP}"]`)).toBeNull();
+    expect(root.querySelector(`[data-arg="member-name:${MEMBERSHIP}"]`)).not.toBeNull();
+  });
+
   it('adds and removes team membership from the member’s own dialog', async () => {
     const team = { id: 'team-1', name: 'Admissions', member_count: 0, archived: false, members: [] };
     const joined = { ...team, member_count: 1, members: [{ membership_id: MEMBERSHIP, email: 'hana@digital-school.example' }] };
