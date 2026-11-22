@@ -619,7 +619,6 @@ export function changeMemberName(context: LiveContext, membershipId: string, dis
 const MEMBER_STATUS_WORDS: Readonly<Record<string, { readonly ar: string; readonly en: string }>> = {
   active: { ar: 'نشط', en: 'Active' },
   suspended: { ar: 'موقوف', en: 'Suspended' },
-  revoked: { ar: 'ملغى', en: 'Revoked' },
 };
 
 export function changeStatus(
@@ -632,6 +631,7 @@ export function changeStatus(
     `status:${membershipId}`,
     (tenantId) => context.live.api.updateMembership(tenantId, membershipId, { status }),
     (person) => {
+      if (person.status === 'revoked') return t(context.state, 'تم حذف المستخدم من مساحة العمل', 'User removed from workspace');
       const word = MEMBER_STATUS_WORDS[person.status];
       return word === undefined
         ? t(context.state, `الحالة الآن ${person.status}`, `Status is now ${person.status}`)

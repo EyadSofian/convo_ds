@@ -102,18 +102,18 @@ function memberRole(state: AppState, membershipId: string): HTMLElement {
 
 function memberRevoke(state: AppState, membershipId: string): HTMLElement {
   const live = state.live;
-  const title = t(state, 'إلغاء العضوية', 'Revoke access');
+  const title = t(state, 'حذف المستخدم', 'Remove user');
   const person = rowsOf(live.people).find((entry) => entry.membership_id === membershipId);
   if (person === undefined) return gone(state, title);
   return dialogShell(state, title, [
     notice('danger', 'alert', h('span', {}, [
       h('bdi', {}, [person.email]),
-      t(state, ' سيفقد الوصول إلى مساحة العمل فورًا وتنتهي جلساته. يبقى سجل عمله محفوظًا.', ' will lose access to this workspace immediately and their sessions will end. Their history is kept.'),
+      t(state, ' سيفقد الوصول إلى مساحة العمل فورًا ويظهر في المستخدمين المحذوفين. يمكنك دعوته مرة أخرى بنفس البريد. يبقى سجل عمله محفوظًا.', ' will lose access to this workspace immediately and appear under Removed users. You can invite the same email again. Their work history is kept.'),
     ])),
     inlineError(state, live.error),
   ], [
     cancel(state),
-    button({ label: t(state, 'إلغاء العضوية', 'Revoke access'), icon: 'trash', act: 'live-member-revoke', arg: membershipId, variant: 'danger', busy: live.busy === `status:${membershipId}` }),
+    button({ label: t(state, 'حذف المستخدم', 'Remove user'), icon: 'trash', act: 'live-member-revoke', arg: membershipId, variant: 'danger', busy: live.busy === `status:${membershipId}` }),
   ]);
 }
 
