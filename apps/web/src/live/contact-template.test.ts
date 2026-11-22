@@ -30,6 +30,7 @@ const template: WhatsAppTemplate = {
 function setup(suppressed: readonly string[] = []) {
   const state = createState(new Date('2026-10-19T12:00:00Z'));
   state.live.session = { status: 'signed_in', email: 'admin@example.com', tenantId: 'tenant-1', memberships: [] };
+  state.route = { screen: 'contacts', conversationId: null, params: {} };
   state.live.selectedContact = ready({ ...contact, suppressed }, 1);
   const send = vi.fn().mockResolvedValue({ ok: true, data: { conversationId: 'operations-thread' } });
   const quickWhatsAppOptions = vi.fn().mockResolvedValue({ ok: true, data: {
@@ -66,6 +67,7 @@ describe('contact WhatsApp template send', () => {
       connections: [{ id: 'sales', displayName: 'Sales' }, { id: 'operations', displayName: 'Operations' }],
       templates: [template],
     } });
+    state.route = { screen: 'inbox', conversationId: 'sales-thread', params: {} };
     state.live.openContact = state.live.selectedContact;
     state.live.selectedContact = { status: 'idle' };
     await openContactTemplate(context, contact.id);
@@ -122,6 +124,23 @@ describe('contact WhatsApp template send', () => {
     state.dialogForm = { contactTemplateId: 'missing-template' };
     expect(await sendContactTemplate(context)).toBe(false);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('ignores results when the operator closes the contact picker during a request', async () => {
+    const { state, context, send, quickWhatsAppOptions } = setup();
+    const opening = openContactTemplate(context, contact.id);
+    state.dialog = null;
+    expect(await opening).toBe(false);
+    expect(quickWhatsAppOptions).toHaveBeenCalledOnce();
+    await openContactTemplate(context, contact.id);
+    state.dialogForm = { contactTemplateId: template.id, contactTemplateParam_body_1: 'منى', contactTemplateParam_body_2: 'مفتوح' };
+    send.mockImplementationOnce(async () => {
+      state.dialog = null;
+      return { ok: true, data: { conversationId: 'operations-thread' } };
+    });
+    expect(await sendContactTemplate(context)).toBe(true);
+    expect(state.route.screen).toBe('contacts');
+    expect(state.live.busy).toBeNull();
   });
 
   it('keeps the idempotency key on a failed send and lets the operator retry', async () => {

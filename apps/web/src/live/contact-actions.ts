@@ -318,11 +318,10 @@ export async function openContactTemplate(context: LiveContext, contactId: strin
   state.formErrors = {};
   live.error = null;
   return forTenant(context, false, async (tenantId) => {
-    const current = claimRead(live, 'contact-template-options');
     live.quickWhatsAppOptions = LOADING;
     context.refresh();
     const result = await live.channels.quickWhatsAppOptions(tenantId);
-    if (!current() || state.dialog !== dialog) return false;
+    if (state.dialog !== dialog) return false;
     live.quickWhatsAppOptions = fromResult(result, context.now());
     context.refresh();
     return true;
