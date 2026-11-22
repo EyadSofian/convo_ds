@@ -288,7 +288,10 @@ export function routeParamsFor(state: AppState): Record<string, string> {
     const token = state.route.params['token'];
     if (token !== undefined && token !== '') params.token = token;
   }
-  if (state.route.screen === 'people' && state.route.params['tab'] === 'invitations') params.tab = 'invitations';
+  if (state.route.screen === 'people') {
+    const tab = state.route.params['tab'];
+    if (tab === 'invitations' || tab === 'removed') params.tab = tab;
+  }
   if (state.route.screen === 'roles') {
     const role = state.route.params['role'];
     if (role !== undefined && role !== '') params.role = role;

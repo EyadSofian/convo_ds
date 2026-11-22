@@ -945,10 +945,12 @@ describe('the Users screen', () => {
     click(root, `[data-act="dialog"][data-arg="member-revoke:${MEMBERSHIP}"]`);
     expect(api.calls.some((call) => call.method === 'PATCH')).toBe(false);
     expect(text(find(root, '.dialog'))).toContain('will lose access to this workspace immediately');
+    api.on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person({ status: 'revoked' })] } });
     click(root, '.dialog [data-act="live-member-revoke"]');
     await settle();
     expect(api.calls.find((call) => call.method === 'PATCH')?.body).toEqual({ status: 'revoked' });
-    expect(toasts(app)).toEqual(['Status is now Revoked']);
+    expect(toasts(app)).toEqual(['User removed from workspace']);
+    expect(root.querySelector(`[data-membership="${MEMBERSHIP}"]`)).toBeNull();
     expect(root.querySelector('.dialog')).toBeNull();
   });
 
@@ -960,15 +962,33 @@ describe('the Users screen', () => {
         person({ membership_id: 'm-gone', email: 'gone@digital-school.example', status: 'revoked' }),
       ] },
     });
-    const { root } = start(api);
+    const { app, root } = start(api);
     await settle();
     openMenu(root, 'member:own-membership');
     expect(root.querySelector('[data-arg="own-membership:suspended"]')?.hasAttribute('disabled')).toBe(true);
     expect(root.querySelector('[data-arg="ownership-offer:own-membership"]')).toBeNull();
     expect(root.querySelector('[data-arg="member-revoke:own-membership"]')).toBeNull();
-    openMenu(root, 'member:m-gone');
-    expect(root.querySelector('[data-arg^="m-gone:"]')).toBeNull();
-    expect(root.querySelector('[data-arg="member-revoke:m-gone"]')).toBeNull();
+    expect(root.querySelector('[data-membership="m-gone"]')).toBeNull();
+    expect(find(root, '#tab-removed').getAttribute('href')).toContain('tab=removed');
+    app.destroy();
+    const { root: removed } = start(api, '#/people?tab=removed');
+    await settle();
+    expect(removed.querySelector('[data-membership="m-gone"]')).not.toBeNull();
+    expect(text(removed)).toContain('invite the same email');
+    expect(removed.querySelector('[data-arg^="m-gone:"]')).toBeNull();
+    expect(removed.querySelector('[data-arg="member-revoke:m-gone"]')).toBeNull();
+  });
+
+  it('does not offer suspend, reactivate or ownership for an unknown membership status', async () => {
+    const api = signedInApi().on(`GET /tenants/${TENANT}/people`, {
+      status: 200, body: { data: [person({ status: 'archived' })] },
+    });
+    const { root } = start(api);
+    await settle();
+    openMenu(root, `member:${MEMBERSHIP}`);
+    expect(root.querySelector('[data-act="live-status"]')).toBeNull();
+    expect(root.querySelector(`[data-arg="ownership-offer:${MEMBERSHIP}"]`)).toBeNull();
+    expect(root.querySelector(`[data-arg="member-name:${MEMBERSHIP}"]`)).not.toBeNull();
   });
 
   it('adds and removes team membership from the member’s own dialog', async () => {
@@ -1101,7 +1121,7 @@ describe('the Users screen', () => {
 
   it('keeps name editing available when other member actions are unavailable', async () => {
     const api = signedInApi()
-      .on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person({ membership_id: 'own-membership', email: 'owner@digital-school.example', status: 'revoked', scopes: [{ type: 'tenant', id: null }] })] } })
+      .on(`GET /tenants/${TENANT}/people`, { status: 200, body: { data: [person({ membership_id: 'own-membership', email: 'owner@digital-school.example', status: 'suspended', scopes: [{ type: 'tenant', id: null }] })] } })
       .on(`GET /tenants/${TENANT}/roles`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } })
       .on(`GET /tenants/${TENANT}/teams`, { status: 403, body: { error: { code: 'permission_denied', message: 'Denied.' } } });
     const { root } = start(api);

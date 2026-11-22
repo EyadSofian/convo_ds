@@ -29,7 +29,8 @@ import { button, inlineError, isolated, notice, page, refreshButton, toolbar } f
  */
 export function renderUsers(state: AppState): HTMLElement {
   const live = state.live;
-  const tab = state.route.params['tab'] === 'invitations' ? 'invitations' : 'users';
+  const requested = state.route.params['tab'];
+  const tab = requested === 'invitations' || requested === 'removed' ? requested : 'users';
   const pending = rowsOf(live.invitations).filter((invitation) => invitation.status === 'pending').length;
   return page('people', toolbar(t(state, 'أدِر أعضاء مساحة العمل وصلاحيات وصولهم.', 'Manage workspace members and access.'), [
     refreshButton(state, 'live-reload', live.people.status === 'loading'),
@@ -40,11 +41,12 @@ export function renderUsers(state: AppState): HTMLElement {
     missingOwnScopeNotice(state, live),
     ownershipOffers(state, live),
     routeTabs(state, t(state, 'أقسام المستخدمين', 'User sections'), 'people', [
-      { id: 'users', label: t(state, 'المستخدمون', 'Users'), count: live.people.status === 'ready' ? live.people.value.length : undefined, params: {} },
+      { id: 'users', label: t(state, 'المستخدمون', 'Users'), count: live.people.status === 'ready' ? live.people.value.filter((person) => person.status !== 'revoked').length : undefined, params: {} },
+      { id: 'removed', label: t(state, 'المستخدمون المحذوفون', 'Removed users'), count: live.people.status === 'ready' ? live.people.value.filter((person) => person.status === 'revoked').length : undefined, params: { tab: 'removed' } },
       { id: 'invitations', label: t(state, 'الدعوات', 'Invitations'), count: live.invitations.status === 'ready' ? pending : undefined, params: { tab: 'invitations' } },
     ], tab),
     h('section', { class: 'admin-panel', role: 'tabpanel', id: `tabpanel-${tab}`, 'aria-labelledby': `tab-${tab}` }, [
-      tab === 'users' ? usersPanel(state, live) : invitationsPanel(state, live),
+      tab === 'invitations' ? invitationsPanel(state, live) : usersPanel(state, live, tab === 'removed'),
     ]),
   ]);
 }
@@ -63,17 +65,18 @@ function missingOwnScopeNotice(state: AppState, live: LiveState): HTMLElement | 
 
 /* ------------------------------------------------------------------ users -- */
 
-function usersPanel(state: AppState, live: LiveState): HTMLElement {
+function usersPanel(state: AppState, live: LiveState, removed: boolean): HTMLElement {
   return h('div', { class: 'admin-panel__body' }, [
     h('div', { class: 'admin-toolbar' }, [
       searchBox(state.userSearch, 'user-search', t(state, 'ابحث بالاسم أو البريد أو الدور أو الفريق', 'Search name, email, role or team'), t(state, 'بحث في المستخدمين', 'Search users')),
     ]),
+    removed ? notice('info', 'userPlus', t(state, 'يمكنك إضافة المستخدم مرة أخرى من «دعوة مستخدم» بنفس بريده وتحديد صلاحياته الجديدة.', 'To add a removed user again, invite the same email and choose their new access.')) : null,
     resourceView(state, live.people, {
       icon: 'users',
       title: t(state, 'لا يوجد مستخدمون', 'No users yet'),
       body: t(state, 'ادعُ زميلًا للبدء.', 'Invite a colleague to get started.'),
     }, (rows) => {
-      const visible = rows.filter((person) => matches(state.userSearch, person.display_name ?? '', person.email, person.role.name, ...teamsOf(live, person.membership_id).map((team) => team.name)));
+      const visible = rows.filter((person) => (person.status === 'revoked') === removed && matches(state.userSearch, person.display_name ?? '', person.email, person.role.name, ...teamsOf(live, person.membership_id).map((team) => team.name)));
       return visible.length === 0
         ? h('p', { class: 'admin-empty-search', role: 'status' }, [t(state, 'لا يوجد مستخدم يطابق البحث.', 'No user matches this search.')])
         : usersTable(state, live, visible);
@@ -111,6 +114,7 @@ export function usersTable(state: AppState, live: LiveState, rows: readonly Pers
  * on, and revoking asks for confirmation first.
  */
 export function memberMenu(state: AppState, live: LiveState, person: Person): HTMLElement | null {
+  if (person.status === 'revoked') return null;
   const self = person.email === openSession(live).email;
   const id = person.membership_id;
   const busy = live.busy !== null && live.busy.endsWith(id);
@@ -132,9 +136,9 @@ export function memberMenu(state: AppState, live: LiveState, person: Person): HT
     self || person.status !== 'active'
       ? null
       : { label: t(state, 'نقل الملكية…', 'Transfer ownership…'), icon: 'key', act: 'dialog', arg: `ownership-offer:${id}` },
-    person.status === 'revoked' || self
+    self
       ? null
-      : { label: t(state, 'إلغاء العضوية…', 'Revoke access…'), icon: 'trash', act: 'dialog', arg: `member-revoke:${id}`, danger: true },
+      : { label: t(state, 'حذف المستخدم…', 'Remove user…'), icon: 'trash', act: 'dialog', arg: `member-revoke:${id}`, danger: true },
   ]);
 }
 

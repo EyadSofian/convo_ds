@@ -387,13 +387,22 @@ export class InvitationService {
           userId = existing.id;
         }
 
+        // Reuse a revoked membership to preserve attribution and satisfy the
+        // tenant/user uniqueness constraint. An already-active seat is never
+        // overwritten; a returning member receives only the new invitation's access.
         const membership = await sql.query<{ id: string }>(
           `INSERT INTO memberships (tenant_id, user_id, role_id, status)
            VALUES ($1, $2, $3, 'active')
+           ON CONFLICT (tenant_id, user_id) DO UPDATE
+             SET role_id=EXCLUDED.role_id, status='active', revoked_at=NULL
+             WHERE memberships.status='revoked'
            RETURNING id::text`,
           [tenantId, userId, invitation.role_id],
         );
+        if (membership.rows.length === 0) return null;
         const membershipId = requireRow(membership.rows, 'membership insert returned no id').id;
+        await sql.query('DELETE FROM membership_scopes WHERE membership_id=$1', [membershipId]);
+        await sql.query('DELETE FROM team_members WHERE membership_id=$1', [membershipId]);
 
         // Exactly the scopes recorded at creation. Reading them from the
         // invitation rather than the request is what stops the grant widening

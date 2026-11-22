@@ -503,6 +503,89 @@ describe('accepting an invitation', () => {
     expect(session.cookie).toContain('convo_session=');
   });
 
+  it('reinvites a removed user without duplicating their identity or retaining old access', async () => {
+    const supervisor = await roleId(api, 'supervisor');
+    const agent = await roleId(api, 'agent');
+    const email = 'returning@invite.test';
+    const inbox = '44444444-4444-4444-8444-444444444444';
+    expect((await invite(api, owner, { email, roleId: supervisor })).statusCode).toBe(201);
+    const first = await api.server.inject({
+      method: 'POST', url: `/api/v1/invitations/${api.delivery.last().token}/accept`,
+      remoteAddress: '203.0.113.81', payload: { password: NEW_PASSWORD },
+    });
+    expect(first.statusCode).toBe(201);
+    const membershipId = (first.json() as { data: { membership_id: string } }).data.membership_id;
+    const browser = await login(api, email, NEW_PASSWORD);
+    await withTenant(api.pool, api.tenantId, async (client) => {
+      const team = await client.query<{ id: string }>(
+        'INSERT INTO teams (tenant_id,name) VALUES ($1,$2) RETURNING id::text', [api.tenantId, 'Old team'],
+      );
+      await client.query('INSERT INTO team_members (tenant_id,team_id,membership_id) VALUES ($1,$2,$3)',
+        [api.tenantId, team.rows[0]?.id, membershipId]);
+    });
+    const removed = await api.server.inject({
+      method: 'PATCH', url: `/api/v1/tenants/${api.tenantId}/people/${membershipId}`,
+      headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrf }, payload: { status: 'revoked' },
+    });
+    expect(removed.statusCode).toBe(200);
+    const denied = await api.server.inject({
+      method: 'GET', url: `/api/v1/tenants/${api.tenantId}/people`, headers: { cookie: browser.cookie },
+    });
+    expect(denied.statusCode).toBe(404);
+    expect((await invite(api, owner, { email, roleId: agent, scopes: [{ type: 'inbox', id: inbox }] })).statusCode).toBe(201);
+    const token = api.delivery.last().token;
+    const wrong = await api.server.inject({
+      method: 'POST', url: `/api/v1/invitations/${token}/accept`,
+      remoteAddress: '203.0.113.82', payload: { password: 'incorrect existing account password' },
+    });
+    expect(wrong.statusCode).toBe(400);
+    const accepted = await api.server.inject({
+      method: 'POST', url: `/api/v1/invitations/${token}/accept`,
+      remoteAddress: '203.0.113.83', payload: { password: NEW_PASSWORD },
+    });
+    expect(accepted.statusCode).toBe(201);
+    expect(accepted.json()).toMatchObject({ data: { membership_id: membershipId } });
+    const state = await withTenant(api.pool, api.tenantId, async (client) => ({
+      memberships: (await client.query('SELECT id::text, status, role_id::text, revoked_at FROM memberships WHERE id=$1', [membershipId])).rows,
+      scopes: (await client.query('SELECT scope_type,scope_id::text FROM membership_scopes WHERE membership_id=$1', [membershipId])).rows,
+      teams: (await client.query('SELECT team_id FROM team_members WHERE membership_id=$1', [membershipId])).rows,
+    }));
+    expect(state.memberships).toEqual([{ id: membershipId, status: 'active', role_id: agent, revoked_at: null }]);
+    expect(state.scopes).toEqual([{ scope_type: 'inbox', scope_id: inbox }]);
+    expect(state.teams).toEqual([]);
+    expect((await login(api, email, NEW_PASSWORD)).cookie).toContain('convo_session=');
+  });
+
+  it('does not overwrite an active membership when an invitation predates reactivation', async () => {
+    const agent = await roleId(api, 'agent');
+    const email = 'reactivated@invite.test';
+    expect((await invite(api, owner, { email, roleId: agent })).statusCode).toBe(201);
+    const first = await api.server.inject({
+      method: 'POST', url: `/api/v1/invitations/${api.delivery.last().token}/accept`,
+      remoteAddress: '203.0.113.84', payload: { password: NEW_PASSWORD },
+    });
+    expect(first.statusCode).toBe(201);
+    const membershipId = (first.json() as { data: { membership_id: string } }).data.membership_id;
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      "UPDATE memberships SET status='revoked',revoked_at=now() WHERE id=$1", [membershipId],
+    ));
+    expect((await invite(api, owner, { email, roleId: agent })).statusCode).toBe(201);
+    const token = api.delivery.last().token;
+    await withTenant(api.pool, api.tenantId, (client) => client.query(
+      "UPDATE memberships SET status='active',revoked_at=NULL WHERE id=$1", [membershipId],
+    ));
+    const refused = await api.server.inject({
+      method: 'POST', url: `/api/v1/invitations/${token}/accept`,
+      remoteAddress: '203.0.113.85', payload: { password: NEW_PASSWORD },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toMatchObject({ error: { details: [{ code: 'invalid_or_expired' }] } });
+    const pending = await withTenant(api.pool, api.tenantId, (client) => client.query(
+      'SELECT status FROM invitations WHERE email=$1 AND status=$2', [email, 'pending'],
+    ));
+    expect(pending.rows).toHaveLength(1);
+  });
+
   it('is single use', async () => {
     const agent = await roleId(api, 'agent');
     expect((await invite(api, owner, { email: 'once@invite.test', roleId: agent })).statusCode).toBe(
