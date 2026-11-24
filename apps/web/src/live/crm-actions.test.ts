@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CrmSettings, CreatedCrmKey } from '../api/crm.js';
+import type { CrmSettings, CreatedCrmKey } from '../api/people.js';
 import type { ApiResult } from '../api/client.js';
 import { createState } from '../state.js';
 import type { LiveContext } from './actions.js';

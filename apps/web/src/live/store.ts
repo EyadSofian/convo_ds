@@ -1,4 +1,4 @@
-import type { CrmSettings } from '../api/crm.js';
+import type { CrmSettings } from '../api/people.js';
 import type { AttachmentDraft } from './chat-attachment.js';
 import type { InboxLine } from '../api/conversations.js';
 import type { TemplateLibrary, ChannelCatalogueEntry, ChannelConnection, ChannelTestRecipient, ChannelsApi, CreatedMetaApp, MetaAppSummary, QuickWhatsAppOptions, QuickWhatsAppLookup } from '../api/channels.js';

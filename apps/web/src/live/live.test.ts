@@ -1951,6 +1951,12 @@ describe('the Settings screen', () => {
     checkbox.checked = true;
     checkbox.dispatchEvent(new window.Event('change', { bubbles: true }));
     expect(isDisabled(root, create)).toBe(false);
+    for (const checked of [false, true]) {
+      const senderCheckbox = find(root, 'input[value="sales"]') as HTMLInputElement;
+      senderCheckbox.checked = checked;
+      senderCheckbox.dispatchEvent(new window.Event('change', { bubbles: true }));
+      expect(isDisabled(root, create)).toBe(!checked);
+    }
     api.on(`POST ${path}/keys`, { status: 409, body: { error: { code: 'crm_key_limit', message: 'Revoke a key before creating another.' } } });
     click(root, create);
     await settle();
