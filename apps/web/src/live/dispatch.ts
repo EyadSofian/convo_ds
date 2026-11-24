@@ -1,3 +1,4 @@
+import { createCrmKey, loadCrmSettings, revokeCrmKey } from './crm-actions.js';
 import { rememberEmoji } from '../ui/emoji-data.js';
 import { sendAttachment } from './chat-attachment.js';
 import { editTemplateAccess, pickLibraryResults, openTemplateLibrary, saveTemplateAccess } from './template-library.js';
@@ -562,6 +563,14 @@ export const LIVE_ACTIONS: Readonly<Record<string, LiveHandler>> = {
 
   'live-tenant-switch': (context, arg) => Promise.resolve(switchTenant(context, arg)),
 
+  'live-crm-reload': async (context) => loadCrmSettings(context),
+  'live-crm-sender': async (context, id) => {
+    const field = `crmSender_${id}`;
+    context.state.dialogForm[field] = context.state.dialogForm[field] === 'yes' ? '' : 'yes';
+    context.refresh();
+  },
+  'live-crm-create-key': async (context) => createCrmKey(context),
+  'live-crm-revoke-key': async (context, id) => revokeCrmKey(context, id),
   'live-sessions-reload': async (context) => loadSettingsScreen(context),
 
   'live-revoke-session': async (context, arg) => revokeSession(context, arg),

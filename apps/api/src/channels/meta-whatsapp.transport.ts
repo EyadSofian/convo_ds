@@ -269,7 +269,7 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
       };
     }
 
-    const body = (await readJson(response)) as { id?: unknown; instagram_business_account?: { id?: unknown }; error?: GraphError } | null;
+    const body = (await readJson(response)) as { id?: unknown; display_phone_number?: unknown; instagram_business_account?: { id?: unknown }; error?: GraphError } | null;
     if (!response.ok) {
       const failure = classify(response.status, body?.error);
       return {
@@ -293,7 +293,13 @@ export class MetaWhatsAppTransport implements ChannelTransportPort {
         message: 'The token does not grant access to the configured provider asset.',
       };
     }
-    return { ok: true, assetIdentity, code: null, message: null };
+    const phone = body?.display_phone_number;
+    return {
+      ok: true, assetIdentity, code: null, message: null,
+      ...(kind === 'whatsapp' && typeof phone === 'string' && /^\+?[0-9 ()-]{8,32}$/.test(phone)
+        ? { displayPhoneNumber: phone }
+        : {}),
+    };
   }
 
   async send(kind: ChannelKind, credential: string, command: SendCommand): Promise<SendOutcome> {

@@ -855,6 +855,7 @@ describe('the connection test', () => {
     expect(await adapter.validateConnection('whatsapp', TOKEN, '15550001111')).toEqual({
       ok: true,
       assetIdentity: '15550001111',
+      displayPhoneNumber: '+1 555 000 1111',
       code: null,
       message: null,
     });

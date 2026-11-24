@@ -1,3 +1,4 @@
+import { crmPanel } from './crm-panel.js';
 import type { MembershipSummary, SessionSummary } from '../api/people.js';
 import { h } from '../dom.js';
 import { dateFormat, relativeTime } from '../format.js';
@@ -52,6 +53,7 @@ export function renderSettings(state: AppState): HTMLElement {
       ]),
     ]),
     sessionsPanel(state),
+    hasPermission(live, 'api_key.manage') ? crmPanel(state) : null,
     hasPermission(live, 'catalog.manage') ? quickRepliesPanel(state) : null,
     hasPermission(live, 'catalog.manage') ? labelsPanel(state) : null,
     settingsSection(t(state, 'إعدادات مساحة العمل', 'Workspace settings'), t(state, 'تظهر الإمكانات غير المتصلة بالخادم كمعلومات فقط.', 'Capabilities without a server endpoint are shown as information only.'), [

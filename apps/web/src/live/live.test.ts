@@ -1910,6 +1910,76 @@ describe('the Settings screen', () => {
     return signedInApi().on('GET /auth/sessions', { status: 200, body: { data: [current, other] } });
   }
 
+  it('lets an admin create a WhatsApp CRM key for chosen lines, then revoke it', async () => {
+    const path = `/tenants/${TENANT}/crm/whatsapp`;
+    const sender = { id: 'sales', displayName: 'Sales', phoneNumberId: '19001', displayPhoneNumber: '+12025550100', sendReady: true };
+    const secondary = { id: 'operations', displayName: 'Operations', phoneNumberId: '19002', displayPhoneNumber: null, sendReady: false };
+    const key = { id: 'crm-key-1', label: 'CRM production', expires_at: NOW.toISOString(), connection_ids: [sender.id] };
+    const token = 'convo_crm_one_time_secret';
+    const api = settingsApi()
+      .on('GET /me/memberships', {
+        status: 200, body: { data: [{ id: 'own-membership', tenant: { id: TENANT, name: 'Digital School', slug: 'digital-school' },
+          role: { id: 'owner-role', key: 'owner', name: 'Owner' }, permissions: [...OWNER_PERMISSIONS, 'api_key.manage'] }] },
+      })
+      .on(`GET ${path}/settings`, { status: 503, body: { error: { code: 'temporarily_unavailable', message: 'Retry' } } })
+      .on(`POST ${path}/keys`, { status: 201, body: { data: { key, token } } })
+      .on(`DELETE ${path}/keys/${key.id}`, { status: 204, body: null });
+    const { app, root } = start(api, '#/settings');
+    await settle();
+    expect(text(root)).toContain('WhatsApp CRM connection');
+    expect(isDisabled(root, '[data-arg="crm-key"]')).toBe(true);
+    app.dispatch('dialog', 'crm-key');
+    expect(root.querySelector('.dialog input[type="checkbox"]')).toBeNull();
+    app.dispatch('close-dialog', '');
+    app.dispatch('dialog', 'crm-revoke:missing');
+    expect(isDisabled(root, '[data-act="live-crm-revoke-key"]')).toBe(true);
+    app.dispatch('close-dialog', '');
+    api.on(`GET ${path}/settings`, { status: 200, body: { data: { tenantId: TENANT, senders: [sender, secondary], keys: [] } } });
+    click(root, '[data-act="live-crm-reload"]');
+    await settle();
+    expect(text(root)).toContain('+12025550100');
+    expect(text(root)).toContain('Needs verification');
+    expect(find(root, 'a[download="Omni-WhatsApp-CRM.openapi.json"]').getAttribute('href')).toContain('crm-whatsapp.openapi.json');
+    app.dispatch('live-crm-create-key', '');
+    app.dispatch('live-crm-revoke-key', 'missing');
+    click(root, '[data-arg="crm-key"]');
+    app.dispatch('live-crm-create-key', '');
+    const create = '[data-act="live-crm-create-key"]';
+    expect(isDisabled(root, create)).toBe(true);
+    type(root, '[data-form="crmLabel"]', 'CRM production');
+    const checkbox = find(root, 'input[value="sales"]') as HTMLInputElement;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(isDisabled(root, create)).toBe(false);
+    for (const checked of [false, true]) {
+      const senderCheckbox = find(root, 'input[value="sales"]') as HTMLInputElement;
+      senderCheckbox.checked = checked;
+      senderCheckbox.dispatchEvent(new window.Event('change', { bubbles: true }));
+      expect(isDisabled(root, create)).toBe(!checked);
+    }
+    api.on(`POST ${path}/keys`, { status: 409, body: { error: { code: 'crm_key_limit', message: 'Revoke a key before creating another.' } } });
+    click(root, create);
+    await settle();
+    expect(text(find(root, '.dialog'))).toContain('Revoke a key before creating another.');
+    api.on(`POST ${path}/keys`, { status: 201, body: { data: { key, token } } });
+    api.on(`GET ${path}/settings`, { status: 200, body: { data: { tenantId: TENANT, senders: [sender], keys: [key] } } });
+    click(root, create);
+    await settle();
+    expect(api.calls.find((call) => call.path === `${path}/keys`)?.body).toEqual({ label: 'CRM production', connectionIds: ['sales'] });
+    expect((find(root, '.dialog input[readonly]') as HTMLInputElement).value).toBe(token);
+    click(root, '.dialog [data-act="close-dialog"]');
+    expect(app.state.dialogForm).toEqual({});
+    expect(root.querySelector('input[value="' + token + '"]')).toBeNull();
+
+    click(root, '[data-arg="crm-revoke:crm-key-1"]');
+    api.on(`GET ${path}/settings`, { status: 200, body: { data: { tenantId: TENANT, senders: [sender], keys: [] } } });
+    click(root, '[data-act="live-crm-revoke-key"]');
+    await settle();
+    expect(api.calls).toEqual(expect.arrayContaining([expect.objectContaining({ method: 'DELETE', path: `${path}/keys/${key.id}` })]));
+    expect(root.querySelector('[data-arg="crm-revoke:crm-key-1"]')).toBeNull();
+    expect(text(root)).toContain('There are no active integration keys.');
+  });
+
   it('lists this person’s sessions and offers to end only the other ones', async () => {
     const { root } = start(settingsApi(), '#/settings');
     await settle();

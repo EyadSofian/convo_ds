@@ -1,3 +1,4 @@
+import { crmDialog } from './crm-panel.js';
 import { contactTemplateContact, contactTemplateLine, contactTemplateNumbers } from '../live/contact-actions.js';
 import { normalizeSearchText } from '@convo/domain';
 import { templateLibraryDialog } from './template-library.js';
@@ -41,6 +42,7 @@ export function renderDialog(state: AppState): HTMLElement | null {
   if (dialog.kind === 'archived-delete') return archivedDelete(state);
   if (dialog.kind === 'contact-create') return contactCreateDialog(state);
   if (dialog.kind === 'invite') return invite(state);
+  if (dialog.kind === 'crm-key' || dialog.kind === 'crm-revoke') return crmDialog(state, dialog.kind, dialog.arg);
   if (dialog.kind === 'change-password') return changePasswordDialog(state);
   if (dialog.kind === 'ownership-offer') return ownershipOffer(state, dialog.arg);
   if (dialog.kind === 'saved-inbox-view') return savedInboxView(state, dialog.arg);

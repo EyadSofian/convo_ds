@@ -1,3 +1,4 @@
+import { loadCrmSettings } from './crm-actions.js';
 import type { ChannelSettingsInput, ChannelTestRecipient, ConnectChannelInput } from '../api/channels.js';
 import type { ApiError, ApiResult } from '../api/client.js';
 import type { Role, ScopeRef } from '../api/people.js';
@@ -173,7 +174,10 @@ export async function loadSettingsScreen(context: LiveContext): Promise<void> {
   if (labels !== null) live.workspaceLabels = fromResult(labels, context.now());
   context.refresh();
   // The quick reply manager reads them fresh: somebody may have changed one.
-  if (hasPermission(live, 'catalog.manage')) await loadQuickReplies(context, true);
+  await Promise.all([
+    hasPermission(live, 'catalog.manage') ? loadQuickReplies(context, true) : null,
+    hasPermission(live, 'api_key.manage') ? loadCrmSettings(context) : null,
+  ]);
 }
 
 /** Revokes one of this user's other sessions. The current one signs out instead. */

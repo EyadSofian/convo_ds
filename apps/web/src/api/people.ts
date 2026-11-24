@@ -116,8 +116,46 @@ export interface Permission {
   readonly delegable: boolean;
 }
 
+export interface CrmSender {
+  readonly id: string;
+  readonly displayName: string;
+  readonly phoneNumberId: string;
+  readonly displayPhoneNumber: string | null;
+  readonly sendReady: boolean;
+}
+
+export interface CrmKey {
+  readonly id: string;
+  readonly label: string;
+  readonly connection_ids: readonly string[];
+  readonly expires_at: string;
+}
+
+export interface CrmSettings {
+  readonly tenantId: string;
+  readonly senders: readonly CrmSender[];
+  readonly keys: readonly CrmKey[];
+}
+
+export interface CreatedCrmKey {
+  readonly key: CrmKey;
+  readonly token: string;
+}
+
 export class PeopleApi {
   constructor(private readonly client: ApiClient) {}
+
+  crmSettings(tenantId: string): Promise<ApiResult<CrmSettings>> {
+    return this.client.get(`/tenants/${tenantId}/crm/whatsapp/settings`);
+  }
+
+  createCrmKey(tenantId: string, label: string, connectionIds: readonly string[]): Promise<ApiResult<CreatedCrmKey>> {
+    return this.client.post(`/tenants/${tenantId}/crm/whatsapp/keys`, { body: { label, connectionIds } });
+  }
+
+  revokeCrmKey(tenantId: string, id: string): Promise<ApiResult<undefined>> {
+    return this.client.delete(`/tenants/${tenantId}/crm/whatsapp/keys/${encodeURIComponent(id)}`);
+  }
 
   session(): Promise<ApiResult<CurrentSession>> {
     return this.client.get<CurrentSession>('/auth/session');
