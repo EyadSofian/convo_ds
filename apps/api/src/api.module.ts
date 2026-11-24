@@ -1,3 +1,5 @@
+import { CrmWhatsAppController } from './crm/crm-whatsapp.controller.js';
+import { CrmWhatsAppService } from './crm/crm-whatsapp.service.js';
 import { TemplateLibraryController } from './channels/template-library.controller.js';
 import { TemplateLibraryService } from './channels/template-library.service.js';
 import {
@@ -153,6 +155,7 @@ export class ApiModule {
         ChannelAppController,
         ChannelIngressController,
         OutboundController,
+        CrmWhatsAppController,
         ConversationController,
         ContactController,
         MetadataController,
@@ -236,6 +239,7 @@ export class ApiModule {
         ChannelNormalizationService,
         ChannelDispatcherService,
         OutboundService,
+        CrmWhatsAppService,
         MembershipService,
         PermissionService,
         QuickReplyService,

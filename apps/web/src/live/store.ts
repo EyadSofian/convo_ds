@@ -1,3 +1,4 @@
+import type { CrmSettings } from '../api/crm.js';
 import type { AttachmentDraft } from './chat-attachment.js';
 import type { InboxLine } from '../api/conversations.js';
 import type { TemplateLibrary, ChannelCatalogueEntry, ChannelConnection, ChannelTestRecipient, ChannelsApi, CreatedMetaApp, MetaAppSummary, QuickWhatsAppOptions, QuickWhatsAppLookup } from '../api/channels.js';
@@ -338,6 +339,7 @@ export interface LiveState {
   customFields: Resource<readonly CustomField[]>;
   /** This user's active sessions, for the Settings screen. */
   sessions: Resource<readonly SessionSummary[]>;
+  crmSettings: Resource<CrmSettings>;
   campaigns: Resource<readonly Campaign[]>;
   campaignRecipients: Resource<readonly CampaignRecipient[]>;
   /** Which recipients the ledger shows: everyone, or only one outcome. */
@@ -502,6 +504,7 @@ export function createLiveState(
     workspaceLabels: IDLE,
     customFields: IDLE,
     sessions: IDLE,
+    crmSettings: IDLE,
     campaigns: IDLE,
     campaignRecipients: IDLE,
     campaignRecipientFilter: 'all',

@@ -1,3 +1,4 @@
+import type { CreatedCrmKey, CrmSettings } from './crm.js';
 import { ChannelsApi } from './channels.js';
 import { ContactsApi } from './contacts.js';
 import { ConversationsApi } from './conversations.js';
@@ -118,6 +119,18 @@ export interface Permission {
 
 export class PeopleApi {
   constructor(private readonly client: ApiClient) {}
+
+  crmSettings(tenantId: string): Promise<ApiResult<CrmSettings>> {
+    return this.client.get(`/tenants/${tenantId}/crm/whatsapp/settings`);
+  }
+
+  createCrmKey(tenantId: string, label: string, connectionIds: readonly string[]): Promise<ApiResult<CreatedCrmKey>> {
+    return this.client.post(`/tenants/${tenantId}/crm/whatsapp/keys`, { body: { label, connectionIds } });
+  }
+
+  revokeCrmKey(tenantId: string, id: string): Promise<ApiResult<undefined>> {
+    return this.client.delete(`/tenants/${tenantId}/crm/whatsapp/keys/${encodeURIComponent(id)}`);
+  }
 
   session(): Promise<ApiResult<CurrentSession>> {
     return this.client.get<CurrentSession>('/auth/session');

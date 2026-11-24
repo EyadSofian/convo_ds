@@ -380,9 +380,11 @@ export class ChannelService {
       } else if (check.ok) {
         await sql.query(
           `UPDATE channel_connections
-              SET credential_verified_at = now(), last_error_code = NULL, last_error_at = NULL
+              SET credential_verified_at = now(), last_error_code = NULL, last_error_at = NULL,
+                  settings = CASE WHEN $2::text IS NULL THEN settings
+                    ELSE jsonb_set(settings, '{display_phone_number}', to_jsonb($2::text), true) END
             WHERE id = $1`,
-          [connectionId],
+          [connectionId, check.displayPhoneNumber ?? null],
         );
         await retryExhaustedProfiles(sql, connectionId, connection.kind);
       } else {

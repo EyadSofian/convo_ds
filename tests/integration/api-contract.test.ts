@@ -276,6 +276,14 @@ describe('pinned OpenAPI contract', () => {
       "updateAutomation",
       "transitionAutomation",
       "listAutomationRuns",
+      "getCrmWhatsAppSettings",
+      "createCrmWhatsAppKey",
+      "revokeCrmWhatsAppKey",
+      "listCrmWhatsAppSenders",
+      "listCrmWhatsAppTemplates",
+      "lookupCrmWhatsAppContact",
+      "sendCrmWhatsAppTemplate",
+      "getCrmWhatsAppMessage",
     ]);
     for (const operation of operations) {
       expect(Object.keys(operation.responses ?? {}).length).toBeGreaterThan(0);

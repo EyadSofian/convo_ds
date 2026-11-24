@@ -8370,10 +8370,643 @@
     },
     "/tenants/{tenantId}/automation-runs": {
       "get": { "operationId": "listAutomationRuns", "summary": "List automation production and test runs", "security": [{ "SessionCookie": [] }], "parameters": [{ "$ref": "#/components/parameters/RequestId" }, { "$ref": "#/components/parameters/TenantId" }], "responses": { "200": { "description": "Automation runs" }, "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" }, "default": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/tenants/{tenantId}/crm/whatsapp/settings": {
+      "get": {
+        "operationId": "getCrmWhatsAppSettings",
+        "summary": "Read CRM administration settings",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "tenantId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "senders": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/CrmWhatsAppSender"
+                          }
+                        },
+                        "keys": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/CrmWhatsAppKey"
+                          }
+                        }
+                      },
+                      "required": [
+                        "tenantId",
+                        "senders",
+                        "keys"
+                      ]
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "request_id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/crm/whatsapp/keys": {
+      "post": {
+        "operationId": "createCrmWhatsAppKey",
+        "summary": "Create a sender-scoped CRM key",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrmWhatsAppKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Key created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "$ref": "#/components/schemas/CrmWhatsAppKey"
+                        },
+                        "token": {
+                          "type": "string",
+                          "description": "One-time secret. Store securely."
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "token"
+                      ]
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "request_id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/crm/whatsapp/keys/{keyId}": {
+      "delete": {
+        "operationId": "revokeCrmWhatsAppKey",
+        "summary": "Revoke a CRM key",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          },
+          {
+            "name": "keyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Key revoked"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/crm/whatsapp/senders": {
+      "get": {
+        "operationId": "listCrmWhatsAppSenders",
+        "summary": "List allowed connected WhatsApp senders",
+        "security": [
+          {
+            "CrmBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CrmWhatsAppSender"
+                      }
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "request_id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/crm/whatsapp/senders/{connectionId}/templates": {
+      "get": {
+        "operationId": "listCrmWhatsAppTemplates",
+        "summary": "List synchronized templates for a sender",
+        "security": [
+          {
+            "CrmBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "connectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Pass nextCursor from the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CrmWhatsAppTemplates"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "request_id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/crm/whatsapp/lookup": {
+      "post": {
+        "operationId": "lookupCrmWhatsAppContact",
+        "summary": "Find a contact and its current conversations",
+        "security": [
+          {
+            "CrmBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrmWhatsAppLookupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CrmWhatsAppLookup"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "request_id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/crm/whatsapp/messages": {
+      "post": {
+        "operationId": "sendCrmWhatsAppTemplate",
+        "summary": "Queue an approved WhatsApp template",
+        "security": [
+          {
+            "CrmBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrmWhatsAppSendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Template message durably queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CrmWhatsAppMessage"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "request_id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/tenants/{tenantId}/crm/whatsapp/messages/{messageId}": {
+      "get": {
+        "operationId": "getCrmWhatsAppMessage",
+        "summary": "Read dispatch, receipt and conversation status",
+        "security": [
+          {
+            "CrmBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CrmWhatsAppMessage"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "request_id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
     "securitySchemes": {
+      "CrmBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Omni CRM key"
+      },
       "SessionCookie": {
         "type": "apiKey",
         "in": "cookie",
@@ -8511,6 +9144,482 @@
       }
     },
     "schemas": {
+      "CrmWhatsAppSender": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "phoneNumberId": {
+            "type": "string"
+          },
+          "displayPhoneNumber": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sendReady": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "phoneNumberId",
+          "displayPhoneNumber",
+          "sendReady"
+        ]
+      },
+      "CrmWhatsAppKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string"
+          },
+          "connection_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "connection_ids",
+          "created_at",
+          "expires_at",
+          "revoked_at"
+        ]
+      },
+      "CrmWhatsAppKeyRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "connectionIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "label",
+          "connectionIds"
+        ]
+      },
+      "CrmWhatsAppLookupRequest": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "pattern": "^\\+?[1-9][0-9]{7,14}$",
+            "examples": [
+              "+12025550123"
+            ]
+          },
+          "contactId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [],
+        "anyOf": [
+          {
+            "required": [
+              "phone"
+            ]
+          },
+          {
+            "required": [
+              "contactId"
+            ]
+          }
+        ]
+      },
+      "CrmWhatsAppLookup": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "pattern": "^\\+?[1-9][0-9]{7,14}$",
+            "examples": [
+              "+12025550123"
+            ]
+          },
+          "contactId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conversations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "connectionId",
+                "status"
+              ]
+            }
+          }
+        },
+        "required": [
+          "phone",
+          "contactId",
+          "conversations"
+        ]
+      },
+      "CrmWhatsAppSendRequest": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "pattern": "^\\+?[1-9][0-9]{7,14}$",
+            "examples": [
+              "+12025550123"
+            ]
+          },
+          "contactId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "conversationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 190
+          },
+          "template": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "parameters": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 1024
+                }
+              }
+            },
+            "required": [
+              "id",
+              "parameters"
+            ]
+          },
+          "clientMessageId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:-]{8,190}$"
+          },
+          "optInReference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          }
+        },
+        "required": [
+          "connectionId",
+          "template",
+          "clientMessageId",
+          "optInReference"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "phone"
+            ]
+          },
+          {
+            "required": [
+              "contactId"
+            ]
+          }
+        ]
+      },
+      "CrmWhatsAppMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "clientMessageId": {
+            "type": "string"
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "conversationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "conversationStatus": {
+            "type": "string"
+          },
+          "commandState": {
+            "type": "string"
+          },
+          "stateReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deliveryState": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "sent",
+                  "delivered",
+                  "read"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deliveryAnomaly": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "providerMessageId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "queuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settledAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastCustomerMessageAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "clientMessageId",
+          "connectionId",
+          "contactId",
+          "conversationId",
+          "conversationStatus",
+          "commandState",
+          "stateReason",
+          "deliveryState",
+          "deliveryAnomaly",
+          "providerMessageId",
+          "queuedAt",
+          "settledAt",
+          "lastCustomerMessageAt"
+        ]
+      },
+      "CrmWhatsAppTemplates": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "language": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "components": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key"
+                    ]
+                  }
+                },
+                "sendSupported": {
+                  "type": "boolean"
+                },
+                "unsupportedReason": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "lastSyncedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "connectionId",
+                "name",
+                "language",
+                "category",
+                "status",
+                "components",
+                "parameters",
+                "sendSupported",
+                "unsupportedReason",
+                "lastSyncedAt"
+              ]
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
       "NotificationRecord": {
         "type": "object", "additionalProperties": false,
         "required": ["id", "kind", "targetType", "targetId", "createdAt", "readAt"],

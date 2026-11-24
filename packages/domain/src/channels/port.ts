@@ -170,6 +170,7 @@ export interface SendCommand {
 }
 
 export interface ConnectionCheck {
+  readonly displayPhoneNumber?: string;
   readonly ok: boolean;
   readonly assetIdentity: string | null;
   readonly code: string | null;

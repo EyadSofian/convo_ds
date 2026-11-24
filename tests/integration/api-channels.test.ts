@@ -1,3 +1,4 @@
+import { AuthRateLimiter } from '../../apps/api/src/auth/auth-rate-limiter.js';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -2330,6 +2331,220 @@ describe('the outbound path', () => {
     const again = await dispatcher.reconcileReceipts(api.tenantId);
     expect(again).toBe(0);
     expect(before).toBeGreaterThanOrEqual(0);
+  });
+
+  it('exposes a scoped CRM template flow with idempotent contacts, distinct sender threads and receipt tracking', async () => {
+    const path = '/crm/whatsapp';
+    const secondAsset = 'phone-crm-operations';
+    const second = await connect(api, owner, secondAsset);
+    expect(second.statusCode, second.body).toBe(201);
+    const secondId = second.json().data.id as string;
+    const blocked = await connect(api, owner, 'phone-crm-restricted');
+    const blockedId = blocked.json().data.id as string;
+    const templateId = await syncApprovedTemplate('crm_sales');
+    const secondTemplateId = await syncApprovedTemplate('crm_operations', secondId);
+    const manage = (method: 'GET' | 'POST' | 'DELETE', route: string, body?: Record<string, unknown>) =>
+      send(api, owner, method, path + route, body);
+    const settings = await manage('GET', '/settings');
+    expect(settings.statusCode, settings.body).toBe(200);
+    expect(settings.json().data).toMatchObject({ tenantId: api.tenantId, keys: [] });
+    expect((await manage('POST', '/keys', { connectionIds: [] })).statusCode).toBe(400);
+    expect((await manage('POST', '/keys', { label: 'Unknown', connectionIds: [randomUUID()] })).statusCode).toBe(404);
+    expect((await manage('DELETE', '/keys/' + randomUUID())).statusCode).toBe(404);
+
+    const key = await manage('POST', '/keys', { label: 'CRM', connectionIds: [connectionId, secondId] });
+    expect(key.statusCode, key.body).toBe(201);
+    const { token, key: record } = key.json().data as { token: string; key: { id: string } };
+    expect(token).toMatch(/^convo_crm_/);
+    expect(key.headers['cache-control']).toBe('no-store');
+    expect((await manage('GET', '/settings')).body).not.toContain(token);
+
+    const crm = (
+      method: 'GET' | 'POST', route: string, body?: unknown, credential = token, tenant = api.tenantId,
+      remoteAddress = '203.0.113.37',
+    ) => api.server.inject({
+      method, url: `/api/v1/tenants/${tenant}${path}${route}`, remoteAddress,
+      headers: { authorization: `Bearer ${credential}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      ...(body === undefined ? {} : { payload: JSON.stringify(body) }),
+    });
+    expect((await crm('GET', '/senders', undefined, 'invalid')).statusCode).toBe(401);
+    expect((await crm('GET', '/senders', undefined, token, randomUUID())).statusCode).toBe(401);
+    expect((await api.server.inject({ method: 'GET', url: `/api/v1/tenants/${api.tenantId}${path}/senders` })).statusCode).toBe(401);
+    const senders = await crm('GET', '/senders');
+    expect(senders.statusCode, senders.body).toBe(200);
+    expect(senders.json().data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: connectionId, phoneNumberId: PHONE_ID }),
+      expect.objectContaining({ id: secondId, phoneNumberId: secondAsset, sendReady: false }),
+    ]));
+    expect(senders.body).not.toContain(blockedId);
+    expect((await crm('GET', `/senders/${blockedId}/templates`)).statusCode).toBe(404);
+    const catalogue = await crm('GET', `/senders/${connectionId}/templates`);
+    expect(catalogue.json().data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: templateId, status: 'approved', sendSupported: true, parameters: [expect.objectContaining({ key: 'body:1' })] }),
+    ]));
+    expect((await crm('GET', `/senders/${connectionId}/templates?cursor=${templateId}`)).json().data.items).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: templateId })]));
+    const phone = '+' + peer();
+    expect((await crm('POST', '/lookup', { phone })).json().data).toEqual({ phone, contactId: null, conversations: [] });
+    for (const input of ['invalid', {}, { phone: '01012345678' }, { contactId: 'invalid' }]) {
+      expect((await crm('POST', '/lookup', input)).statusCode).toBe(400);
+    }
+    expect((await crm('POST', '/lookup', { contactId: randomUUID() })).statusCode).toBe(404);
+    const payload = {
+      connectionId, phone, clientMessageId: clientId(), displayName: 'CRM example',
+      template: { id: templateId, parameters: { 'body:1': 'ORD-51' } }, optInReference: 'crm-opt-in-51',
+    };
+    expect((await crm('POST', '/messages', { ...payload, connectionId: secondId, template: { id: secondTemplateId, parameters: {} } })).json().error.code).toBe('channel_not_ready');
+
+    // Exercise the verification path and configure evidence for the mocked
+    // subscription. No network call or real customer message is made.
+    for (const id of [connectionId, secondId]) {
+      expect((await send(api, owner, 'POST', `/channels/${id}/test`)).statusCode).toBe(200);
+      await withTenant(api.pool, api.tenantId, (sql) => sql.query('UPDATE channel_connections SET webhook_subscribed_at=now() WHERE id=$1', [id]));
+    }
+
+    expect((await crm('POST', '/messages', { ...payload, optInReference: undefined })).statusCode).toBe(400);
+    expect((await crm('POST', '/messages', { ...payload, displayName: 42 })).statusCode).toBe(400);
+    expect((await crm('POST', '/messages', { ...payload, clientMessageId: 'x' })).statusCode).toBe(400);
+    expect((await crm('POST', '/messages', { ...payload, template: { name: 'legacy', language: 'ar' } })).statusCode).toBe(400);
+    expect((await crm('POST', '/messages', { ...payload, conversationId: randomUUID() })).json().error.code).toBe('conversation_mismatch');
+    expect((await crm('POST', '/messages', { ...payload, template: { id: secondTemplateId, parameters: {} } })).json().error.code).toBe('template_not_sendable');
+    expect((await crm('POST', '/lookup', { phone })).json().data.contactId).toBeNull();
+
+    const [first, retry] = await Promise.all([
+      crm('POST', '/messages', payload),
+      crm('POST', '/messages', { ...payload, phone: phone.slice(1) }),
+    ]);
+    expect(first.statusCode, first.body).toBe(202);
+    expect(retry.statusCode, retry.body).toBe(202);
+    const queued = first.json().data as { id: string; contactId: string; conversationId: string };
+    expect(retry.json().data).toEqual(first.json().data);
+    expect(queued).toMatchObject({ commandState: 'queued', deliveryState: null, lastCustomerMessageAt: null });
+    expect((await crm('POST', '/messages', { ...payload, displayName: 'Changed' })).json().error.code).toBe('idempotency_key_conflict');
+    expect((await crm('POST', '/lookup', { contactId: queued.contactId })).json().data).toMatchObject({
+      phone, contactId: queued.contactId, conversations: [{ id: queued.conversationId, connectionId, status: 'open' }],
+    });
+    answer = accepted('wamid.crm-sales');
+    await dispatcher.dispatch(api.tenantId, 1);
+    await deliver(api, statusDelivery('wamid.crm-sales', 'delivered', String(Math.floor(Date.now() / 1000)), phone.slice(1)));
+    await normalizer.drain(api.tenantId);
+    await dispatcher.reconcileReceipts(api.tenantId);
+    const status = await crm('GET', `/messages/${queued.id}`);
+    expect(status.json().data).toMatchObject({ commandState: 'provider_accepted', deliveryState: 'delivered', providerMessageId: 'wamid.crm-sales' });
+    const timeline = await send(api, owner, 'GET', `/conversations/${queued.conversationId}/messages`);
+    expect(timeline.statusCode, timeline.body).toBe(200);
+    expect(timeline.body).toContain('ORD-51');
+    const otherNumber = await crm('POST', '/messages', {
+      connectionId: secondId, contactId: queued.contactId, clientMessageId: clientId(), optInReference: 'crm-opt-in-51',
+      template: { id: secondTemplateId, parameters: { 'body:1': 'ORD-52' } },
+    });
+    expect(otherNumber.statusCode, otherNumber.body).toBe(202);
+    expect(otherNumber.json().data.contactId).toBe(queued.contactId);
+    expect(otherNumber.json().data.conversationId).not.toBe(queued.conversationId);
+
+    const existing = await crm('POST', '/messages', { ...payload, conversationId: queued.conversationId, clientMessageId: clientId() });
+    expect(existing.json().data.conversationId).toBe(queued.conversationId);
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `INSERT INTO channel_suppressions (tenant_id,kind,peer_identity,reason) VALUES ($1,'whatsapp',$2,'opt_out')`,
+      [api.tenantId, phone.slice(1)],
+    ));
+    expect((await crm('POST', '/messages', { ...payload, clientMessageId: clientId() })).json().error.code).toBe('consent_withdrawn');
+
+    const fallbackName = await crm('POST', '/messages', { ...payload, displayName: undefined, phone: '+' + peer(), clientMessageId: clientId() });
+    expect(fallbackName.statusCode, fallbackName.body).toBe(202);
+    const fallbackId = fallbackName.json().data.contactId as string;
+    const legacyPeer = peer();
+    await withTenant(api.pool, api.tenantId, async (sql) => {
+      await sql.query(`INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id)
+        VALUES ($1,$2,'whatsapp',$3,'legacy-invalid-phone')`, [api.tenantId, fallbackId, secondId]);
+      for (const [scope, contact] of [[connectionId, queued.contactId], [secondId, fallbackId]]) {
+        await sql.query(`INSERT INTO contact_identities (tenant_id,contact_id,kind,scope_id,external_id)
+          VALUES ($1,$2,'whatsapp',$3,$4)`, [api.tenantId, contact, scope, legacyPeer]);
+      }
+      await sql.query(`INSERT INTO whatsapp_templates
+        (tenant_id,connection_id,provider_template_id,template_name,language,category,status,components,variables,last_synced_at)
+        SELECT $1,$2,'crm-page-'||i,'crm_page_'||i,'ar','utility','approved','[]'::jsonb,'[]'::jsonb,now()
+        FROM generate_series(1,100) i`, [api.tenantId, secondId]);
+    });
+    expect((await crm('POST', '/lookup', { phone: legacyPeer })).json().error.code).toBe('ambiguous_contact');
+    expect((await crm('POST', '/lookup', { contactId: fallbackId })).json().error.code).toBe('ambiguous_contact');
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      "UPDATE contact_identities SET valid_to=now() WHERE contact_id=$1 AND external_id<>'legacy-invalid-phone'", [fallbackId],
+    ));
+    expect((await crm('POST', '/lookup', { contactId: fallbackId })).statusCode).toBe(400);
+    // Recreate a conflicting identity on Operations and select the Sales contact explicitly.
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(`INSERT INTO contact_identities
+      (tenant_id,contact_id,kind,scope_id,external_id) VALUES ($1,$2,'whatsapp',$3,$4)`,
+    [api.tenantId, fallbackId, secondId, legacyPeer]));
+    expect((await crm('POST', '/messages', {
+      ...payload, phone: legacyPeer, contactId: queued.contactId, connectionId: secondId, clientMessageId: clientId(),
+      template: { id: secondTemplateId, parameters: { 'body:1': 'ORD-53' } },
+    })).json().error.code).toBe('contact_identity_conflict');
+    const firstPage = (await crm('GET', `/senders/${secondId}/templates`)).json().data;
+    expect(firstPage.items).toHaveLength(100);
+    expect(typeof firstPage.nextCursor).toBe('string');
+    expect((await crm('GET', `/senders/${secondId}/templates?cursor=${firstPage.nextCursor}`)).json().data.items).toHaveLength(1);
+
+    const limiter = api.app.get(AuthRateLimiter);
+    const ip = '203.0.113.42';
+    for (let index = 0; index < 300; index++) {
+      await limiter.consume('crm-whatsapp', ip, { windowSeconds: 60, maxAttempts: 300 });
+    }
+    const throttled = await crm('GET', '/senders', undefined, token, api.tenantId, ip);
+    expect(throttled.statusCode).toBe(429);
+    expect(Number(throttled.headers['retry-after'])).toBeGreaterThan(0);
+
+    const otherKey = await manage('POST', '/keys', { label: 'Different CRM', connectionIds: [connectionId] });
+    expect((await crm('GET', `/messages/${queued.id}`, undefined, otherKey.json().data.token as string)).statusCode).toBe(404);
+    expect((await manage('DELETE', `/keys/${record.id}`)).statusCode).toBe(204);
+    expect((await crm('GET', '/senders')).statusCode).toBe(401);
+    const otherToken = otherKey.json().data.token as string;
+    const otherRecord = otherKey.json().data.key.id as string;
+    const role = await withTenant(api.pool, api.tenantId, async (sql) => {
+      const created = await sql.query<{ id: string }>(
+        "INSERT INTO roles (tenant_id,key,name) VALUES ($1,'crm_coverage','CRM test role') RETURNING id::text", [api.tenantId],
+      );
+      const roleId = created.rows[0]!.id;
+      await sql.query(`INSERT INTO role_permissions (tenant_id,role_id,permission_key,scope_level)
+        VALUES ($1,$2,'api_key.manage','tenant'),($1,$2,'conversation.reply','tenant')`, [api.tenantId, roleId]);
+      const user = await sql.query<{ id: string }>(
+        "INSERT INTO users(email,status) VALUES ('crm-scoped-test@channels.test','active') RETURNING id::text",
+      );
+      const issuer = await sql.query<{ id: string }>(
+        'INSERT INTO memberships(tenant_id,user_id,role_id) VALUES ($1,$2,$3) RETURNING id::text',
+        [api.tenantId, user.rows[0]!.id, roleId],
+      );
+      await sql.query(`INSERT INTO membership_scopes (tenant_id,membership_id,scope_type)
+        VALUES ($1,$2,'tenant')`, [api.tenantId, issuer.rows[0]!.id]);
+      return { roleId, issuerId: issuer.rows[0]?.id };
+    });
+
+    // A role change applies immediately to an already-issued key. The
+    // catalogue continues to apply team restrictions to its new issuer.
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      'UPDATE crm_whatsapp_keys SET created_by=$2 WHERE id=$1', [otherRecord, role.issuerId],
+    ));
+    expect((await crm('GET', `/senders/${connectionId}/templates`, undefined, otherToken)).statusCode).toBe(200);
+    const scopedSend = await crm('POST', '/messages', { ...payload, phone: '+' + peer(), clientMessageId: clientId() }, otherToken);
+    expect(scopedSend.statusCode, scopedSend.body).toBe(202);
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      "DELETE FROM role_permissions WHERE role_id=$1 AND permission_key='conversation.reply'", [role.roleId],
+    ));
+    expect((await crm('GET', '/senders', undefined, otherToken)).json().data).toEqual([]);
+    expect((await crm('GET', '/messages/' + scopedSend.json().data.id, undefined, otherToken)).statusCode).toBe(404);
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      "DELETE FROM role_permissions WHERE role_id=$1 AND permission_key='api_key.manage'", [role.roleId],
+    ));
+    expect((await crm('GET', '/senders', undefined, otherToken)).statusCode).toBe(401);
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      `INSERT INTO crm_whatsapp_keys (tenant_id,created_by,label,connection_ids,token_hash)
+       SELECT $1,created_by,'Capacity fixture',connection_ids,'fixture-'||i
+       FROM crm_whatsapp_keys CROSS JOIN generate_series(1,49) i WHERE id=$2`,
+       [api.tenantId, record.id],
+    ));
+    expect((await manage('POST', '/keys', { label: 'Over capacity', connectionIds: [connectionId] })).json().error.code).toBe('crm_key_limit');
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      'DELETE FROM outbox WHERE message_id IN (SELECT message_id FROM crm_whatsapp_sends WHERE key_id IN ($1,$2))', [record.id,otherRecord],
+    ));
   });
 
   it('sends a template outside the window, and carries it to the transport', async () => {

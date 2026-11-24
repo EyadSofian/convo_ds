@@ -413,7 +413,7 @@ export class OutboundService {
     });
   }
 
-  private async linkOutboundContact(
+  async linkOutboundContact(
     sql: SqlExecutor, tenantId: string, connectionId: string, peerIdentity: string, contactId: string,
     conversation: { readonly id: string; readonly contact_id: string | null },
   ): Promise<void> {
@@ -432,7 +432,7 @@ export class OutboundService {
     await sql.query('UPDATE conversations SET contact_id=$2 WHERE id=$1 AND contact_id IS NULL', [conversation.id, contactId]);
   }
 
-  private async queueAuthorized(
+  async queueAuthorized(
     sql: SqlExecutor,
     principal: Principal,
     tenantId: string,

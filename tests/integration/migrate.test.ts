@@ -122,6 +122,8 @@ describe('migrate', () => {
       'conversation_reads',
       'conversation_wakes',
       'conversations',
+      'crm_whatsapp_keys',
+      'crm_whatsapp_sends',
       'custom_fields',
       'email_deliveries',
       'idempotency_records',
