@@ -6,7 +6,7 @@ import type { LiveContext } from './actions.js';
 import { createCrmKey, loadCrmSettings } from './crm-actions.js';
 import { renewLiveState } from './store.js';
 
-const key = { id: 'key', label: 'CRM', connection_ids: ['sender'], expires_at: '2027-01-01T00:00:00Z' };
+const key = { id: 'key', label: 'CRM', connection_ids: ['sender'], expires_at: null };
 const settings = {
   tenantId: 'tenant', keys: [key],
   senders: [{ id: 'sender', displayName: 'Sales', phoneNumberId: '1', displayPhoneNumber: null, sendReady: true }],

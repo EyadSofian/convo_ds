@@ -9201,8 +9201,9 @@
             "format": "date-time"
           },
           "expires_at": {
-            "type": "string",
-            "format": "date-time"
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Null means the key has no expiration date."
           },
           "revoked_at": {
             "anyOf": [

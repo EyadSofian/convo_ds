@@ -2355,6 +2355,7 @@ describe('the outbound path', () => {
     const key = await manage('POST', '/keys', { label: 'CRM', connectionIds: [connectionId, secondId] });
     expect(key.statusCode, key.body).toBe(201);
     const { token, key: record } = key.json().data as { token: string; key: { id: string } };
+    expect(key.json().data.key).toMatchObject({ expires_at: null });
     expect(token).toMatch(/^convo_crm_/);
     expect(key.headers['cache-control']).toBe('no-store');
     expect((await manage('GET', '/settings')).body).not.toContain(token);
@@ -2370,6 +2371,9 @@ describe('the outbound path', () => {
     expect((await crm('GET', '/senders', undefined, 'invalid')).statusCode).toBe(401);
     expect((await crm('GET', '/senders', undefined, token, randomUUID())).statusCode).toBe(401);
     expect((await api.server.inject({ method: 'GET', url: `/api/v1/tenants/${api.tenantId}${path}/senders` })).statusCode).toBe(401);
+    await withTenant(api.pool, api.tenantId, (sql) => sql.query(
+      "UPDATE crm_whatsapp_keys SET created_at=now() - interval '1 year' WHERE id=$1", [record.id],
+    ));
     const senders = await crm('GET', '/senders');
     expect(senders.statusCode, senders.body).toBe(200);
     expect(senders.json().data).toEqual(expect.arrayContaining([

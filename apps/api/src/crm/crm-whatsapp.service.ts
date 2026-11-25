@@ -44,7 +44,7 @@ export interface CrmKey {
   readonly label: string;
   readonly connection_ids: readonly string[];
   readonly created_at: Date;
-  readonly expires_at: Date;
+  readonly expires_at: Date | null;
   readonly revoked_at: Date | null;
 }
 
@@ -85,7 +85,7 @@ export class CrmWhatsAppService {
   async settings(session: AuthenticatedSession, tenantId: string) {
     return this.authorization.authorized(session, tenantId, 'api_key.manage', async ({ sql, principal }) => {
       const keys = await sql.query<CrmKey>(`SELECT ${KEY_COLUMNS} FROM crm_whatsapp_keys
-        WHERE revoked_at IS NULL AND expires_at>now() ORDER BY created_at DESC`);
+        WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()) ORDER BY created_at DESC`);
       return { tenantId, senders: await senders(sql, principal), keys: keys.rows };
     });
   }
@@ -102,7 +102,7 @@ export class CrmWhatsAppService {
       const allowed = await senders(sql, principal);
       if (ids.some((id) => !allowed.some((sender) => sender.id === id))) throw notFound();
       await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`crm-keys:${tenantId}`]);
-      const capacity = await sql.query('SELECT 1 FROM crm_whatsapp_keys WHERE revoked_at IS NULL AND expires_at>now() OFFSET 49 LIMIT 1');
+      const capacity = await sql.query('SELECT 1 FROM crm_whatsapp_keys WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()) OFFSET 49 LIMIT 1');
       if (capacity.rows.length > 0) throw new ApiHttpError(409, 'crm_key_limit', 'Revoke a key before creating another.');
       const token = 'convo_crm_' + randomBytes(32).toString('base64url');
       const inserted = await sql.query<CrmKey>(
@@ -253,7 +253,7 @@ export class CrmWhatsAppService {
         `SELECT k.id::text,k.created_by::text,k.connection_ids FROM crm_whatsapp_keys k
          JOIN memberships m ON m.id=k.created_by AND m.status='active'
          JOIN users u ON u.id=m.user_id AND u.status='active'
-         WHERE k.token_hash=$1 AND k.revoked_at IS NULL AND k.expires_at>now()
+         WHERE k.token_hash=$1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now())
          FOR SHARE OF k,m,u`, [this.fingerprint(token)],
       )).rows[0];
       if (key === undefined) throw badKey();

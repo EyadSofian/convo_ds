@@ -1914,7 +1914,8 @@ describe('the Settings screen', () => {
     const path = `/tenants/${TENANT}/crm/whatsapp`;
     const sender = { id: 'sales', displayName: 'Sales', phoneNumberId: '19001', displayPhoneNumber: '+12025550100', sendReady: true };
     const secondary = { id: 'operations', displayName: 'Operations', phoneNumberId: '19002', displayPhoneNumber: null, sendReady: false };
-    const key = { id: 'crm-key-1', label: 'CRM production', expires_at: NOW.toISOString(), connection_ids: [sender.id] };
+    const key = { id: 'crm-key-1', label: 'CRM production', expires_at: null, connection_ids: [sender.id] };
+    const legacy = { ...key, id: 'crm-key-old', label: 'Older key', expires_at: NOW.toISOString() };
     const token = 'convo_crm_one_time_secret';
     const api = settingsApi()
       .on('GET /me/memberships', {
@@ -1962,7 +1963,7 @@ describe('the Settings screen', () => {
     await settle();
     expect(text(find(root, '.dialog'))).toContain('Revoke a key before creating another.');
     api.on(`POST ${path}/keys`, { status: 201, body: { data: { key, token } } });
-    api.on(`GET ${path}/settings`, { status: 200, body: { data: { tenantId: TENANT, senders: [sender], keys: [key] } } });
+    api.on(`GET ${path}/settings`, { status: 200, body: { data: { tenantId: TENANT, senders: [sender], keys: [key, legacy] } } });
     click(root, create);
     await settle();
     expect(api.calls.find((call) => call.path === `${path}/keys`)?.body).toEqual({ label: 'CRM production', connectionIds: ['sales'] });
@@ -1970,6 +1971,8 @@ describe('the Settings screen', () => {
     click(root, '.dialog [data-act="close-dialog"]');
     expect(app.state.dialogForm).toEqual({});
     expect(root.querySelector('input[value="' + token + '"]')).toBeNull();
+    expect(text(root)).toContain('No expiration');
+    expect(text(root)).toContain('Expires');
 
     click(root, '[data-arg="crm-revoke:crm-key-1"]');
     api.on(`GET ${path}/settings`, { status: 200, body: { data: { tenantId: TENANT, senders: [sender], keys: [] } } });
