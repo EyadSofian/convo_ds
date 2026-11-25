@@ -128,7 +128,7 @@ export interface CrmKey {
   readonly id: string;
   readonly label: string;
   readonly connection_ids: readonly string[];
-  readonly expires_at: string;
+  readonly expires_at: string | null;
 }
 
 export interface CrmSettings {

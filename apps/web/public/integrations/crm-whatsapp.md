@@ -7,7 +7,7 @@ The CRM selects a WhatsApp sender and sends an approved template through Omni. O
 ## Setup
 
 1. In Omni, open **Settings → WhatsApp CRM connection**. Copy the Workspace ID and ask an authorized admin to create a key selecting the permitted WhatsApp senders.
-2. Save the key in the CRM server's secret store. The key is shown once, expires after 90 days, and is independently revocable. Keep it out of browsers, spreadsheets, URLs, client logs and support tickets.
+2. Save the key in the CRM server's secret store. The key is shown once and stays valid until revoked, subject to the issuing admin’s access. Existing keys that were still valid at the update keep the same token without an expiry date. Keep it out of browsers, spreadsheets, URLs, client logs and support tickets.
 3. Call the API over HTTPS with `Authorization: Bearer <CRM_KEY>`. No Omni login cookie, CSRF header, or Meta access token is needed. Use `Content-Type: application/json` for POST.
 4. Verify that the required WhatsApp numbers are connected, webhook subscriptions are active, and templates are synchronized. If a sender's displayed phone number is missing, an admin can use **Channels → Verify connection** to refresh it. Use the sender's Omni `id` for API calls. The Meta `phoneNumberId` is a separate identifier.
 
@@ -137,7 +137,7 @@ Poll every 5–10 seconds during dispatch, then back off for delivery/read statu
 | HTTP | What to do |
 | --- | --- |
 | 400 | Correct the request, phone, UUID, cursor, or parameter shape |
-| 401 | Verify tenant and key. Check expiry, revocation and whether the issuing admin can still manage API keys |
+| 401 | Verify tenant and key. Check revocation and whether the issuing admin can still manage API keys. Any key that expired before the no-expiry update remains invalid |
 | 403 | The current access rules deny this send or template |
 | 404 | Use a sender, contact or message visible to this key |
 | 409 | Check `error.code`. Refresh the catalogue for `template_not_sendable`, fix the channel for `channel_not_ready`, resolve identity conflicts, or recalculate the expected conversation after `conversation_mismatch`. Stop on `consent_withdrawn` |
@@ -149,7 +149,7 @@ Errors return `{"error":{"code":"…","message":"…","request_id":"…","detail
 
 ## Acceptance checklist
 
-- With a temporary key, confirm the catalogue returns each permitted line and the desired template language.
+- Create a separate key for testing. Confirm the catalogue returns each permitted line and the desired template language, then revoke the test key when finished.
 - With an opted-in test number, send from Sales and verify the template appears in its Inbox conversation. Poll until a provider status arrives.
 - Repeat the exact request and confirm the same IDs return. Send a separate activity from Operations and confirm a separate conversation on that line with the same contact.
 - Test a new number, a known contact, an invalid template, a line outside the key, and revocation. Send test messages only to approved test recipients.

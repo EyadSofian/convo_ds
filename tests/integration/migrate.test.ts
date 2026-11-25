@@ -1,15 +1,16 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Pool } from 'pg';
-import { asExecutor } from '../../packages/database/src/index.js';
+import { asExecutor, withTenant } from '../../packages/database/src/index.js';
 import { applyInstallationConfig } from '../../packages/domain/src/index.js';
 import {
   MIGRATION_ADVISORY_LOCK_KEY,
+  MIGRATIONS_DIR,
   migrate,
 } from '../../packages/database/src/migrate.js';
 import type { DatabaseNames } from '../../packages/database/src/types.js';
@@ -176,6 +177,54 @@ describe('migrate', () => {
     // Counted from the directory rather than pinned: a forward-only migration
     // added by a later slice must not make this assertion a lie somebody edits.
     expect(recorded.rows[0]?.count).toBe(String(MIGRATION_FILES.length));
+  });
+
+  it('keeps valid CRM tokens going through an upgrade without reactivating invalid ones', async () => {
+    const target = await createScratchDatabase('convo_crm_upgrade');
+    const migrationPool = scratchMigrationPool(target);
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'convo-crm-upgrade-'));
+    const upgrade = '0068_crm_whatsapp_key_no_expiry.sql';
+    const tenant = randomUUID();
+    const sender = randomUUID();
+    try {
+      await Promise.all(MIGRATION_FILES.filter((name) => name < upgrade).map((name) =>
+        copyFile(path.join(MIGRATIONS_DIR, name), path.join(directory, name)),
+      ));
+      await migrate(clusterCredentials(), target, { migrationsDir: directory });
+      await applyInstallationConfig(asExecutor(migrationPool), 'saas');
+      const before = await withTenant(migrationPool, tenant, async (client) => {
+        await client.query("INSERT INTO tenants (id,name,slug,status) VALUES ($1,'CRM upgrade','crm-upgrade','active')", [tenant]);
+        const user = await client.query<{ id: string }>("INSERT INTO users (email) VALUES ('crm-upgrade@example.test') RETURNING id::text");
+        const role = await client.query<{ id: string }>(
+          "INSERT INTO roles (tenant_id,key,name) VALUES ($1,'crm_test','CRM test') RETURNING id::text", [tenant],
+        );
+        const membership = await client.query<{ id: string }>(
+          'INSERT INTO memberships (tenant_id,user_id,role_id) VALUES ($1,$2,$3) RETURNING id::text',
+          [tenant, user.rows[0]!.id, role.rows[0]!.id],
+        );
+        const keys = await client.query<{ id: string; label: string; connection_ids: string[]; token_hash: string; expires_at: Date; revoked_at: Date | null }>(
+          `INSERT INTO crm_whatsapp_keys (tenant_id,created_by,connection_ids,label,token_hash,expires_at,revoked_at)
+           VALUES
+             ($1,$2,$3,'active','active-hash',now() + interval '1 day',NULL),
+             ($1,$2,$3,'expired','expired-hash',now() - interval '1 day',NULL),
+             ($1,$2,$3,'revoked','revoked-hash',now() + interval '1 day',now())
+           RETURNING id::text,label,connection_ids,token_hash,expires_at,revoked_at`,
+          [tenant, membership.rows[0]!.id, [sender]],
+        );
+        return keys.rows;
+      });
+
+      const applied = await migrate(clusterCredentials(), target);
+      expect(applied.map((item) => item.name)).toContain(upgrade);
+      const after = await withTenant(migrationPool, tenant, (client) =>
+        client.query('SELECT id::text,label,connection_ids,token_hash,expires_at,revoked_at FROM crm_whatsapp_keys ORDER BY label'),
+      );
+      expect(after.rows).toEqual(before.map((key) => key.label === 'active' ? { ...key, expires_at: null } : key));
+      expect((await migrationPool.query('SELECT id FROM crm_whatsapp_keys')).rows).toEqual([]);
+    } finally {
+      await migrationPool.end();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('backfills unresolved Meta names under each tenant RLS context', async () => {

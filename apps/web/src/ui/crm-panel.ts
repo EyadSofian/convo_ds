@@ -29,7 +29,9 @@ export function crmPanel(state: AppState): HTMLElement {
             h('div', { class: 'session__text' }, [
               h('p', { class: 'session__title' }, [key.label]),
               h('p', { class: 'session__meta' }, [
-                t(state, 'ينتهي ', 'Expires '), dateFormat(state.lang, { dateStyle: 'medium' }).format(new Date(key.expires_at)),
+                key.expires_at === null
+                  ? t(state, 'بدون تاريخ انتهاء', 'No expiration')
+                  : t(state, 'ينتهي في ', 'Expires ') + dateFormat(state.lang, { dateStyle: 'medium' }).format(new Date(key.expires_at)),
                 ' · ', settings.senders.filter((sender) => key.connection_ids.includes(sender.id)).map((sender) => sender.displayName).join(', '),
               ]),
             ]),
@@ -76,7 +78,7 @@ export function crmDialog(state: AppState, kind: string, id: string): HTMLElemen
         h('span', {}, [sender.displayName, ' · ', sender.displayPhoneNumber ?? sender.phoneNumberId]),
       ])),
     ]),
-    h('p', { class: 'muted' }, [t(state, 'المفتاح صالح لمدة ٩٠ يومًا.', 'The key expires after 90 days.')]),
+    h('p', { class: 'muted' }, [t(state, 'المفتاح بدون تاريخ انتهاء. يمكنك إلغاؤه في أي وقت.', 'The key has no expiration date. You can revoke it anytime.')]),
     inlineError(state, state.live.error),
   ], [close, button({
     label: t(state, 'إنشاء المفتاح', 'Create key'), act: 'live-crm-create-key', variant: 'primary',
